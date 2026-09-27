@@ -22,3 +22,4 @@ pub use cards::{id, CardId};
 pub use counts::Counts;
 pub use engine::{Choice, ChoiceBuf, Decision, DecisionKind, Event, EventSink, NoEvents, Pending, Step};
 pub use state::{Act, Dest, Filter, GameConfig, GameState, Phase, Zone};
+pub use text::{format_counts, format_state, parse_counts, parse_kingdom, parse_state};

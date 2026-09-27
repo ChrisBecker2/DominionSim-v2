@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dominion — Text State Stepper</title>
+<style>
+/*__STYLE__*/
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Dominion <span class="subtitle">text-state stepper</span></h1>
+    <div class="newgame-bar">
+      <label>Players
+        <input id="ng-players" type="number" min="2" max="6" value="2">
+      </label>
+      <label class="kingdom-field">Kingdom
+        <input id="ng-kingdom" type="text" value="Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop">
+      </label>
+      <label>Seed
+        <input id="ng-seed" type="number" value="1" step="1">
+      </label>
+      <button id="btn-new-game" class="primary">New game</button>
+      <span id="newgame-error" class="error inline" hidden></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="text-panel">
+      <h2>State text</h2>
+      <textarea id="state-text" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      <div class="text-controls">
+        <button id="btn-load" class="primary">Load state</button>
+        <button id="btn-sync">Sync text from game</button>
+        <label class="checkbox"><input type="checkbox" id="auto-sync"> auto-sync after each action</label>
+      </div>
+      <div id="text-error" class="error" hidden></div>
+    </section>
+
+    <section id="game-panel">
+      <div id="turn-bar"></div>
+
+      <div id="decision-panel">
+        <div id="decision-desc" class="decision-desc">No decision pending.</div>
+        <div id="decision-choices" class="decision-choices"></div>
+      </div>
+
+      <div class="controls-row">
+        <button id="btn-undo" disabled>Undo</button>
+        <button id="btn-redo" disabled>Redo</button>
+        <button id="btn-auto">Auto-step</button>
+        <button id="btn-run-turn">Run to end of turn</button>
+      </div>
+
+      <div id="players-row"></div>
+
+      <div id="supply-trash-row">
+        <div id="supply-panel">
+          <h2>Supply</h2>
+          <table id="supply-table"><thead><tr><th>Card</th><th>Cost</th><th>Left</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div id="trash-panel">
+          <h2>Trash</h2>
+          <div id="trash-list" class="card-list"></div>
+        </div>
+      </div>
+
+      <div id="log-panel">
+        <h2>Event log</h2>
+        <div id="log-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" hidden></div>
+</div>
+<script>
+const WASM_BASE64 = "__WASM_BASE64__";
+/*__APP_JS__*/
+</script>
+</body>
+</html>

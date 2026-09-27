@@ -11,3 +11,9 @@ debug = 1
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+# The wasm target is shipped to the browser (inlined as base64 in web/dist/index.html), so strip
+# debug info there specifically; other crates keep `debug = 1` for profiling/search tooling.
+[profile.release.package.dominion-wasm]
+debug = false
+strip = true

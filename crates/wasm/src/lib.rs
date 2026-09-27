@@ -1,1 +1,692 @@
-//! WASM bindings for the web UI. (To be implemented.)
+//! WASM bindings for the browser UI, exposed as plain `extern "C"` functions (no wasm-bindgen).
+//!
+//! ## Memory / string contract
+//!
+//! Strings cross the boundary through wasm linear memory:
+//! - To pass a string *in* (e.g. `load_state`, `new_game`'s kingdom list): the caller calls
+//!   [`alloc`] with the UTF-8 byte length, writes the bytes at the returned pointer, calls the
+//!   target function with `(ptr, len)`, then calls [`dealloc(ptr, len)`] itself. This module
+//!   never frees a pointer it didn't allocate.
+//! - To read a string *out*: after calling a function documented as "writes to the result
+//!   buffer", call [`result_ptr`] and [`result_len`] and read that many UTF-8 bytes out of
+//!   memory. The result buffer is overwritten by the next such call and is only valid until then.
+//! - `u64` parameters (the RNG seed) cross as wasm `i64`/`u64`, which JS callers pass as
+//!   `BigInt`.
+//!
+//! Every mutating export returns `1` on success or `0` on failure; on failure the result buffer
+//! holds a human-readable error message (from `dominion_engine::text`'s line-numbered parse
+//! errors, or a short message of our own).
+//!
+//! ## State held here
+//!
+//! A single game lives in a thread-local (wasm is single-threaded, so this is just an `unsafe`-free
+//! way to get a mutable static): the current [`GameState`] (`Copy`, so snapshotting is a memcpy),
+//! an undo/redo stack of snapshots, and a rendered text event log.
+
+use dominion_engine::{
+    id, Act, Choice, ChoiceBuf, Decision, DecisionKind, Dest, Event, Filter, GameConfig, GameState, Pending, Phase,
+    Step, Zone,
+};
+use dominion_engine::cards;
+use dominion_engine::counts::Counts;
+use dominion_engine::state::MAX_PLAYERS;
+use std::cell::RefCell;
+
+const HISTORY_CAP: usize = 1000;
+const LOG_CAP: usize = 4000;
+const LOG_VIEW_CAP: usize = 200;
+
+struct App {
+    state: GameState,
+    history: Vec<GameState>,
+    redo: Vec<GameState>,
+    log: Vec<String>,
+    result: Vec<u8>,
+}
+
+impl App {
+    fn new() -> Self {
+        let cfg = GameConfig::default();
+        let mut state = GameState::new(&cfg);
+        let mut sink: Vec<Event> = Vec::new();
+        let _ = state.advance(&mut sink);
+        let mut app = App { state, history: Vec::new(), redo: Vec::new(), log: Vec::new(), result: Vec::new() };
+        for e in &sink {
+            app.push_log_event(e);
+        }
+        app
+    }
+
+    fn push_history(&mut self) {
+        self.history.push(self.state);
+        if self.history.len() > HISTORY_CAP {
+            self.history.remove(0);
+        }
+        self.redo.clear();
+    }
+
+    fn push_log_event(&mut self, e: &Event) {
+        self.log.push(render_event(e));
+        if self.log.len() > LOG_CAP {
+            let drop_n = self.log.len() - LOG_CAP;
+            self.log.drain(0..drop_n);
+        }
+    }
+
+    fn set_result(&mut self, s: String) {
+        self.result = s.into_bytes();
+    }
+}
+
+thread_local! {
+    static APP: RefCell<App> = RefCell::new(App::new());
+}
+
+// -----------------------------------------------------------------------------------------
+// Memory / result-buffer plumbing
+// -----------------------------------------------------------------------------------------
+
+/// Allocate `len` bytes in wasm linear memory and return a pointer to them. The caller must
+/// eventually pass the same `(ptr, len)` to [`dealloc`].
+#[no_mangle]
+pub extern "C" fn alloc(len: u32) -> u32 {
+    let mut buf: Vec<u8> = Vec::with_capacity(len as usize);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr as u32
+}
+
+/// Free a buffer previously returned by [`alloc`]. `len` must be the same length passed to `alloc`.
+#[no_mangle]
+pub extern "C" fn dealloc(ptr: u32, len: u32) {
+    unsafe {
+        drop(Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize));
+    }
+}
+
+/// Pointer to the last written result buffer (state text, JSON view, or an error message).
+#[no_mangle]
+pub extern "C" fn result_ptr() -> u32 {
+    APP.with(|a| a.borrow().result.as_ptr() as u32)
+}
+
+/// Length in bytes of the last written result buffer.
+#[no_mangle]
+pub extern "C" fn result_len() -> u32 {
+    APP.with(|a| a.borrow().result.len() as u32)
+}
+
+/// Read `len` UTF-8 bytes at `ptr` out of our own linear memory (caller-owned; not freed here).
+fn read_str(ptr: u32, len: u32) -> String {
+    unsafe {
+        let slice = std::slice::from_raw_parts(ptr as *const u8, len as usize);
+        String::from_utf8_lossy(slice).into_owned()
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Game control
+// -----------------------------------------------------------------------------------------
+
+/// Start a fresh game. `kingdom` (via `kingdom_ptr`/`kingdom_len`) is a comma-separated list of
+/// 10 kingdom card names, e.g. `"Cellar, Market, Merchant, Militia, Mine, Moat, Remodel,
+/// Smithy, Village, Workshop"`. `max_turns` of `0` means "use the engine default (200)".
+/// Resets undo/redo history and the event log. Writes an error message on failure.
+#[no_mangle]
+pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, seed: u64, max_turns: u32) -> i32 {
+    let kingdom_text = read_str(kingdom_ptr, kingdom_len);
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let n = players as usize;
+        if !(2..=MAX_PLAYERS).contains(&n) {
+            app.set_result(format!("player count must be 2..={MAX_PLAYERS}, got {n}"));
+            return 0;
+        }
+        let kingdom = match dominion_engine::parse_kingdom(&kingdom_text) {
+            Ok(k) => k,
+            Err(e) => {
+                app.set_result(e);
+                return 0;
+            }
+        };
+        let cfg =
+            GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 } };
+        let mut state = GameState::new(&cfg);
+        let mut sink: Vec<Event> = Vec::new();
+        let _ = state.advance(&mut sink);
+        app.state = state;
+        app.history.clear();
+        app.redo.clear();
+        app.log.clear();
+        for e in &sink {
+            app.push_log_event(e);
+        }
+        app.set_result(String::new());
+        1
+    })
+}
+
+/// Load a game state from text (see `dominion_engine::text`). Resets undo/redo history and
+/// the event log. On a parse error, writes the (line-numbered) error message and leaves the
+/// current game untouched.
+#[no_mangle]
+pub extern "C" fn load_state(ptr: u32, len: u32) -> i32 {
+    let text = read_str(ptr, len);
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match dominion_engine::parse_state(&text) {
+            Ok(state) => {
+                app.state = state;
+                app.history.clear();
+                app.redo.clear();
+                app.log.clear();
+                app.log.push("Loaded state from text.".to_string());
+                // Parsing always clears `pending` (see text.rs docs); advance once to compute
+                // the first real decision (or discover the game is already over).
+                advance_and_log(&mut app);
+                app.set_result(String::new());
+                1
+            }
+            Err(e) => {
+                app.set_result(e);
+                0
+            }
+        }
+    })
+}
+
+/// Writes the current state as human-editable text (see `dominion_engine::text::format_state`)
+/// to the result buffer. Always succeeds.
+#[no_mangle]
+pub extern "C" fn get_state_text() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let text = dominion_engine::format_state(&app.state);
+        app.set_result(text);
+        1
+    })
+}
+
+/// Writes a JSON view of the current game to the result buffer (see module docs for shape).
+/// Always succeeds.
+#[no_mangle]
+pub extern "C" fn get_view() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let json = build_view_json(&app.state, &app.log);
+        app.set_result(json);
+        1
+    })
+}
+
+/// Apply the `index`-th legal choice for the pending decision (same order `get_view`'s
+/// `pending.choices` uses). Advances the engine to the next decision (or game over) and logs
+/// the events along the way.
+#[no_mangle]
+pub extern "C" fn choose(index: u32) -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match choose_impl(&mut app, index as usize) {
+            Ok(()) => {
+                app.set_result(String::new());
+                1
+            }
+            Err(e) => {
+                app.set_result(e);
+                0
+            }
+        }
+    })
+}
+
+/// Apply a simple default choice for the pending decision (the first legal choice, in the
+/// engine's own ordering: lowest-id eligible card, or `Yes` for a yes/no decision; `Pass`/`Done`
+/// is only picked automatically when it's the only option).
+#[no_mangle]
+pub extern "C" fn step_auto() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match step_auto_impl(&mut app) {
+            Ok(()) => {
+                app.set_result(String::new());
+                1
+            }
+            Err(e) => {
+                app.set_result(e);
+                0
+            }
+        }
+    })
+}
+
+/// Repeatedly apply [`step_auto`]'s default choice until the current player's turn ends
+/// (the turn counter advances) or the game ends.
+#[no_mangle]
+pub extern "C" fn run_to_end_of_turn() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match run_to_end_of_turn_impl(&mut app) {
+            Ok(()) => {
+                app.set_result(String::new());
+                1
+            }
+            Err(e) => {
+                app.set_result(e);
+                0
+            }
+        }
+    })
+}
+
+/// Undo the last decision. Fails if there is nothing to undo.
+#[no_mangle]
+pub extern "C" fn undo() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match app.history.pop() {
+            Some(prev) => {
+                let cur = app.state;
+                app.redo.push(cur);
+                app.state = prev;
+                app.log.push("-- undo --".to_string());
+                app.set_result(String::new());
+                1
+            }
+            None => {
+                app.set_result("nothing to undo".to_string());
+                0
+            }
+        }
+    })
+}
+
+/// Redo the last undone decision. Fails if there is nothing to redo.
+#[no_mangle]
+pub extern "C" fn redo() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match app.redo.pop() {
+            Some(next) => {
+                let cur = app.state;
+                app.history.push(cur);
+                app.state = next;
+                app.log.push("-- redo --".to_string());
+                app.set_result(String::new());
+                1
+            }
+            None => {
+                app.set_result("nothing to redo".to_string());
+                0
+            }
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn can_undo() -> i32 {
+    APP.with(|cell| i32::from(!cell.borrow().history.is_empty()))
+}
+
+#[no_mangle]
+pub extern "C" fn can_redo() -> i32 {
+    APP.with(|cell| i32::from(!cell.borrow().redo.is_empty()))
+}
+
+// -----------------------------------------------------------------------------------------
+// Internal helpers
+// -----------------------------------------------------------------------------------------
+
+fn advance_and_log(app: &mut App) {
+    let mut sink: Vec<Event> = Vec::new();
+    match app.state.advance(&mut sink) {
+        Step::Decision(_) | Step::GameOver => {}
+        Step::Chance { .. } => unreachable!("chance_mode is never enabled by this crate"),
+    }
+    for e in &sink {
+        app.push_log_event(e);
+    }
+}
+
+fn apply_choice(app: &mut App, choice: Choice) -> Result<(), String> {
+    app.push_history();
+    let mut sink: Vec<Event> = Vec::new();
+    if let Err(e) = app.state.apply(choice, &mut sink) {
+        // Shouldn't happen (callers only pass choices from `legal_choices`), but undo the
+        // speculative history push rather than leave a no-op undo step behind.
+        app.history.pop();
+        return Err(e.to_string());
+    }
+    for e in &sink {
+        app.push_log_event(e);
+    }
+    advance_and_log(app);
+    Ok(())
+}
+
+fn choose_impl(app: &mut App, index: usize) -> Result<(), String> {
+    if !matches!(app.state.pending(), Pending::Decision(_)) {
+        return Err("no decision is pending".to_string());
+    }
+    let mut buf = ChoiceBuf::default();
+    app.state.legal_choices(&mut buf);
+    let choices = buf.as_slice();
+    if index >= choices.len() {
+        return Err(format!("choice index {index} out of range (0..{})", choices.len()));
+    }
+    apply_choice(app, choices[index])
+}
+
+fn step_auto_impl(app: &mut App) -> Result<(), String> {
+    if app.state.turn.phase == Phase::GameOver {
+        return Err("the game is over".to_string());
+    }
+    choose_impl(app, 0)
+}
+
+fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
+    let start_turn = app.state.turn.number;
+    let mut steps = 0u32;
+    loop {
+        if app.state.turn.phase == Phase::GameOver || app.state.turn.number != start_turn {
+            return Ok(());
+        }
+        step_auto_impl(app)?;
+        steps += 1;
+        if steps > 200_000 {
+            return Err("run_to_end_of_turn: too many steps, aborting".to_string());
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Event log rendering
+// -----------------------------------------------------------------------------------------
+
+fn render_event(e: &Event) -> String {
+    match *e {
+        Event::TurnStart { player, turn } => format!("--- Turn {turn}: Player {} ---", player + 1),
+        Event::Shuffle { player } => format!("Player {} shuffles their discard into their deck", player + 1),
+        Event::Draw { player, card } => format!("Player {} draws {}", player + 1, cards::name(card)),
+        Event::Play { player, card } => format!("Player {} plays {}", player + 1, cards::name(card)),
+        Event::Buy { player, card } => format!("Player {} buys {}", player + 1, cards::name(card)),
+        Event::Gain { player, card, to } => {
+            let dest = match to {
+                Dest::Discard => "discard pile",
+                Dest::Hand => "hand",
+                Dest::DeckTop => "deck (on top)",
+            };
+            format!("Player {} gains {} to their {}", player + 1, cards::name(card), dest)
+        }
+        Event::Trash { player, card } => format!("Player {} trashes {}", player + 1, cards::name(card)),
+        Event::Discard { player, card } => format!("Player {} discards {}", player + 1, cards::name(card)),
+        Event::Topdeck { player, card } => format!("Player {} puts {} on top of their deck", player + 1, cards::name(card)),
+        Event::Reveal { player, card } => format!("Player {} reveals {}", player + 1, cards::name(card)),
+        Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
+        Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
+        Event::GameOver => "--- Game over ---".to_string(),
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Decision descriptions and choice labels (generic over DecisionKind, not per-card)
+// -----------------------------------------------------------------------------------------
+
+fn act_verb(a: Act) -> &'static str {
+    match a {
+        Act::Discard => "discard",
+        Act::Trash => "trash",
+        Act::Topdeck => "put on your deck",
+        Act::Play => "play",
+        Act::SetAside => "set aside",
+    }
+}
+
+fn zone_phrase(z: Zone) -> &'static str {
+    match z {
+        Zone::Hand => " from your hand",
+        Zone::Discard => " from your discard",
+        Zone::Revealed => " from the revealed cards",
+    }
+}
+
+fn filter_phrase(f: Filter) -> String {
+    match f {
+        Filter::Any => String::new(),
+        Filter::Action => " (an Action)".to_string(),
+        Filter::Treasure => " (a Treasure)".to_string(),
+        Filter::Victory => " (a Victory card)".to_string(),
+        Filter::NonCopperTreasure => " (a Treasure other than Copper)".to_string(),
+        Filter::Card(c) => format!(" ({})", cards::name(c)),
+    }
+}
+
+fn dest_phrase(d: Dest) -> &'static str {
+    match d {
+        Dest::Hand => " to your hand",
+        Dest::DeckTop => " onto your deck",
+        Dest::Discard => "",
+    }
+}
+
+fn source_prefix(source: Option<u8>) -> String {
+    match source {
+        Some(c) => format!("{}: ", cards::name(c)),
+        None => String::new(),
+    }
+}
+
+fn decision_description(state: &GameState, d: &Decision) -> String {
+    let who = format!("Player {}", d.player + 1);
+    let prefix = source_prefix(d.source);
+    match d.kind {
+        DecisionKind::PlayAction => format!("{who}: play an Action, or pass"),
+        DecisionKind::Buy => format!("{who}: buy a card (${} available), or pass", state.turn.coins),
+        DecisionKind::Gain { max_cost, filter, dest } => {
+            format!("{prefix}{who} may gain{} a card costing up to ${max_cost}{}", filter_phrase(filter), dest_phrase(dest))
+        }
+        DecisionKind::Select { from, act, filter, min, max, .. } => {
+            let count = if min == max {
+                format!("{max}")
+            } else if min == 0 {
+                format!("up to {max}")
+            } else {
+                format!("{min}-{max}")
+            };
+            let plural = if max == 1 && min == 1 { "" } else { " more" };
+            format!("{prefix}{who}: {} {count}{plural} card(s){}{}", act_verb(act), zone_phrase(from), filter_phrase(filter))
+        }
+        DecisionKind::YesNo { act } => {
+            let card = cards::name(d.subject);
+            let q = match act {
+                Act::Discard => format!("discard {card}"),
+                Act::Trash => format!("trash {card}"),
+                Act::Topdeck => format!("put {card} on your deck"),
+                Act::Play => format!("play {card}"),
+                Act::SetAside => format!("keep {card} aside instead of drawing it"),
+            };
+            format!("{prefix}{who}: {q}?")
+        }
+    }
+}
+
+fn choice_label(d: &Decision, c: Choice) -> String {
+    match c {
+        Choice::Pass => "Done".to_string(),
+        Choice::Yes => "Yes".to_string(),
+        Choice::No => "No".to_string(),
+        Choice::Card(card) => {
+            let name = cards::name(card);
+            match d.kind {
+                DecisionKind::PlayAction => format!("Play {name}"),
+                DecisionKind::Buy => format!("Buy {name} (${})", cards::cost(card)),
+                DecisionKind::Gain { .. } => format!("Gain {name}"),
+                DecisionKind::Select { act, .. } => match act {
+                    Act::Discard => format!("Discard {name}"),
+                    Act::Trash => format!("Trash {name}"),
+                    Act::Topdeck => format!("Put {name} on deck"),
+                    Act::Play => {
+                        if d.source == Some(id::THRONE_ROOM) {
+                            format!("Play {name} (x2)")
+                        } else {
+                            format!("Play {name}")
+                        }
+                    }
+                    Act::SetAside => format!("Set aside {name}"),
+                },
+                DecisionKind::YesNo { .. } => name.to_string(),
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// JSON
+// -----------------------------------------------------------------------------------------
+
+fn esc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn jstr(s: &str) -> String {
+    format!("\"{}\"", esc(s))
+}
+
+/// `[{"id":0,"name":"Copper","count":3}, ...]` in ascending card-id order.
+fn counts_json(c: &Counts) -> String {
+    let items: Vec<String> =
+        c.iter().map(|(id, n)| format!("{{\"id\":{id},\"name\":{},\"count\":{n}}}", jstr(cards::name(id)))).collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `["Gold","Silver","Silver"]`, one entry per card, in order (first = top for a deck).
+fn sequence_json(iter: impl Iterator<Item = u8>) -> String {
+    let items: Vec<String> = iter.map(|id| jstr(cards::name(id))).collect();
+    format!("[{}]", items.join(","))
+}
+
+fn supply_json(state: &GameState) -> String {
+    let mut ids: Vec<u8> = (0..cards::NUM_CARDS as u8).filter(|&c| state.in_supply(c)).collect();
+    ids.sort_by_key(|&c| (cards::cost(c), cards::name(c)));
+    let items: Vec<String> = ids
+        .iter()
+        .map(|&c| {
+            format!(
+                "{{\"id\":{c},\"name\":{},\"cost\":{},\"count\":{}}}",
+                jstr(cards::name(c)),
+                cards::cost(c),
+                state.supply.get(c)
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+fn player_json(state: &GameState, p: usize) -> String {
+    let ps = &state.players[p];
+    format!(
+        concat!(
+            "{{\"index\":{p},\"isCurrent\":{cur},",
+            "\"hand\":{hand},\"handSize\":{hand_n},",
+            "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckSize\":{deck_n},",
+            "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},",
+            "\"vp\":{vp},\"turnsTaken\":{turns}}}"
+        ),
+        p = p,
+        cur = state.turn.player as usize == p,
+        hand = counts_json(&ps.hand),
+        hand_n = ps.hand.total(),
+        deck_top = sequence_json(ps.deck_known.iter_top_down()),
+        deck_unk = counts_json(&ps.deck_unknown),
+        deck_n = ps.deck_size(),
+        discard = counts_json(&ps.discard),
+        in_play = counts_json(&ps.in_play),
+        set_aside = counts_json(&ps.set_aside),
+        vp = ps.vp(),
+        turns = ps.turns_taken,
+    )
+}
+
+fn pending_json(state: &GameState) -> String {
+    let d = match state.pending_decision() {
+        Some(d) => d,
+        None => return "null".to_string(),
+    };
+    let mut buf = ChoiceBuf::default();
+    state.legal_choices(&mut buf);
+    let choices: Vec<String> = buf
+        .as_slice()
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| format!("{{\"index\":{i},\"label\":{}}}", jstr(&choice_label(&d, c))))
+        .collect();
+    format!(
+        "{{\"player\":{},\"source\":{},\"description\":{},\"choices\":[{}]}}",
+        d.player,
+        d.source.map(|c| jstr(cards::name(c))).unwrap_or_else(|| "null".to_string()),
+        jstr(&decision_description(state, &d)),
+        choices.join(",")
+    )
+}
+
+fn phase_json(p: Phase) -> &'static str {
+    match p {
+        Phase::Setup => "setup",
+        Phase::Action => "action",
+        Phase::Buy => "buy",
+        Phase::CleanupDraw => "cleanup",
+        Phase::GameOver => "gameover",
+    }
+}
+
+fn build_view_json(state: &GameState, log: &[String]) -> String {
+    let n = state.num_players as usize;
+    let players: Vec<String> = (0..n).map(|p| player_json(state, p)).collect();
+    let scores = state.scores();
+    let scores_json: Vec<String> = (0..n).map(|p| scores[p].to_string()).collect();
+    let game_over = state.turn.phase == Phase::GameOver;
+    let winners_json: String = if game_over {
+        let mask = state.winners();
+        let ws: Vec<String> = (0..n).filter(|&p| mask & (1 << p) != 0).map(|p| p.to_string()).collect();
+        format!("[{}]", ws.join(","))
+    } else {
+        "[]".to_string()
+    };
+    let log_start = log.len().saturating_sub(LOG_VIEW_CAP);
+    let log_json: Vec<String> = log[log_start..].iter().map(|l| jstr(l)).collect();
+
+    format!(
+        concat!(
+            "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
+            "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc}}},",
+            "\"supply\":{supply},\"trash\":{trash},\"players\":[{players}],",
+            "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
+            "\"pending\":{pending},\"log\":[{log}]}}"
+        ),
+        n = n,
+        cur = state.turn.player,
+        tn = state.turn.number,
+        tp = state.turn.player,
+        phase = jstr(phase_json(state.turn.phase)),
+        ta = state.turn.actions,
+        tb = state.turn.buys,
+        tc = state.turn.coins,
+        supply = supply_json(state),
+        trash = counts_json(&state.trash),
+        players = players.join(","),
+        scores = scores_json.join(","),
+        go = game_over,
+        winners = winners_json,
+        pending = pending_json(state),
+        log = log_json.join(","),
+    )
+}

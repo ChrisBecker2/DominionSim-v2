@@ -266,7 +266,7 @@ section, .panel {
   padding: 8px 10px;
 }
 #log-list {
-  max-height: 220px;
+  max-height: 380px;
   overflow-y: auto;
   font-family: var(--mono);
   font-size: 12px;

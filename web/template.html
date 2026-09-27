@@ -43,11 +43,6 @@
     <section id="game-panel">
       <div id="turn-bar"></div>
 
-      <div id="decision-panel">
-        <div id="decision-desc" class="decision-desc">No decision pending.</div>
-        <div id="decision-choices" class="decision-choices"></div>
-      </div>
-
       <div class="controls-row">
         <button id="btn-undo" disabled>Undo</button>
         <button id="btn-redo" disabled>Redo</button>
@@ -56,6 +51,11 @@
         <button id="btn-run-bots">Run bots</button>
         <button id="btn-analyze" class="primary" title="Exact search of every line of play this turn">Analyze decision</button>
         <label class="checkbox"><input type="checkbox" id="auto-bots" checked> bots move automatically</label>
+      </div>
+
+      <div id="decision-panel">
+        <div id="decision-desc" class="decision-desc">No decision pending.</div>
+        <div id="decision-choices" class="decision-choices"></div>
       </div>
 
       <div id="analysis-panel" hidden>

@@ -55,6 +55,10 @@
       wasm.get_state_text();
       return readResult();
     },
+    getStartText() {
+      wasm.get_start_text();
+      return readResult();
+    },
     getView() {
       wasm.get_view();
       return JSON.parse(readResult());
@@ -601,7 +605,7 @@
       try {
         api.newGame(players, kingdom, seed, 0);
         showNewGameError("");
-        syncTextFromGame();
+        $("state-text").value = api.getStartText();
         render();
       } catch (e) {
         showNewGameError(String(e.message || e));
@@ -680,7 +684,7 @@
     botNames = api.listBots();
     initCards();
     wire();
-    syncTextFromGame();
+    $("state-text").value = api.getStartText();
     render();
     // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();

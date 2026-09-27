@@ -77,6 +77,8 @@ struct App {
     log_group: Option<(u8, u8, usize)>,
     /// Parallel analysis in progress: the split tree and results received so far.
     plan: Option<(Plan, Vec<Option<TaskResult>>)>,
+    /// State text at the start of turn 1 of the current game (opening hands dealt).
+    start_text: String,
 }
 
 impl App {
@@ -84,6 +86,8 @@ impl App {
         let cfg = GameConfig::default();
         let mut state = GameState::new(&cfg);
         let mut sink: Vec<Event> = Vec::new();
+        state.deal_opening_hands(&mut sink);
+        let start_text = dominion_engine::format_state(&state);
         let _ = state.advance(&mut sink);
         let strategies = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
@@ -103,6 +107,7 @@ impl App {
             rng: Rng::new(0x5eed),
             log_group: None,
             plan: None,
+            start_text,
         };
         for e in &sink {
             app.push_log_event(e);
@@ -224,6 +229,8 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
             GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 } };
         let mut state = GameState::new(&cfg);
         let mut sink: Vec<Event> = Vec::new();
+        state.deal_opening_hands(&mut sink);
+        app.start_text = dominion_engine::format_state(&state);
         let _ = state.advance(&mut sink);
         app.state = state;
         app.history.clear();
@@ -743,6 +750,14 @@ pub extern "C" fn plan_finish() -> i32 {
         Ok(analysis_json(&d, &a))
     });
     result_of(r)
+}
+
+/// State text at the start of turn 1 of the current game (action phase, opening hands dealt,
+/// nothing played). Loading it reproduces the game from its first decision.
+#[no_mangle]
+pub extern "C" fn get_start_text() -> i32 {
+    let t = APP.with(|cell| cell.borrow().start_text.clone());
+    result_of(Ok(t))
 }
 
 /// JSON array of every card: {name, cost, types: ["action", "attack", ...]}.

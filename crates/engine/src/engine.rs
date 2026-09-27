@@ -198,6 +198,19 @@ impl GameState {
         }
     }
 
+    /// Resolve the setup draws and start turn 1 (action phase, nothing pending) without
+    /// advancing any further, e.g. to show or save the position at the start of the game.
+    /// Sampling mode only.
+    pub fn deal_opening_hands<S: EventSink>(&mut self, sink: &mut S) {
+        while self.turn.phase == Phase::Setup {
+            let run = match self.stack.top() {
+                Some(f) => self.run_frame(f, sink),
+                None => self.run_phase(sink),
+            };
+            assert!(!matches!(run, Run::Chance(_)), "deal_opening_hands requires sampling mode");
+        }
+    }
+
     /// Apply a choice to the pending decision. Rejects illegal choices without changing state.
     pub fn apply<S: EventSink>(&mut self, choice: Choice, sink: &mut S) -> Result<(), &'static str> {
         if !matches!(self.pending(), Pending::Decision(_)) {

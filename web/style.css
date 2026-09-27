@@ -348,3 +348,9 @@ section, .panel {
   padding-right: 4px;
 }
 .decision-choices button { height: var(--choice-h); box-sizing: border-box; }
+
+/* Choice buttons: white in light mode (a raised dark tone in dark mode). */
+:root { --choice-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --choice-bg: #3a3832; } }
+.decision-choices button { background: var(--choice-bg); }
+.decision-choices button:hover { filter: brightness(0.96); }

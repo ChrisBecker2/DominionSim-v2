@@ -190,7 +190,7 @@
     const n = $("text-notice");
     const me = view.players[view.turn.player];
     const actions = me
-      ? me.hand.filter((c) => /(action|reaction)/.test(cardClass.get(c.name) || "")).map((c) => c.name)
+      ? me.hand.filter((c) => /action|reaction/.test(cardClass.get(c.name) || "")).map((c) => c.name)
       : [];
     if (view.turn.phase === "buy" && actions.length) {
       n.textContent =

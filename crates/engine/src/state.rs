@@ -321,6 +321,15 @@ impl FrameStack {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EndReason {
+    ProvincesGone,
+    /// 3 supply piles empty (4 with 5+ players); see `GameState::empty_piles`.
+    PilesEmpty,
+    /// The simulation turn cap (`max_turns`) was reached.
+    TurnLimit,
+}
+
 #[derive(Clone, Debug)]
 pub struct GameConfig {
     pub num_players: usize,
@@ -431,10 +440,21 @@ impl GameState {
 
     /// End condition checked at end of each turn.
     pub fn end_condition_met(&self) -> bool {
+        self.end_reason().is_some()
+    }
+
+    /// Why the game ends (or would end if checked now), if it does.
+    pub fn end_reason(&self) -> Option<EndReason> {
         let pile_limit = if self.num_players >= 5 { 4 } else { 3 };
-        (self.in_supply(id::PROVINCE) && self.supply.get(id::PROVINCE) == 0)
-            || self.empty_piles() >= pile_limit
-            || self.turn.number >= self.max_turns
+        if self.in_supply(id::PROVINCE) && self.supply.get(id::PROVINCE) == 0 {
+            Some(EndReason::ProvincesGone)
+        } else if self.empty_piles() >= pile_limit {
+            Some(EndReason::PilesEmpty)
+        } else if self.turn.number >= self.max_turns {
+            Some(EndReason::TurnLimit)
+        } else {
+            None
+        }
     }
 
     pub fn current(&self) -> usize {

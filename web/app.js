@@ -100,6 +100,57 @@
 
   let botNames = [];
 
+  // ---- card type highlighting ------------------------------------------------
+
+  let cardClass = new Map(); // card name -> css classes
+  let cardRegex = null;
+
+  function initCards() {
+    for (const c of JSON.parse(ok(wasm.card_info()))) {
+      const t = c.types;
+      const primary = t.includes("curse")
+        ? "curse"
+        : t.includes("treasure")
+        ? "treasure"
+        : t.includes("victory")
+        ? "victory"
+        : t.includes("reaction")
+        ? "reaction"
+        : "action";
+      cardClass.set(c.name, "card " + primary + (t.includes("attack") ? " attack" : ""));
+    }
+    // Longest names first so "Throne Room" wins over any shorter overlap.
+    const names = [...cardClass.keys()].sort((a, b) => b.length - a.length);
+    cardRegex = new RegExp("\\b(" + names.map((n) => n.replace(/ /g, "\\s")).join("|") + ")\\b", "g");
+  }
+
+  function cardChip(name, label) {
+    return el("span", cardClass.get(name) || "card", label === undefined ? name : label);
+  }
+
+  // Text with every card name wrapped in a type-coloured chip.
+  function decorate(text) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of text.matchAll(cardRegex)) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      frag.appendChild(cardChip(m[0]));
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    return frag;
+  }
+
+  // A zone's contents as chips: "3 Copper" "Village".
+  function cardItems(items) {
+    const frag = document.createDocumentFragment();
+    items.forEach((it, i) => {
+      if (i) frag.appendChild(document.createTextNode(" "));
+      frag.appendChild(cardChip(it.name, it.count > 1 ? `${it.count} ${it.name}` : it.name));
+    });
+    return frag;
+  }
+
   // ---- DOM helpers ---------------------------------------------------------
 
   const $ = (id) => document.getElementById(id);
@@ -181,9 +232,9 @@
     const row = el("div", "zone");
     const l = el("span", "zone-label", label + ":");
     row.appendChild(l);
-    const text = cardListText(items);
-    if (text) {
-      row.appendChild(document.createTextNode(" " + text));
+    if (items.length) {
+      row.appendChild(document.createTextNode(" "));
+      row.appendChild(cardItems(items));
     } else {
       row.appendChild(el("span", "empty", " (empty)"));
     }
@@ -219,10 +270,18 @@
       panel.appendChild(zoneRow(`Hand (${p.handSize})`, p.hand));
       const deckRow = el("div", "zone");
       deckRow.appendChild(el("span", "zone-label", `Deck (${p.deckSize}):`));
-      const topText = p.deckTop.length ? "top: " + p.deckTop.join(", ") : "";
-      const restText = cardListText(p.deckUnknown);
-      const parts = [topText, restText ? "shuffled: " + restText : ""].filter(Boolean);
-      deckRow.appendChild(document.createTextNode(" " + (parts.join("; ") || "(empty)")));
+      if (p.deckTop.length) {
+        deckRow.appendChild(document.createTextNode(" top: "));
+        p.deckTop.forEach((n, i) => {
+          if (i) deckRow.appendChild(document.createTextNode(" "));
+          deckRow.appendChild(cardChip(n));
+        });
+      }
+      if (p.deckUnknown.length) {
+        deckRow.appendChild(document.createTextNode(p.deckTop.length ? "; shuffled: " : " shuffled: "));
+        deckRow.appendChild(cardItems(p.deckUnknown));
+      }
+      if (!p.deckTop.length && !p.deckUnknown.length) deckRow.appendChild(el("span", "empty", " (empty)"));
       panel.appendChild(deckRow);
 
       panel.appendChild(zoneRow("Discard", p.discard));
@@ -240,7 +299,7 @@
     for (const c of view.supply) {
       const tr = document.createElement("tr");
       const tdName = document.createElement("td");
-      tdName.textContent = c.name;
+      tdName.appendChild(cardChip(c.name));
       const tdCost = document.createElement("td");
       tdCost.textContent = "$" + c.cost;
       const tdCount = document.createElement("td");
@@ -255,8 +314,9 @@
 
   function renderTrash(view) {
     const div = $("trash-list");
-    const text = cardListText(view.trash);
-    div.textContent = text || "(empty)";
+    div.innerHTML = "";
+    if (view.trash.length) div.appendChild(cardItems(view.trash));
+    else div.textContent = "(empty)";
   }
 
   function renderDecision(view) {
@@ -275,7 +335,7 @@
         const k = el("span", "key", String(i + 1));
         b.appendChild(k);
       }
-      b.appendChild(document.createTextNode(c.label));
+      b.appendChild(decorate(c.label));
       b.addEventListener("click", () => doAction(() => {
         api.choose(c.index);
         maybeRunBots();
@@ -290,15 +350,20 @@
     list.innerHTML = "";
     for (const line of view.log) {
       const cls = line.startsWith("---") ? "turn-marker" : line.startsWith("--") ? "sys-marker" : "";
-      list.appendChild(el("div", cls || null, line));
+      const row = el("div", cls || null);
+      row.appendChild(decorate(line));
+      list.appendChild(row);
     }
     if (atBottom || view.log.length <= 1) list.scrollTop = list.scrollHeight;
   }
 
   let seats = [];
 
+  // Auto-run plays bots only up to a human seat's decision. With no human seat it would play
+  // the whole game in one go, so then the game waits for Auto-step / Run to end of turn.
   function maybeRunBots() {
-    if (!$("auto-bots").checked || !lastView) return;
+    if (!$("auto-bots").checked) return;
+    if (!api.getSeats().some((s) => s === 0)) return;
     try {
       api.runBots();
     } catch (e) {
@@ -318,11 +383,15 @@
     $("analysis-meta").textContent = `P${result.player + 1} to decide, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions`;
     result.options.forEach((o, i) => {
       const tr = el("tr", i === 0 ? "best" : null);
-      tr.appendChild(el("td", null, o.label));
+      const label = el("td");
+      label.appendChild(decorate(o.label));
+      tr.appendChild(label);
       const ev = el("td", "ev", o.ev.toFixed(2));
       if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));
       tr.appendChild(ev);
-      tr.appendChild(el("td", "pv", o.pv));
+      const pv = el("td", "pv");
+      pv.appendChild(decorate(o.pv));
+      tr.appendChild(pv);
       tbody.appendChild(tr);
     });
   }
@@ -428,6 +497,7 @@
     const { instance } = await WebAssembly.instantiate(bytes, {});
     wasm = instance.exports;
     botNames = api.listBots();
+    initCards();
     wire();
     syncTextFromGame();
     render();

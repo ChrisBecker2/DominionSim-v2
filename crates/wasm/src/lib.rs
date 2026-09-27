@@ -31,6 +31,7 @@ use dominion_engine::cards;
 use dominion_engine::counts::Counts;
 use dominion_engine::state::MAX_PLAYERS;
 use dominion_engine::rng::Rng;
+use dominion_engine::EndReason;
 use dominion_engine::PlayerView;
 use dominion_search::{NextHandEvaluator, SearchConfig, Searcher};
 use dominion_sim::Strategy;
@@ -411,7 +412,46 @@ fn advance_and_log(app: &mut App) {
     }
     for e in &sink {
         app.push_log_event(e);
+        if matches!(e, Event::GameOver) {
+            for line in game_over_summary(&app.state) {
+                app.log.push(line);
+            }
+            app.log_group = None;
+        }
     }
+}
+
+/// "Provinces ran out" / piles / turn cap, then each player's result, winner(s) first.
+fn game_over_summary(state: &GameState) -> Vec<String> {
+    let mut out = Vec::new();
+    let reason = match state.end_reason() {
+        Some(EndReason::ProvincesGone) => "the Province pile is empty".to_string(),
+        Some(EndReason::PilesEmpty) => {
+            let piles: Vec<&str> = (0..cards::NUM_CARDS as u8)
+                .filter(|&c| state.in_supply(c) && state.supply.get(c) == 0)
+                .map(cards::name)
+                .collect();
+            format!("{} supply piles are empty ({})", piles.len(), piles.join(", "))
+        }
+        Some(EndReason::TurnLimit) => format!("the turn limit ({}) was reached", state.max_turns),
+        None => "unknown".to_string(),
+    };
+    out.push(format!("Game ends because {reason}."));
+    let scores = state.scores();
+    let winners = state.winners();
+    let n = state.num_players as usize;
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&p| (winners & (1 << p) == 0, -scores[p], state.players[p].turns_taken));
+    let shared = winners.count_ones() > 1;
+    for p in order {
+        let tag = if winners & (1 << p) != 0 {
+            if shared { "  - shared win" } else { "  - WINS" }
+        } else {
+            ""
+        };
+        out.push(format!("Player {}: {} VP in {} turns{tag}", p + 1, scores[p], state.players[p].turns_taken));
+    }
+    out
 }
 
 fn apply_choice(app: &mut App, choice: Choice) -> Result<(), String> {
@@ -531,6 +571,26 @@ fn result_of(r: Result<String, String>) -> i32 {
             }
         }
     })
+}
+
+/// JSON array of every card: {name, cost, types: ["action", "attack", ...]}.
+#[no_mangle]
+pub extern "C" fn card_info() -> i32 {
+    let flags = [
+        (cards::ACTION, "action"),
+        (cards::TREASURE, "treasure"),
+        (cards::VICTORY, "victory"),
+        (cards::CURSE_T, "curse"),
+        (cards::ATTACK, "attack"),
+        (cards::REACTION, "reaction"),
+    ];
+    let items: Vec<String> = (0..cards::NUM_CARDS as u8)
+        .map(|c| {
+            let types: Vec<String> = flags.iter().filter(|(f, _)| cards::is(c, *f)).map(|(_, n)| jstr(n)).collect();
+            format!("{{\"name\":{},\"cost\":{},\"types\":[{}]}}", jstr(cards::name(c)), cards::cost(c), types.join(","))
+        })
+        .collect();
+    result_of(Ok(format!("[{}]", items.join(","))))
 }
 
 /// JSON array of seat controller names; the index is the id for `set_seat`.

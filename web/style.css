@@ -9,6 +9,14 @@
   --accent-2: #2b6b4a;
   --danger: #a33;
   --current: #fff7e0;
+  /* card type highlights (Dominion's own colour coding) */
+  --c-treasure: #f3d77e;
+  --c-victory: #c4e3a9;
+  --c-curse: #dcc2ea;
+  --c-action: #e4e2dc;
+  --c-reaction: #bcd6f2;
+  --c-attack-edge: #b54a3c;
+  --c-text: #23221d;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -25,6 +33,13 @@
     --accent-2: #6fbf94;
     --danger: #e77;
     --current: #3a3320;
+    --c-treasure: #5e4c14;
+    --c-victory: #2f4d22;
+    --c-curse: #4a3157;
+    --c-action: #3d3b35;
+    --c-reaction: #243f5e;
+    --c-attack-edge: #d9705f;
+    --c-text: #f1ede2;
   }
 }
 
@@ -283,3 +298,21 @@ section, .panel {
 #analysis-table tr.best td { font-weight: 600; }
 #analysis-table td.pv { font-size: 12px; opacity: 0.85; }
 #analysis-table .approx { color: #b7791f; font-size: 11px; margin-left: 4px; }
+
+/* card chips, coloured by type */
+.card {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 1px 0;
+  border-radius: 4px;
+  line-height: 1.45;
+  color: var(--c-text);
+  background: var(--c-action);
+  white-space: nowrap;
+}
+.card.treasure { background: var(--c-treasure); }
+.card.victory { background: var(--c-victory); }
+.card.curse { background: var(--c-curse); }
+.card.reaction { background: var(--c-reaction); }
+.card.attack { box-shadow: inset 3px 0 0 var(--c-attack-edge); padding-left: 7px; }
+#log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }

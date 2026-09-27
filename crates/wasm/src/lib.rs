@@ -698,6 +698,16 @@ fn render_event(e: &Event) -> String {
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
         Event::GameOver => "--- Game over ---".to_string(),
+        Event::PhaseStart { player, phase } => {
+            let name = match phase {
+                Phase::Action => "Action",
+                Phase::Buy => "Buy",
+                Phase::CleanupDraw => "Cleanup",
+                Phase::Setup => "Setup",
+                Phase::GameOver => "Game over",
+            };
+            format!(":: {name} phase (Player {})", player + 1)
+        }
     }
 }
 

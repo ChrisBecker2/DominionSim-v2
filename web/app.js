@@ -366,7 +366,13 @@
     const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
     list.innerHTML = "";
     for (const line of view.log) {
-      const cls = line.startsWith("---") ? "turn-marker" : line.startsWith("--") ? "sys-marker" : "";
+      const cls = line.startsWith("---")
+        ? "turn-marker"
+        : line.startsWith("::")
+        ? "phase-marker"
+        : line.startsWith("--")
+        ? "sys-marker"
+        : "";
       const row = el("div", cls || null);
       row.appendChild(decorate(line));
       list.appendChild(row);

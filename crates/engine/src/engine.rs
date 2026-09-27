@@ -110,6 +110,8 @@ pub enum Pending {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     TurnStart { player: u8, turn: u16 },
+    /// The current player's turn entered `phase` (Action, Buy, or CleanupDraw for cleanup).
+    PhaseStart { player: u8, phase: Phase },
     Shuffle { player: u8 },
     Draw { player: u8, card: CardId },
     Play { player: u8, card: CardId },
@@ -252,6 +254,7 @@ impl GameState {
             Phase::Setup => {
                 self.turn = TurnState::start(0, 1);
                 sink.event(Event::TurnStart { player: 0, turn: 1 });
+                sink.event(Event::PhaseStart { player: 0, phase: Phase::Action });
                 Run::Continue
             }
             Phase::Action => {
@@ -283,6 +286,7 @@ impl GameState {
                     let next = ((p + 1) % self.num_players as usize) as u8;
                     self.turn = TurnState::start(next, self.turn.number + 1);
                     sink.event(Event::TurnStart { player: next, turn: self.turn.number });
+                    sink.event(Event::PhaseStart { player: next, phase: Phase::Action });
                 }
                 Run::Continue
             }
@@ -346,6 +350,7 @@ impl GameState {
     /// Enter the buy phase: all treasures in hand are played automatically.
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
+        sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
         self.play_treasures(sink);
     }
 
@@ -373,8 +378,9 @@ impl GameState {
         }
     }
 
-    fn cleanup<S: EventSink>(&mut self, _sink: &mut S) {
+    fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
+        sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
         let ps = &mut self.players[p];
         let hand = ps.hand;
         let play = ps.in_play;

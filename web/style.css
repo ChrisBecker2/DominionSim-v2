@@ -324,3 +324,5 @@ section, .panel {
 .card.reaction { background: var(--c-reaction); }
 .card.attack { box-shadow: inset 3px 0 0 var(--c-attack-edge); padding-left: 7px; }
 #log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }
+
+#log-list .phase-marker { color: var(--text-dim); font-style: italic; padding-left: 8px; }

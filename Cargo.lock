@@ -7,6 +7,13 @@ name = "dominion-engine"
 version = "0.1.0"
 
 [[package]]
+name = "dominion-search"
+version = "0.1.0"
+dependencies = [
+ "dominion-engine",
+]
+
+[[package]]
 name = "dominion-sim"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,7 @@
+[package]
+name = "dominion-search"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+dominion-engine = { path = "../engine" }

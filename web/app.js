@@ -79,7 +79,26 @@
     canRedo() {
       return !!wasm.can_redo();
     },
+    listBots() {
+      ok(wasm.list_bots());
+      return JSON.parse(readResult());
+    },
+    getSeats() {
+      ok(wasm.get_seats());
+      return JSON.parse(readResult());
+    },
+    setSeat(player, bot) {
+      ok(wasm.set_seat(player >>> 0, bot >>> 0));
+    },
+    runBots() {
+      ok(wasm.run_bots());
+    },
+    analyze() {
+      return JSON.parse(ok(wasm.analyze()));
+    },
   };
+
+  let botNames = [];
 
   // ---- DOM helpers ---------------------------------------------------------
 
@@ -180,6 +199,20 @@
       const nameSpan = el("span", null, `Player ${p.index + 1}` + (p.isCurrent ? " (current)" : ""));
       const vpSpan = el("span", "vp", `${p.vp} VP`);
       h.appendChild(nameSpan);
+      const sel = el("select", "seat-select");
+      botNames.forEach((name, i) => {
+        const o = el("option", null, name);
+        o.value = String(i);
+        sel.appendChild(o);
+      });
+      sel.value = String(seats[p.index] ?? 0);
+      sel.addEventListener("change", () => {
+        doAction(() => {
+          api.setSeat(p.index, parseInt(sel.value, 10));
+          maybeRunBots();
+        });
+      });
+      h.appendChild(sel);
       h.appendChild(vpSpan);
       panel.appendChild(h);
 
@@ -242,7 +275,10 @@
         b.appendChild(k);
       }
       b.appendChild(document.createTextNode(c.label));
-      b.addEventListener("click", () => doAction(() => api.choose(c.index)));
+      b.addEventListener("click", () => doAction(() => {
+        api.choose(c.index);
+        maybeRunBots();
+      }));
       choices.appendChild(b);
     });
   }
@@ -258,7 +294,35 @@
     if (atBottom || view.log.length <= 1) list.scrollTop = list.scrollHeight;
   }
 
+  let seats = [];
+
+  function maybeRunBots() {
+    if ($("auto-bots").checked) api.runBots();
+  }
+
+  function renderAnalysis(result) {
+    const panel = $("analysis-panel");
+    const tbody = $("analysis-table").querySelector("tbody");
+    tbody.innerHTML = "";
+    if (!result) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    $("analysis-meta").textContent = `P${result.player + 1} to decide, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions`;
+    result.options.forEach((o, i) => {
+      const tr = el("tr", i === 0 ? "best" : null);
+      tr.appendChild(el("td", null, o.label));
+      const ev = el("td", "ev", o.ev.toFixed(2));
+      if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));
+      tr.appendChild(ev);
+      tr.appendChild(el("td", "pv", o.pv));
+      tbody.appendChild(tr);
+    });
+  }
+
   function render() {
+    seats = api.getSeats();
     const view = api.getView();
     lastView = view;
     renderTurnBar(view);
@@ -273,6 +337,7 @@
   }
 
   function doAction(fn) {
+    renderAnalysis(null);
     try {
       fn();
       showLoadError("");
@@ -292,6 +357,7 @@
       const seed = parseInt($("ng-seed").value, 10) || 0;
       try {
         api.newGame(players, kingdom, seed, 0);
+        maybeRunBots();
         showNewGameError("");
         syncTextFromGame();
         render();
@@ -303,6 +369,7 @@
     $("btn-load").addEventListener("click", () => {
       try {
         api.loadState($("state-text").value);
+        maybeRunBots();
         showLoadError("");
         render();
       } catch (e) {
@@ -314,6 +381,15 @@
 
     $("btn-auto").addEventListener("click", () => doAction(() => api.stepAuto()));
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn()));
+    $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots()));
+    $("btn-analyze").addEventListener("click", () => {
+      try {
+        const r = api.analyze();
+        renderAnalysis(r);
+      } catch (e) {
+        showToast(String(e.message || e));
+      }
+    });
     $("btn-undo").addEventListener("click", () => doAction(() => api.undo()));
     $("btn-redo").addEventListener("click", () => doAction(() => api.redo()));
 
@@ -323,12 +399,17 @@
       if (e.key >= "1" && e.key <= "9") {
         const i = e.key.charCodeAt(0) - "1".charCodeAt(0);
         if (lastView && lastView.pending && i < lastView.pending.choices.length) {
-          doAction(() => api.choose(lastView.pending.choices[i].index));
+          doAction(() => {
+            api.choose(lastView.pending.choices[i].index);
+            maybeRunBots();
+          });
         }
       } else if (e.key === "z" || e.key === "u") {
         if (!$("btn-undo").disabled) doAction(() => api.undo());
       } else if (e.key === "y" || e.key === "r") {
         if (!$("btn-redo").disabled) doAction(() => api.redo());
+      } else if (e.key === "a") {
+        $("btn-analyze").click();
       } else if (e.key === " ") {
         e.preventDefault();
         doAction(() => api.stepAuto());
@@ -340,6 +421,7 @@
     const bytes = base64ToBytes(WASM_BASE64);
     const { instance } = await WebAssembly.instantiate(bytes, {});
     wasm = instance.exports;
+    botNames = api.listBots();
     wire();
     syncTextFromGame();
     render();

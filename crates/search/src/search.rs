@@ -21,6 +21,16 @@ use std::time::{Duration, Instant};
 /// `Choice::Pass` buy path folds hand+in_play into discard and flips the phase synchronously
 /// inside `apply()`, before any card of the next hand is touched). Either way `pending()` is
 /// `Pending::None` at this point; see `apply_phase`/`cleanup` in `dominion_engine::engine`.
+/// `Instant::now` panics on wasm32-unknown-unknown (no clock), so timing is native-only.
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> Option<Instant> {
+    Some(Instant::now())
+}
+#[cfg(target_arch = "wasm32")]
+fn now() -> Option<Instant> {
+    None
+}
+
 fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
         && (state.turn.phase == Phase::CleanupDraw || (state.turn.phase == Phase::Buy && state.turn.buys == 0))
@@ -133,7 +143,7 @@ impl Searcher {
         self.tt_stores = 0;
         self.rng = Rng::new(cfg.seed);
         self.generation = self.generation.wrapping_add(1).max(1);
-        let start = Instant::now();
+        let start = now();
 
         let mut root = *state;
         root.chance_mode = true;
@@ -153,7 +163,7 @@ impl Searcher {
         }
         options.sort_by(|a, b| b.ev.partial_cmp(&a.ev).unwrap_or(std::cmp::Ordering::Equal));
 
-        Analysis { options, nodes: self.nodes, tt_hits: self.tt_hits, tt_stores: self.tt_stores, elapsed: start.elapsed() }
+        Analysis { options, nodes: self.nodes, tt_hits: self.tt_hits, tt_stores: self.tt_stores, elapsed: start.map(|t| t.elapsed()).unwrap_or_default() }
     }
 
     // ------------------------------------------------------------------------------------

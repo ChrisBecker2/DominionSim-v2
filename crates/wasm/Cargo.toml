@@ -8,3 +8,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 dominion-engine = { path = "../engine" }
+dominion-search = { path = "../search" }
+dominion-sim = { path = "../sim", default-features = false }

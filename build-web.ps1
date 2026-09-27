@@ -27,5 +27,7 @@ if ($LASTEXITCODE -ne 0) { throw "node web/build.mjs failed (exit $LASTEXITCODE)
 Write-Host "==> node web/test.mjs (smoke test)"
 node (Join-Path $repoRoot "web\test.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test.mjs reported failures (exit $LASTEXITCODE)" }
+node (Join-Path $repoRoot "web	est_bots.mjs")
+if ($LASTEXITCODE -ne 0) { throw "web/test_bots.mjs reported failures (exit $LASTEXITCODE)" }
 
 Write-Host "`nDone. Open web\dist\index.html directly in a browser."

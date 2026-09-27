@@ -50,8 +50,16 @@
       <div class="controls-row">
         <button id="btn-undo" disabled>Undo</button>
         <button id="btn-redo" disabled>Redo</button>
-        <button id="btn-auto">Auto-step</button>
+        <button id="btn-auto" title="Apply the deciding seat's bot choice (search for human seats)">Auto-step</button>
         <button id="btn-run-turn">Run to end of turn</button>
+        <button id="btn-run-bots">Run bots</button>
+        <button id="btn-analyze" class="primary" title="Exact search of every line of play this turn">Analyze decision</button>
+        <label class="checkbox"><input type="checkbox" id="auto-bots" checked> bots move automatically</label>
+      </div>
+
+      <div id="analysis-panel" hidden>
+        <h2>Analysis <span id="analysis-meta" class="subtitle"></span></h2>
+        <table id="analysis-table"><thead><tr><th>Choice</th><th>Value</th><th>Best continuation</th></tr></thead><tbody></tbody></table>
       </div>
 
       <div id="players-row"></div>

@@ -273,3 +273,13 @@ section, .panel {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   cursor: pointer;
 }
+
+/* seat selector + analysis */
+.seat-select { font: inherit; font-size: 12px; margin-left: 8px; max-width: 170px; }
+#analysis-panel { margin: 10px 0; }
+#analysis-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#analysis-table th, #analysis-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border, #8884); vertical-align: top; }
+#analysis-table td.ev { font-variant-numeric: tabular-nums; white-space: nowrap; }
+#analysis-table tr.best td { font-weight: 600; }
+#analysis-table td.pv { font-size: 12px; opacity: 0.85; }
+#analysis-table .approx { color: #b7791f; font-size: 11px; margin-left: 4px; }

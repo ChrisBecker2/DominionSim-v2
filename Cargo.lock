@@ -150,6 +150,8 @@ name = "dominion-wasm"
 version = "0.1.0"
 dependencies = [
  "dominion-engine",
+ "dominion-search",
+ "dominion-sim",
 ]
 
 [[package]]

@@ -237,6 +237,9 @@ impl GameState {
             }
             K::PlayEffects => {
                 self.stack.pop();
+                if f.count >= 2 {
+                    sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
+                }
                 self.resolve_effects(f.subject, sink);
                 Run::Continue
             }
@@ -433,8 +436,9 @@ impl GameState {
             }
             Then::PlayPicked { times } => {
                 if f.count > 0 {
-                    for _ in 0..times {
-                        self.stack.push(Frame { subject: f.last, ..Frame::new(K::PlayEffects, p, f.source) });
+                    // Pushed last-first so the 1st resolution is on top; `count` = which play.
+                    for nth in (1..=times).rev() {
+                        self.stack.push(Frame { subject: f.last, count: nth, ..Frame::new(K::PlayEffects, p, f.source) });
                     }
                 }
             }

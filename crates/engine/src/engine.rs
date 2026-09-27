@@ -47,6 +47,8 @@ pub struct Decision {
     /// For a selection whose picked card is then "upgraded" (Remodel, Mine, ...): the card you
     /// pick lets you gain a card costing up to `cost(pick) + plus`.
     pub upgrade: Option<Upgrade>,
+    /// For a selection of a card to play: how many times it will be played (Throne Room: 2).
+    pub play_times: u8,
 }
 
 /// "Trash a card, gain a card costing up to $N more" — what a selection leads to.
@@ -126,6 +128,8 @@ pub enum Event {
     Shuffle { player: u8 },
     Draw { player: u8, card: CardId },
     Play { player: u8, card: CardId },
+    /// A card already in play resolves again (e.g. the 2nd play from Throne Room); `nth` >= 2.
+    PlayAgain { player: u8, card: CardId, source: CardId, nth: u8 },
     Buy { player: u8, card: CardId },
     Gain { player: u8, card: CardId, to: Dest },
     Trash { player: u8, card: CardId },
@@ -197,6 +201,7 @@ impl GameState {
                         source: self.decision_source(),
                         subject,
                         upgrade: self.decision_upgrade(),
+                        play_times: self.decision_play_times(),
                     };
                     self.set_pending(Pending::Decision(d));
                     if self.auto_single {
@@ -496,6 +501,13 @@ impl GameState {
         match self.stack.top() {
             Some(Frame { kind: FrameKind::Select, then: Then::GainUpTo { plus, filter, dest }, .. }) => Some(Upgrade { plus, filter, dest }),
             _ => None,
+        }
+    }
+
+    fn decision_play_times(&self) -> u8 {
+        match self.stack.top() {
+            Some(Frame { kind: FrameKind::Select, then: Then::PlayPicked { times }, .. }) => times,
+            _ => 1,
         }
     }
 

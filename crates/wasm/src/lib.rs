@@ -945,6 +945,10 @@ fn render_event(e: &Event) -> String {
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
         Event::GameOver => "--- Game over ---".to_string(),
+        Event::PlayAgain { player, card, source, nth } => {
+            let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };
+            format!("Player {} plays {} {again} ({})", player + 1, cards::name(card), cards::name(source))
+        }
         Event::PhaseStart { player, phase } => {
             let name = match phase {
                 Phase::Action => "Action",
@@ -962,15 +966,6 @@ fn render_event(e: &Event) -> String {
 // Decision descriptions and choice labels (generic over DecisionKind, not per-card)
 // -----------------------------------------------------------------------------------------
 
-fn act_verb(a: Act) -> &'static str {
-    match a {
-        Act::Discard => "discard",
-        Act::Trash => "trash",
-        Act::Topdeck => "put on your deck",
-        Act::Play => "play",
-        Act::SetAside => "set aside",
-    }
-}
 
 fn zone_phrase(z: Zone) -> &'static str {
     match z {
@@ -980,16 +975,6 @@ fn zone_phrase(z: Zone) -> &'static str {
     }
 }
 
-fn filter_phrase(f: Filter) -> String {
-    match f {
-        Filter::Any => String::new(),
-        Filter::Action => " (an Action)".to_string(),
-        Filter::Treasure => " (a Treasure)".to_string(),
-        Filter::Victory => " (a Victory card)".to_string(),
-        Filter::NonCopperTreasure => " (a Treasure other than Copper)".to_string(),
-        Filter::Card(c) => format!(" ({})", cards::name(c)),
-    }
-}
 
 fn dest_phrase(d: Dest) -> &'static str {
     match d {
@@ -999,44 +984,99 @@ fn dest_phrase(d: Dest) -> &'static str {
     }
 }
 
-fn source_prefix(source: Option<u8>) -> String {
-    match source {
-        Some(c) => format!("{}: ", cards::name(c)),
-        None => String::new(),
+
+fn ordinal(n: u8) -> String {
+    match n {
+        1 => "1st".into(),
+        2 => "2nd".into(),
+        3 => "3rd".into(),
+        _ => format!("{n}th"),
     }
 }
 
+fn times_phrase(n: u8) -> String {
+    match n {
+        0 | 1 => String::new(),
+        2 => " twice".into(),
+        3 => " three times".into(),
+        _ => format!(" {n} times"),
+    }
+}
+
+/// Noun for a filtered card, singular and plural ("an Action card" / "Action cards").
+fn filter_noun(f: Filter) -> (String, String) {
+    match f {
+        Filter::Any => ("a card".into(), "cards".into()),
+        Filter::Action => ("an Action card".into(), "Action cards".into()),
+        Filter::Treasure => ("a Treasure".into(), "Treasures".into()),
+        Filter::Victory => ("a Victory card".into(), "Victory cards".into()),
+        Filter::NonCopperTreasure => ("a Treasure other than Copper".into(), "Treasures other than Copper".into()),
+        Filter::Card(c) => (format!("a {}", cards::name(c)), format!("{}s", cards::name(c))),
+    }
+}
+
+/// Card-text style description, generic over the decision's shape:
+/// "Player 1 - Throne Room: You may play an Action card from your hand twice."
 fn decision_description(state: &GameState, d: &Decision) -> String {
     let who = format!("Player {}", d.player + 1);
-    let prefix = source_prefix(d.source);
-    match d.kind {
-        DecisionKind::PlayAction => format!("{who}: play an Action, or pass"),
-        DecisionKind::Buy => format!("{who}: buy a card (${} available), or pass", state.turn.coins),
+    let head = match d.source {
+        Some(c) => format!("{who} \u{2014} {}: ", cards::name(c)),
+        None => format!("{who}: "),
+    };
+    let body = match d.kind {
+        DecisionKind::PlayAction => format!("You may play an Action card ({} action(s) left).", state.turn.actions),
+        DecisionKind::Buy => format!("You may buy a card (${} available, {} buy(s) left).", state.turn.coins, state.turn.buys),
         DecisionKind::Gain { max_cost, filter, dest } => {
-            format!("{prefix}{who} may gain{} a card costing up to ${max_cost}{}", filter_phrase(filter), dest_phrase(dest))
+            let (one, _) = filter_noun(filter);
+            format!("Gain {one} costing up to ${max_cost}{}.", dest_phrase(dest))
         }
-        DecisionKind::Select { from, act, filter, min, max, .. } => {
-            let count = if min == max {
-                format!("{max}")
-            } else if min == 0 {
-                format!("up to {max}")
+        DecisionKind::Select { from, act, filter, min, max, ordered } => {
+            let (one, many) = filter_noun(filter);
+            let what = if max >= 100 {
+                format!("any number of {many}")
+            } else if max == 1 {
+                one
+            } else if min == max {
+                format!("{max} {many}")
             } else {
-                format!("{min}-{max}")
+                format!("up to {max} {many}")
             };
-            let plural = if max == 1 && min == 1 { "" } else { " more" };
-            format!("{prefix}{who}: {} {count}{plural} card(s){}{}", act_verb(act), zone_phrase(from), filter_phrase(filter))
+            let (verb, tail) = match act {
+                Act::Discard => ("discard", String::new()),
+                Act::Trash => ("trash", String::new()),
+                Act::Topdeck => ("put", " onto your deck".to_string()),
+                Act::Play => ("play", times_phrase(d.play_times)),
+                Act::SetAside => ("set aside", String::new()),
+            };
+            let zone = zone_phrase(from);
+            let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
+            let upgrade = match d.upgrade {
+                Some(u) => format!(" Then gain {} costing up to ${} more than it{}.", filter_noun(u.filter).0, u.plus, dest_phrase(u.dest)),
+                None => String::new(),
+            };
+            let may = if min == 0 { "You may " } else { "" };
+            let verb = if min == 0 { verb.to_string() } else { capitalize(verb) };
+            format!("{may}{verb} {what}{zone}{tail}{order}.{upgrade}")
         }
         DecisionKind::YesNo { act } => {
             let card = cards::name(d.subject);
-            let q = match act {
-                Act::Discard => format!("discard {card}"),
-                Act::Trash => format!("trash {card}"),
-                Act::Topdeck => format!("put {card} on your deck"),
-                Act::Play => format!("play {card}"),
-                Act::SetAside => format!("keep {card} aside instead of drawing it"),
-            };
-            format!("{prefix}{who}: {q}?")
+            match act {
+                Act::Discard => format!("Discard {card}?"),
+                Act::Trash => format!("Trash {card}?"),
+                Act::Topdeck => format!("Put {card} onto your deck?"),
+                Act::Play => format!("You may play {card}. Play it?"),
+                Act::SetAside => format!("You may set aside {card} (skip drawing it). Set it aside?"),
+            }
         }
+    };
+    format!("{head}{body}")
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
     }
 }
 
@@ -1055,13 +1095,8 @@ fn choice_label(d: &Decision, c: Choice) -> String {
                     Act::Discard => format!("Discard {name}"),
                     Act::Trash => format!("Trash {name}"),
                     Act::Topdeck => format!("Put {name} on deck"),
-                    Act::Play => {
-                        if d.source == Some(id::THRONE_ROOM) {
-                            format!("Play {name} (x2)")
-                        } else {
-                            format!("Play {name}")
-                        }
-                    }
+                    Act::Play if d.play_times > 1 => format!("Play {name} (x{})", d.play_times),
+                    Act::Play => format!("Play {name}"),
                     Act::SetAside => format!("Set aside {name}"),
                 },
                 DecisionKind::YesNo { .. } => name.to_string(),

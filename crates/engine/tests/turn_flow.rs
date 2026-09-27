@@ -227,3 +227,22 @@ fn state_loaded_mid_buy_phase_plays_treasures_in_hand() {
     assert_eq!(g.players[0].in_play.get(id::GOLD), 10);
     assert!(choices(&g).contains(&Choice::Card(id::PROVINCE)));
 }
+
+#[test]
+fn throne_room_reports_each_resolution_and_play_times() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::ESTATE]);
+    play(&mut g, id::THRONE_ROOM);
+    let d = g.pending_decision().unwrap();
+    assert_eq!(d.play_times, 2);
+    let mut events: Vec<Event> = Vec::new();
+    choose_ev(&mut g, Choice::Card(id::VILLAGE), &mut events);
+    let again: Vec<_> = events.iter().filter(|e| matches!(e, Event::PlayAgain { .. })).collect();
+    assert_eq!(again.len(), 1);
+    assert!(matches!(again[0], Event::PlayAgain { card, source, nth: 2, .. } if *card == id::VILLAGE && *source == id::THRONE_ROOM));
+    assert_eq!(g.turn.actions, 4); // 1 - 1 (Throne Room) + 2 + 2
+    // +1 Card twice: Copper then Estate (the Copper is auto-played on entering the buy phase).
+    assert_eq!(g.players[0].hand.get(id::ESTATE), 1);
+    assert_eq!(g.players[0].in_play.get(id::COPPER), 1);
+}

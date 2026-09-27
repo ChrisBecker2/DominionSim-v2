@@ -1,6 +1,8 @@
 //! Player interface. Agents see the game only through an honest `PlayerView`.
 
 use crate::cards::CardId;
+use crate::rng::Rng;
+use crate::state::KnownStack;
 use crate::counts::Counts;
 use crate::engine::{Choice, ChoiceBuf, Decision, EventSink, Step};
 use crate::state::{GameState, Phase, TurnState, MAX_PLAYERS};
@@ -97,6 +99,36 @@ impl<'a> PlayerView<'a> {
     }
     pub fn turns_taken_of(&self, p: u8) -> u16 {
         self.state.players[p as usize].turns_taken
+    }
+
+    /// A concrete `GameState` consistent with everything `me` honestly knows, for search.
+    /// My own zones are exact. For each opponent, hand + deck are pooled (their split and any
+    /// order are hidden from me) and a random hand of the same size is dealt back out; their
+    /// discard, in-play and set-aside cards are public and kept. `chance_mode` is turned on,
+    /// so draws from any unknown deck surface as `Step::Chance`.
+    pub fn determinize(&self, rng: &mut Rng) -> GameState {
+        let mut s = *self.state;
+        s.chance_mode = true;
+        for p in 0..s.num_players {
+            if p == self.me {
+                continue;
+            }
+            let ps = &mut s.players[p as usize];
+            let hand_size = ps.hand.total();
+            let mut pool = ps.deck_known.counts();
+            pool.add_all(&ps.deck_unknown);
+            pool.add_all(&ps.hand);
+            let mut hand = Counts::EMPTY;
+            for _ in 0..hand_size {
+                let c = pool.nth(rng.below(pool.total()));
+                pool.remove(c);
+                hand.add(c, 1);
+            }
+            ps.hand = hand;
+            ps.deck_known = KnownStack::default();
+            ps.deck_unknown = pool;
+        }
+        s
     }
 }
 

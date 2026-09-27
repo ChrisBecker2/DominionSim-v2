@@ -34,7 +34,38 @@ use dominion_engine::rng::Rng;
 use dominion_engine::EndReason;
 use dominion_engine::PlayerView;
 use dominion_search::{NextHandEvaluator, Plan, SearchConfig, Searcher, TaskResult};
-use dominion_sim::Strategy;
+use dominion_search::Evaluator;
+use dominion_sim::{GainListEvaluator, Strategy};
+
+/// The scoring used to analyze a seat's decision: a strategy seat is judged by its own gain
+/// list; human and search seats by the general-purpose evaluator.
+enum SeatEval<'a> {
+    General(NextHandEvaluator),
+    Gains(GainListEvaluator<'a>),
+}
+
+impl Evaluator for SeatEval<'_> {
+    fn leaf_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        match self {
+            SeatEval::General(e) => e.leaf_value(root, leaf, me),
+            SeatEval::Gains(e) => e.leaf_value(root, leaf, me),
+        }
+    }
+}
+
+/// `strategy`: index into the bundled strategies, or `u32::MAX` for the general evaluator.
+fn seat_eval(strategies: &[Strategy], strategy: u32) -> (SeatEval<'_>, String) {
+    match strategies.get(strategy as usize) {
+        Some(s) => (SeatEval::Gains(GainListEvaluator::new(s)), format!("{}'s gain priorities", s.name)),
+        None => (SeatEval::General(NextHandEvaluator::default()), "search evaluator (VP + future money)".to_string()),
+    }
+}
+
+/// Strategy index whose priorities judge `player`'s decisions (`u32::MAX` = general).
+fn scoring_strategy(app: &App, player: u8) -> u32 {
+    let seat = app.seats[player as usize];
+    if seat >= 2 { seat - 2 } else { u32::MAX }
+}
 use std::cell::RefCell;
 
 /// Strategies shipped in `strategies/`, compiled in so the page stays a single file.
@@ -75,8 +106,9 @@ struct App {
     rng: Rng,
     /// (event tag, player, log line) of the run the last event started, for condensing.
     log_group: Option<(u8, u8, usize)>,
-    /// Parallel analysis in progress: the split tree and results received so far.
-    plan: Option<(Plan, Vec<Option<TaskResult>>)>,
+    /// Parallel analysis in progress: the split tree, results received so far, and the
+    /// strategy index whose priorities score it (`u32::MAX` = general evaluator).
+    plan: Option<(Plan, Vec<Option<TaskResult>>, u32)>,
     /// State text at the start of turn 1 of the current game (opening hands dealt).
     start_text: String,
 }
@@ -571,11 +603,12 @@ fn run_bots_impl(app: &mut App) -> Result<(), String> {
 fn analyze_json(app: &mut App) -> Result<String, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
     let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
-    let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
-    Ok(analysis_json(&d, &a))
+    let (eval, scoring) = seat_eval(&app.strategies, scoring_strategy(app, d.player));
+    let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &eval);
+    Ok(analysis_json(&d, &a, &scoring))
 }
 
-fn analysis_json(d: &Decision, a: &dominion_search::Analysis) -> String {
+fn analysis_json(d: &Decision, a: &dominion_search::Analysis, scoring: &str) -> String {
     let opts: Vec<String> = a
         .options
         .iter()
@@ -590,8 +623,9 @@ fn analysis_json(d: &Decision, a: &dominion_search::Analysis) -> String {
         })
         .collect();
     format!(
-        "{{\"player\":{},\"nodes\":{},\"ttHits\":{},\"options\":[{}]}}",
+        "{{\"player\":{},\"scoring\":{},\"nodes\":{},\"ttHits\":{},\"options\":[{}]}}",
         d.player,
+        jstr(scoring),
         a.nodes,
         a.tt_hits,
         opts.join(",")
@@ -649,10 +683,12 @@ pub extern "C" fn plan_start(target_tasks: u32) -> i32 {
         let app = &mut *guard;
         let d = app.state.pending_decision().ok_or("no decision is pending")?;
         let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
-        let plan = Plan::build(&world, d.player, target_tasks.max(1) as usize, &NextHandEvaluator::default());
+        let strategy = scoring_strategy(app, d.player);
+        let (eval, _) = seat_eval(&app.strategies, strategy);
+        let plan = Plan::build(&world, d.player, target_tasks.max(1) as usize, &eval);
         let n = plan.tasks.len();
-        app.plan = Some((plan, vec![None; n]));
-        Ok(format!("{{\"player\":{},\"tasks\":{n}}}", d.player))
+        app.plan = Some((plan, vec![None; n], strategy));
+        Ok(format!("{{\"player\":{},\"tasks\":{n},\"strategy\":{strategy}}}", d.player))
     });
     result_of(r)
 }
@@ -663,7 +699,7 @@ pub extern "C" fn plan_root_bytes() -> i32 {
     APP.with(|cell| {
         let mut app = cell.borrow_mut();
         let bytes = match &app.plan {
-            Some((p, _)) => state_bytes(&p.root),
+            Some((p, _, _)) => state_bytes(&p.root),
             None => return 0,
         };
         app.result = bytes;
@@ -677,7 +713,7 @@ pub extern "C" fn plan_task_bytes(i: u32) -> i32 {
     APP.with(|cell| {
         let mut app = cell.borrow_mut();
         let bytes = match &app.plan {
-            Some((p, _)) if (i as usize) < p.tasks.len() => state_bytes(&p.tasks[i as usize]),
+            Some((p, _, _)) if (i as usize) < p.tasks.len() => state_bytes(&p.tasks[i as usize]),
             _ => return 0,
         };
         app.result = bytes;
@@ -698,14 +734,18 @@ thread_local! {
 /// Worker side: evaluate one subtree. Writes JSON {ev, exact, nodes, ttHits, pv} where pv is
 /// the continuation joined with U+0001.
 #[no_mangle]
-pub extern "C" fn eval_task(root_ptr: u32, state_ptr: u32, me: u32, budget: u32) -> i32 {
+pub extern "C" fn eval_task(root_ptr: u32, state_ptr: u32, me: u32, budget: u32, strategy: u32) -> i32 {
     let root = state_from_ptr(root_ptr);
     let state = state_from_ptr(state_ptr);
     let cfg = SearchConfig { node_budget: budget as u64, tt_bits: 17, ..SearchConfig::default() };
-    let r = WORKER_SEARCHER.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let searcher = slot.get_or_insert_with(|| Searcher::new(cfg.tt_bits));
-        searcher.evaluate(&root, &state, me as u8, &cfg, &NextHandEvaluator::default())
+    let r = APP.with(|app_cell| {
+        let app = app_cell.borrow();
+        let (eval, _) = seat_eval(&app.strategies, strategy);
+        WORKER_SEARCHER.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let searcher = slot.get_or_insert_with(|| Searcher::new(cfg.tt_bits));
+            searcher.evaluate(&root, &state, me as u8, &cfg, &eval)
+        })
     });
     let json = format!(
         "{{\"ev\":{},\"exact\":{},\"nodes\":{},\"ttHits\":{},\"pv\":{}}}",
@@ -724,7 +764,7 @@ pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hi
     let pv = read_str(pv_ptr, pv_len);
     let r = APP.with(|cell| {
         let mut app = cell.borrow_mut();
-        let (_, results) = app.plan.as_mut().ok_or("no analysis in progress")?;
+        let (_, results, _) = app.plan.as_mut().ok_or("no analysis in progress")?;
         let slot = results.get_mut(i as usize).ok_or("bad task index")?;
         *slot = Some(TaskResult {
             ev,
@@ -743,11 +783,12 @@ pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hi
 pub extern "C" fn plan_finish() -> i32 {
     let r = APP.with(|cell| {
         let mut app = cell.borrow_mut();
-        let (plan, results) = app.plan.take().ok_or("no analysis in progress")?;
+        let (plan, results, strategy) = app.plan.take().ok_or("no analysis in progress")?;
         let results: Vec<TaskResult> = results.into_iter().collect::<Option<Vec<_>>>().ok_or("missing task results")?;
         let a = plan.finish(&results, std::time::Duration::ZERO);
         let d = app.state.pending_decision().ok_or("decision changed during analysis")?;
-        Ok(analysis_json(&d, &a))
+        let (_, scoring) = seat_eval(&app.strategies, strategy);
+        Ok(analysis_json(&d, &a, &scoring))
     });
     result_of(r)
 }

@@ -415,7 +415,7 @@
         return p;
       };
       const rp = put(m.root), sp = put(m.state);
-      const ok = w.eval_task(rp, sp, m.me, m.budget);
+      const ok = w.eval_task(rp, sp, m.me, m.budget, m.strategy);
       const out = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()));
       w.dealloc(rp, m.root.length);
       w.dealloc(sp, m.state.length);
@@ -503,7 +503,7 @@
         if (run !== analysisRun) return resolve();
         if (next >= tasks.length) return;
         const id = next++;
-        p.worker.postMessage({ type: "task", id, root, state: tasks[id], me: plan.player, budget: TASK_BUDGET });
+        p.worker.postMessage({ type: "task", id, root, state: tasks[id], me: plan.player, budget: TASK_BUDGET, strategy: plan.strategy });
       };
       workers.forEach((p) => {
         p.worker.onmessage = (e) => {
@@ -551,7 +551,7 @@
     panel.hidden = false;
     $("analysis-progress").hidden = true;
     const timing = result.seconds !== undefined ? `, ${result.seconds.toFixed(2)} s on ${result.workers} workers` : "";
-    $("analysis-meta").textContent = `P${result.player + 1} to decide, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions${timing}`;
+    $("analysis-meta").textContent = `P${result.player + 1} to decide, scored by ${result.scoring}, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions${timing}`;
     result.options.forEach((o, i) => {
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");

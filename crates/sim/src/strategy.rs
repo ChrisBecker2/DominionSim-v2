@@ -187,6 +187,16 @@ impl Strategy {
         None
     }
 
+    /// Position of `card` in the gain list (first entry for it whose condition holds), or None.
+    pub fn gain_rank(&self, view: &PlayerView, card: CardId) -> Option<usize> {
+        self.buy.iter().position(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool(view)))
+    }
+
+    /// Number of entries in the gain list.
+    pub fn gain_list_len(&self) -> usize {
+        self.buy.len()
+    }
+
     /// Rank (index in the gain list) of the best entry that could be gained right now for at
     /// most `max_cost`, matching `filter`, with its pile non-empty and its condition true.
     fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter) -> Option<usize> {

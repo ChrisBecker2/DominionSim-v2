@@ -12,6 +12,7 @@
 //! (no threads, no CLI parsing needed there — only strategy loading and the `Agent` impl).
 
 pub mod agent;
+pub mod eval;
 pub mod expr;
 pub mod kingdom;
 pub mod stats;
@@ -21,4 +22,5 @@ pub mod strategy;
 pub mod batch;
 
 pub use agent::StrategyAgent;
+pub use eval::GainListEvaluator;
 pub use strategy::Strategy;

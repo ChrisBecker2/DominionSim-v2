@@ -76,7 +76,7 @@ deck: 2 Copper, 3 Estate
   for (let i = 0; i < plan.tasks; i++) {
     main.plan_task_bytes(i); const st = rb(main);
     const rp = put(wk, root), sp = put(wk, st);
-    wk.eval_task(rp, sp, plan.player, 200000);
+    wk.eval_task(rp, sp, plan.player, 200000, plan.strategy);
     const r = JSON.parse(rd(wk));
     wk.dealloc(rp, root.length); wk.dealloc(sp, st.length);
     const pv = enc.encode(r.pv); const pp = put(main, pv);

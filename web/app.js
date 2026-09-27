@@ -314,17 +314,15 @@
   function renderSupply(view) {
     const tbody = $("supply-table").querySelector("tbody");
     tbody.innerHTML = "";
+    tbody.style.setProperty("--supply-rows", Math.ceil(view.supply.length / 2));
     for (const c of view.supply) {
       const tr = document.createElement("tr");
       const tdName = document.createElement("td");
       tdName.appendChild(cardChip(c.name));
-      const tdCost = document.createElement("td");
-      tdCost.textContent = "$" + c.cost;
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
       if (c.count === 0) tdCount.className = "count-0";
       tr.appendChild(tdName);
-      tr.appendChild(tdCost);
       tr.appendChild(tdCount);
       tbody.appendChild(tr);
     }
@@ -349,10 +347,6 @@
     desc.textContent = `${view.pending.description}  [${who}]`;
     view.pending.choices.forEach((c, i) => {
       const b = el("button");
-      if (i < 9) {
-        const k = el("span", "key", String(i + 1));
-        b.appendChild(k);
-      }
       b.appendChild(decorate(c.label));
       b.addEventListener("click", () => doAction(() => {
         api.choose(c.index);

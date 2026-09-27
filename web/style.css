@@ -332,3 +332,9 @@ section, .panel {
 .progress-row span { flex: 1; font-variant-numeric: tabular-nums; }
 .progress-track { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
 #analysis-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+
+/* supply: two columns of card + count, filled top to bottom */
+#supply-table tbody { display: grid; grid-template-columns: 1fr 1fr; grid-auto-flow: column; grid-template-rows: repeat(var(--supply-rows, 9), auto); column-gap: 18px; }
+#supply-table tr { display: flex; justify-content: space-between; align-items: center; }
+#supply-table td { border: none; padding: 1px 4px; }
+#supply-table tr, #supply-table td { background: none !important; }

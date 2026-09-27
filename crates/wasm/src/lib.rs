@@ -947,7 +947,7 @@ fn choice_label(d: &Decision, c: Choice) -> String {
             let name = cards::name(card);
             match d.kind {
                 DecisionKind::PlayAction => format!("Play {name}"),
-                DecisionKind::Buy => format!("Buy {name} (${})", cards::cost(card)),
+                DecisionKind::Buy => format!("Buy {name}"),
                 DecisionKind::Gain { .. } => format!("Gain {name}"),
                 DecisionKind::Select { act, .. } => match act {
                     Act::Discard => format!("Discard {name}"),
@@ -1005,7 +1005,12 @@ fn sequence_json(iter: impl Iterator<Item = u8>) -> String {
 
 fn supply_json(state: &GameState) -> String {
     let mut ids: Vec<u8> = (0..cards::NUM_CARDS as u8).filter(|&c| state.in_supply(c)).collect();
-    ids.sort_by_key(|&c| (cards::cost(c), cards::name(c)));
+    // Victory, then treasure (high to low), then Curse, then kingdom cards cheapest first.
+    const BASE_ORDER: [u8; 7] = [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER, id::COPPER, id::CURSE];
+    ids.sort_by_key(|&c| match BASE_ORDER.iter().position(|&b| b == c) {
+        Some(i) => (0, i as u8, ""),
+        None => (1, cards::cost(c), cards::name(c)),
+    });
     let items: Vec<String> = ids
         .iter()
         .map(|&c| {

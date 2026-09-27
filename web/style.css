@@ -164,6 +164,14 @@ section, .panel {
   margin-top: 8px;
 }
 .error.inline { margin: 0; }
+.notice {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--c-attack-edge);
+  background: var(--current);
+  font-size: 13px;
+}
 
 #game-panel { display: flex; flex-direction: column; gap: 12px; }
 

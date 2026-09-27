@@ -185,6 +185,23 @@
       e.textContent = msg;
     }
   }
+  // Loaded states start at a phase boundary; a buy-phase state can't play the actions in hand.
+  function showLoadNotice(view) {
+    const n = $("text-notice");
+    const me = view.players[view.turn.player];
+    const actions = me
+      ? me.hand.filter((c) => /(action|reaction)/.test(cardClass.get(c.name) || "")).map((c) => c.name)
+      : [];
+    if (view.turn.phase === "buy" && actions.length) {
+      n.textContent =
+        `Loaded in the buy phase, so ${actions.join(", ")} can't be played this turn. ` +
+        `To play actions, set "phase: action" (and move cards from "in play" back to hand/deck).`;
+      n.hidden = false;
+    } else {
+      n.hidden = true;
+    }
+  }
+
   function showNewGameError(msg) {
     const e = $("newgame-error");
     if (!msg) {
@@ -444,6 +461,7 @@
     $("btn-load").addEventListener("click", () => {
       try {
         api.loadState($("state-text").value);
+        showLoadNotice(api.getView());
         maybeRunBots();
         showLoadError("");
         render();

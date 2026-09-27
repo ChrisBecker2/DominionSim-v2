@@ -252,6 +252,8 @@ pub extern "C" fn load_state(ptr: u32, len: u32) -> i32 {
                 app.redo.clear();
                 app.log.clear();
                 app.log.push("Loaded state from text.".to_string());
+                let summary = load_summary(&app.state);
+                app.log.push(summary);
                 // Parsing always clears `pending` (see text.rs docs); advance once to compute
                 // the first real decision (or discover the game is already over).
                 advance_and_log(&mut app);
@@ -422,6 +424,31 @@ fn advance_and_log(app: &mut App) {
             app.log_group = None;
         }
     }
+}
+
+/// Where a loaded turn starts: phase, coins/actions/buys already counted, cards already in play.
+fn load_summary(state: &GameState) -> String {
+    let t = &state.turn;
+    let p = t.player as usize;
+    let phase = match t.phase {
+        Phase::Action => "action phase",
+        Phase::Buy => "buy phase",
+        Phase::CleanupDraw => "cleanup",
+        Phase::Setup => "setup",
+        Phase::GameOver => "game over",
+    };
+    let in_play = dominion_engine::format_counts(&state.players[p].in_play);
+    let in_play = if in_play.is_empty() { "nothing".to_string() } else { in_play };
+    let fresh = t.coins == 0 && state.players[p].in_play.is_empty();
+    format!(
+        ":: Turn {} starts{}: Player {}, {phase}, ${} already counted, {} action(s), {} buy(s); in play: {in_play}",
+        t.number,
+        if fresh { "" } else { " mid-turn" },
+        p + 1,
+        t.coins,
+        t.actions,
+        t.buys
+    )
 }
 
 /// "Provinces ran out" / piles / turn cap, then each player's result, winner(s) first.

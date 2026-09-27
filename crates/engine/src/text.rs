@@ -44,12 +44,10 @@ pub fn format_counts(c: &Counts) -> String {
 /// Blank/whitespace-only input parses to an empty multiset.
 pub fn parse_counts(s: &str) -> Result<Counts, String> {
     let mut counts = Counts::EMPTY;
-    for tok in split_parts(s) {
-        let (n, name) = parse_qty_name(tok)?;
-        let id = cards::by_name(name).ok_or_else(|| format!("unknown card '{name}'"))?;
+    for (n, id) in parse_entries(s)? {
         let cur = counts.get(id) as u32;
         if cur + n > 255 {
-            return Err(format!("count too large for '{name}'"));
+            return Err(format!("count too large for '{}'", cards::name(id)));
         }
         counts.add(id, n as u8);
     }
@@ -90,9 +88,7 @@ fn u8_or_u32_clamped(n: usize) -> u8_ {
 /// (the latter expands to `[Copper, Copper, Copper, Gold]`). Blank input parses to `[]`.
 pub fn parse_card_sequence(s: &str) -> Result<Vec<CardId>, String> {
     let mut out = Vec::new();
-    for tok in split_parts(s) {
-        let (n, name) = parse_qty_name(tok)?;
-        let id = cards::by_name(name).ok_or_else(|| format!("unknown card '{name}'"))?;
+    for (n, id) in parse_entries(s)? {
         for _ in 0..n {
             out.push(id);
         }
@@ -112,26 +108,54 @@ fn split_parts(s: &str) -> Vec<&str> {
     s.split(',').map(|t| t.trim()).filter(|t| !t.is_empty()).collect()
 }
 
-/// Splits a token like `"3 Copper"`, `"3x Copper"` or `"Copper"` into `(count, name)`.
-fn parse_qty_name(tok: &str) -> Result<(u32, &str), String> {
-    let tok = tok.trim();
-    let digit_end = tok.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(tok.len());
-    if digit_end == 0 {
-        if tok.is_empty() {
-            return Err("empty card entry".to_string());
+/// Parse a card list into `(count, card)` entries. Commas are optional: entries may be separated
+/// by commas and/or spaces, e.g. `"Village, 3 Copper"` or `"Village Remodel 2x Gold Smithy"`.
+/// Multi-word names ("Throne Room") are matched longest-first, and spacing/case are ignored
+/// (`ThroneRoom`, `throne room`). A count is `N` or `Nx` before the name (`3 Copper`, `3x Copper`,
+/// `3xCopper`).
+fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
+    const MAX_NAME_WORDS: usize = 3;
+    let toks: Vec<&str> = s.split(|c: char| c == ',' || c.is_whitespace()).filter(|t| !t.is_empty()).collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        // Optional count: "3", "3x", or glued to the name as "3xCopper" / "3Copper".
+        let tok = toks[i];
+        let digits = tok.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(tok.len());
+        let mut n = 1u32;
+        let mut first = tok;
+        if digits > 0 {
+            n = tok[..digits].parse().map_err(|_| format!("invalid count in '{tok}'"))?;
+            let rest = &tok[digits..];
+            let rest = rest.strip_prefix('x').or_else(|| rest.strip_prefix('X')).unwrap_or(rest);
+            if rest.is_empty() {
+                i += 1;
+                first = *toks.get(i).ok_or_else(|| format!("missing card name after '{tok}'"))?;
+            } else {
+                first = rest;
+            }
         }
-        return Ok((1, tok));
+        // Longest card name starting here.
+        let mut matched = None;
+        for words in (1..=MAX_NAME_WORDS).rev() {
+            if i + words > toks.len() {
+                continue;
+            }
+            let mut name = first.to_string();
+            for t in &toks[i + 1..i + words] {
+                name.push(' ');
+                name.push_str(t);
+            }
+            if let Some(id) = cards::by_name(&name) {
+                matched = Some((id, words));
+                break;
+            }
+        }
+        let (id, words) = matched.ok_or_else(|| format!("unknown card '{first}'"))?;
+        out.push((n, id));
+        i += words;
     }
-    let n: u32 = tok[..digit_end].parse().map_err(|_| format!("invalid count in '{tok}'"))?;
-    let mut rest = tok[digit_end..].trim_start();
-    if let Some(r) = rest.strip_prefix('x').or_else(|| rest.strip_prefix('X')) {
-        rest = r;
-    }
-    let name = rest.trim();
-    if name.is_empty() {
-        return Err(format!("missing card name in '{tok}'"));
-    }
-    Ok((n, name))
+    Ok(out)
 }
 
 /// Parse a plain comma-separated list of kingdom card names (no counts), e.g.
@@ -142,12 +166,11 @@ pub fn parse_kingdom(s: &str) -> Result<Vec<CardId>, String> {
 
 fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
     let mut out = Vec::new();
-    for tok in split_parts(s) {
-        let (n, name) = parse_qty_name(tok)?;
+    for (n, id) in parse_entries(s)? {
+        let name = cards::name(id);
         if n != 1 {
-            return Err(format!("kingdom cards must be listed individually, found '{tok}'"));
+            return Err(format!("kingdom cards must be listed individually, found '{n} {name}'"));
         }
-        let id = cards::by_name(name).ok_or_else(|| format!("unknown card '{name}'"))?;
         if id < cards::FIRST_KINGDOM {
             return Err(format!("'{name}' is not a kingdom card"));
         }
@@ -484,6 +507,33 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 // ---------------------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod no_comma_tests {
+    use super::*;
+    use crate::cards::id;
+
+    #[test]
+    fn card_lists_without_commas() {
+        let c = parse_counts("Village Remodel Gold Smithy").unwrap();
+        assert_eq!(c.total(), 4);
+        assert!(c.has(id::VILLAGE) && c.has(id::REMODEL) && c.has(id::GOLD) && c.has(id::SMITHY));
+
+        let c = parse_counts("Throne Room 3 Copper council room 2x Estate 2xSilver").unwrap();
+        assert_eq!(c.get(id::THRONE_ROOM), 1);
+        assert_eq!(c.get(id::COUNCIL_ROOM), 1);
+        assert_eq!(c.get(id::COPPER), 3);
+        assert_eq!(c.get(id::ESTATE), 2);
+        assert_eq!(c.get(id::SILVER), 2);
+
+        // Mixed commas and spaces; order preserved for sequences.
+        assert_eq!(parse_card_sequence("Gold, Silver Throne Room").unwrap(), vec![id::GOLD, id::SILVER, id::THRONE_ROOM]);
+        assert_eq!(parse_kingdom("Cellar Market Merchant Militia Mine Moat Remodel Smithy Village Workshop").unwrap().len(), 10);
+
+        assert!(parse_counts("Village Bogus").unwrap_err().contains("Bogus"));
+        assert!(parse_counts("3").is_err());
+    }
+}
 
 #[cfg(test)]
 mod tests {

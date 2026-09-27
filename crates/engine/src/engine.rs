@@ -15,61 +15,34 @@
 
 use crate::cards::{self, id, CardId, ACTION, NUM_CARDS, TREASURE};
 use crate::counts::Counts;
-use crate::state::{Frame, FrameKind, GameState, Phase, TurnState};
+use crate::state::{Act, Dest, Filter, Frame, FrameKind, GameState, Phase, TurnState, Zone};
 
+/// What kind of input is needed. Deliberately generic: a new card should almost always be
+/// expressible as a composition of these, not a new variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DecisionKind {
-    /// Choices: `Card(action in hand)` or `Pass` (go to buy phase).
+    /// Action phase. Choices: `Card(action in hand)` or `Pass` (go to buy phase).
     PlayAction,
-    /// Choices: `Card(affordable supply card)` or `Pass` (end turn).
+    /// Buy phase. Choices: `Card(affordable supply card)` or `Pass` (end turn).
     Buy,
-    /// Gain a card (Workshop, Remodel, Mine, Artisan). Choices: `Card(..)`.
-    Gain,
-    /// Cellar: `Card(c)` discards one more, `Pass` stops and draws.
-    CellarDiscard,
-    /// Chapel: `Card(c)` trashes one more (max 4), `Pass` stops.
-    ChapelTrash,
-    /// Harbinger: `Card(c)` from discard onto deck, or `Pass`.
-    HarbingerTopdeck,
-    /// Vassal: play the discarded action (`subject`)? `Yes`/`No`.
-    VassalPlay,
-    /// Bureaucrat victim: `Card(victory card)` to put on deck.
-    BureaucratTopdeck,
-    /// Militia victim: `Card(c)` to discard (repeats until 3 left).
-    MilitiaDiscard,
-    /// Moneylender: trash a Copper for +$3? `Yes`/`No`.
-    MoneylenderTrash,
-    /// Poacher: `Card(c)` to discard (repeats per empty pile).
-    PoacherDiscard,
-    /// Remodel: `Card(c)` to trash.
-    RemodelTrash,
-    /// Throne Room: `Card(action)` to play twice, or `Pass`.
-    ThroneRoomTarget,
-    /// Bandit victim: which revealed treasure to trash, `Card(c)`.
-    BanditTrash,
-    /// Library drew action `subject`: set it aside? `Yes`/`No`.
-    LibrarySetAside,
-    /// Mine: `Card(treasure)` to trash, or `Pass`.
-    MineTrash,
-    /// Sentry: fate of revealed `subject`: `Opt(SENTRY_TRASH | SENTRY_DISCARD | SENTRY_KEEP)`.
-    SentryFate,
-    /// Sentry: `Card(c)` = which kept card goes on top.
-    SentryOrder,
-    /// Artisan: `Card(c)` from hand onto deck.
-    ArtisanTopdeck,
+    /// Gain a card from the supply costing up to `max_cost`. Choices: `Card(..)`.
+    Gain { max_cost: u8, filter: Filter, dest: Dest },
+    /// Pick ONE card from `from` (matching `filter`) to `act` on. The selection repeats;
+    /// `min`/`max` are the picks still required/allowed (including this one). `Pass` is legal
+    /// when `min == 0` and ends the selection. When `ordered` is false, picks are offered in
+    /// non-decreasing card order (each multiset of picks has exactly one path).
+    Select { from: Zone, act: Act, filter: Filter, min: u8, max: u8, ordered: bool },
+    /// Apply `act` to `Decision::subject`? Choices: `Yes` / `No`.
+    YesNo { act: Act },
 }
-
-pub const SENTRY_TRASH: u8 = 0;
-pub const SENTRY_DISCARD: u8 = 1;
-pub const SENTRY_KEEP: u8 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Decision {
     pub player: u8,
     pub kind: DecisionKind,
-    /// The card whose effect caused this decision (0 = none, e.g. PlayAction/Buy).
-    pub source: CardId,
-    /// The card being decided about, where relevant (Vassal/Library/Sentry fate).
+    /// The card whose effect caused this decision (`None` for PlayAction/Buy).
+    pub source: Option<CardId>,
+    /// The card a `YesNo` decision is about.
     pub subject: CardId,
 }
 
@@ -79,7 +52,6 @@ pub enum Choice {
     Card(CardId),
     Yes,
     No,
-    Opt(u8),
 }
 
 pub const CHOICE_CAP: usize = 48;
@@ -136,13 +108,6 @@ pub enum Pending {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Dest {
-    Discard,
-    Hand,
-    DeckTop,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     TurnStart { player: u8, turn: u16 },
     Shuffle { player: u8 },
@@ -185,13 +150,6 @@ pub(crate) enum Run {
 
 /// A draw/reveal from an unknown deck needs a chance outcome (chance mode only).
 pub(crate) struct NeedChance(pub u8);
-
-// Gain filters / destinations encoded in Frame fields.
-pub(crate) const FILTER_ANY: u8 = 0;
-pub(crate) const FILTER_TREASURE: u8 = 1;
-pub(crate) const DEST_DISCARD: u8 = 0;
-pub(crate) const DEST_HAND: u8 = 1;
-pub(crate) const DEST_DECK: u8 = 2;
 
 impl GameState {
     // ------------------------------------------------------------------
@@ -374,7 +332,7 @@ impl GameState {
                 self.turn.coins -= cards::cost(c) as u16;
                 self.turn.buys -= 1;
                 sink.event(Event::Buy { player: p, card: c });
-                self.gain(p, c, DEST_DISCARD, sink);
+                self.gain(p, c, Dest::Discard, sink);
             }
             (Phase::Buy, _) => self.cleanup(sink),
             _ => unreachable!(),
@@ -417,7 +375,7 @@ impl GameState {
         ps.hand.clear();
         ps.in_play.clear();
         self.turn.phase = Phase::CleanupDraw;
-        self.stack.push(Frame { a: 5, ..Frame::new(FrameKind::Draw, p as u8) });
+        self.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
     }
 
     // ------------------------------------------------------------------
@@ -450,42 +408,18 @@ impl GameState {
     }
 
     /// Gain `c` from the supply if available. Returns whether it was gained.
-    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, dest: u8, sink: &mut S) -> bool {
+    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, sink: &mut S) -> bool {
         if !self.supply.remove(c) {
             return false;
         }
         let ps = &mut self.players[p as usize];
-        let to = match dest {
-            DEST_HAND => {
-                ps.hand.add(c, 1);
-                Dest::Hand
-            }
-            DEST_DECK => {
-                ps.deck_known.push_top(c);
-                Dest::DeckTop
-            }
-            _ => {
-                ps.discard.add(c, 1);
-                Dest::Discard
-            }
-        };
+        match to {
+            Dest::Hand => ps.hand.add(c, 1),
+            Dest::DeckTop => ps.deck_known.push_top(c),
+            Dest::Discard => ps.discard.add(c, 1),
+        }
         sink.event(Event::Gain { player: p, card: c, to });
         true
-    }
-
-    pub(crate) fn trash_from_hand<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
-        let ok = self.players[p as usize].hand.remove(c);
-        debug_assert!(ok);
-        self.trash.add(c, 1);
-        sink.event(Event::Trash { player: p, card: c });
-    }
-
-    pub(crate) fn discard_from_hand<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
-        let ps = &mut self.players[p as usize];
-        let ok = ps.hand.remove(c);
-        debug_assert!(ok);
-        ps.discard.add(c, 1);
-        sink.event(Event::Discard { player: p, card: c });
     }
 
     /// Moat check (auto-revealed; revealing is never worse in the base set).
@@ -514,8 +448,8 @@ impl GameState {
         self.stack.top().map(|f| f.player).unwrap_or(self.turn.player)
     }
 
-    fn decision_source(&self) -> CardId {
-        self.stack.top().map(|f| f.source_card()).unwrap_or(0)
+    fn decision_source(&self) -> Option<CardId> {
+        self.stack.top().map(|f| f.source)
     }
 }
 

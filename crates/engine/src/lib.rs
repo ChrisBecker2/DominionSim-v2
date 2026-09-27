@@ -20,5 +20,5 @@ pub mod text;
 pub use agent::{play_game, Agent, GameResult, PlayerView};
 pub use cards::{id, CardId};
 pub use counts::Counts;
-pub use engine::{Choice, ChoiceBuf, Decision, DecisionKind, Dest, Event, EventSink, NoEvents, Pending, Step};
-pub use state::{GameConfig, GameState, Phase};
+pub use engine::{Choice, ChoiceBuf, Decision, DecisionKind, Event, EventSink, NoEvents, Pending, Step};
+pub use state::{Act, Dest, Filter, GameConfig, GameState, Phase, Zone};

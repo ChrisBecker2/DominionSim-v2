@@ -137,67 +137,144 @@ impl TurnState {
     }
 }
 
-/// A pending piece of work on the effect stack. Card effects that need input or
-/// that span several steps are expressed as frames so the engine can stop and
-/// resume at any decision or chance point. Field meaning depends on `kind`.
+/// A zone a selection picks cards from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Zone {
+    Hand,
+    Discard,
+    /// Cards revealed / looked at / set aside (the player's `set_aside` zone).
+    Revealed,
+}
+
+/// What happens to a picked card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Act {
+    Discard,
+    Trash,
+    /// Put onto the draw pile (it becomes the new top card).
+    Topdeck,
+    /// Play it (e.g. Throne Room target, Vassal's discarded action).
+    Play,
+    SetAside,
+}
+
+/// Which cards are eligible for a selection or gain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Filter {
+    Any,
+    Action,
+    Treasure,
+    Victory,
+    Card(CardId),
+    NonCopperTreasure,
+}
+
+impl Filter {
+    #[inline]
+    pub fn matches(self, c: CardId) -> bool {
+        match self {
+            Filter::Any => true,
+            Filter::Action => cards::is(c, cards::ACTION),
+            Filter::Treasure => cards::is(c, cards::TREASURE),
+            Filter::Victory => cards::is(c, cards::VICTORY),
+            Filter::Card(x) => c == x,
+            Filter::NonCopperTreasure => c != id::COPPER && cards::is(c, cards::TREASURE),
+        }
+    }
+}
+
+/// Where a gained card goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Dest {
+    Discard,
+    Hand,
+    DeckTop,
+}
+
+/// Continuation run when a `Select` frame finishes. `count` = cards picked, `last` = last pick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Then {
+    Nothing,
+    /// Draw one card per pick (Cellar).
+    DrawPerPick,
+    /// +$n per pick (Moneylender).
+    CoinsPerPick(u8),
+    /// If something was picked, gain a card costing up to cost(last) + plus (Remodel, Mine).
+    GainUpTo { plus: u8, filter: Filter, dest: Dest },
+    /// Resolve the picked card's effects `times` times (Throne Room).
+    PlayPicked { times: u8 },
+    /// Discard whatever is left in the Revealed zone (Bandit).
+    DiscardRevealed,
+}
+
+/// A pending piece of work on the effect stack. Card effects that need input or span
+/// several steps are built from these few generic frames, so the engine can stop and
+/// resume at any decision or chance point, and new cards mostly compose existing frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Frame {
     pub kind: FrameKind,
     /// The player this frame acts on (the victim for attacks).
     pub player: u8,
-    pub card: CardId,
-    pub a: u8,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
+    /// The card whose effect created this frame (0 with `FrameKind::Draw` from cleanup).
+    pub source: CardId,
+    pub zone: Zone,
+    pub act: Act,
+    pub filter: Filter,
+    pub dest: Dest,
+    /// Select: minimum/maximum picks. Draw/RevealTop: cards remaining. Gain: max cost.
+    pub min: u8,
+    pub max: u8,
+    /// Select: picks made so far. Library: 1 while `subject` awaits a decision.
+    pub count: u8,
+    /// Select: last picked card (also the lower bound for canonical ordering).
+    pub last: CardId,
+    /// Select: picks are order-sensitive (topdecking several cards), so no canonical ordering.
+    pub ordered: bool,
+    pub then: Then,
+    /// The card a YesNo decision is about / the card to PlayEffects.
+    pub subject: CardId,
 }
 
 impl Frame {
-    pub fn new(kind: FrameKind, player: u8) -> Self {
-        Frame { kind, player, card: 0, a: 0, b: 0, c: 0, d: 0 }
+    pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
+        Frame {
+            kind,
+            player,
+            source,
+            zone: Zone::Hand,
+            act: Act::Discard,
+            filter: Filter::Any,
+            dest: Dest::Discard,
+            min: 0,
+            max: 0,
+            count: 0,
+            last: 0,
+            ordered: false,
+            then: Then::Nothing,
+            subject: 0,
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FrameKind {
-    /// Draw `a` cards for `player`.
+    /// Draw `max` cards for `player`.
     Draw,
-    /// Resolve the on-play effects of `card` (card is already in play). Used by Throne Room / Vassal.
+    /// Resolve the on-play effects of `subject` (already in play). Used by Throne Room / Vassal.
     PlayEffects,
-    /// Gain a card costing up to `a`; `b` = GainFilter, `c` = GainDest. Mandatory if any legal.
+    /// Gain a card costing up to `max` matching `filter` to `dest`. Mandatory if any is legal.
     Gain,
-    /// Cellar: discard any number (a = discarded so far, b = min card id allowed next), then draw a.
-    Cellar,
-    /// Chapel: trash up to 4 (a = trashed so far, b = min id).
-    Chapel,
-    /// Harbinger: may put a card from discard onto deck.
-    Harbinger,
-    /// Vassal: discard top card of deck; if action, may play it.
+    /// Pick cards one at a time from `zone` matching `filter` and apply `act`; `min..=max` picks
+    /// (clamped to what's available), then run `then`.
+    Select,
+    /// Reveal the top `max` cards of the deck into the Revealed zone (set_aside).
+    RevealTop,
+    /// Yes/no: apply `act` to `subject` located in `zone`.
+    YesNo,
+    /// Vassal: discard the top card of the deck; if it's an Action, ask to play it.
     Vassal,
-    /// Vassal follow-up: `card` is the discarded action; YesNo play it.
-    VassalPlay,
-    /// Bureaucrat victim: topdeck a Victory card from hand.
-    BureaucratVictim,
-    /// Militia victim: discard down to 3 (b = min id).
-    MilitiaVictim,
-    /// Moneylender: may trash a Copper for +$3.
-    Moneylender,
-    /// Poacher: discard `a` more cards (b = min id).
-    Poacher,
-    /// Remodel: trash a card from hand, then Gain up to cost+2.
-    Remodel,
-    /// Throne Room: may choose an action in hand to play twice.
-    ThroneRoom,
-    /// Bandit victim: reveal top 2 (stored in c/d, a = revealed count), trash a non-Copper treasure.
-    BanditVictim,
-    /// Library: draw to 7, may set aside actions. `a`=1 while `card` awaits the set-aside decision.
+    /// Library: draw to 7, may set aside Actions (`count` = 1 while `subject` awaits the decision).
     Library,
-    /// Mine: may trash a treasure from hand, gain a treasure costing up to +3 to hand.
-    Mine,
-    /// Sentry: look at top 2 (stored in c/d, a = count, b = stage).
-    Sentry,
-    /// Artisan follow-up: put a card from hand onto the deck.
-    ArtisanTopdeck,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -208,7 +285,7 @@ pub struct FrameStack {
 
 impl Default for FrameStack {
     fn default() -> Self {
-        FrameStack { frames: [Frame::new(FrameKind::Draw, 0); STACK_CAP], len: 0 }
+        FrameStack { frames: [Frame::new(FrameKind::Draw, 0, 0); STACK_CAP], len: 0 }
     }
 }
 
@@ -334,7 +411,7 @@ impl GameState {
         }
         // Push in reverse so player 0 draws first.
         for p in (0..n).rev() {
-            s.stack.push(Frame { a: 5, ..Frame::new(FrameKind::Draw, p as u8) });
+            s.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
         }
         s
     }

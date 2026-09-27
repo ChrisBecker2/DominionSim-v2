@@ -9,23 +9,23 @@ name = "Village/Smithy Engine"
 description = "Villages chain Smithies for a growing hand instead of flat Big Money."
 play = ["Village", "Smithy"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Village"
 if = "count(Village) < 2"
 
-[[buy]]
+[[gain]]
 card = "Smithy"
 if = "count(Smithy) < 3"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Village"
 if = "count(Village) < 4"
 
-[[buy]]
+[[gain]]
 card = "Silver"

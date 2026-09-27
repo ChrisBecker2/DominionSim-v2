@@ -9,18 +9,18 @@
 name = "Gardens/Workshop"
 description = "Province when affordable; otherwise rush Gardens (via Workshop) for VP from deck size."
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Workshop"
 if = "count(Workshop) < 2"
 
-[[buy]]
+[[gain]]
 card = "Gardens"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Silver"

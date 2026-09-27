@@ -6,15 +6,15 @@ name = "Laboratory-BM"
 description = "Big Money with up to two Laboratories for smoother draws."
 play = ["Laboratory"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Laboratory"
 if = "count(Laboratory) < 2"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Silver"

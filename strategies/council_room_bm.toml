@@ -6,15 +6,15 @@ name = "Council Room-BM"
 description = "Big Money using Council Room's big draw to accelerate through the deck."
 play = ["Council Room"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Council Room"
 if = "count(CouncilRoom) < 2"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Silver"

@@ -7,19 +7,19 @@
 name = "Big Money Ultimate"
 description = "Big Money plus Duchy/Estate endgame rules."
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Duchy"
 if = "provinces_left <= 4"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Estate"
 if = "provinces_left <= 2"
 
-[[buy]]
+[[gain]]
 card = "Silver"

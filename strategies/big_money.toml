@@ -7,11 +7,11 @@
 name = "Big Money"
 description = "Province @ 8, Gold @ 6-7, Silver @ 3-5. No kingdom cards."
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Silver"

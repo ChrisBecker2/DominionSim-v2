@@ -7,15 +7,15 @@ name = "Smithy-BM"
 description = "Big Money that picks up one Smithy along the way."
 play = ["Smithy"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Smithy"
 if = "count(Smithy) < 1"
 
-[[buy]]
+[[gain]]
 card = "Silver"

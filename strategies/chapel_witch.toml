@@ -8,23 +8,23 @@ description = "Chapel trims the deck early; two Witches curse the opponents; Big
 play = ["Witch", "Chapel"]
 keep_treasure = 3
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Witch"
 if = "count(Witch) < 2"
 
-[[buy]]
+[[gain]]
 card = "Chapel"
 if = "count(Chapel) < 1"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Duchy"
 if = "provinces_left <= 4"
 
-[[buy]]
+[[gain]]
 card = "Silver"

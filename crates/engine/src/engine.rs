@@ -15,7 +15,7 @@
 
 use crate::cards::{self, id, CardId, ACTION, NUM_CARDS, TREASURE};
 use crate::counts::Counts;
-use crate::state::{Act, Dest, Filter, Frame, FrameKind, GameState, Phase, TurnState, Zone};
+use crate::state::{Act, Dest, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
 
 /// What kind of input is needed. Deliberately generic: a new card should almost always be
 /// expressible as a composition of these, not a new variant.
@@ -44,6 +44,17 @@ pub struct Decision {
     pub source: Option<CardId>,
     /// The card a `YesNo` decision is about.
     pub subject: CardId,
+    /// For a selection whose picked card is then "upgraded" (Remodel, Mine, ...): the card you
+    /// pick lets you gain a card costing up to `cost(pick) + plus`.
+    pub upgrade: Option<Upgrade>,
+}
+
+/// "Trash a card, gain a card costing up to $N more" — what a selection leads to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Upgrade {
+    pub plus: u8,
+    pub filter: Filter,
+    pub dest: Dest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -180,7 +191,13 @@ impl GameState {
                     return Step::Chance { player: p };
                 }
                 Run::Decide(kind, subject) => {
-                    let d = Decision { player: self.decider(), kind, source: self.decision_source(), subject };
+                    let d = Decision {
+                        player: self.decider(),
+                        kind,
+                        source: self.decision_source(),
+                        subject,
+                        upgrade: self.decision_upgrade(),
+                    };
                     self.set_pending(Pending::Decision(d));
                     if self.auto_single {
                         let mut buf = ChoiceBuf::default();
@@ -473,6 +490,13 @@ impl GameState {
     /// Who must decide right now: the top frame's player, else the current player.
     fn decider(&self) -> u8 {
         self.stack.top().map(|f| f.player).unwrap_or(self.turn.player)
+    }
+
+    fn decision_upgrade(&self) -> Option<Upgrade> {
+        match self.stack.top() {
+            Some(Frame { kind: FrameKind::Select, then: Then::GainUpTo { plus, filter, dest }, .. }) => Some(Upgrade { plus, filter, dest }),
+            _ => None,
+        }
     }
 
     fn decision_source(&self) -> Option<CardId> {

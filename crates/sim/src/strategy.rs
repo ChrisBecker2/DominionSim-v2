@@ -1,9 +1,15 @@
 //! Human-readable scripted strategies.
 //!
-//! A strategy is a small TOML file: an ordered **buy priority list** (each entry optionally
-//! gated by a condition, see `expr.rs`), an ordered **action play priority list**, and a few
-//! optional knobs for sub-decisions (Chapel/Sentry trashing, how much treasure to keep in hand).
-//! Everything else (Cellar, Militia, Bureaucrat, Remodel, Mine, Throne Room, Bandit, Library,
+//! A strategy is a small TOML file: an ordered **gain priority list** (`[[gain]]`, each entry
+//! optionally gated by a condition, see `expr.rs`), an ordered **action play priority list**, and
+//! a few optional knobs for sub-decisions (Chapel/Sentry trashing, how much treasure to keep in hand).
+//!
+//! The gain list drives every gain, strictly in order: buys, Workshop/Artisan gains, and
+//! "trash a card, gain a better one" upgrades (Remodel, Mine): for an upgrade, the strategy trashes
+//! whichever card unlocks the highest-ranked gain in the list (ties: trash the cheaper card).
+//! `[[buy]]` is accepted as an older alias for `[[gain]]`.
+//!
+//! Everything else (Cellar, Militia, Bureaucrat, Throne Room, Bandit, Library,
 //! Harbinger, Vassal, Moneylender, Artisan, Sentry, Poacher...) is handled by sensible,
 //! table-driven defaults keyed on the *shape* of the decision (which zone, which action) rather
 //! than the specific card, per `dominion_engine::engine::DecisionKind::Select` /
@@ -38,6 +44,10 @@ struct StrategyFile {
     name: String,
     #[serde(default)]
     description: String,
+    /// Gain priority list (used for buys and every other gain).
+    #[serde(default)]
+    gain: Vec<BuyRuleRaw>,
+    /// Older name for `gain`.
     #[serde(default)]
     buy: Vec<BuyRuleRaw>,
     /// Action play priority, highest priority first.
@@ -80,9 +90,13 @@ impl Strategy {
             return Err("strategy is missing a `name`".to_string());
         }
 
-        let mut buy = Vec::with_capacity(raw.buy.len());
-        for rule in &raw.buy {
-            let card = cards::by_name(&rule.card).ok_or_else(|| format!("unknown card {:?} in buy list", rule.card))?;
+        if !raw.gain.is_empty() && !raw.buy.is_empty() {
+            return Err("use either [[gain]] or [[buy]] (an alias), not both".to_string());
+        }
+        let rules = if raw.gain.is_empty() { &raw.buy } else { &raw.gain };
+        let mut buy = Vec::with_capacity(rules.len());
+        for rule in rules {
+            let card = cards::by_name(&rule.card).ok_or_else(|| format!("unknown card {:?} in gain list", rule.card))?;
             let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
             buy.push((card, cond));
         }
@@ -173,6 +187,18 @@ impl Strategy {
         None
     }
 
+    /// Rank (index in the gain list) of the best entry that could be gained right now for at
+    /// most `max_cost`, matching `filter`, with its pile non-empty and its condition true.
+    fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter) -> Option<usize> {
+        self.buy.iter().position(|(card, cond)| {
+            cards::cost(*card) <= max_cost
+                && filter.matches(*card)
+                && view.in_supply(*card)
+                && view.supply(*card) > 0
+                && cond.as_ref().map_or(true, |e| e.eval_bool(view))
+        })
+    }
+
     fn choose_gain(&self, view: &PlayerView, _decision: &Decision, choices: &[Choice]) -> Choice {
         if let Some(c) = self.match_buy_list(view, choices) {
             return Choice::Card(c);
@@ -256,26 +282,25 @@ impl Strategy {
     // -----------------------------------------------------------------------------------------
 
     fn choose_trash(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], from: Zone, forced: bool) -> Choice {
-        // Remodel: trash Gold for a Province once that upgrade is live and we're not down to
-        // our last Gold; otherwise junk-first like everything else.
-        if decision.source == Some(id::REMODEL) {
-            if has_card(choices, id::GOLD)
-                && view.supply(id::PROVINCE) > 0
-                && cards::cost(id::GOLD) + 2 >= cards::cost(id::PROVINCE)
-                && (view.my_cards().get(id::GOLD) >= 2 || view.supply(id::PROVINCE) <= 4)
-            {
-                return Choice::Card(id::GOLD);
+        // Upgrades (Remodel, Mine, ...): trash whichever card unlocks the best gain in the gain
+        // list, strictly by list order; ties trash the cheaper card.
+        if let Some(up) = decision.upgrade {
+            let mut best: Option<(usize, u8, CardId)> = None;
+            for c in iter_cards(choices) {
+                if let Some(rank) = self.best_gain_rank(view, cards::cost(c) + up.plus, up.filter) {
+                    let key = (rank, cards::cost(c), c);
+                    if best.map_or(true, |b| key < b) {
+                        best = Some(key);
+                    }
+                }
             }
-        }
-        // Mine: Silver -> Gold, else Copper -> Silver. A plain treasure isn't "junk" so the
-        // generic junk-list wouldn't ever pick it.
-        if decision.source == Some(id::MINE) {
-            if has_card(choices, id::SILVER) {
-                return Choice::Card(id::SILVER);
+            if let Some((_, _, c)) = best {
+                return Choice::Card(c);
             }
-            if has_card(choices, id::COPPER) {
-                return Choice::Card(id::COPPER);
+            if !forced {
+                return Choice::Pass;
             }
+            // Forced and nothing unlocks a listed gain: fall through to junk-first.
         }
 
         for &jc in &self.trash_priority {

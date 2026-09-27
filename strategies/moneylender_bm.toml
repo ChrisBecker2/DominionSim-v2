@@ -6,15 +6,15 @@ name = "Moneylender-BM"
 description = "Big Money that trashes one Copper via Moneylender for a fast economy boost."
 play = ["Moneylender"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Moneylender"
 if = "count(Moneylender) < 1"
 
-[[buy]]
+[[gain]]
 card = "Silver"

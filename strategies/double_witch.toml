@@ -8,19 +8,19 @@ name = "Double Witch"
 description = "Two Witches ASAP, then Big Money with a Duchy endgame."
 play = ["Witch"]
 
-[[buy]]
+[[gain]]
 card = "Province"
 
-[[buy]]
+[[gain]]
 card = "Witch"
 if = "count(Witch) < 2"
 
-[[buy]]
+[[gain]]
 card = "Gold"
 
-[[buy]]
+[[gain]]
 card = "Duchy"
 if = "provinces_left <= 4"
 
-[[buy]]
+[[gain]]
 card = "Silver"

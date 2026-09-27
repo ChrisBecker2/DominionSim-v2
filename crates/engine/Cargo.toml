@@ -1,0 +1,6 @@
+[package]
+name = "dominion-engine"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]

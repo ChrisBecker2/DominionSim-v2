@@ -1,0 +1,148 @@
+//! Player interface. Agents see the game only through an honest `PlayerView`.
+
+use crate::cards::CardId;
+use crate::counts::Counts;
+use crate::engine::{Choice, ChoiceBuf, Decision, EventSink, Step};
+use crate::state::{GameState, Phase, TurnState, MAX_PLAYERS};
+
+/// What player `me` legitimately knows. A perfect-memory player knows the full contents of
+/// their own deck (not its order, except cards they've seen placed on top), and the full card
+/// composition of every opponent (all gains/trashes are public), but not how an opponent's
+/// cards are split between hand, deck and discard.
+#[derive(Clone, Copy)]
+pub struct PlayerView<'a> {
+    state: &'a GameState,
+    me: u8,
+}
+
+impl<'a> PlayerView<'a> {
+    pub fn new(state: &'a GameState, me: u8) -> Self {
+        PlayerView { state, me }
+    }
+    pub fn me(&self) -> u8 {
+        self.me
+    }
+    pub fn num_players(&self) -> u8 {
+        self.state.num_players
+    }
+    pub fn turn(&self) -> &TurnState {
+        &self.state.turn
+    }
+    pub fn phase(&self) -> Phase {
+        self.state.turn.phase
+    }
+    pub fn is_my_turn(&self) -> bool {
+        self.state.turn.player == self.me
+    }
+
+    // --- Own zones (fully known) ---
+    pub fn hand(&self) -> &Counts {
+        &self.state.players[self.me as usize].hand
+    }
+    pub fn in_play(&self) -> &Counts {
+        &self.state.players[self.me as usize].in_play
+    }
+    pub fn discard(&self) -> &Counts {
+        &self.state.players[self.me as usize].discard
+    }
+    /// Remaining deck as a multiset (order unknown except `deck_known_top`).
+    pub fn deck(&self) -> Counts {
+        self.state.players[self.me as usize].deck_counts()
+    }
+    /// Known cards on top of my deck, top first.
+    pub fn deck_known_top(&self) -> impl Iterator<Item = CardId> + '_ {
+        self.state.players[self.me as usize].deck_known.iter_top_down()
+    }
+    pub fn deck_size(&self) -> u32 {
+        self.state.players[self.me as usize].deck_size()
+    }
+    pub fn my_cards(&self) -> Counts {
+        self.state.players[self.me as usize].all_cards()
+    }
+    pub fn my_vp(&self) -> i32 {
+        self.state.players[self.me as usize].vp()
+    }
+
+    // --- Public information ---
+    pub fn supply(&self, c: CardId) -> u8 {
+        self.state.supply.get(c)
+    }
+    pub fn in_supply(&self, c: CardId) -> bool {
+        self.state.in_supply(c)
+    }
+    pub fn empty_piles(&self) -> u32 {
+        self.state.empty_piles()
+    }
+    pub fn trash(&self) -> &Counts {
+        &self.state.trash
+    }
+    /// Full card composition of any player (public via tracking gains/trashes).
+    pub fn cards_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].all_cards()
+    }
+    pub fn vp_of(&self, p: u8) -> i32 {
+        self.state.players[p as usize].vp()
+    }
+    pub fn hand_size_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].hand.total()
+    }
+    pub fn deck_size_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].deck_size()
+    }
+    pub fn discard_size_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].discard.total()
+    }
+    pub fn in_play_of(&self, p: u8) -> &Counts {
+        &self.state.players[p as usize].in_play
+    }
+    pub fn turns_taken_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].turns_taken
+    }
+}
+
+pub trait Agent: Send {
+    fn name(&self) -> &str;
+    /// Pick one of `choices` (never empty) for `decision`.
+    fn choose(&mut self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct GameResult {
+    pub num_players: u8,
+    pub scores: [i32; MAX_PLAYERS],
+    pub turns: [u16; MAX_PLAYERS],
+    /// Bitmask of winning seats (more than one bit = shared win).
+    pub winners: u8,
+    /// True if the game hit the turn cap rather than ending normally.
+    pub capped: bool,
+}
+
+/// Play `state` to completion. `agents[i]` plays seat i. Allocation-free.
+pub fn play_game<S: EventSink>(state: &mut GameState, agents: &mut [&mut dyn Agent], sink: &mut S) -> GameResult {
+    assert!(!state.chance_mode, "play_game samples draws; disable chance_mode");
+    let mut buf = ChoiceBuf::default();
+    loop {
+        match state.advance(sink) {
+            Step::Decision(d) => {
+                state.legal_choices(&mut buf);
+                let view = PlayerView::new(state, d.player);
+                let c = agents[d.player as usize].choose(&view, &d, buf.as_slice());
+                state.apply(c, sink).expect("agent chose an illegal option");
+            }
+            Step::Chance { .. } => unreachable!(),
+            Step::GameOver => break,
+        }
+    }
+    let n = state.num_players as usize;
+    let mut turns = [0; MAX_PLAYERS];
+    for p in 0..n {
+        turns[p] = state.players[p].turns_taken;
+    }
+    GameResult {
+        num_players: state.num_players,
+        scores: state.scores(),
+        turns,
+        winners: state.winners(),
+        capped: state.turn.number >= state.max_turns,
+    }
+}

@@ -1,0 +1,10 @@
+[package]
+name = "dominion-wasm"
+edition.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dominion-engine = { path = "../engine" }

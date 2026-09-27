@@ -338,3 +338,13 @@ section, .panel {
 #supply-table tr { display: flex; justify-content: space-between; align-items: center; }
 #supply-table td { border: none; padding: 1px 4px; }
 #supply-table tr, #supply-table td { background: none !important; }
+
+/* Decision choices: fixed two rows tall so nothing below moves; scrolls when longer. */
+.decision-choices {
+  --choice-h: 32px;
+  height: calc(2 * var(--choice-h) + 6px);
+  overflow-y: auto;
+  align-content: flex-start;
+  padding-right: 4px;
+}
+.decision-choices button { height: var(--choice-h); box-sizing: border-box; }

@@ -1,0 +1,26 @@
+# Double Witch — one of the strongest simple kingdom strategies: two Witches curse the
+# opponent(s) hard while your own deck barely slows down (Witch cantrips a card back). Get both
+# Witches before anything else, then fall back to Big Money (with a Duchy endgame, since the
+# curses you hand out usually turn a money race into a lopsided one). Needs Witch in the
+# kingdom — pair with `--kingdom auto` if the default "first-game" kingdom doesn't include it.
+
+name = "Double Witch"
+description = "Two Witches ASAP, then Big Money with a Duchy endgame."
+play = ["Witch"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Witch"
+if = "count(Witch) < 2"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[buy]]
+card = "Silver"

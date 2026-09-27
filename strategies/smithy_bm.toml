@@ -1,0 +1,21 @@
+# Smithy Big Money — grab a single Smithy early (it pays for extra Silvers/Golds down the line
+# by drawing more cards per turn), then play plain Big Money. Community consensus is one Smithy
+# is a clear improvement over pure BM in 2-player; a second rarely pays off before the game ends
+# in the base kingdom, so this only ever buys one.
+
+name = "Smithy-BM"
+description = "Big Money that picks up one Smithy along the way."
+play = ["Smithy"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Smithy"
+if = "count(Smithy) < 1"
+
+[[buy]]
+card = "Silver"

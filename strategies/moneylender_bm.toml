@@ -1,0 +1,20 @@
+# Moneylender Big Money — trash a Copper for +$3 the first time you draw Moneylender with a
+# Copper in hand, which is a strictly good economy boost early (a permanent +$2 swing whenever
+# that Copper would have been played). One is enough; buying a second is rarely worth a $4 slot.
+
+name = "Moneylender-BM"
+description = "Big Money that trashes one Copper via Moneylender for a fast economy boost."
+play = ["Moneylender"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Moneylender"
+if = "count(Moneylender) < 1"
+
+[[buy]]
+card = "Silver"

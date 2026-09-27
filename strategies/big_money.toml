@@ -1,0 +1,17 @@
+# Big Money — the textbook baseline (dominionstrategy.com "Big Money").
+# No kingdom cards at all: buy the best treasure you can afford, and Provinces once you can
+# afford them. Ordering does the work here: Province is listed above Gold, so Gold is only
+# bought at 6-7 coins (at 8+ Province always wins); Silver is bought at 3-5, and at 6+ whenever
+# Gold/Province piles are empty. This is the strategy every other strategy is measured against.
+
+name = "Big Money"
+description = "Province @ 8, Gold @ 6-7, Silver @ 3-5. No kingdom cards."
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Silver"

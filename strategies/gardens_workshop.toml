@@ -1,0 +1,26 @@
+# Gardens/Workshop — Gardens is worth VP/10 cards, so a big deck scores well even with few
+# Provinces. But *only* rushing Gardens and never buying Provinces just hands the opponent all
+# of them for free (48 VP from an uncontested Province pile beats almost any Gardens count) — so
+# this still buys Provinces whenever affordable. Workshop ($3, gain a card up to $4) is the
+# cheapest way to pile up extra Gardens without spending a whole buy's worth of coin on each one;
+# a couple of early Workshops seed the rush, then Gardens are bought directly, topped up with
+# Gold/Silver so there's still enough coin to contest Provinces too.
+
+name = "Gardens/Workshop"
+description = "Province when affordable; otherwise rush Gardens (via Workshop) for VP from deck size."
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Workshop"
+if = "count(Workshop) < 2"
+
+[[buy]]
+card = "Gardens"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Silver"

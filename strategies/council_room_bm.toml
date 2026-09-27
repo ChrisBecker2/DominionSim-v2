@@ -1,0 +1,20 @@
+# Council Room Big Money — Council Room draws 4 cards and gives your opponents a free card too,
+# but the extra draws for you are worth it in a money-heavy deck (more treasures seen per turn
+# more than offsets the opponents' minor benefit), especially once you can support two of them.
+
+name = "Council Room-BM"
+description = "Big Money using Council Room's big draw to accelerate through the deck."
+play = ["Council Room"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Council Room"
+if = "count(CouncilRoom) < 2"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Silver"

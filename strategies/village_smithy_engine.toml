@@ -1,0 +1,31 @@
+# Village/Smithy engine — the classic starter "engine": Villages supply the extra actions that
+# Smithies burn through (a Smithy alone is terminal; a Village first keeps your action chain
+# alive), so hand size and money both grow turn over turn instead of staying flat like Big
+# Money. Villages are prioritized (an engine that runs out of actions stalls), Smithies for
+# draw, and Gold/Silver fill in whenever neither is needed. Play order is Village before Smithy
+# so the +actions are banked before you spend them.
+
+name = "Village/Smithy Engine"
+description = "Villages chain Smithies for a growing hand instead of flat Big Money."
+play = ["Village", "Smithy"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Village"
+if = "count(Village) < 2"
+
+[[buy]]
+card = "Smithy"
+if = "count(Smithy) < 3"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Village"
+if = "count(Village) < 4"
+
+[[buy]]
+card = "Silver"

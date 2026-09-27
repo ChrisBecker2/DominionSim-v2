@@ -1,0 +1,20 @@
+# Laboratory Big Money — Laboratory (+2 Cards, +1 Action) is a pure cantrip upgrade: it never
+# costs you tempo and thins the ratio of dead draws. Two Labs meaningfully smooth a money deck's
+# draws without displacing much treasure.
+
+name = "Laboratory-BM"
+description = "Big Money with up to two Laboratories for smoother draws."
+play = ["Laboratory"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Laboratory"
+if = "count(Laboratory) < 2"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Silver"

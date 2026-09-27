@@ -1,0 +1,30 @@
+# Chapel/Witch — one of the best two-card combos in the base set. Chapel trims Estates and
+# Coppers down to a lean deck early (so every draw is more likely to be useful), and Witch piles
+# Curses onto the opponent(s) while drawing you a card back. `keep_treasure = 3` stops Chapel
+# from trashing away so much money that you can't afford Witch/Silver on the following turns.
+
+name = "Chapel/Witch"
+description = "Chapel trims the deck early; two Witches curse the opponents; Big Money after."
+play = ["Witch", "Chapel"]
+keep_treasure = 3
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Witch"
+if = "count(Witch) < 2"
+
+[[buy]]
+card = "Chapel"
+if = "count(Chapel) < 1"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[buy]]
+card = "Silver"

@@ -1,0 +1,25 @@
+# Big Money Ultimate — Big Money with the standard endgame adjustment: once Provinces start
+# running out, switch some purchases from money to VP, because there won't be enough turns left
+# for more money to pay for itself. Duchy kicks in first (worth 3 VP straight away); Estate only
+# once Provinces are almost gone (it's a much worse deal, but a coin's worth of VP beats a coin
+# of money that will never be spent).
+
+name = "Big Money Ultimate"
+description = "Big Money plus Duchy/Estate endgame rules."
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[buy]]
+card = "Silver"

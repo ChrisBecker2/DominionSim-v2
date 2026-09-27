@@ -1,0 +1,20 @@
+# Militia Big Money — Militia is a cheap ($4) attack that nets +$2 and strips 2 cards from every
+# opponent's hand, slowing their buys while barely costing you tempo. Two is the usual target
+# in 2-player (enough to matter without crowding out treasures); then plain Big Money.
+
+name = "Militia-BM"
+description = "Big Money plus two Militias to disrupt the opponent's hand."
+play = ["Militia"]
+
+[[buy]]
+card = "Province"
+
+[[buy]]
+card = "Gold"
+
+[[buy]]
+card = "Militia"
+if = "count(Militia) < 2"
+
+[[buy]]
+card = "Silver"

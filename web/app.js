@@ -267,7 +267,8 @@
       desc.textContent = view.gameOver ? "Game over." : "No decision pending.";
       return;
     }
-    desc.textContent = view.pending.description;
+    const who = botNames[seats[view.pending.player] ?? 0] || "Human";
+    desc.textContent = `${view.pending.description}  [${who}]`;
     view.pending.choices.forEach((c, i) => {
       const b = el("button");
       if (i < 9) {
@@ -297,7 +298,12 @@
   let seats = [];
 
   function maybeRunBots() {
-    if ($("auto-bots").checked) api.runBots();
+    if (!$("auto-bots").checked || !lastView) return;
+    try {
+      api.runBots();
+    } catch (e) {
+      // A human seat is deciding: nothing to run.
+    }
   }
 
   function renderAnalysis(result) {

@@ -31,10 +31,17 @@ check("analysis ranks Play Village first", a.options[0].label.includes("Village"
 check("smithy line never plays village", !a.options.find((o) => o.label.includes("Smithy")).pv.includes("Play Village"));
 
 // Seat 1 = Double Witch bot, seat 0 = search; run a whole game.
+check("run_bots reports when a human must decide", w.run_bots() === 0 && /Human/.test(res()));
 call(w.set_seat(0, 1));
 call(w.set_seat(1, 5));
 call(w.run_bots());
 const view = JSON.parse((w.get_view(), res()));
+const drawLine = view.log.find((l) => /draws \w+, \w+/.test(l));
+const copperLine = view.log.find((l) => /plays Copper, Copper/.test(l));
+console.log("    " + drawLine + "\n    " + copperLine);
+check("draws condensed onto one line", !!drawLine);
+check("treasure plays condensed", !!copperLine);
+check("no single-card draw lines between condensed ones", !view.log.some((l, i) => i > 0 && /draws/.test(l) && /draws/.test(view.log[i - 1]) && !/Shuffle|shuffles/.test(l)));
 check("bots played to game over", view.gameOver === true);
 console.log("    scores", view.scores, "winners", view.winners);
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED");

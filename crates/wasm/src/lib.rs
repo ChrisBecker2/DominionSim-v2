@@ -71,6 +71,8 @@ struct App {
     searcher: Searcher,
     search_cfg: SearchConfig,
     rng: Rng,
+    /// (event tag, player, log line) of the run the last event started, for condensing.
+    log_group: Option<(u8, u8, usize)>,
 }
 
 impl App {
@@ -95,6 +97,7 @@ impl App {
             searcher: Searcher::new(search_cfg.tt_bits),
             search_cfg,
             rng: Rng::new(0x5eed),
+            log_group: None,
         };
         for e in &sink {
             app.push_log_event(e);
@@ -110,11 +113,29 @@ impl App {
         self.redo.clear();
     }
 
+    /// Append an event to the log, condensing runs: consecutive draws, treasure plays,
+    /// discards, reveals and trashes by the same player share one line
+    /// ("Player 1 draws Copper, Copper, Silver").
     fn push_log_event(&mut self, e: &Event) {
-        self.log.push(render_event(e));
+        if let Some((tag, player, card)) = groupable(e) {
+            if let Some((t, p, line)) = self.log_group {
+                if t == tag && p == player && line + 1 == self.log.len() {
+                    let last = self.log.last_mut().unwrap();
+                    last.push_str(", ");
+                    last.push_str(cards::name(card));
+                    return;
+                }
+            }
+            self.log.push(render_event(e));
+            self.log_group = Some((tag, player, self.log.len() - 1));
+        } else {
+            self.log.push(render_event(e));
+            self.log_group = None;
+        }
         if self.log.len() > LOG_CAP {
             let drop_n = self.log.len() - LOG_CAP;
             self.log.drain(0..drop_n);
+            self.log_group = None;
         }
     }
 
@@ -452,9 +473,15 @@ fn bot_choice(app: &mut App, human_uses_search: bool) -> Result<Choice, String> 
 }
 
 fn run_bots_impl(app: &mut App) -> Result<(), String> {
-    for _ in 0..100_000 {
+    for step in 0..100_000 {
         let Some(d) = app.state.pending_decision() else { return Ok(()) };
         if app.seats[d.player as usize] == SEAT_HUMAN {
+            if step == 0 {
+                return Err(format!(
+                    "Nothing for bots to do: Player {} is Human and must decide. Set their seat to a bot, or use Auto-step.",
+                    d.player + 1
+                ));
+            }
             return Ok(());
         }
         let choice = bot_choice(app, false)?;
@@ -575,6 +602,18 @@ fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
 // -----------------------------------------------------------------------------------------
 // Event log rendering
 // -----------------------------------------------------------------------------------------
+
+/// Events that condense into one line when repeated: (tag, player, card).
+fn groupable(e: &Event) -> Option<(u8, u8, u8)> {
+    match *e {
+        Event::Draw { player, card } => Some((0, player, card)),
+        Event::Play { player, card } if cards::is(card, cards::TREASURE) => Some((1, player, card)),
+        Event::Discard { player, card } => Some((2, player, card)),
+        Event::Reveal { player, card } => Some((3, player, card)),
+        Event::Trash { player, card } => Some((4, player, card)),
+        _ => None,
+    }
+}
 
 fn render_event(e: &Event) -> String {
     match *e {

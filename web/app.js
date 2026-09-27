@@ -600,7 +600,6 @@
       const seed = parseInt($("ng-seed").value, 10) || 0;
       try {
         api.newGame(players, kingdom, seed, 0);
-        maybeRunBots();
         showNewGameError("");
         syncTextFromGame();
         render();
@@ -613,7 +612,6 @@
       try {
         api.loadState($("state-text").value);
         showLoadNotice(api.getView());
-        maybeRunBots();
         showLoadError("");
         render();
       } catch (e) {

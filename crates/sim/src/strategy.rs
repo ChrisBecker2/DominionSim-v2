@@ -177,14 +177,17 @@ impl Strategy {
         if let Some(c) = self.match_buy_list(view, choices) {
             return Choice::Card(c);
         }
-        // Nothing in the buy list is affordable/legal here (e.g. a small Workshop gain that's
-        // below everything we listed). Never gain Curse if there's an alternative; otherwise
-        // take the most expensive legal option, since a bigger card is rarely a mistake to gain.
+        // Nothing in the buy list is affordable/legal here (e.g. a small Workshop/Remodel gain
+        // below everything we listed). Never gain Curse if there's an alternative, and avoid
+        // dead Victory cards unless the game is ending; otherwise take the most expensive legal
+        // option, since a bigger card is rarely a mistake to gain.
+        let endgame = view.supply(id::PROVINCE) <= 3 || view.empty_piles() >= 2;
+        let key = |c: CardId| (c != id::CURSE, endgame || !cards::is(c, cards::VICTORY), cards::cost(c));
         let mut best: Option<CardId> = None;
         for c in iter_cards(choices) {
             let better = match best {
                 None => true,
-                Some(b) => (c != id::CURSE, cards::cost(c)) > (b != id::CURSE, cards::cost(b)),
+                Some(b) => key(c) > key(b),
             };
             if better {
                 best = Some(c);

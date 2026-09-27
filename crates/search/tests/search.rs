@@ -200,3 +200,28 @@ fn bench_nodes_per_second() {
         );
     }
 }
+
+#[test]
+fn parallel_matches_serial_exactly() {
+    let cases = [
+        "Village, Smithy, Laboratory, 2 Copper",
+        "Throne Room, Smithy, Village, 2 Copper",
+        "Cellar, Market, Estate, Estate, Copper",
+        "Moneylender, Copper, 3 Silver",
+    ];
+    let cfg = SearchConfig { node_budget: u64::MAX, tt_bits: 20, ..Default::default() };
+    for hand in cases {
+        let g = scenario(KINGDOM, hand, "", "6 Copper, 3 Estate, 2 Silver, Gold, Laboratory", "");
+        let serial = Searcher::new(cfg.tt_bits).analyze(&g, 0, &cfg, &NextHandEvaluator::default());
+        for threads in [1, 3, 8] {
+            let par = analyze_parallel(&g, 0, &cfg, &NextHandEvaluator::default(), threads);
+            assert_eq!(par.options.len(), serial.options.len());
+            for o in &serial.options {
+                let p = par.options.iter().find(|x| x.choice == o.choice).unwrap();
+                assert!((p.ev - o.ev).abs() < 1e-9, "{hand} / {:?}: serial {} vs parallel({threads}) {}", o.choice, o.ev, p.ev);
+                assert!(p.exact);
+            }
+            assert_eq!(par.best().choice, serial.best().choice);
+        }
+    }
+}

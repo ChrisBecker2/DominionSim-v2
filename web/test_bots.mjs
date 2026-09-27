@@ -47,3 +47,44 @@ check("no single-card draw lines between condensed ones", !view.log.some((l, i) 
 check("bots played to game over", view.gameOver === true);
 console.log("    scores", view.scores, "winners", view.winners);
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED");
+
+// ---- parallel protocol: main instance plans, a second instance evaluates subtrees ----
+{
+  const mod = await WebAssembly.compile(bytes);
+  const main = (await WebAssembly.instantiate(mod, {})).exports;
+  const wk = (await WebAssembly.instantiate(mod, {})).exports;
+  const rd = (x) => dec.decode(new Uint8Array(x.memory.buffer, x.result_ptr(), x.result_len()));
+  const rb = (x) => new Uint8Array(x.memory.buffer, x.result_ptr(), x.result_len()).slice();
+  const put = (x, b) => { const p = x.alloc(b.length); new Uint8Array(x.memory.buffer, p, b.length).set(b); return p; };
+  const text = `players: 2
+kingdom: Village, Smithy, Moneylender, Chapel, Cellar, Laboratory, Market, Militia, Throne Room, Library
+turn: 5  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+[player 1]
+hand: Village, Smithy, 3 Copper
+deck: 4 Copper, 2 Silver, 3 Estate, Gold
+
+[player 2]
+hand: 5 Copper
+deck: 2 Copper, 3 Estate
+`;
+  const tb = enc.encode(text); const tp = put(main, tb); main.load_state(tp, tb.length); main.dealloc(tp, tb.length);
+  main.analyze(); const serial = JSON.parse(rd(main));
+  const plan = JSON.parse((main.plan_start(16), rd(main)));
+  main.plan_root_bytes(); const root = rb(main);
+  check("state bytes have expected size", root.length === main.state_size());
+  for (let i = 0; i < plan.tasks; i++) {
+    main.plan_task_bytes(i); const st = rb(main);
+    const rp = put(wk, root), sp = put(wk, st);
+    wk.eval_task(rp, sp, plan.player, 200000);
+    const r = JSON.parse(rd(wk));
+    wk.dealloc(rp, root.length); wk.dealloc(sp, st.length);
+    const pv = enc.encode(r.pv); const pp = put(main, pv);
+    main.plan_put_result(i, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pp, pv.length); main.dealloc(pp, pv.length);
+  }
+  const par = JSON.parse((main.plan_finish(), rd(main)));
+  console.log(`    ${plan.tasks} subtrees; serial best ${serial.options[0].label} ${serial.options[0].ev}, parallel best ${par.options[0].label} ${par.options[0].ev}`);
+  check("parallel values equal serial", serial.options.every((o) => Math.abs(par.options.find((p) => p.label === o.label).ev - o.ev) < 1e-3));
+  check("parallel pv is readable", par.options[0].pv.startsWith("Play Village") && par.options[0].pv.includes("end turn"));
+}
+if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED (parallel)");

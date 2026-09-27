@@ -16,6 +16,7 @@ mod agent;
 mod determinize;
 mod eval;
 mod hash;
+mod plan;
 mod policy;
 mod search;
 
@@ -24,4 +25,7 @@ pub use determinize::determinize;
 pub use eval::{average_hand_money, estimated_turns_left, expected_next_hand_money, EvalWeights, Evaluator, MoneyEvaluator, NextHandEvaluator};
 pub use hash::turn_hash;
 pub use policy::default_policy;
-pub use search::{analyze, Analysis, RootOption, SearchConfig, Searcher};
+#[cfg(not(target_arch = "wasm32"))]
+pub use plan::analyze_parallel;
+pub use plan::Plan;
+pub use search::{analyze, Analysis, RootOption, SearchConfig, Searcher, TaskResult};

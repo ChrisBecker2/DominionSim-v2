@@ -33,7 +33,7 @@ use dominion_engine::state::MAX_PLAYERS;
 use dominion_engine::rng::Rng;
 use dominion_engine::EndReason;
 use dominion_engine::PlayerView;
-use dominion_search::{NextHandEvaluator, SearchConfig, Searcher};
+use dominion_search::{NextHandEvaluator, Plan, SearchConfig, Searcher, TaskResult};
 use dominion_sim::Strategy;
 use std::cell::RefCell;
 
@@ -75,6 +75,8 @@ struct App {
     rng: Rng,
     /// (event tag, player, log line) of the run the last event started, for condensing.
     log_group: Option<(u8, u8, usize)>,
+    /// Parallel analysis in progress: the split tree and results received so far.
+    plan: Option<(Plan, Vec<Option<TaskResult>>)>,
 }
 
 impl App {
@@ -100,6 +102,7 @@ impl App {
             search_cfg,
             rng: Rng::new(0x5eed),
             log_group: None,
+            plan: None,
         };
         for e in &sink {
             app.push_log_event(e);
@@ -535,26 +538,30 @@ fn analyze_json(app: &mut App) -> Result<String, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
     let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
+    Ok(analysis_json(&d, &a))
+}
+
+fn analysis_json(d: &Decision, a: &dominion_search::Analysis) -> String {
     let opts: Vec<String> = a
         .options
         .iter()
         .map(|o| {
             format!(
                 "{{\"label\":{},\"ev\":{:.4},\"exact\":{},\"pv\":{}}}",
-                jstr(&choice_label(&d, o.choice)),
+                jstr(&choice_label(d, o.choice)),
                 o.ev,
                 o.exact,
                 jstr(&o.pv)
             )
         })
         .collect();
-    Ok(format!(
+    format!(
         "{{\"player\":{},\"nodes\":{},\"ttHits\":{},\"options\":[{}]}}",
         d.player,
         a.nodes,
         a.tt_hits,
         opts.join(",")
-    ))
+    )
 }
 
 fn result_of(r: Result<String, String>) -> i32 {
@@ -571,6 +578,144 @@ fn result_of(r: Result<String, String>) -> i32 {
             }
         }
     })
+}
+
+// -----------------------------------------------------------------------------------------
+// Parallel analysis across Web Workers (each worker runs its own instance of this module).
+//
+// Main instance: plan_start -> plan_root_bytes / plan_task_bytes(i) -> (workers) ->
+//                plan_put_result(i, ...) for each task -> plan_finish.
+// Worker instance: eval_task(root, state, me, budget) per task.
+//
+// Game states cross between instances as raw bytes. That is sound only because every instance
+// is the same compiled module (identical layout) and the bytes always come from a valid state.
+// -----------------------------------------------------------------------------------------
+
+fn state_bytes(s: &GameState) -> Vec<u8> {
+    let n = std::mem::size_of::<GameState>();
+    let mut v = vec![0u8; n];
+    unsafe { std::ptr::copy_nonoverlapping(s as *const GameState as *const u8, v.as_mut_ptr(), n) };
+    v
+}
+
+fn state_from_ptr(ptr: u32) -> GameState {
+    let mut m = std::mem::MaybeUninit::<GameState>::uninit();
+    unsafe {
+        std::ptr::copy_nonoverlapping(ptr as *const u8, m.as_mut_ptr() as *mut u8, std::mem::size_of::<GameState>());
+        m.assume_init()
+    }
+}
+
+/// Split the pending decision's search tree into about `target_tasks` independent subtrees.
+/// Writes JSON {player, tasks}.
+#[no_mangle]
+pub extern "C" fn plan_start(target_tasks: u32) -> i32 {
+    let r = APP.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let app = &mut *guard;
+        let d = app.state.pending_decision().ok_or("no decision is pending")?;
+        let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
+        let plan = Plan::build(&world, d.player, target_tasks.max(1) as usize, &NextHandEvaluator::default());
+        let n = plan.tasks.len();
+        app.plan = Some((plan, vec![None; n]));
+        Ok(format!("{{\"player\":{},\"tasks\":{n}}}", d.player))
+    });
+    result_of(r)
+}
+
+/// Raw bytes of the plan's root state (the evaluator's reference point) into the result buffer.
+#[no_mangle]
+pub extern "C" fn plan_root_bytes() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let bytes = match &app.plan {
+            Some((p, _)) => state_bytes(&p.root),
+            None => return 0,
+        };
+        app.result = bytes;
+        1
+    })
+}
+
+/// Raw bytes of task `i`'s state into the result buffer.
+#[no_mangle]
+pub extern "C" fn plan_task_bytes(i: u32) -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let bytes = match &app.plan {
+            Some((p, _)) if (i as usize) < p.tasks.len() => state_bytes(&p.tasks[i as usize]),
+            _ => return 0,
+        };
+        app.result = bytes;
+        1
+    })
+}
+
+/// Size in bytes of a serialized state.
+#[no_mangle]
+pub extern "C" fn state_size() -> u32 {
+    std::mem::size_of::<GameState>() as u32
+}
+
+thread_local! {
+    static WORKER_SEARCHER: RefCell<Option<Searcher>> = const { RefCell::new(None) };
+}
+
+/// Worker side: evaluate one subtree. Writes JSON {ev, exact, nodes, ttHits, pv} where pv is
+/// the continuation joined with U+0001.
+#[no_mangle]
+pub extern "C" fn eval_task(root_ptr: u32, state_ptr: u32, me: u32, budget: u32) -> i32 {
+    let root = state_from_ptr(root_ptr);
+    let state = state_from_ptr(state_ptr);
+    let cfg = SearchConfig { node_budget: budget as u64, tt_bits: 17, ..SearchConfig::default() };
+    let r = WORKER_SEARCHER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let searcher = slot.get_or_insert_with(|| Searcher::new(cfg.tt_bits));
+        searcher.evaluate(&root, &state, me as u8, &cfg, &NextHandEvaluator::default())
+    });
+    let json = format!(
+        "{{\"ev\":{},\"exact\":{},\"nodes\":{},\"ttHits\":{},\"pv\":{}}}",
+        r.ev,
+        r.exact,
+        r.nodes,
+        r.tt_hits,
+        jstr(&r.pv.join("\u{1}"))
+    );
+    result_of(Ok(json))
+}
+
+/// Main side: record task `i`'s result (pv joined with U+0001, passed as a string).
+#[no_mangle]
+pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hits: f64, pv_ptr: u32, pv_len: u32) -> i32 {
+    let pv = read_str(pv_ptr, pv_len);
+    let r = APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let (_, results) = app.plan.as_mut().ok_or("no analysis in progress")?;
+        let slot = results.get_mut(i as usize).ok_or("bad task index")?;
+        *slot = Some(TaskResult {
+            ev,
+            exact: exact != 0,
+            nodes: nodes as u64,
+            tt_hits: tt_hits as u64,
+            pv: pv.split('\u{1}').map(str::to_string).collect(),
+        });
+        Ok(String::new())
+    });
+    result_of(r)
+}
+
+/// Main side: combine all task results. Writes the same JSON as `analyze`.
+#[no_mangle]
+pub extern "C" fn plan_finish() -> i32 {
+    let r = APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let (plan, results) = app.plan.take().ok_or("no analysis in progress")?;
+        let results: Vec<TaskResult> = results.into_iter().collect::<Option<Vec<_>>>().ok_or("missing task results")?;
+        let a = plan.finish(&results, std::time::Duration::ZERO);
+        let d = app.state.pending_decision().ok_or("decision changed during analysis")?;
+        Ok(analysis_json(&d, &a))
+    });
+    result_of(r)
 }
 
 /// JSON array of every card: {name, cost, types: ["action", "attack", ...]}.

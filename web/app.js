@@ -6,6 +6,7 @@
   "use strict";
 
   let wasm = null; // wasm.instance.exports
+  let wasmModule = null; // compiled module, shared with analysis workers
 
   function base64ToBytes(b64) {
     const bin = atob(b64);
@@ -394,16 +395,165 @@
     }
   }
 
+  // ---- parallel analysis in Web Workers -------------------------------------------
+  //
+  // The main module splits the decision's search tree into independent subtrees (plan_start);
+  // each worker runs its own instance of the same module and evaluates subtrees (eval_task);
+  // results are folded back exactly (plan_put_result / plan_finish). States cross as raw bytes.
+
+  const WORKER_SRC = `
+    let w = null;
+    onmessage = async (e) => {
+      const m = e.data;
+      if (m.type === "init") {
+        const inst = await WebAssembly.instantiate(m.module, {});
+        w = inst.exports;
+        postMessage({ type: "ready" });
+        return;
+      }
+      const put = (bytes) => {
+        const p = w.alloc(bytes.length);
+        new Uint8Array(w.memory.buffer, p, bytes.length).set(bytes);
+        return p;
+      };
+      const rp = put(m.root), sp = put(m.state);
+      const ok = w.eval_task(rp, sp, m.me, m.budget);
+      const out = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()));
+      w.dealloc(rp, m.root.length);
+      w.dealloc(sp, m.state.length);
+      postMessage({ type: "result", id: m.id, ok: !!ok, out });
+    };
+  `;
+
+  const TASK_BUDGET = 200000; // nodes per subtree before sampling (hard cap 4x, then playouts)
+  let pool = null; // array of { worker, ready: Promise }
+  let analysisRun = 0; // bumped to cancel/ignore an in-flight analysis
+
+  function workerCount() {
+    return Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 32));
+  }
+
+  function getPool() {
+    if (pool) return pool;
+    const url = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" }));
+    pool = [];
+    for (let i = 0; i < workerCount(); i++) {
+      const worker = new Worker(url);
+      const ready = new Promise((resolve, reject) => {
+        worker.onmessage = (e) => e.data.type === "ready" && resolve();
+        worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
+      });
+      worker.postMessage({ type: "init", module: wasmModule });
+      pool.push({ worker, ready });
+    }
+    return pool;
+  }
+
+  function killPool() {
+    if (pool) pool.forEach((p) => p.worker.terminate());
+    pool = null;
+  }
+
+  function resultBytes() {
+    return new Uint8Array(wasm.memory.buffer, wasm.result_ptr(), wasm.result_len()).slice();
+  }
+
+  function showProgress(text) {
+    const panel = $("analysis-panel");
+    panel.hidden = false;
+    $("analysis-table").querySelector("tbody").innerHTML = "";
+    $("analysis-meta").textContent = "";
+    $("analysis-progress").hidden = false;
+    $("analysis-progress-text").textContent = text;
+  }
+
+  function setProgressBar(frac) {
+    $("analysis-bar").style.width = (100 * frac).toFixed(1) + "%";
+  }
+
+  async function analyzeParallel() {
+    const run = ++analysisRun;
+    const t0 = performance.now();
+    const workers = getPool();
+    showProgress(`Starting ${workers.length} workers…`);
+    setProgressBar(0);
+    await Promise.all(workers.map((p) => p.ready));
+    if (run !== analysisRun) return;
+
+    const plan = JSON.parse(ok(wasm.plan_start(workers.length * 4)));
+    ok(wasm.plan_root_bytes());
+    const root = resultBytes();
+    const tasks = [];
+    for (let i = 0; i < plan.tasks; i++) {
+      ok(wasm.plan_task_bytes(i));
+      tasks.push(resultBytes());
+    }
+
+    let next = 0, done = 0, nodes = 0;
+    const update = () => {
+      const secs = (performance.now() - t0) / 1000;
+      $("analysis-progress-text").textContent =
+        `Searching: ${done}/${tasks.length} subtrees on ${workers.length} workers · ` +
+        `${nodes.toLocaleString()} nodes · ${secs.toFixed(1)} s`;
+      setProgressBar(tasks.length ? done / tasks.length : 1);
+    };
+    update();
+
+    await new Promise((resolve, reject) => {
+      if (!tasks.length) return resolve();
+      const feed = (p) => {
+        if (run !== analysisRun) return resolve();
+        if (next >= tasks.length) return;
+        const id = next++;
+        p.worker.postMessage({ type: "task", id, root, state: tasks[id], me: plan.player, budget: TASK_BUDGET });
+      };
+      workers.forEach((p) => {
+        p.worker.onmessage = (e) => {
+          const m = e.data;
+          if (m.type !== "result" || run !== analysisRun) return;
+          if (!m.ok) return reject(new Error(m.out));
+          const r = JSON.parse(m.out);
+          const pv = writeString(r.pv);
+          const st = wasm.plan_put_result(m.id, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pv.ptr, pv.len);
+          freeString(pv);
+          ok(st);
+          done++;
+          nodes += r.nodes;
+          update();
+          if (done === tasks.length) resolve();
+          else feed(p);
+        };
+        p.worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
+        feed(p);
+      });
+    });
+    if (run !== analysisRun) return;
+
+    const result = JSON.parse(ok(wasm.plan_finish()));
+    result.seconds = (performance.now() - t0) / 1000;
+    result.workers = workers.length;
+    renderAnalysis(result);
+  }
+
+  function cancelAnalysis() {
+    analysisRun++;
+    killPool(); // workers may be mid-subtree; terminate and start fresh next time
+    renderAnalysis(null);
+  }
+
   function renderAnalysis(result) {
     const panel = $("analysis-panel");
     const tbody = $("analysis-table").querySelector("tbody");
     tbody.innerHTML = "";
     if (!result) {
       panel.hidden = true;
+      $("analysis-progress").hidden = true;
       return;
     }
     panel.hidden = false;
-    $("analysis-meta").textContent = `P${result.player + 1} to decide, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions`;
+    $("analysis-progress").hidden = true;
+    const timing = result.seconds !== undefined ? `, ${result.seconds.toFixed(2)} s on ${result.workers} workers` : "";
+    $("analysis-meta").textContent = `P${result.player + 1} to decide, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions${timing}`;
     result.options.forEach((o, i) => {
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");
@@ -435,6 +585,7 @@
   }
 
   function doAction(fn) {
+    if ($("analysis-progress") && !$("analysis-progress").hidden) cancelAnalysis();
     renderAnalysis(null);
     try {
       fn();
@@ -482,12 +633,25 @@
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn()));
     $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots()));
     $("btn-analyze").addEventListener("click", () => {
-      try {
-        const r = api.analyze();
-        renderAnalysis(r);
-      } catch (e) {
-        showToast(String(e.message || e));
+      if (typeof Worker === "undefined" || !wasmModule) {
+        try {
+          renderAnalysis(api.analyze());
+        } catch (e) {
+          showToast(String(e.message || e));
+        }
+        return;
       }
+      $("btn-analyze").disabled = true;
+      analyzeParallel()
+        .catch((e) => {
+          showToast("Analysis failed: " + String(e.message || e));
+          cancelAnalysis();
+        })
+        .finally(() => ($("btn-analyze").disabled = false));
+    });
+    $("btn-cancel-analysis").addEventListener("click", () => {
+      cancelAnalysis();
+      $("btn-analyze").disabled = false;
     });
     $("btn-undo").addEventListener("click", () => doAction(() => api.undo()));
     $("btn-redo").addEventListener("click", () => doAction(() => api.redo()));
@@ -518,13 +682,16 @@
 
   async function main() {
     const bytes = base64ToBytes(WASM_BASE64);
-    const { instance } = await WebAssembly.instantiate(bytes, {});
+    const { module, instance } = await WebAssembly.instantiate(bytes, {});
+    wasmModule = module;
     wasm = instance.exports;
     botNames = api.listBots();
     initCards();
     wire();
     syncTextFromGame();
     render();
+    // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.
+    if (location.hash === "#selftest-analyze") $("btn-analyze").click();
   }
 
   main().catch((e) => {

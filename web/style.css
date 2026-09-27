@@ -326,3 +326,9 @@ section, .panel {
 #log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }
 
 #log-list .phase-marker { color: var(--text-dim); font-style: italic; padding-left: 8px; }
+
+#analysis-progress { margin: 6px 0 10px; }
+.progress-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.progress-row span { flex: 1; font-variant-numeric: tabular-nums; }
+.progress-track { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+#analysis-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }

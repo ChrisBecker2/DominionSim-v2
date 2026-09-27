@@ -31,7 +31,7 @@ fn now() -> Option<Instant> {
     None
 }
 
-fn is_leaf(state: &GameState) -> bool {
+pub(crate) fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
         && (state.turn.phase == Phase::CleanupDraw || (state.turn.phase == Phase::Buy && state.turn.buys == 0))
 }
@@ -111,6 +111,17 @@ impl Analysis {
     }
 }
 
+/// Result of `Searcher::evaluate` for one subtree.
+#[derive(Clone, Debug)]
+pub struct TaskResult {
+    pub ev: f64,
+    pub exact: bool,
+    pub nodes: u64,
+    pub tt_hits: u64,
+    /// Best continuation from the subtree's root, as readable steps.
+    pub pv: Vec<String>,
+}
+
 /// Owns the transposition table and RNG so repeated `analyze` calls (e.g. one per turn across a
 /// whole game, or one per candidate move in a UI) don't reallocate.
 pub struct Searcher {
@@ -166,6 +177,20 @@ impl Searcher {
         Analysis { options, nodes: self.nodes, tt_hits: self.tt_hits, tt_stores: self.tt_stores, elapsed: start.map(|t| t.elapsed()).unwrap_or_default() }
     }
 
+    /// Value of one subtree (a state with nothing pending) plus its best continuation, as a
+    /// self-contained unit of work for parallel analysis (`plan::Plan`). Uses this searcher's
+    /// own transposition table, scoped to this call.
+    pub fn evaluate<E: Evaluator>(&mut self, root: &GameState, state: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> TaskResult {
+        self.nodes = 0;
+        self.tt_hits = 0;
+        self.tt_stores = 0;
+        self.rng = Rng::new(cfg.seed);
+        self.generation = self.generation.wrapping_add(1).max(1);
+        let r = self.node_value(root, state, me, cfg, eval);
+        let pv = self.build_pv(root, state, me, cfg, eval);
+        TaskResult { ev: r.ev, exact: r.exact, nodes: self.nodes, tt_hits: self.tt_hits, pv }
+    }
+
     // ------------------------------------------------------------------------------------
     // Core recursive value function.
     // ------------------------------------------------------------------------------------
@@ -182,6 +207,12 @@ impl Searcher {
         if slot.generation == self.generation && slot.key == key {
             self.tt_hits += 1;
             return Eval { ev: slot.value, exact: slot.exact };
+        }
+
+        // Hard cap: past 4x the budget, finish this subtree with a single cheap playout so the
+        // total work stays bounded however long the turn's action chains get.
+        if self.nodes > cfg.node_budget.saturating_mul(4) {
+            return self.rollout(root, state, me, eval);
         }
 
         let mut s = *state;
@@ -217,6 +248,45 @@ impl Searcher {
         self.tt[idx] = TTEntry { key, value: result.ev, exact: result.exact, generation: self.generation };
         self.tt_stores += 1;
         result
+    }
+
+    /// One playout to the end of the turn: draws sampled, my decisions greedy on the evaluator
+    /// one step ahead, others by the fixed policy. Linear cost; approximate.
+    fn rollout<E: Evaluator>(&mut self, root: &GameState, state: &GameState, me: u8, eval: &E) -> Eval {
+        let mut s = *state;
+        let mut buf = ChoiceBuf::default();
+        loop {
+            self.nodes += 1;
+            if is_leaf(&s) {
+                return Eval { ev: eval.leaf_value(root, &s, me), exact: false };
+            }
+            match s.advance(&mut NoEvents) {
+                Step::GameOver => return Eval { ev: eval.leaf_value(root, &s, me), exact: false },
+                Step::Chance { player } => {
+                    let outcomes = s.chance_outcomes(player);
+                    let card = outcomes.nth(self.rng.below(outcomes.total()));
+                    s.resolve_chance(player, card);
+                }
+                Step::Decision(d) => {
+                    s.legal_choices(&mut buf);
+                    let choice = if d.player != me {
+                        default_policy(&s, &d, buf.as_slice())
+                    } else {
+                        let mut best = (f64::NEG_INFINITY, buf.as_slice()[0]);
+                        for &c in buf.as_slice() {
+                            let mut child = s;
+                            child.apply(c, &mut NoEvents).expect("legal choice");
+                            let v = eval.leaf_value(root, &child, me);
+                            if v > best.0 {
+                                best = (v, c);
+                            }
+                        }
+                        best.1
+                    };
+                    s.apply(choice, &mut NoEvents).expect("legal choice");
+                }
+            }
+        }
     }
 
     /// `state` has a chance event pending for `player` (i.e. `state.advance()` would return
@@ -259,7 +329,7 @@ impl Searcher {
     // now-populated TT, so this is cheap) and, at chance nodes, the most likely outcome.
     // ------------------------------------------------------------------------------------
 
-    fn build_pv<E: Evaluator>(&mut self, root: &GameState, after: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> Vec<String> {
+    pub(crate) fn build_pv<E: Evaluator>(&mut self, root: &GameState, after: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> Vec<String> {
         let mut s = *after;
         let mut parts = Vec::new();
         loop {
@@ -323,7 +393,7 @@ fn with_source(base: String, source: Option<dominion_engine::CardId>, choice_car
     }
 }
 
-fn describe(d: &Decision, choice: Choice) -> String {
+pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
     let base = match (d.kind, choice) {
         (DecisionKind::PlayAction, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
@@ -343,7 +413,7 @@ fn describe(d: &Decision, choice: Choice) -> String {
     with_source(base, d.source, choice_card)
 }
 
-fn describe_chance(outcomes: &dominion_engine::Counts, total: u32) -> String {
+pub(crate) fn describe_chance(outcomes: &dominion_engine::Counts, total: u32) -> String {
     let mut items: Vec<(dominion_engine::CardId, u8)> = outcomes.iter().collect();
     items.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     let inner: Vec<String> =

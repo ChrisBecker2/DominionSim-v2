@@ -263,6 +263,10 @@ impl GameState {
                 }
             }
             Phase::Buy => {
+                // States edited or loaded mid-buy-phase may hold unplayed treasures.
+                if self.players[p].hand.any_type(TREASURE) {
+                    self.play_treasures(sink);
+                }
                 if self.turn.buys > 0 {
                     Run::Decide(DecisionKind::Buy, 0)
                 } else {
@@ -341,15 +345,19 @@ impl GameState {
 
     /// Enter the buy phase: all treasures in hand are played automatically.
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
-        let p = self.turn.player;
         self.turn.phase = Phase::Buy;
-        let ps = &mut self.players[p as usize];
-        for c in [id::COPPER, id::SILVER, id::GOLD] {
-            let n = ps.hand.get(c);
-            if n == 0 {
+        self.play_treasures(sink);
+    }
+
+    /// Play every treasure in the current player's hand.
+    fn play_treasures<S: EventSink>(&mut self, sink: &mut S) {
+        let p = self.turn.player;
+        let hand = self.players[p as usize].hand;
+        for (c, n) in hand.iter() {
+            if !cards::is(c, TREASURE) {
                 continue;
             }
-            debug_assert!(cards::is(c, TREASURE));
+            let ps = &mut self.players[p as usize];
             ps.hand.set(c, 0);
             ps.in_play.add(c, n);
             for _ in 0..n {

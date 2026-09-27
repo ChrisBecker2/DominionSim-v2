@@ -210,3 +210,20 @@ fn poacher_canonical_ordering_never_dead_ends() {
     assert_eq!(picks, 3);
     assert_eq!(g.players[0].discard.total(), 3, "3 of 5 discarded");
 }
+
+#[test]
+fn state_loaded_mid_buy_phase_plays_treasures_in_hand() {
+    // Regression: a state loaded directly into the buy phase with Golds still in hand
+    // must play them (treasures used to be played only on entering the buy phase).
+    let text = "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
+                turn: 1  player: 1  phase: buy  actions: 1  buys: 1  coins: 3\n\n\
+                [player 1]\nhand: 2 Estate, 10 Gold\ndeck: 4 Copper, Estate\nin play: 3 Copper\n\n\
+                [player 2]\nhand: 4 Copper, Estate\ndeck: 3 Copper, 2 Estate\n";
+    let mut g = dominion_engine::parse_state(text).unwrap();
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 33);
+    assert_eq!(g.players[0].hand.get(id::GOLD), 0);
+    assert_eq!(g.players[0].in_play.get(id::GOLD), 10);
+    assert!(choices(&g).contains(&Choice::Card(id::PROVINCE)));
+}

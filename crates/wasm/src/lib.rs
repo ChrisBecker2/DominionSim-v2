@@ -55,6 +55,7 @@ const STRATEGY_SOURCES: &[&str] = &[
 const SEAT_HUMAN: u32 = 0;
 const SEAT_SEARCH: u32 = 1;
 const DEFAULT_BOT: u32 = 3; // Big Money Ultimate
+const DEFAULT_P1: u32 = 5; // Double Witch
 
 const HISTORY_CAP: usize = 1000;
 const LOG_CAP: usize = 4000;
@@ -84,7 +85,7 @@ impl App {
         let strategies = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
         let mut seats = [DEFAULT_BOT; MAX_PLAYERS];
-        seats[0] = SEAT_HUMAN;
+        seats[0] = DEFAULT_P1;
         let _ = SEAT_SEARCH;
         let mut app = App {
             state,

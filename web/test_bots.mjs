@@ -11,6 +11,7 @@ let failed = 0;
 const check = (name, cond) => { console.log((cond ? "  ok   " : "  FAIL ") + name); if (!cond) failed++; };
 
 const bots = JSON.parse(call(w.list_bots()));
+check("player 1 defaults to Double Witch", bots[JSON.parse(call(w.get_seats()))[0]] === "Double Witch");
 check("bots listed", bots[0] === "Human" && bots.length === 13);
 
 load(`players: 2
@@ -31,6 +32,7 @@ check("analysis ranks Play Village first", a.options[0].label.includes("Village"
 check("smithy line never plays village", !a.options.find((o) => o.label.includes("Smithy")).pv.includes("Play Village"));
 
 // Seat 1 = Double Witch bot, seat 0 = search; run a whole game.
+call(w.set_seat(0, 0));
 check("run_bots reports when a human must decide", w.run_bots() === 0 && /Human/.test(res()));
 call(w.set_seat(0, 1));
 call(w.set_seat(1, 5));

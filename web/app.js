@@ -556,6 +556,7 @@
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");
       label.appendChild(decorate(o.label));
+      if (o.rulesPick) label.appendChild(el("span", "rules-pick", "rules' pick"));
       tr.appendChild(label);
       const ev = el("td", "ev", o.ev.toFixed(2));
       if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));

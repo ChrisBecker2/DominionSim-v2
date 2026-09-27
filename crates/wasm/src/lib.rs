@@ -605,19 +605,38 @@ fn analyze_json(app: &mut App) -> Result<String, String> {
     let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
     let (eval, scoring) = seat_eval(&app.strategies, scoring_strategy(app, d.player));
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &eval);
-    Ok(analysis_json(&d, &a, &scoring))
+    Ok(analysis_json(&d, &a, &scoring, rules_pick(app, &d)))
 }
 
-fn analysis_json(d: &Decision, a: &dominion_search::Analysis, scoring: &str) -> String {
-    let opts: Vec<String> = a
-        .options
+/// What the deciding seat's strategy would choose here (None for human/search seats).
+fn rules_pick(app: &App, d: &Decision) -> Option<Choice> {
+    let seat = app.seats[d.player as usize];
+    let strategy = app.strategies.get(seat.checked_sub(2)? as usize)?;
+    let mut buf = ChoiceBuf::default();
+    app.state.legal_choices(&mut buf);
+    Some(strategy.decide(&PlayerView::new(&app.state, d.player), d, buf.as_slice()))
+}
+
+fn analysis_json(d: &Decision, a: &dominion_search::Analysis, scoring: &str, pick: Option<Choice>) -> String {
+    // Options tied at display precision are listed with the strategy's own pick first.
+    const TIE: f64 = 0.005;
+    let mut options = a.options.clone();
+    options.sort_by(|x, y| {
+        if (x.ev - y.ev).abs() < TIE {
+            (Some(y.choice) == pick).cmp(&(Some(x.choice) == pick))
+        } else {
+            y.ev.partial_cmp(&x.ev).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+    let opts: Vec<String> = options
         .iter()
         .map(|o| {
             format!(
-                "{{\"label\":{},\"ev\":{:.4},\"exact\":{},\"pv\":{}}}",
+                "{{\"label\":{},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"pv\":{}}}",
                 jstr(&choice_label(d, o.choice)),
                 o.ev,
                 o.exact,
+                Some(o.choice) == pick,
                 jstr(&o.pv)
             )
         })
@@ -788,7 +807,7 @@ pub extern "C" fn plan_finish() -> i32 {
         let a = plan.finish(&results, std::time::Duration::ZERO);
         let d = app.state.pending_decision().ok_or("decision changed during analysis")?;
         let (_, scoring) = seat_eval(&app.strategies, strategy);
-        Ok(analysis_json(&d, &a, &scoring))
+        Ok(analysis_json(&d, &a, &scoring, rules_pick(&app, &d)))
     });
     result_of(r)
 }

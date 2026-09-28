@@ -170,8 +170,16 @@
     return el("span", cardClass.get(name) || "card", label === undefined ? name : label);
   }
 
-  // Text with every card name wrapped in a type-coloured chip.
+  // Text with every card name wrapped in a type-coloured chip ("Win Game!" is emphasized).
   function decorate(text) {
+    const win = text.indexOf("Win Game!");
+    if (win >= 0) {
+      const frag = document.createDocumentFragment();
+      frag.appendChild(decorate(text.slice(0, win)));
+      frag.appendChild(el("span", "win-game", "Win Game!"));
+      frag.appendChild(decorate(text.slice(win + "Win Game!".length)));
+      return frag;
+    }
     const frag = document.createDocumentFragment();
     let last = 0;
     for (const m of text.matchAll(cardRegex)) {
@@ -660,8 +668,8 @@
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");
       label.appendChild(decorate(o.label));
-      if (o.rulesPick) label.appendChild(el("span", "rules-pick", "rules' pick"));
-      if (o.better) label.appendChild(el("span", "rules-better", "scores higher than rules' pick"));
+      if (o.rulesPick) label.appendChild(el("span", "rules-pick", "[strategy pick]"));
+      if (o.analysisPick) label.appendChild(el("span", "rules-better", "[analysis pick]"));
       tr.appendChild(label);
       const ev = el("td", "ev", o.ev.toFixed(2));
       if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));
@@ -1161,6 +1169,12 @@
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
     // Test hook: open index.html#selftest-sim to run a simulation on load.
     if (location.hash === "#selftest-sim") simulate();
+    // Test hook: index.html#selftest-load=<base64 state text> loads that state and analyzes it.
+    if (location.hash.startsWith("#selftest-load=")) {
+      $("state-text").value = decodeURIComponent(escape(atob(location.hash.slice("#selftest-load=".length))));
+      $("btn-load").click();
+      renderAnalysis(api.analyze()); // same-thread, so headless screenshots see the result
+    }
     // Test hook: open index.html#selftest-chart to simulate in the page and draw the chart.
     if (location.hash.startsWith("#selftest-chart")) {
       $("sim-metric").value = location.hash.split("-")[2] || "vp";

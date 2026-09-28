@@ -114,6 +114,11 @@ impl Evaluator for GainListEvaluator<'_> {
 
     /// Below the analyzed decision, play exactly as the strategy's rules do, so the analysis
     /// values each option by what the bot will actually do next.
+    /// Outcomes call out only the actions the strategy's `[[play]]` rules name.
+    fn outcome_shows_play(&self, card: CardId) -> bool {
+        self.strategy.states_play(card)
+    }
+
     /// In playouts past the node budget, play actions in the strategy's rule order (no search).
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);

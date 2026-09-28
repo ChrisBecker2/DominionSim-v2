@@ -79,6 +79,13 @@ impl Evaluator for SeatEval<'_> {
             SeatEval::Gains(e) => e.playout_choice(state, me, decision, choices),
         }
     }
+
+    fn outcome_shows_play(&self, card: u8) -> bool {
+        match self {
+            SeatEval::General(e) => e.outcome_shows_play(card),
+            SeatEval::Gains(e) => e.outcome_shows_play(card),
+        }
+    }
 }
 
 /// `strategy`: index into the bundled strategies, or `u32::MAX` for the general evaluator.
@@ -990,6 +997,12 @@ fn analysis_json(app: &App, d: &Decision, a: &dominion_search::Analysis, scoring
     // play. Other options follow by value; `better` flags any that would score higher.
     const TIE: f64 = 0.005;
     let pick_ev = pick.and_then(|p| a.options.iter().find(|o| o.choice == p)).map(|o| o.ev);
+    // The analysis pick: the highest-value option; the strategy's pick when it ties the best.
+    let best_ev = a.options.iter().map(|o| o.ev).fold(f64::NEG_INFINITY, f64::max);
+    let analysis_pick = match (pick, pick_ev) {
+        (Some(p), Some(pe)) if pe >= best_ev - TIE => Some(p),
+        _ => a.options.iter().find(|o| o.ev >= best_ev - TIE).map(|o| o.choice),
+    };
     let mut options = a.options.clone();
     options.sort_by(|x, y| {
         let (xp, yp) = (Some(x.choice) == pick, Some(y.choice) == pick);
@@ -1005,11 +1018,12 @@ fn analysis_json(app: &App, d: &Decision, a: &dominion_search::Analysis, scoring
             let outcomes: Vec<String> =
                 o.outcomes.iter().map(|(l, p)| format!("{{\"label\":{},\"p\":{:.5}}}", jstr(l), p)).collect();
             format!(
-                "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"better\":{better},\"pv\":{},\"outcomes\":[{}]}}",
+                "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"analysisPick\":{},\"better\":{better},\"pv\":{},\"outcomes\":[{}]}}",
                 jstr(&choice_label(d, o.choice)),
                 o.ev,
                 o.exact,
                 Some(o.choice) == pick,
+                Some(o.choice) == analysis_pick,
                 jstr(&o.pv),
                 outcomes.join(",")
             )

@@ -84,12 +84,12 @@ impl Plan {
             let Some(n) = open.pop_front() else { break };
             let state = states[n].take().unwrap();
             nodes[n] = if is_leaf(&state) {
-                Node::Value(eval.leaf_value(&root, &state, me), end_of_turn_label(&state, me), outcome_label(&root, &state, me))
+                Node::Value(eval.leaf_value(&root, &state, me), end_of_turn_label(&state, me), outcome_label(&root, &state, me, eval))
             } else {
                 let mut s = state;
                 match s.advance(&mut NoEvents) {
                     Step::GameOver | Step::TurnStart { .. } => {
-                        Node::Value(eval.leaf_value(&root, &s, me), end_of_turn_label(&s, me), outcome_label(&root, &s, me))
+                        Node::Value(eval.leaf_value(&root, &s, me), end_of_turn_label(&s, me), outcome_label(&root, &s, me, eval))
                     }
                     Step::Chance { player } => {
                         let outcomes = s.chance_outcomes(player);

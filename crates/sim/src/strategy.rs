@@ -442,6 +442,11 @@ impl Strategy {
         self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass)
     }
 
+    /// Whether the strategy's `[[play]]` rules name `card`.
+    pub fn states_play(&self, card: CardId) -> bool {
+        self.play.iter().any(|(c, _)| *c == card)
+    }
+
     /// For a card played this turn: how many stated [[play]] rules rank below its first rule
     /// whose condition holds (`None` if no stated rule applies). Used for scoring.
     pub fn play_rules_below(&self, view: &PlayerView, card: CardId) -> Option<usize> {

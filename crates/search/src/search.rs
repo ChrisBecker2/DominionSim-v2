@@ -473,12 +473,12 @@ impl Searcher {
         };
         loop {
             if is_leaf(&s) {
-                add(outcome_label(root, &s, me), p, acc);
+                add(outcome_label(root, &s, me, eval), p, acc);
                 return;
             }
             match s.advance(&mut NoEvents) {
                 Step::GameOver | Step::TurnStart { .. } => {
-                    add(outcome_label(root, &s, me), p, acc);
+                    add(outcome_label(root, &s, me, eval), p, acc);
                     return;
                 }
                 Step::Chance { player } => {
@@ -603,16 +603,16 @@ fn with_source(base: String, source: Option<dominion_engine::CardId>, choice_car
 /// "end turn", or "end turn → Win Game" / "end turn → game ends (not a win)" when the turn ends it.
 pub(crate) fn end_of_turn_label(leaf: &GameState, me: u8) -> String {
     match leaf.result_if_turn_ends() {
-        Some(w) if w == 1 << me => "end turn \u{2192} Win Game".to_string(),
+        Some(w) if w == 1 << me => "end turn \u{2192} Win Game!".to_string(),
         Some(_) => "end turn \u{2192} game ends (not a win)".to_string(),
         None => "end turn".to_string(),
     }
 }
 
-/// A turn's result for `me`: actions played (treasures are always played, so left out), cards
-/// trashed, cards gained, and the game result if the turn ends it. E.g.
+/// A turn's result for `me`: actions played that the evaluator calls out (a strategy's `[[play]]`
+/// cards), cards trashed, cards gained, and the game result if the turn ends it. E.g.
 /// "Play Witch · Trash Estate · Gain Gold + Win Game". "Nothing" if none of those happened.
-pub(crate) fn outcome_label(root: &GameState, leaf: &GameState, me: u8) -> String {
+pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me: u8, eval: &E) -> String {
     use dominion_engine::cards::{CardId, NUM_CARDS, TREASURE};
     let list = |items: &mut Vec<(u8, CardId, i32)>| -> String {
         items.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -626,7 +626,7 @@ pub(crate) fn outcome_label(root: &GameState, leaf: &GameState, me: u8) -> Strin
     if leaf.turn.player == me && leaf.turn.number == root.turn.number {
         for c in 0..NUM_CARDS as CardId {
             let n = leaf.turn.played.get(c) as i32 - root.turn.played.get(c) as i32;
-            if n > 0 && !cards::is(c, TREASURE) {
+            if n > 0 && !cards::is(c, TREASURE) && eval.outcome_shows_play(c) {
                 played.push((cards::cost(c), c, n));
             }
         }

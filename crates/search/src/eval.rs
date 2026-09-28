@@ -35,6 +35,12 @@ pub trait Evaluator {
     fn playout_choice(&self, _state: &GameState, _me: u8, _decision: &Decision, _choices: &[Choice]) -> Option<Choice> {
         None
     }
+
+    /// Whether playing `card` is called out in a turn's outcome (e.g. a strategy's `[[play]]`
+    /// cards). Default: no; outcomes then list only trashes, gains and the game result.
+    fn outcome_shows_play(&self, _card: dominion_engine::CardId) -> bool {
+        false
+    }
 }
 
 /// Dominates every other term: winning the game outright if this turn ends it, sharing it,

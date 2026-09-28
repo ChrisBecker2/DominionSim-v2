@@ -98,6 +98,9 @@
     runBots() {
       ok(wasm.run_bots());
     },
+    resume() {
+      ok(wasm.resume());
+    },
     analyze() {
       return JSON.parse(ok(wasm.analyze()));
     },
@@ -356,7 +359,8 @@
       const b = el("button");
       b.appendChild(decorate(c.label));
       b.addEventListener("click", () => doAction(() => {
-        api.choose(c.index);
+        if (c.index < 0) api.resume();
+        else api.choose(c.index);
         maybeRunBots();
       }));
       choices.appendChild(b);
@@ -557,7 +561,7 @@
     panel.hidden = false;
     $("analysis-progress").hidden = true;
     const timing = result.seconds !== undefined ? `, ${result.seconds.toFixed(2)} s on ${result.workers} workers` : "";
-    $("analysis-meta").textContent = `P${result.player + 1} to decide, scored by ${result.scoring}, ${result.nodes.toLocaleString()} nodes searched, ${result.ttHits.toLocaleString()} transpositions${timing}`;
+    $("analysis-meta").textContent = "";
     result.options.forEach((o, i) => {
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");
@@ -680,7 +684,9 @@
         const i = e.key.charCodeAt(0) - "1".charCodeAt(0);
         if (lastView && lastView.pending && i < lastView.pending.choices.length) {
           doAction(() => {
-            api.choose(lastView.pending.choices[i].index);
+            const idx = lastView.pending.choices[i].index;
+            if (idx < 0) api.resume();
+            else api.choose(idx);
             maybeRunBots();
           });
         }

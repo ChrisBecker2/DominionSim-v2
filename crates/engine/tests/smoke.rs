@@ -25,6 +25,7 @@ fn random_games_conserve_cards_and_terminate() {
         let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 400 });
         let start = total_cards(&g) + 10 * n as u32; // starting decks come from outside supply... except Copper
         let _ = start;
+        g.pause_at_turn_start = game % 2 == 0; // exercise turn-boundary pauses too
         let initial = total_cards(&g);
         let mut buf = ChoiceBuf::default();
         let mut steps = 0;
@@ -37,6 +38,7 @@ fn random_games_conserve_cards_and_terminate() {
                     g.apply(c, &mut NoEvents).unwrap();
                 }
                 Step::Chance { .. } => unreachable!(),
+                Step::TurnStart { .. } => assert!(g.pause_at_turn_start),
                 Step::GameOver => break,
             }
             assert_eq!(total_cards(&g), initial, "card conservation, game {game}");

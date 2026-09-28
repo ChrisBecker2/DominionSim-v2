@@ -50,6 +50,7 @@ impl Plan {
     pub fn build<E: Evaluator>(root: &GameState, me: u8, target_tasks: usize, eval: &E) -> Plan {
         let mut root = *root;
         root.chance_mode = true;
+        root.pause_at_turn_start = false;
         let d = root.pending_decision().expect("Plan::build: root has no pending decision");
         assert_eq!(d.player, me, "Plan::build: decision belongs to player {}, not {me}", d.player);
 
@@ -88,6 +89,7 @@ impl Plan {
                 let mut s = state;
                 match s.advance(&mut NoEvents) {
                     Step::GameOver => Node::Value(eval.leaf_value(&root, &s, me), "game over"),
+                    Step::TurnStart { .. } => Node::Value(eval.leaf_value(&root, &s, me), "end turn"),
                     Step::Chance { player } => {
                         let outcomes = s.chance_outcomes(player);
                         let total = outcomes.total();

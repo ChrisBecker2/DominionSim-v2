@@ -168,6 +168,7 @@ impl Searcher {
 
         let mut root = *state;
         root.chance_mode = true;
+        root.pause_at_turn_start = false;
         let d = root.pending_decision().expect("analyze: root state has no pending decision");
         assert_eq!(d.player, me, "analyze: pending decision belongs to player {}, not {me}", d.player);
 
@@ -270,7 +271,7 @@ impl Searcher {
 
         let mut s = *state;
         let result = match s.advance(&mut NoEvents) {
-            Step::GameOver => Eval { ev: eval.leaf_value(root, &s, me), exact: true },
+            Step::GameOver | Step::TurnStart { .. } => Eval { ev: eval.leaf_value(root, &s, me), exact: true },
             Step::Chance { player } => self.chance_value(root, &s, player, me, cfg, eval),
             Step::Decision(d) => {
                 let mut buf = ChoiceBuf::default();
@@ -323,7 +324,7 @@ impl Searcher {
                 return Eval { ev: eval.leaf_value(root, &s, me), exact: false };
             }
             match s.advance(&mut NoEvents) {
-                Step::GameOver => return Eval { ev: eval.leaf_value(root, &s, me), exact: false },
+                Step::GameOver | Step::TurnStart { .. } => return Eval { ev: eval.leaf_value(root, &s, me), exact: false },
                 Step::Chance { player } => {
                     let outcomes = s.chance_outcomes(player);
                     let card = outcomes.nth(self.rng.below(outcomes.total()));
@@ -406,6 +407,10 @@ impl Searcher {
             match s.advance(&mut NoEvents) {
                 Step::GameOver => {
                     parts.push("game over".to_string());
+                    return parts;
+                }
+                Step::TurnStart { .. } => {
+                    parts.push("end turn".to_string());
                     return parts;
                 }
                 Step::Chance { player } => {

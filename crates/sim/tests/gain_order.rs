@@ -247,7 +247,7 @@ fn play_turn(src: &str, text: &str) -> dominion_engine::GameState {
     let mut buf = ChoiceBuf::default();
     loop {
         match g.advance(&mut NoEvents) {
-            Step::GameOver => return g,
+            Step::GameOver | Step::TurnStart { .. } => return g,
             Step::Decision(d) => {
                 if g.turn.player != 0 {
                     return g;

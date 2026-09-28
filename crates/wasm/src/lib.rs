@@ -474,9 +474,11 @@ pub extern "C" fn can_redo() -> i32 {
 // -----------------------------------------------------------------------------------------
 
 fn advance_and_log(app: &mut App) {
+    // The page steps turn by turn: stop at each turn boundary (see `resume`).
+    app.state.pause_at_turn_start = true;
     let mut sink: Vec<Event> = Vec::new();
     match app.state.advance(&mut sink) {
-        Step::Decision(_) | Step::GameOver => {}
+        Step::Decision(_) | Step::GameOver | Step::TurnStart { .. } => {}
         Step::Chance { .. } => unreachable!("chance_mode is never enabled by this crate"),
     }
     for e in &sink {
@@ -581,8 +583,31 @@ fn step_auto_impl(app: &mut App) -> Result<(), String> {
     if app.state.turn.phase == Phase::GameOver {
         return Err("the game is over".to_string());
     }
+    if app.state.pending_decision().is_none() {
+        resume_impl(app);
+        return Ok(());
+    }
     let choice = bot_choice(app, true)?;
     apply_choice(app, choice)
+}
+
+/// Start the turn the game is paused at (a turn boundary): play until the next decision.
+fn resume_impl(app: &mut App) {
+    if app.state.pending_decision().is_none() && app.state.turn.phase != Phase::GameOver {
+        app.push_history();
+        advance_and_log(app);
+    }
+}
+
+/// Continue from a turn boundary pause. No-op if a decision is pending or the game is over.
+#[no_mangle]
+pub extern "C" fn resume() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        resume_impl(&mut app);
+        app.set_result(String::new());
+        1
+    })
 }
 
 /// The choice the deciding seat's controller would make. Human seats get the search's choice
@@ -609,7 +634,14 @@ fn bot_choice(app: &mut App, human_uses_search: bool) -> Result<Choice, String> 
 
 fn run_bots_impl(app: &mut App) -> Result<(), String> {
     for step in 0..100_000 {
-        let Some(d) = app.state.pending_decision() else { return Ok(()) };
+        if app.state.turn.phase == Phase::GameOver {
+            return Ok(());
+        }
+        let Some(d) = app.state.pending_decision() else {
+            // Turn boundary: bots keep going into the next turn.
+            resume_impl(app);
+            continue;
+        };
         if app.seats[d.player as usize] == SEAT_HUMAN {
             if step == 0 {
                 return Err(format!(
@@ -926,19 +958,25 @@ pub extern "C" fn analyze() -> i32 {
     result_of(r)
 }
 
+/// Play the current turn to its end: stops right after the current player's cleanup, at the
+/// next turn's boundary (or at game over). From a boundary pause, plays that next turn.
 fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
     let start_turn = app.state.turn.number;
-    let mut steps = 0u32;
-    loop {
-        if app.state.turn.phase == Phase::GameOver || app.state.turn.number != start_turn {
+    for _ in 0..200_000 {
+        if app.state.turn.phase == Phase::GameOver {
             return Ok(());
         }
-        step_auto_impl(app)?;
-        steps += 1;
-        if steps > 200_000 {
-            return Err("run_to_end_of_turn: too many steps, aborting".to_string());
+        if app.state.pending_decision().is_none() {
+            if app.state.turn.number != start_turn {
+                return Ok(()); // paused at the next turn's start
+            }
+            resume_impl(app);
+            continue;
         }
+        let choice = bot_choice(app, true)?;
+        apply_choice(app, choice)?;
     }
+    Err("run_to_end_of_turn: too many steps, aborting".to_string())
 }
 
 // -----------------------------------------------------------------------------------------
@@ -1222,6 +1260,13 @@ fn player_json(state: &GameState, p: usize) -> String {
 }
 
 fn pending_json(state: &GameState) -> String {
+    if state.pending_decision().is_none() && state.turn.phase != Phase::GameOver {
+        return format!(
+            "{{\"player\":{},\"source\":null,\"paused\":true,\"description\":{},\"choices\":[{{\"index\":-1,\"label\":\"Start turn\"}}]}}",
+            state.turn.player,
+            jstr(&format!("Turn {}: Player {} is up.", state.turn.number, state.turn.player + 1))
+        );
+    }
     let d = match state.pending_decision() {
         Some(d) => d,
         None => return "null".to_string(),

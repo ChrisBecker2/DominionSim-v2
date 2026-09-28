@@ -141,11 +141,14 @@ pub struct TurnState {
     pub silvers_played: u8,
     /// Global turn counter (1-based, counts every player's turn).
     pub number: u16,
+    /// Whether the turn's start has been announced (TurnStart/PhaseStart events). Deferred to
+    /// the first step of the turn so a turn-boundary pause logs nothing of the next turn.
+    pub announced: bool,
 }
 
 impl TurnState {
     pub fn start(player: u8, number: u16) -> Self {
-        TurnState { player, phase: Phase::Action, actions: 1, buys: 1, coins: 0, merchants: 0, silvers_played: 0, number }
+        TurnState { player, phase: Phase::Action, actions: 1, buys: 1, coins: 0, merchants: 0, silvers_played: 0, number, announced: false }
     }
 }
 
@@ -373,6 +376,9 @@ pub struct GameState {
     /// When true, decisions with exactly one legal choice are applied automatically.
     pub auto_single: bool,
     pub max_turns: u16,
+    /// When true, `advance` stops with `Step::TurnStart` each time a new turn begins (for
+    /// stepping through a game turn by turn). Simulation and search leave it off.
+    pub pause_at_turn_start: bool,
     pub pending: Pending,
 }
 
@@ -424,6 +430,7 @@ impl GameState {
             chance_mode: false,
             auto_single: true,
             max_turns: cfg.max_turns,
+            pause_at_turn_start: false,
             pending: Pending::None,
         };
         for p in 0..n {

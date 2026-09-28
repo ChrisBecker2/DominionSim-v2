@@ -94,7 +94,7 @@ fn chance_mode_resolves_a_full_reshuffle_mid_draw() {
                 g.resolve_chance(player, card);
                 step = adv(&mut g);
             }
-            Step::Decision(_) | Step::GameOver => break,
+            Step::Decision(_) | Step::GameOver | Step::TurnStart { .. } => break,
         }
         drawn += 1;
         assert!(drawn <= 3, "smithy only draws 3 cards");

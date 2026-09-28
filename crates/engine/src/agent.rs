@@ -130,6 +130,7 @@ impl<'a> PlayerView<'a> {
     pub fn determinize(&self, rng: &mut Rng) -> GameState {
         let mut s = *self.state;
         s.chance_mode = true;
+        s.pause_at_turn_start = false;
         for p in 0..s.num_players {
             if p == self.me {
                 continue;
@@ -183,6 +184,7 @@ pub fn play_game<S: EventSink>(state: &mut GameState, agents: &mut [&mut dyn Age
                 state.apply(c, sink).expect("agent chose an illegal option");
             }
             Step::Chance { .. } => unreachable!(),
+            Step::TurnStart { .. } => continue,
             Step::GameOver => break,
         }
     }

@@ -110,6 +110,9 @@ pub enum Step {
     /// The top card of `player`'s deck must be revealed. Outcomes: `chance_outcomes(player)`,
     /// each card `c` with probability `count(c) / total`. Answer with `resolve_chance`.
     Chance { player: u8 },
+    /// A new turn has just begun (only with `GameState::pause_at_turn_start`). Nothing is
+    /// pending; call `advance` again to start playing it.
+    TurnStart { player: u8 },
     GameOver,
 }
 
@@ -161,6 +164,8 @@ impl EventSink for Vec<Event> {
 /// Returned by a frame's `run`.
 pub(crate) enum Run {
     Continue,
+    /// A new turn just started and `pause_at_turn_start` is set.
+    Pause,
     Decide(DecisionKind, CardId),
     Chance(u8),
 }
@@ -190,6 +195,7 @@ impl GameState {
             };
             match run {
                 Run::Continue => continue,
+                Run::Pause => return Step::TurnStart { player: self.turn.player },
                 Run::Chance(p) => {
                     self.set_pending(Pending::Chance(p));
                     return Step::Chance { player: p };
@@ -288,11 +294,14 @@ impl GameState {
         match self.turn.phase {
             Phase::Setup => {
                 self.turn = TurnState::start(0, 1);
-                sink.event(Event::TurnStart { player: 0, turn: 1 });
-                sink.event(Event::PhaseStart { player: 0, phase: Phase::Action });
                 Run::Continue
             }
             Phase::Action => {
+                if !self.turn.announced {
+                    self.turn.announced = true;
+                    sink.event(Event::TurnStart { player: self.turn.player, turn: self.turn.number });
+                    sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Action });
+                }
                 if self.turn.actions > 0 && self.players[p].hand.any_type(ACTION) {
                     Run::Decide(DecisionKind::PlayAction, 0)
                 } else {
@@ -320,8 +329,9 @@ impl GameState {
                 } else {
                     let next = ((p + 1) % self.num_players as usize) as u8;
                     self.turn = TurnState::start(next, self.turn.number + 1);
-                    sink.event(Event::TurnStart { player: next, turn: self.turn.number });
-                    sink.event(Event::PhaseStart { player: next, phase: Phase::Action });
+                    if self.pause_at_turn_start {
+                        return Run::Pause;
+                    }
                 }
                 Run::Continue
             }

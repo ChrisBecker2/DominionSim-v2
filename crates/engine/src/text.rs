@@ -431,6 +431,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         merchants: 0,
         silvers_played: 0,
         number: tf.number,
+        // A loaded position starts mid-turn from the reader's point of view; don't re-announce.
+        announced: true,
     };
 
     // Player blocks.
@@ -682,6 +684,7 @@ in play:
                     s.apply(c, &mut sink).unwrap();
                 }
                 Step::GameOver => break,
+                Step::TurnStart { .. } => {}
                 Step::Chance { .. } => unreachable!(),
             }
         }

@@ -296,3 +296,26 @@ fn win_this_turn_never_acquires_unlisted_cards() {
     assert!(!g.is_game_over());
     assert_eq!(g.players[0].all_cards().get(id::DUCHY), 0);
 }
+
+#[test]
+fn analysis_ranks_the_rules_pick_first_when_win_this_turn_applies() {
+    // The bot plays Remodel (certain win: Throne Room -> Duchy, buy the last Duchy); the
+    // strategy-scored analysis must rank that same move first, not Throne Room -> 2 Provinces.
+    let text = "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
+                supply: Gold=0, Estate=0, Duchy=2, Province=4\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+                [player 1]\nhand: Gold Gold Throne Room Remodel\ndeck: 2 Copper, 3 Estate\n\n\
+                [player 2]\nhand: 3 Copper, 2 Estate\ndeck: 4 Copper, Estate\n";
+    let strat = Strategy::parse(&read_strategy("double_witch.toml")).unwrap();
+    let mut g = parse_state(text).unwrap();
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    let pick = strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice());
+    assert_eq!(pick, Choice::Card(id::REMODEL));
+    let a = dominion_search::analyze(&g, 0, &dominion_search::SearchConfig::default(), &dominion_sim::GainListEvaluator::new(&strat));
+    assert_eq!(a.best().choice, pick, "analysis best = rules' pick; got {:?}", a.options);
+    assert!(a.best().pv.contains("Gain Duchy") && a.best().pv.contains("Buy Duchy"), "{}", a.best().pv);
+}

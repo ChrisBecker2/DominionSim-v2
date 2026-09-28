@@ -10,7 +10,8 @@ use dominion_engine::rng::Rng;
 use dominion_search::{SearchConfig, Searcher};
 use std::cell::RefCell;
 
-/// Scores the end of a turn by the strategy's gain list: every card gained this turn is worth
+/// Scores the end of a turn by the strategy's gain list (plus, with `win_this_turn`, a winning
+/// turn above everything): every card gained this turn is worth
 /// its place in the list, each entry outranking everything below it (weights are powers of 10),
 /// and every card trashed this turn costs its own list value (so Remodel Gold -> Gold nets zero).
 /// Conditions are evaluated at the start of the analyzed decision. A tiny general-purpose
@@ -46,9 +47,17 @@ impl Evaluator for GainListEvaluator<'_> {
             }
         }
         // Strictly the strategy's own priorities. The general evaluator's game-end term is removed
-        // from the tie-break: winning/losing only matters if the rules say so (`wins_game` etc.).
+        // from the tie-break: winning only matters if the rules say so. With `win_this_turn` (the
+        // default) a turn that wins the game outright, acquiring only listed cards, outranks every
+        // list priority, matching what the bot itself plays.
         let tie = self.tie_break.leaf_value(root, leaf, me) - game_end_value(leaf, me);
-        v + 1e-3 * tie
+        let win = if self.strategy.win_this_turn && leaf.result_if_turn_ends() == Some(1 << me) {
+            let only_listed = (0..NUM_CARDS as CardId).all(|c| after.get(c) <= before.get(c) || self.strategy.lists(c));
+            if only_listed { 1e15 } else { 0.0 }
+        } else {
+            0.0
+        };
+        win + v + 1e-3 * tie
     }
 
     /// The strategy only buys cards in its gain list whose conditions hold, else Done.

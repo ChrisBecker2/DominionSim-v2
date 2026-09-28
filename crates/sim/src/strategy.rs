@@ -199,6 +199,11 @@ impl Strategy {
         self.buy.iter().position(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
     }
 
+    /// Whether `card` appears anywhere in the gain list (regardless of conditions).
+    pub fn lists(&self, card: CardId) -> bool {
+        self.buy.iter().any(|(c, _)| *c == card)
+    }
+
     /// Number of entries in the gain list.
     pub fn gain_list_len(&self) -> usize {
         self.buy.len()

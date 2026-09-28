@@ -164,7 +164,11 @@ impl Searcher {
         let mut buf = ChoiceBuf::default();
         root.legal_choices(&mut buf);
         let mut options = Vec::with_capacity(buf.len());
+        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
         for &choice in buf.as_slice() {
+            if any_allowed && !eval.allows(&root, me, &d, choice) {
+                continue;
+            }
             let mut child = root;
             child.apply(choice, &mut NoEvents).expect("analyze: root choice rejected by the engine");
             let r = self.node_value(&root, &child, me, cfg, eval);
@@ -231,7 +235,11 @@ impl Searcher {
                 } else {
                     let mut best = f64::NEG_INFINITY;
                     let mut exact = true;
+                    let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
                     for &choice in buf.as_slice() {
+                        if any_allowed && !eval.allows(&s, me, &d, choice) {
+                            continue;
+                        }
                         let mut child = s;
                         child.apply(choice, &mut NoEvents).expect("legal choice rejected by the engine");
                         let r = self.node_value(root, &child, me, cfg, eval);
@@ -273,7 +281,11 @@ impl Searcher {
                         default_policy(&s, &d, buf.as_slice())
                     } else {
                         let mut best = (f64::NEG_INFINITY, buf.as_slice()[0]);
+                        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
                         for &c in buf.as_slice() {
+                            if any_allowed && !eval.allows(&s, me, &d, c) {
+                                continue;
+                            }
                             let mut child = s;
                             child.apply(c, &mut NoEvents).expect("legal choice");
                             let v = eval.leaf_value(root, &child, me);
@@ -355,7 +367,11 @@ impl Searcher {
                     let choice = if d.player == me {
                         let mut best_choice = buf.as_slice()[0];
                         let mut best = f64::NEG_INFINITY;
+                        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
                         for &c in buf.as_slice() {
+                            if any_allowed && !eval.allows(&s, me, &d, c) {
+                                continue;
+                            }
                             let mut child = s;
                             child.apply(c, &mut NoEvents).expect("legal choice rejected by the engine");
                             let r = self.node_value(root, &child, me, cfg, eval);

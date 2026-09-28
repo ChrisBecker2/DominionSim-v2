@@ -101,6 +101,27 @@ impl<'a> PlayerView<'a> {
         self.state.players[p as usize].turns_taken
     }
 
+    /// If gaining `card` now would end the game at the end of this turn (last Province, or the
+    /// final empty pile), the winners bitmask it would end with; otherwise `None`. Uses only
+    /// public information (supply, everyone's VP from their known card composition).
+    pub fn result_if_gained(&self, card: CardId) -> Option<u8> {
+        let s = self.state;
+        if !s.in_supply(card) || s.supply.get(card) == 0 {
+            return None;
+        }
+        // Cheap precheck: only the last card of a pile can trigger the end.
+        let pile_limit = if s.num_players >= 5 { 4 } else { 3 };
+        let last_province = card == crate::cards::id::PROVINCE && s.supply.get(card) == 1;
+        let last_pile = s.supply.get(card) == 1 && s.empty_piles() + 1 >= pile_limit;
+        if !last_province && !last_pile {
+            return None;
+        }
+        let mut after = *s;
+        after.supply.remove(card);
+        after.players[self.me as usize].discard.add(card, 1);
+        after.result_if_turn_ends()
+    }
+
     /// A concrete `GameState` consistent with everything `me` honestly knows, for search.
     /// My own zones are exact. For each opponent, hand + deck are pooled (their split and any
     /// order are hidden from me) and a random hand of the same size is dealt back out; their

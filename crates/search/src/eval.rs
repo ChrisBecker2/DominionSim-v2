@@ -3,13 +3,31 @@
 
 use dominion_engine::cards::{self, ACTION, TREASURE};
 use dominion_engine::state::PlayerState;
-use dominion_engine::{Counts, GameState};
+use dominion_engine::{Choice, Counts, Decision, GameState};
 
 pub trait Evaluator {
     /// Score `leaf` (end of the turn being searched) for `me`. `root` is the searched position,
     /// so evaluators can measure change over the turn or fix a horizon that the turn's own
     /// buys don't distort.
     fn leaf_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64;
+
+    /// Whether `me` would consider `choice` at `decision` in `state` (e.g. a strategy only buys
+    /// from its gain list). The search skips disallowed choices unless none are allowed.
+    fn allows(&self, _state: &GameState, _me: u8, _decision: &Decision, _choice: Choice) -> bool {
+        true
+    }
+}
+
+/// Dominates every other term: winning the game outright if this turn ends it, sharing it,
+/// or losing it. Zero if the game doesn't end with this turn.
+pub fn game_end_value(leaf: &GameState, me: u8) -> f64 {
+    const WIN: f64 = 1e15;
+    match leaf.result_if_turn_ends() {
+        None => 0.0,
+        Some(w) if w & (1 << me) == 0 => -WIN,
+        Some(w) if w.count_ones() == 1 => WIN,
+        Some(_) => WIN / 2.0,
+    }
 }
 
 #[inline]
@@ -155,7 +173,7 @@ impl Evaluator for NextHandEvaluator {
         // coin look less valuable.
         let turns_left = estimated_turns_left(root, w);
         let future = expected_next_hand_money(ps) + (turns_left - 1.0).max(0.0) * average_hand_money(&ps.all_cards());
-        ps.vp() as f64 + w.vp_per_coin * future
+        game_end_value(leaf, me) + ps.vp() as f64 + w.vp_per_coin * future
     }
 }
 

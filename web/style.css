@@ -364,3 +364,16 @@ section, .panel {
   color: var(--accent);
   white-space: nowrap;
 }
+
+#analysis-panel h2 { display: flex; align-items: baseline; gap: 8px; }
+#analysis-panel h2 .subtitle { flex: 1; }
+.close-x {
+  border: none;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.close-x:hover { color: var(--text); }

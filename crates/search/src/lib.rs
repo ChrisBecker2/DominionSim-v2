@@ -22,7 +22,7 @@ mod search;
 
 pub use agent::{search_choose, SearchAgent};
 pub use determinize::determinize;
-pub use eval::{average_hand_money, estimated_turns_left, expected_next_hand_money, EvalWeights, Evaluator, MoneyEvaluator, NextHandEvaluator};
+pub use eval::{average_hand_money, estimated_turns_left, game_end_value, expected_next_hand_money, EvalWeights, Evaluator, MoneyEvaluator, NextHandEvaluator};
 pub use hash::turn_hash;
 pub use policy::default_policy;
 #[cfg(not(target_arch = "wasm32"))]

@@ -117,3 +117,67 @@ fn throne_room_is_played_before_remodel_to_double_it() {
     assert_eq!(g.trash.get(id::GOLD), 2, "both Golds remodeled");
     assert_eq!(g.players[0].discard.get(id::PROVINCE), 2, "into two Provinces");
 }
+
+fn buy_decision(strategy_file: &str, state_text: &str) -> (Choice, Vec<String>) {
+    let src = std::fs::read_to_string(format!("{}/../../strategies/{strategy_file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let strat = Strategy::parse(&src).unwrap();
+    let mut g = parse_state(state_text).unwrap();
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    assert_eq!(d.kind, dominion_engine::DecisionKind::Buy);
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    let pick = strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice());
+    // What the analysis would consider for this seat.
+    let eval = dominion_sim::GainListEvaluator::new(&strat);
+    let a = dominion_search::analyze(&g, 0, &dominion_search::SearchConfig::default(), &eval);
+    let offered = a.options.iter().map(|o| format!("{:?}", o.choice)).collect();
+    (pick, offered)
+}
+
+fn endgame(provinces: u8, p1_hand: &str, p2_extra_vp: &str) -> String {
+    format!(
+        "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
+         supply: Province={provinces}\nturn: 30  player: 1  phase: buy  actions: 0  buys: 1  coins: 0\n\n\
+         [player 1]\nhand: {p1_hand}\ndeck: 5 Copper\nturns: 14\n\n\
+         [player 2]\nhand: 5 Copper\ndeck: 5 Copper\ndiscard: {p2_extra_vp}\nturns: 15\n"
+    )
+}
+
+#[test]
+fn bot_takes_the_game_winning_buy_over_its_list() {
+    // Behind 0-3 with $8 and one Province left: buying it ends the game 6-3 -> must buy it.
+    let (pick, _) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "Duchy"));
+    assert_eq!(pick, Choice::Card(id::PROVINCE));
+    // Double Witch too, whatever its list says.
+    let (pick, _) = buy_decision("double_witch.toml", &endgame(1, "Gold Gold Silver", "Duchy"));
+    assert_eq!(pick, Choice::Card(id::PROVINCE));
+}
+
+#[test]
+fn bot_does_not_end_the_game_on_a_tie() {
+    // 6-6 on equal turns would be a shared win: keep playing instead.
+    let (pick, _) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "Province"));
+    assert_ne!(pick, Choice::Card(id::PROVINCE));
+}
+
+#[test]
+fn bot_avoids_ending_the_game_on_a_loss() {
+    // Last Province while behind by 12: buying it ends the game on a loss -> don't.
+    let (pick, offered) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "3 Province"));
+    assert_ne!(pick, Choice::Card(id::PROVINCE));
+    assert!(!offered.contains(&format!("{:?}", Choice::Card(id::PROVINCE))), "{offered:?}");
+}
+
+#[test]
+fn analysis_only_offers_listed_buys_or_done() {
+    // $8, mid-game: Big Money's list is Province/Gold/Silver; nothing else may be offered.
+    let (_, offered) = buy_decision("big_money.toml", &endgame(8, "Gold Gold Silver", ""));
+    let allowed = [Choice::Card(id::PROVINCE), Choice::Card(id::GOLD), Choice::Card(id::SILVER), Choice::Pass];
+    for o in &offered {
+        assert!(allowed.iter().any(|a| &format!("{a:?}") == o), "unlisted buy offered: {o} in {offered:?}");
+    }
+    assert!(offered.len() >= 2);
+}

@@ -95,15 +95,27 @@ impl PlayerState {
         c
     }
     pub fn vp(&self) -> i32 {
-        let all = self.all_cards();
-        let total = all.total() as i32;
-        all.iter()
-            .map(|(c, n)| {
-                let per = if c == id::GARDENS { total / 10 } else { cards::def(c).vp as i32 };
-                per * n as i32
-            })
-            .sum()
+        vp_of_cards(&self.all_cards())
     }
+}
+
+/// Victory points of a whole collection of cards (Gardens counts the collection's size).
+pub fn vp_of_cards(all: &Counts) -> i32 {
+    let total = all.total() as i32;
+    all.iter()
+        .map(|(c, n)| {
+            let per = if c == id::GARDENS { total / 10 } else { cards::def(c).vp as i32 };
+            per * n as i32
+        })
+        .sum()
+}
+
+/// Winners bitmask from final scores and turns taken: highest VP, ties broken by fewer turns;
+/// remaining ties share the win.
+pub fn winners_of(scores: &[i32], turns: &[u16]) -> u8 {
+    let key = |p: usize| (scores[p], -(turns[p] as i32));
+    let best = (0..scores.len()).map(key).max().unwrap();
+    (0..scores.len()).filter(|&p| key(p) == best).fold(0u8, |m, p| m | 1 << p)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -477,15 +489,28 @@ impl GameState {
 
     /// Winners bitmask: highest VP, ties broken by fewer turns; remaining ties share the win.
     pub fn winners(&self) -> u8 {
-        let scores = self.scores();
         let n = self.num_players as usize;
-        let best = (0..n).map(|p| (scores[p], -(self.players[p].turns_taken as i32))).max().unwrap();
-        let mut mask = 0u8;
+        let scores = self.scores();
+        let mut turns = [0u16; MAX_PLAYERS];
         for p in 0..n {
-            if (scores[p], -(self.players[p].turns_taken as i32)) == best {
-                mask |= 1 << p;
-            }
+            turns[p] = self.players[p].turns_taken;
         }
-        mask
+        winners_of(&scores[..n], &turns[..n])
+    }
+
+    /// If the game would end when the current turn ends (Provinces or piles; not the turn cap),
+    /// the winners bitmask it would end with, counting the current player's turn as taken.
+    pub fn result_if_turn_ends(&self) -> Option<u8> {
+        match self.end_reason() {
+            Some(EndReason::ProvincesGone) | Some(EndReason::PilesEmpty) => {}
+            _ => return None,
+        }
+        let n = self.num_players as usize;
+        let scores = self.scores();
+        let mut turns = [0u16; MAX_PLAYERS];
+        for p in 0..n {
+            turns[p] = self.players[p].turns_taken + u16::from(p == self.turn.player as usize && self.turn.phase != Phase::GameOver);
+        }
+        Some(winners_of(&scores[..n], &turns[..n]))
     }
 }

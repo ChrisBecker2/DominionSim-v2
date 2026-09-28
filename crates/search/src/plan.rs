@@ -67,7 +67,11 @@ impl Plan {
         let mut buf = ChoiceBuf::default();
         root.legal_choices(&mut buf);
         let mut roots = Vec::new();
+        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
         for &choice in buf.as_slice() {
+            if any_allowed && !eval.allows(&root, me, &d, choice) {
+                continue;
+            }
             let mut child = root;
             child.apply(choice, &mut NoEvents).expect("legal root choice");
             let idx = new_open(&mut nodes, &mut states, &mut open, child);
@@ -114,7 +118,11 @@ impl Plan {
                             Node::Forced(describe(&d, choice), idx)
                         } else {
                             let mut kids = Vec::new();
+                            let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
                             for &choice in buf.as_slice() {
+                                if any_allowed && !eval.allows(&s, me, &d, choice) {
+                                    continue;
+                                }
                                 let mut c = s;
                                 c.apply(choice, &mut NoEvents).expect("legal choice");
                                 let idx = new_open(&mut nodes, &mut states, &mut open, c);

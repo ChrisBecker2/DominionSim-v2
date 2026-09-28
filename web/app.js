@@ -604,6 +604,7 @@
       const kingdom = $("ng-kingdom").value;
       const seed = parseInt($("ng-seed").value, 10) || 0;
       try {
+        cancelAnalysis();
         api.newGame(players, kingdom, seed, 0);
         showNewGameError("");
         $("state-text").value = api.getStartText();
@@ -615,6 +616,7 @@
 
     $("btn-load").addEventListener("click", () => {
       try {
+        cancelAnalysis();
         api.loadState($("state-text").value);
         showLoadNotice(api.getView());
         showLoadError("");
@@ -645,6 +647,10 @@
           cancelAnalysis();
         })
         .finally(() => ($("btn-analyze").disabled = false));
+    });
+    $("btn-close-analysis").addEventListener("click", () => {
+      cancelAnalysis();
+      $("btn-analyze").disabled = false;
     });
     $("btn-cancel-analysis").addEventListener("click", () => {
       cancelAnalysis();

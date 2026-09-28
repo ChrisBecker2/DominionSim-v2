@@ -51,6 +51,13 @@ impl Evaluator for SeatEval<'_> {
             SeatEval::Gains(e) => e.leaf_value(root, leaf, me),
         }
     }
+
+    fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
+        match self {
+            SeatEval::General(e) => e.allows(state, me, decision, choice),
+            SeatEval::Gains(e) => e.allows(state, me, decision, choice),
+        }
+    }
 }
 
 /// `strategy`: index into the bundled strategies, or `u32::MAX` for the general evaluator.

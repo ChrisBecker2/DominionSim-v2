@@ -329,3 +329,25 @@ fn non_terminal_actions_are_played_before_stated_terminals() {
     assert_eq!(played, vec![id::VILLAGE, id::WITCH, id::CHAPEL]);
     assert_eq!(g.trash.get(id::CURSE), 1, "Chapel trashes the Curse (default trash rule)");
 }
+
+#[test]
+fn second_copy_is_scored_with_its_condition_rechecked() {
+    // Double Witch wants Witch only while count(Witch) < 2. Owning one, a turn that gains two
+    // Witches must score the second at zero (the rule no longer applies), not 2x.
+    use dominion_search::Evaluator;
+    let strat = Strategy::parse(&read_strategy("double_witch.toml")).unwrap();
+    let text = "players: 2\nkingdom: Witch\nturn: 5  player: 1  phase: buy  actions: 0  buys: 1  coins: 0\n\n\
+                [player 1]\nhand: Witch\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Copper\n";
+    let root = parse_state(text).unwrap();
+    let eval = dominion_sim::GainListEvaluator::new(&strat);
+    let gain = |n: u8| {
+        let mut leaf = root;
+        leaf.players[0].discard.add(id::WITCH, n);
+        leaf.supply.set(id::WITCH, 10 - n);
+        eval.leaf_value(&root, &leaf, 0)
+    };
+    let one = gain(1) - gain(0);
+    let two = gain(2) - gain(0);
+    assert!(one > 1000.0, "first Witch counts: {one}");
+    assert!((two - one).abs() < 1.0, "second Witch adds (almost) nothing: one {one}, two {two}");
+}

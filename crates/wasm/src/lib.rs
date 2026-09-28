@@ -58,6 +58,27 @@ impl Evaluator for SeatEval<'_> {
             SeatEval::Gains(e) => e.allows(state, me, decision, choice),
         }
     }
+
+    fn value_when_nothing_allowed(&self) -> Option<f64> {
+        match self {
+            SeatEval::General(e) => e.value_when_nothing_allowed(),
+            SeatEval::Gains(e) => e.value_when_nothing_allowed(),
+        }
+    }
+
+    fn policy(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        match self {
+            SeatEval::General(e) => e.policy(state, me, decision, choices),
+            SeatEval::Gains(e) => e.policy(state, me, decision, choices),
+        }
+    }
+
+    fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        match self {
+            SeatEval::General(e) => e.playout_choice(state, me, decision, choices),
+            SeatEval::Gains(e) => e.playout_choice(state, me, decision, choices),
+        }
+    }
 }
 
 /// `strategy`: index into the bundled strategies, or `u32::MAX` for the general evaluator.
@@ -108,6 +129,22 @@ const DEFAULT_P1: u32 = FIRST_STRATEGY_SEAT + 3; // Double Witch
 
 const HISTORY_CAP: usize = 1000;
 
+/// Records events with the nesting depth the engine reports (effects indented under their card).
+#[derive(Default)]
+struct LogSink {
+    events: Vec<(Event, u8)>,
+    depth: u8,
+}
+
+impl dominion_engine::EventSink for LogSink {
+    fn event(&mut self, e: Event) {
+        self.events.push((e, self.depth));
+    }
+    fn depth(&mut self, depth: u8) {
+        self.depth = depth;
+    }
+}
+
 struct App {
     state: GameState,
     history: Vec<GameState>,
@@ -131,7 +168,7 @@ impl App {
     fn new() -> Self {
         let cfg = GameConfig::default();
         let mut state = GameState::new(&cfg);
-        let mut sink: Vec<Event> = Vec::new();
+        let mut sink = LogSink::default();
         state.deal_opening_hands(&mut sink);
         let start_text = dominion_engine::format_state(&state);
         // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
@@ -154,8 +191,8 @@ impl App {
             plan: None,
             start_text,
         };
-        for e in &sink {
-            app.push_log_event(e);
+        for (e, depth) in &sink.events {
+            app.push_log_event(e, *depth);
         }
         app
     }
@@ -171,8 +208,12 @@ impl App {
     /// Append an event to the log, condensing runs: consecutive draws, treasure plays,
     /// discards, reveals and trashes by the same player share one line
     /// ("Player 1 draws Copper, Copper, Silver").
-    fn push_log_event(&mut self, e: &Event) {
+    fn push_log_event(&mut self, e: &Event, depth: u8) {
+        // Effects are indented under the card that caused them (non-breaking spaces survive HTML).
+        let indent = "\u{a0}\u{a0}\u{a0}".repeat(depth as usize);
         if let Some((tag, player, card)) = groupable(e) {
+            // Runs only condense at the same depth.
+            let tag = tag * 16 + depth.min(15);
             if let Some((t, p, line)) = self.log_group {
                 if t == tag && p == player && line + 1 == self.log.len() {
                     let last = self.log.last_mut().unwrap();
@@ -181,10 +222,10 @@ impl App {
                     return;
                 }
             }
-            self.log.push(render_event(e));
+            self.log.push(format!("{indent}{}", render_event(e)));
             self.log_group = Some((tag, player, self.log.len() - 1));
         } else {
-            self.log.push(render_event(e));
+            self.log.push(format!("{indent}{}", render_event(e)));
             self.log_group = None;
         }
     }
@@ -268,7 +309,7 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         let cfg =
             GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 } };
         let mut state = GameState::new(&cfg);
-        let mut sink: Vec<Event> = Vec::new();
+        let mut sink = LogSink::default();
         state.deal_opening_hands(&mut sink);
         app.start_text = dominion_engine::format_state(&state);
         // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
@@ -277,8 +318,8 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         app.history.clear();
         app.redo.clear();
         app.log.clear();
-        for e in &sink {
-            app.push_log_event(e);
+        for (e, depth) in &sink.events {
+            app.push_log_event(e, *depth);
         }
         app.set_result(String::new());
         1
@@ -460,13 +501,13 @@ pub extern "C" fn can_redo() -> i32 {
 fn advance_and_log(app: &mut App) {
     // The page steps turn by turn: stop at each turn boundary (see `resume`).
     app.state.pause_at_turn_start = true;
-    let mut sink: Vec<Event> = Vec::new();
+    let mut sink = LogSink::default();
     match app.state.advance(&mut sink) {
         Step::Decision(_) | Step::GameOver | Step::TurnStart { .. } => {}
         Step::Chance { .. } => unreachable!("chance_mode is never enabled by this crate"),
     }
-    for e in &sink {
-        app.push_log_event(e);
+    for (e, depth) in &sink.events {
+        app.push_log_event(e, *depth);
         if matches!(e, Event::GameOver) {
             for line in game_over_summary(&app.state) {
                 app.log.push(line);
@@ -536,15 +577,15 @@ fn game_over_summary(state: &GameState) -> Vec<String> {
 
 fn apply_choice(app: &mut App, choice: Choice) -> Result<(), String> {
     app.push_history();
-    let mut sink: Vec<Event> = Vec::new();
+    let mut sink = LogSink::default();
     if let Err(e) = app.state.apply(choice, &mut sink) {
         // Shouldn't happen (callers only pass choices from `legal_choices`), but undo the
         // speculative history push rather than leave a no-op undo step behind.
         app.history.pop();
         return Err(e.to_string());
     }
-    for e in &sink {
-        app.push_log_event(e);
+    for (e, depth) in &sink.events {
+        app.push_log_event(e, *depth);
     }
     advance_and_log(app);
     Ok(())

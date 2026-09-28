@@ -146,6 +146,10 @@ pub enum Event {
 
 pub trait EventSink {
     fn event(&mut self, e: Event);
+    /// Nesting depth for the events that follow (0 = top level; effects of a card are one level
+    /// below the card's play). Sinks that don't care can ignore it.
+    #[inline(always)]
+    fn depth(&mut self, _depth: u8) {}
 }
 
 /// Discards events; compiles to nothing.
@@ -290,6 +294,7 @@ impl GameState {
     // ------------------------------------------------------------------
 
     fn run_phase<S: EventSink>(&mut self, sink: &mut S) -> Run {
+        sink.depth(0);
         let p = self.turn.player as usize;
         match self.turn.phase {
             Phase::Setup => {
@@ -370,6 +375,7 @@ impl GameState {
     }
 
     fn apply_phase<S: EventSink>(&mut self, choice: Choice, sink: &mut S) {
+        sink.depth(0);
         let p = self.turn.player;
         match (self.turn.phase, choice) {
             (Phase::Action, Choice::Card(c)) => {
@@ -377,14 +383,17 @@ impl GameState {
                 let ps = &mut self.players[p as usize];
                 ps.hand.remove(c);
                 ps.in_play.add(c, 1);
+                sink.depth(0);
                 sink.event(Event::Play { player: p, card: c });
-                self.resolve_effects(c, sink);
+                self.resolve_effects(c, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
             (Phase::Buy, Choice::Card(c)) => {
                 self.turn.coins -= cards::cost(c) as u16;
                 self.turn.buys -= 1;
+                sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
+                sink.depth(1);
                 self.gain(p, c, Dest::Discard, sink);
             }
             (Phase::Buy, _) => self.cleanup(sink),

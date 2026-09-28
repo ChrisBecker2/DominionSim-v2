@@ -82,8 +82,20 @@ impl Evaluator for GainListEvaluator<'_> {
         let mut v = 0.0;
         for c in 0..NUM_CARDS as CardId {
             let d = after.get(c) as i32 - before.get(c) as i32;
-            if d != 0 {
+            if d < 0 {
                 v += d as f64 * self.weight(&view, c);
+            }
+            // Each gained copy is valued with its rule's condition checked as if the earlier
+            // copies were already owned (e.g. `Witch if count(Witch) < 2` stops counting after one).
+            for k in 0..d.max(0) {
+                v += if k == 0 {
+                    self.weight(&view, c)
+                } else {
+                    let mut owned = *root;
+                    owned.players[me as usize].discard.add(c, k as u8);
+                    owned.supply.set(c, owned.supply.get(c).saturating_sub(k as u8));
+                    self.weight(&PlayerView::new(&owned, me), c)
+                };
             }
         }
         // Strictly the strategy's own priorities. The general evaluator's game-end term is removed
@@ -181,21 +193,32 @@ pub fn is_play_decision(d: &Decision) -> bool {
 }
 
 const PLAY_TT_BITS: u32 = 16;
+/// Node budgets tried in turn until the play search is exact: fast for ordinary turns, and as
+/// deep as the analysis (`SearchConfig::default()`) for big ones.
+const PLAY_BUDGETS: [u64; 2] = [1_000, 200_000];
 
 /// The strategy's own search for a play decision: the turn is searched with the strategy's
 /// scoring (gain list, then stated [[play]] rules, then defaults), its rules followed for every
 /// other decision. Deterministic for a given position. Allocation-free after warm-up.
 pub fn search_play_choice(strategy: &Strategy, view: &PlayerView) -> Option<Choice> {
     let world = view.determinize(&mut Rng::new(view.stable_seed()));
-    // A small budget keeps batch simulations fast on big engine turns (1,000 nodes measured as
-    // good as 5,000 for win rates); past it (4x hard cap) lines are finished by rule-based
-    // playouts. Deterministic for a given position.
-    let cfg = SearchConfig { node_budget: 1_000, tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
     let eval = GainListEvaluator::new(strategy);
     PLAY_SEARCHER.with(|cell| {
         let mut slot = cell.borrow_mut();
         let searcher = slot.get_or_insert_with(|| Searcher::new(PLAY_TT_BITS));
-        searcher.best_choice(&world, view.me(), &cfg, &eval).map(|(c, _, _)| c)
+        // Ordinary turns are solved exactly within the small budget. When they aren't (big turns
+        // with many actions and draws), search again with a budget matching the analysis, so the
+        // bot's choice doesn't come from shortcut playouts. Deterministic for a given position.
+        let mut last = None;
+        for budget in PLAY_BUDGETS {
+            let cfg = SearchConfig { node_budget: budget, tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
+            let r = searcher.best_choice(&world, view.me(), &cfg, &eval)?;
+            last = Some(r.0);
+            if r.2 {
+                break;
+            }
+        }
+        last
     })
 }
 

@@ -45,7 +45,17 @@ const ALL: u8 = u8::MAX;
 
 impl GameState {
     /// Resolve the on-play effects of `card` for the current player (card already in play).
-    pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, sink: &mut S) {
+    /// `depth` is the nesting depth of the play itself; its effects are one level below it.
+    pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, depth: u8, sink: &mut S) {
+        sink.depth(depth + 1);
+        let base = self.stack.len as usize;
+        self.resolve_effects_inner(card, sink);
+        for f in &mut self.stack.frames[base..self.stack.len as usize] {
+            f.depth = depth + 1;
+        }
+    }
+
+    fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, sink: &mut S) {
         let p = self.turn.player;
         let def = cards::def(card);
         self.turn.played.add(card, 1);
@@ -197,6 +207,7 @@ impl GameState {
     }
 
     pub(crate) fn run_frame<S: EventSink>(&mut self, mut f: Frame, sink: &mut S) -> Run {
+        sink.depth(f.depth);
         let p = f.player;
         let pi = p as usize;
         match f.kind {
@@ -241,7 +252,7 @@ impl GameState {
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
-                self.resolve_effects(f.subject, sink);
+                self.resolve_effects(f.subject, f.depth, sink);
                 Run::Continue
             }
             K::Gain => {
@@ -275,7 +286,7 @@ impl GameState {
                         self.players[pi].discard.add(c, 1);
                         sink.event(Event::Discard { player: p, card: c });
                         if cards::is(c, ACTION) {
-                            self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, ..Frame::new(K::YesNo, p, f.source) });
+                            self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source) });
                         } else {
                             self.stack.pop();
                         }
@@ -347,6 +358,7 @@ impl GameState {
     }
 
     pub(crate) fn apply_frame<S: EventSink>(&mut self, mut f: Frame, choice: Choice, sink: &mut S) {
+        sink.depth(f.depth);
         let p = f.player;
         let pi = p as usize;
         match (f.kind, choice) {
@@ -368,7 +380,7 @@ impl GameState {
                 self.zone_mut(p, f.zone).remove(f.subject);
                 self.put(p, f.subject, f.act, sink);
                 if f.act == Act::Play {
-                    self.resolve_effects(f.subject, sink);
+                    self.resolve_effects(f.subject, f.depth, sink);
                 }
             }
             (K::YesNo, _) => {
@@ -421,6 +433,7 @@ impl GameState {
 
     fn finish_select<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
         self.stack.pop();
+        let base = self.stack.len as usize;
         let p = f.player;
         match f.then {
             Then::Nothing => {}
@@ -454,6 +467,10 @@ impl GameState {
                 ps.discard.add_all(&rest);
                 ps.set_aside.clear();
             }
+        }
+        // Frames spawned by finishing a selection belong to the same card effect.
+        for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+            fr.depth = f.depth;
         }
     }
 

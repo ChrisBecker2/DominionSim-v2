@@ -250,6 +250,9 @@ pub struct Frame {
     pub then: Then,
     /// The card a YesNo decision is about / the card to PlayEffects.
     pub subject: CardId,
+    /// Nesting depth of the card effect this frame belongs to (0 = top level), for logging
+    /// effects indented under the card that caused them.
+    pub depth: u8,
 }
 
 impl Frame {
@@ -269,6 +272,7 @@ impl Frame {
             ordered: false,
             then: Then::Nothing,
             subject: 0,
+            depth: 0,
         }
     }
 }

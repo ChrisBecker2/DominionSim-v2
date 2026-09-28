@@ -694,6 +694,7 @@
   }
 
   function startNewGame() {
+    if (stopRunGame) stopRunGame();
     const players = parseInt($("ng-players").value, 10) || 2;
     const seed = parseInt($("ng-seed").value, 10) || 0;
     cancelAnalysis();
@@ -773,8 +774,32 @@
     if ($("auto-sync").checked) syncTextFromGame();
   }
 
+  let stopRunGame = null; // set while Run Game is playing; stops it after the current turn
+
+  async function runGame() {
+    const btn = $("btn-run-bots");
+    let stopped = false;
+    stopRunGame = () => {
+      stopped = true;
+    };
+    btn.textContent = "Stop";
+    try {
+      while (!stopped && !crashed && lastView && !lastView.gameOver) {
+        const before = api.stateId();
+        doAction(() => api.runToEndOfTurn(), "Run Game");
+        if (api.stateId() === before) break; // nothing moved (error shown by doAction)
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    } finally {
+      stopRunGame = null;
+      btn.textContent = "Run Game";
+    }
+    if (!crashed && !stopped) showGameChart();
+  }
+
   function doAction(fn, action) {
     if (crashed) return;
+    if (stopRunGame && action !== "Run Game") stopRunGame(); // any other action ends a running game
     if ($("analysis-progress") && !$("analysis-progress").hidden) cancelAnalysis();
     renderAnalysis(null);
     try {
@@ -1215,9 +1240,11 @@
     });
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn(), "Run to end of turn"));
     // Run Game: play the game out with every seat's controller, then chart that game.
+    // Run Game plays one turn at a time and yields between turns, so the page stays responsive
+    // (bots that search their turns can take a while) and the button turns into Stop.
     $("btn-run-bots").addEventListener("click", () => {
-      doAction(() => api.runBots(), "Run Game");
-      if (!crashed) showGameChart();
+      if (stopRunGame) stopRunGame();
+      else runGame();
     });
     // The Simulate button turns into Cancel while a simulation runs.
     $("btn-simulate").addEventListener("click", () => {

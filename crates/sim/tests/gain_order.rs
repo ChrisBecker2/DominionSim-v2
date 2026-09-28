@@ -373,3 +373,35 @@ fn big_hand_game_plays_to_the_end_without_panicking() {
         }
     }
 }
+
+fn workshop_gain(src: &str) -> Choice {
+    let strat = Strategy::parse(src).unwrap();
+    let text = "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
+         turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+         [player 1]\nhand: Workshop 4 Copper\ndeck: Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    g.apply(Choice::Card(id::WORKSHOP), &mut NoEvents).unwrap();
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice())
+}
+
+#[test]
+fn forced_gains_never_take_never_gain_cards() {
+    // Nothing listed costs <= 4, so the fallback takes the most expensive legal card...
+    let base = "name = \"P\"\n[[gain]]\ncard = \"Province\"\n";
+    assert_eq!(workshop_gain(base), Choice::Card(id::MILITIA));
+    // ...but never one the strategy forbids.
+    let src = "name = \"P\"
+never_gain = [\"Militia\", \"Remodel\", \"Smithy\"]
+[[gain]]
+card = \"Province\"
+";
+    assert_eq!(workshop_gain(src), Choice::Card(id::SILVER));
+    assert!(Strategy::parse("name = \"x\"\nnever_gain = [\"Nope\"]\n").is_err());
+}

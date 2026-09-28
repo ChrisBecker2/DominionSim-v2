@@ -1,0 +1,32 @@
+# Evolved by dominion-lab (track A: every kingdom card available, Witch off limits), 40 generations,
+# then polished (rules that didn't pay were dropped). Opponent: Double Witch.
+# Win rate vs Double Witch: 95.4% (95% CI 95.1-95.6%) over 20,000 held-out games (fast mode);
+# 97.1% [96.5-97.6%] over 4,000 games with full bot behaviour on a 10-card kingdom
+# (Sentry, Militia, Witch, Merchant, Smithy, Market, Cellar, Moat, Workshop, Remodel).
+#
+# How it works: Sentries trash the Curses, Estates and Coppers, leaving a thin deck of Merchants,
+# a single Silver and a Militia. Every Merchant played gives +$1 when that one Silver is played,
+# so four Merchants + Silver + Militia reach $8+ for a Province each turn, while Militia slows
+# the Witch player down.
+
+name = "Sentry Merchant (evolved vs Double Witch)"
+description = "Up to 5 Sentries, then Province; one Militia, one Silver, otherwise Merchants."
+never_gain = ["Witch"]
+
+[[gain]]
+card = "Sentry"
+if = "count(Sentry) < 5"
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Militia"
+if = "count(Militia) < 1"
+
+[[gain]]
+card = "Silver"
+if = "count(Silver) < 1"
+
+[[gain]]
+card = "Merchant"

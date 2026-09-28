@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dominion Strategy Lab</title>
+<style>
+:root {
+  --bg: #f4f3ee;
+  --panel: #ffffff;
+  --panel-2: #ececE4;
+  --border: #d8d5c9;
+  --text: #23221d;
+  --text-dim: #6b6a60;
+  --accent: #8a5a2b;
+  --accent-2: #2b6b4a;
+  --danger: #a33;
+  --current: #fff7e0;
+  --chip-bg: #ececE4;
+  --chip-on: var(--accent);
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1b18;
+    --panel: #26241f;
+    --panel-2: #2f2d27;
+    --border: #45423a;
+    --text: #ece8dd;
+    --text-dim: #a9a494;
+    --accent: #d79a5e;
+    --accent-2: #6fbf94;
+    --danger: #e77;
+    --current: #3a3320;
+    --chip-bg: #2f2d27;
+  }
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 14px; line-height: 1.4;
+}
+#app { max-width: 1400px; margin: 0 auto; padding: 12px 16px 60px; }
+h1 { font-size: 20px; margin: 4px 0 4px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h1 .subtitle { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 0 0 8px; }
+h3 { font-size: 12.5px; margin: 10px 0 6px; color: var(--text-dim); }
+a { color: var(--accent); }
+header { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px; }
+section, .panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px; margin-bottom: 12px;
+}
+main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
+main > * { min-width: 0; }
+svg { max-width: 100%; }
+input, textarea, button, select {
+  font-family: inherit; font-size: 13px; color: var(--text); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px;
+}
+textarea { font-family: var(--mono); width: 100%; }
+label { display: flex; flex-direction: column; font-size: 11px; color: var(--text-dim); gap: 2px; }
+input[type="number"] { width: 76px; }
+button { cursor: pointer; background: var(--panel-2); }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button.danger { border-color: var(--danger); color: var(--danger); }
+.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
+.checkbox-row { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; }
+.checkbox-row input { width: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.chip {
+  border: 1px solid var(--border); background: var(--chip-bg); color: var(--text);
+  border-radius: 12px; padding: 3px 10px; font-size: 12px; cursor: pointer; user-select: none;
+}
+.chip.on { background: var(--chip-on); color: #fff; border-color: var(--chip-on); }
+.hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.list-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 2px 0; }
+.list-item .name { flex: 1; }
+.list-item .weight { width: 60px; }
+details { margin-top: 6px; }
+summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); padding: 4px 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+#status-line { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; align-items: center; margin-top: 8px; }
+#status-line .stat b { color: var(--text); }
+#status-line .stat { color: var(--text-dim); }
+.status-badge { font-weight: 700; padding: 1px 8px; border-radius: 10px; background: var(--panel-2); }
+.status-badge.running { color: var(--accent); }
+.status-badge.done { color: var(--accent-2); }
+.status-badge.error { color: var(--danger); }
+#chart-wrap { position: relative; }
+#chart-tooltip {
+  position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 8px; font-size: 11.5px; white-space: nowrap; display: none; z-index: 5;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+.legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--text-dim); margin-bottom: 4px; }
+.legend .sw { display: inline-block; width: 12px; height: 2px; margin-right: 4px; vertical-align: middle; }
+#hof-body { overflow-x: auto; }
+table.hof { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; }
+table.hof th, table.hof td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+table.hof th { color: var(--text-dim); font-weight: 500; }
+table.hof tr.hof-row { cursor: pointer; }
+table.hof tr.hof-row:hover { background: var(--panel-2); }
+pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: 5px; padding: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+#log-panel { max-height: 200px; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; color: var(--text-dim); }
+.error-msg { color: var(--danger); font-size: 12.5px; white-space: pre-wrap; }
+.muted { color: var(--text-dim); }
+.saved-path { font-size: 12px; color: var(--accent-2); word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Dominion Strategy Lab <span class="subtitle">discover human-readable strategies with a genetic search</span></h1>
+  </header>
+
+  <main>
+    <div id="config-col">
+      <section id="config-panel">
+        <h2>Configuration</h2>
+
+        <h3>Track</h3>
+        <div class="row">
+          <label class="checkbox-row"><input type="radio" name="track-kind" value="fixed" id="track-fixed" checked> Fixed kingdom</label>
+          <label class="checkbox-row"><input type="radio" name="track-kind" value="random" id="track-random"> Random kingdoms</label>
+        </div>
+        <div id="track-fixed-panel">
+          <div class="hint">All 26 kingdom cards available by default. Toggle chips to restrict to specific cards.</div>
+          <div class="chips" id="fixed-kingdom-chips"></div>
+        </div>
+        <div id="track-random-panel" style="display:none">
+          <div class="hint">Required cards (always in the kingdom):</div>
+          <div class="chips" id="random-required-chips"></div>
+          <label style="margin-top:6px">Kingdoms per generation
+            <input type="number" id="kingdoms-per-generation" min="1" value="8">
+          </label>
+        </div>
+
+        <h3>Opponents</h3>
+        <div class="list" id="opponents-list"></div>
+
+        <h3>Forbidden cards <span class="hint">(never use)</span></h3>
+        <div class="chips" id="forbidden-chips"></div>
+
+        <h3>Seed strategies</h3>
+        <div class="row" style="margin-bottom:4px">
+          <button id="seeds-all" type="button">Select all</button>
+          <button id="seeds-none" type="button">Select none</button>
+        </div>
+        <div class="list" id="seeds-list"></div>
+
+        <h3>Numbers</h3>
+        <div class="grid2">
+          <label>Generations <input type="number" id="cfg-generations" min="1"></label>
+          <label>Islands <input type="number" id="cfg-islands" min="1"></label>
+          <label>Island size <input type="number" id="cfg-island_size" min="4"></label>
+          <label>Stall generations <input type="number" id="cfg-stall_generations" min="0"></label>
+          <label>Parsimony (% per rule) <input type="number" id="cfg-parsimony" min="0" step="0.01"></label>
+          <label>Seed <input type="number" id="cfg-seed" min="0"></label>
+        </div>
+
+        <details id="advanced">
+          <summary>Advanced</summary>
+          <div class="grid2">
+            <label>Race games (comma list) <input type="text" id="cfg-race_games"></label>
+            <label>Race keep (fraction) <input type="number" id="cfg-race_keep" min="0" max="1" step="0.01"></label>
+            <label>Elite <input type="number" id="cfg-elite" min="0"></label>
+            <label>Tournament <input type="number" id="cfg-tournament" min="1"></label>
+            <label>Crossover rate <input type="number" id="cfg-crossover_rate" min="0" max="1" step="0.01"></label>
+            <label>Migration interval <input type="number" id="cfg-migration_interval" min="0"></label>
+            <label>Validate every <input type="number" id="cfg-validate_every" min="0"></label>
+            <label>Validate games <input type="number" id="cfg-validate_games" min="0"></label>
+            <label>Polish games <input type="number" id="cfg-polish_games" min="0"></label>
+            <label>Max gain rules <input type="number" id="cfg-max_gain_rules" min="1"></label>
+            <label>Max play rules <input type="number" id="cfg-max_play_rules" min="0"></label>
+            <label>Max trash rules <input type="number" id="cfg-max_trash_rules" min="0"></label>
+            <label>Max conditions/rule <input type="number" id="cfg-max_conds" min="0"></label>
+            <label>Max turns <input type="number" id="cfg-max_turns" min="1"></label>
+            <label>Hall of fame size <input type="number" id="cfg-hall_of_fame" min="1"></label>
+          </div>
+          <label class="checkbox-row" style="margin-top:6px">
+            <input type="checkbox" id="cfg-validate_full"> Full-behaviour validation
+          </label>
+          <div class="hint">Validate (and the final result) with exact bot play (turn search), not just rule order. Slower for engine strategies, matches how bots play in the game UI.</div>
+        </details>
+
+        <div class="row" style="margin-top:10px">
+          <a href="#" id="reset-defaults">Reset to defaults</a>
+        </div>
+      </section>
+
+      <section id="assess-panel">
+        <h2>Assess a strategy</h2>
+        <div class="hint">Uses the opponents and track configured on the left.</div>
+        <textarea id="assess-toml" rows="8" placeholder="Paste strategy TOML here..."></textarea>
+        <div class="row" style="margin-top:6px">
+          <label>Games <input type="number" id="assess-games" value="20000" min="1"></label>
+          <label class="checkbox-row" style="margin-top:14px"><input type="checkbox" id="assess-full"> Full behaviour</label>
+          <button id="assess-run" style="margin-top:14px">Assess</button>
+        </div>
+        <div id="assess-result" class="hint" style="margin-top:6px"></div>
+      </section>
+    </div>
+
+    <div id="main-col">
+      <section id="run-panel">
+        <div class="row">
+          <button class="primary" id="start-btn">Start</button>
+          <button id="stop-btn" disabled>Stop</button>
+          <span id="status-badge" class="status-badge">idle</span>
+        </div>
+        <div id="status-line"></div>
+        <div id="status-error" class="error-msg"></div>
+      </section>
+
+      <section id="chart-panel">
+        <h2>Progress</h2>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--accent)"></span>Best win rate</span>
+          <span><span class="sw" style="background:var(--accent-2)"></span>Median win rate</span>
+          <span><span class="sw" style="background:var(--accent);border-radius:50%;width:8px;height:8px;display:inline-block;margin-right:4px"></span>Validated</span>
+        </div>
+        <div id="chart-wrap">
+          <svg id="chart" viewBox="0 0 640 240" style="width:100%;height:240px;display:block"></svg>
+          <div id="chart-tooltip"></div>
+        </div>
+      </section>
+
+      <section id="result-panel">
+        <h2>Result</h2>
+        <div id="result-body" class="muted">No result yet.</div>
+      </section>
+
+      <section id="hof-panel">
+        <h2>Hall of fame</h2>
+        <div id="hof-body" class="muted">Empty.</div>
+      </section>
+
+      <section id="log-panel-wrap">
+        <h2>Log</h2>
+        <div id="log-panel"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+var LS_KEY = "dominion-lab-config";
+
+var state = {
+  cards: { kingdom: [], basic: [] },
+  strategies: [],
+  defaults: null,
+  status: null,
+  pollTimer: null,
+  selectedTomlSource: null, // {toml, source: "result"|"hof", index}
+  savedPaths: {},
+};
+
+function $(id) { return document.getElementById(id); }
+
+function fetchJson(url, opts) {
+  return fetch(url, opts).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (body) {
+      if (!r.ok) { throw new Error(body && body.error ? body.error : ("HTTP " + r.status)); }
+      return body;
+    });
+  });
+}
+
+function postJson(url, body) {
+  return fetchJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Chips (multi-toggle card pickers)
+// ---------------------------------------------------------------------------------------------
+
+function renderChips(container, cardNames, selected) {
+  container.innerHTML = "";
+  cardNames.forEach(function (name) {
+    var chip = document.createElement("span");
+    chip.className = "chip" + (selected.has(name) ? " on" : "");
+    chip.textContent = name;
+    chip.dataset.card = name;
+    chip.addEventListener("click", function () {
+      if (selected.has(name)) { selected.delete(name); chip.classList.remove("on"); }
+      else { selected.add(name); chip.classList.add("on"); }
+      saveConfig();
+    });
+    container.appendChild(chip);
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Form state
+// ---------------------------------------------------------------------------------------------
+
+var form = {
+  trackKind: "fixed",
+  fixedKingdom: new Set(),
+  randomRequired: new Set(["Witch"]),
+  kingdomsPerGeneration: 8,
+  opponents: {},      // file -> {checked, weight}
+  forbidden: new Set(["Witch"]),
+  seeds: new Set(),
+  numbers: {
+    generations: 100, islands: 4, island_size: 32, stall_generations: 30, parsimony: 0.2, seed: 1,
+    race_games: "1000,4000,16000", race_keep: 0.25, elite: 3, tournament: 3, crossover_rate: 0.2,
+    migration_interval: 10, validate_every: 10, validate_games: 20000, polish_games: 20000,
+    max_gain_rules: 10, max_play_rules: 5, max_trash_rules: 4, max_conds: 2, max_turns: 60,
+    hall_of_fame: 20,
+  },
+  validate_full: false,
+};
+
+function kingdomNames() { return state.cards.kingdom.map(function (c) { return c.name; }); }
+
+function applyRequestToForm(req) {
+  var cfg = req.config || {};
+  var track = cfg.track || { kind: "fixed", kingdom: [] };
+  form.trackKind = track.kind || "fixed";
+  form.fixedKingdom = new Set(track.kind === "fixed" ? (track.kingdom || []) : []);
+  form.randomRequired = new Set(track.kind === "random" ? (track.required || ["Witch"]) : ["Witch"]);
+  form.kingdomsPerGeneration = (track.kind === "random" && track.kingdoms_per_generation) || 8;
+
+  form.opponents = {};
+  (req.opponents || []).forEach(function (o) { form.opponents[o.file] = { checked: true, weight: o.weight }; });
+
+  form.forbidden = new Set(cfg.forbidden || ["Witch"]);
+  form.seeds = new Set(req.seed_files || []);
+
+  var n = form.numbers;
+  n.generations = cfg.generations != null ? cfg.generations : n.generations;
+  n.islands = cfg.islands != null ? cfg.islands : n.islands;
+  n.island_size = cfg.island_size != null ? cfg.island_size : n.island_size;
+  n.stall_generations = cfg.stall_generations != null ? cfg.stall_generations : n.stall_generations;
+  n.parsimony = cfg.parsimony != null ? cfg.parsimony * 100 : n.parsimony;
+  n.seed = cfg.seed != null ? cfg.seed : n.seed;
+  n.race_games = cfg.race_games ? cfg.race_games.join(",") : n.race_games;
+  n.race_keep = cfg.race_keep != null ? cfg.race_keep : n.race_keep;
+  n.elite = cfg.elite != null ? cfg.elite : n.elite;
+  n.tournament = cfg.tournament != null ? cfg.tournament : n.tournament;
+  n.crossover_rate = cfg.crossover_rate != null ? cfg.crossover_rate : n.crossover_rate;
+  n.migration_interval = cfg.migration_interval != null ? cfg.migration_interval : n.migration_interval;
+  n.validate_every = cfg.validate_every != null ? cfg.validate_every : n.validate_every;
+  n.validate_games = cfg.validate_games != null ? cfg.validate_games : n.validate_games;
+  n.polish_games = cfg.polish_games != null ? cfg.polish_games : n.polish_games;
+  n.max_gain_rules = cfg.max_gain_rules != null ? cfg.max_gain_rules : n.max_gain_rules;
+  n.max_play_rules = cfg.max_play_rules != null ? cfg.max_play_rules : n.max_play_rules;
+  n.max_trash_rules = cfg.max_trash_rules != null ? cfg.max_trash_rules : n.max_trash_rules;
+  n.max_conds = cfg.max_conds != null ? cfg.max_conds : n.max_conds;
+  n.max_turns = cfg.max_turns != null ? cfg.max_turns : n.max_turns;
+  n.hall_of_fame = cfg.hall_of_fame != null ? cfg.hall_of_fame : n.hall_of_fame;
+  form.validate_full = !!cfg.validate_full;
+
+  renderForm();
+}
+
+function renderForm() {
+  $("track-fixed").checked = form.trackKind === "fixed";
+  $("track-random").checked = form.trackKind === "random";
+  $("track-fixed-panel").style.display = form.trackKind === "fixed" ? "" : "none";
+  $("track-random-panel").style.display = form.trackKind === "random" ? "" : "none";
+  renderChips($("fixed-kingdom-chips"), kingdomNames(), form.fixedKingdom);
+  renderChips($("random-required-chips"), kingdomNames(), form.randomRequired);
+  $("kingdoms-per-generation").value = form.kingdomsPerGeneration;
+  renderChips($("forbidden-chips"), kingdomNames(), form.forbidden);
+
+  renderOpponentsList();
+  renderSeedsList();
+
+  var n = form.numbers;
+  Object.keys(n).forEach(function (k) {
+    var el = $("cfg-" + k);
+    if (el) el.value = n[k];
+  });
+  $("cfg-validate_full").checked = form.validate_full;
+}
+
+function renderOpponentsList() {
+  var list = $("opponents-list");
+  list.innerHTML = "";
+  state.strategies.forEach(function (s) {
+    if (s.error) return;
+    var entry = form.opponents[s.file] || { checked: false, weight: 1.0 };
+    var row = document.createElement("div");
+    row.className = "list-item";
+    var cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !!entry.checked;
+    cb.addEventListener("change", function () {
+      form.opponents[s.file] = form.opponents[s.file] || { checked: false, weight: 1.0 };
+      form.opponents[s.file].checked = cb.checked;
+      saveConfig();
+    });
+    var name = document.createElement("span");
+    name.className = "name";
+    name.textContent = s.name + (s.evolved ? " (evolved)" : "");
+    var weight = document.createElement("input");
+    weight.type = "number"; weight.className = "weight"; weight.step = "0.1"; weight.min = "0";
+    weight.value = entry.weight != null ? entry.weight : 1.0;
+    weight.addEventListener("change", function () {
+      form.opponents[s.file] = form.opponents[s.file] || { checked: false, weight: 1.0 };
+      form.opponents[s.file].weight = parseFloat(weight.value) || 0;
+      saveConfig();
+    });
+    row.appendChild(cb); row.appendChild(name); row.appendChild(weight);
+    list.appendChild(row);
+  });
+}
+
+function renderSeedsList() {
+  var list = $("seeds-list");
+  list.innerHTML = "";
+  state.strategies.forEach(function (s) {
+    if (s.error) return;
+    var row = document.createElement("div");
+    row.className = "list-item";
+    var cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = form.seeds.has(s.file);
+    cb.addEventListener("change", function () {
+      if (cb.checked) form.seeds.add(s.file); else form.seeds.delete(s.file);
+      saveConfig();
+    });
+    var name = document.createElement("span");
+    name.className = "name";
+    name.textContent = s.name + (s.evolved ? " (evolved)" : "");
+    row.appendChild(cb); row.appendChild(name);
+    list.appendChild(row);
+  });
+}
+
+function readNumbersFromForm() {
+  var n = form.numbers;
+  Object.keys(n).forEach(function (k) {
+    var el = $("cfg-" + k);
+    if (!el) return;
+    if (k === "race_games") { n[k] = el.value; return; }
+    var v = parseFloat(el.value);
+    if (!isNaN(v)) n[k] = v;
+  });
+  form.validate_full = $("cfg-validate_full").checked;
+}
+
+function buildRequest() {
+  readNumbersFromForm();
+  var n = form.numbers;
+  var raceGames = n.race_games.split(",").map(function (s) { return parseInt(s.trim(), 10); }).filter(function (v) { return !isNaN(v) && v > 0; });
+  var track = form.trackKind === "fixed"
+    ? { kind: "fixed", kingdom: Array.from(form.fixedKingdom).sort() }
+    : { kind: "random", required: Array.from(form.randomRequired).sort(), kingdoms_per_generation: Math.max(1, Math.round(form.kingdomsPerGeneration)) };
+
+  var opponents = Object.keys(form.opponents)
+    .filter(function (f) { return form.opponents[f].checked; })
+    .map(function (f) { return { file: f, weight: form.opponents[f].weight }; });
+
+  var config = {
+    track: track,
+    forbidden: Array.from(form.forbidden).sort(),
+    islands: Math.max(1, Math.round(n.islands)),
+    island_size: Math.max(4, Math.round(n.island_size)),
+    generations: Math.max(1, Math.round(n.generations)),
+    stall_generations: Math.max(0, Math.round(n.stall_generations)),
+    elite: Math.max(0, Math.round(n.elite)),
+    tournament: Math.max(1, Math.round(n.tournament)),
+    crossover_rate: n.crossover_rate,
+    migration_interval: Math.max(0, Math.round(n.migration_interval)),
+    race_games: raceGames.length ? raceGames : [1000],
+    race_keep: n.race_keep,
+    parsimony: n.parsimony / 100,
+    validate_every: Math.max(0, Math.round(n.validate_every)),
+    validate_games: Math.max(0, Math.round(n.validate_games)),
+    validate_full: form.validate_full,
+    polish_games: Math.max(0, Math.round(n.polish_games)),
+    fast_eval: true,
+    max_turns: Math.max(1, Math.round(n.max_turns)),
+    seed: Math.max(0, Math.round(n.seed)),
+    max_gain_rules: Math.max(1, Math.round(n.max_gain_rules)),
+    max_play_rules: Math.max(0, Math.round(n.max_play_rules)),
+    max_trash_rules: Math.max(0, Math.round(n.max_trash_rules)),
+    max_conds: Math.max(0, Math.round(n.max_conds)),
+    hall_of_fame: Math.max(1, Math.round(n.hall_of_fame)),
+  };
+
+  return { config: config, opponents: opponents, seed_files: Array.from(form.seeds) };
+}
+
+function saveConfig() {
+  try {
+    var req = buildRequest();
+    localStorage.setItem(LS_KEY, JSON.stringify(req));
+  } catch (e) { /* ignore: localStorage unavailable */ }
+}
+
+function loadSavedConfig() {
+  try {
+    var raw = localStorage.getItem(LS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Status / run control
+// ---------------------------------------------------------------------------------------------
+
+function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
+function fmtSecs(s) {
+  s = Math.round(s);
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + "h" : "") + (h || m ? m + "m" : "") + sec + "s";
+}
+
+function renderStatus() {
+  var st = state.status;
+  var running = !!(st && st.running);
+  $("start-btn").disabled = running;
+  $("stop-btn").disabled = !running;
+
+  var badge = $("status-badge");
+  var p = st && st.progress;
+  var label = running ? (p ? p.status : "starting") : (st && st.error ? "error" : (p ? p.status : "idle"));
+  badge.textContent = label;
+  badge.className = "status-badge" + (running ? " running" : "") + (label === "done" ? " done" : "") + (st && st.error ? " error" : "");
+
+  var line = $("status-line");
+  line.innerHTML = "";
+  if (p) {
+    var stats = [
+      ["generation", p.generation + " / " + p.generations],
+      ["games played", p.games_played.toLocaleString()],
+      ["games/s", Math.round(p.games_per_sec).toLocaleString()],
+      ["elapsed", fmtSecs(p.elapsed_secs)],
+    ];
+    stats.forEach(function (s) {
+      var span = document.createElement("span");
+      span.className = "stat";
+      span.innerHTML = s[0] + ": <b>" + s[1] + "</b>";
+      line.appendChild(span);
+    });
+  }
+  $("status-error").textContent = (st && st.error) ? st.error : "";
+
+  lastHistory = p ? p.history : [];
+  renderChart(lastHistory);
+  renderResult(p);
+  renderHof(p ? p.hall_of_fame : []);
+  renderLog(p ? p.log : []);
+}
+
+function schedulePoll() {
+  if (state.pollTimer) clearTimeout(state.pollTimer);
+  var running = !!(state.status && state.status.running);
+  state.pollTimer = setTimeout(poll, running ? 1000 : 5000);
+}
+
+function poll() {
+  fetchJson("/api/status").then(function (st) {
+    state.status = st;
+    renderStatus();
+  }).catch(function () { /* transient network error: keep polling */ }).then(schedulePoll);
+}
+
+function onStart() {
+  var req = buildRequest();
+  $("start-btn").disabled = true;
+  postJson("/api/start", req).then(function () {
+    return fetchJson("/api/status");
+  }).then(function (st) {
+    state.status = st;
+    renderStatus();
+    schedulePoll();
+  }).catch(function (e) {
+    $("status-error").textContent = e.message;
+    $("start-btn").disabled = false;
+  });
+}
+
+function onStop() {
+  postJson("/api/stop", {}).catch(function () {});
+}
+
+// ---------------------------------------------------------------------------------------------
+// Chart (inline SVG)
+// ---------------------------------------------------------------------------------------------
+
+var CHART_W = 640, CHART_H = 240, PAD_L = 36, PAD_R = 10, PAD_T = 10, PAD_B = 22;
+
+var lastHistory = [];
+window.addEventListener("resize", function () { renderChart(lastHistory); });
+function renderChart(history) {
+  var svg = $("chart");
+  var tooltip = $("chart-tooltip");
+  svg.innerHTML = "";
+  // Draw in real pixels so axis text isn't stretched at narrow widths.
+  CHART_W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 640);
+  svg.setAttribute("viewBox", "0 0 " + CHART_W + " " + CHART_H);
+  history = history || [];
+  var ns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    var e = document.createElementNS(ns, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  var maxGen = Math.max(2, history.length ? history[history.length - 1].generation : 2);
+  var minGen = 1;
+  var x = function (gen) { return PAD_L + (gen - minGen) / (maxGen - minGen) * (CHART_W - PAD_L - PAD_R); };
+  var y = function (frac) { return PAD_T + (1 - frac) * (CHART_H - PAD_T - PAD_B); };
+
+  // gridlines + y axis labels
+  [0, 25, 50, 75, 100].forEach(function (pct) {
+    var yy = y(pct / 100);
+    var line = el("line", { x1: PAD_L, x2: CHART_W - PAD_R, y1: yy, y2: yy, stroke: "var(--border)", "stroke-width": pct === 50 ? 1 : 0.5 });
+    if (pct === 50) line.setAttribute("stroke-dasharray", "4,3");
+    svg.appendChild(line);
+    var label = el("text", { x: PAD_L - 5, y: yy + 3, "text-anchor": "end", "font-size": "9", fill: "var(--text-dim)" });
+    label.textContent = pct + "%";
+    svg.appendChild(label);
+  });
+  // x axis ticks
+  var tickStep = Math.max(1, Math.ceil(maxGen / 8));
+  for (var g = minGen; g <= maxGen; g += tickStep) {
+    var xx = x(g);
+    var label = el("text", { x: xx, y: CHART_H - 6, "text-anchor": "middle", "font-size": "9", fill: "var(--text-dim)" });
+    label.textContent = String(g);
+    svg.appendChild(label);
+  }
+
+  if (!history.length) {
+    svg.appendChild(el("text", { x: CHART_W / 2, y: CHART_H / 2, "text-anchor": "middle", "font-size": "12", fill: "var(--text-dim)" })).textContent = "";
+    tooltip.style.display = "none";
+    return;
+  }
+
+  function pathFor(field) {
+    return history.map(function (h, i) { return (i === 0 ? "M" : "L") + x(h.generation) + "," + y(h[field]); }).join(" ");
+  }
+  svg.appendChild(el("path", { d: pathFor("best_win_rate"), fill: "none", stroke: "var(--accent)", "stroke-width": 2 }));
+  svg.appendChild(el("path", { d: pathFor("median_win_rate"), fill: "none", stroke: "var(--accent-2)", "stroke-width": 2 }));
+
+  history.forEach(function (h) {
+    if (h.validated_win_rate != null) {
+      svg.appendChild(el("circle", { cx: x(h.generation), cy: y(h.validated_win_rate), r: 3.2, fill: "var(--accent)", stroke: "var(--panel)", "stroke-width": 1 }));
+    }
+  });
+
+  // hover crosshair
+  var crosshair = el("line", { y1: PAD_T, y2: CHART_H - PAD_B, stroke: "var(--text-dim)", "stroke-width": 1, "stroke-dasharray": "3,3", visibility: "hidden" });
+  svg.appendChild(crosshair);
+  var overlay = el("rect", { x: PAD_L, y: PAD_T, width: Math.max(1, CHART_W - PAD_L - PAD_R), height: Math.max(1, CHART_H - PAD_T - PAD_B), fill: "transparent" });
+  svg.appendChild(overlay);
+
+  overlay.addEventListener("mousemove", function (ev) {
+    var rect = svg.getBoundingClientRect();
+    var px = (ev.clientX - rect.left) * (CHART_W / rect.width);
+    var gen = Math.round(minGen + (px - PAD_L) / (CHART_W - PAD_L - PAD_R) * (maxGen - minGen));
+    var nearest = history.reduce(function (best, h) { return Math.abs(h.generation - gen) < Math.abs(best.generation - gen) ? h : best; }, history[0]);
+    crosshair.setAttribute("x1", x(nearest.generation));
+    crosshair.setAttribute("x2", x(nearest.generation));
+    crosshair.setAttribute("visibility", "visible");
+    tooltip.style.display = "block";
+    tooltip.style.left = Math.min(rect.width - 160, Math.max(0, (ev.clientX - rect.left) + 10)) + "px";
+    tooltip.style.top = Math.max(0, (ev.clientY - rect.top) - 40) + "px";
+    tooltip.innerHTML = "gen " + nearest.generation + "<br>best " + fmtPct(nearest.best_win_rate) +
+      " &middot; median " + fmtPct(nearest.median_win_rate) +
+      (nearest.validated_win_rate != null ? " &middot; validated " + fmtPct(nearest.validated_win_rate) : "") +
+      "<br><span class=\"muted\">" + escapeHtml(nearest.best_summary || "") + "</span>";
+  });
+  overlay.addEventListener("mouseleave", function () {
+    crosshair.setAttribute("visibility", "hidden");
+    tooltip.style.display = "none";
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Result card / hall of fame / log
+// ---------------------------------------------------------------------------------------------
+
+function entryHtml(entry, source, idx) {
+  var div = document.createElement("div");
+  var ciNote = document.createElement("div");
+  ciNote.innerHTML = "<b>" + escapeHtml(entry.summary) + "</b>";
+  div.appendChild(ciNote);
+
+  var stats = document.createElement("div");
+  stats.className = "hint";
+  stats.style.margin = "4px 0 8px";
+  stats.textContent = "win rate " + fmtPct(entry.win_rate) + " (95% CI " + fmtPct(entry.ci_lo) + "-" + fmtPct(entry.ci_hi) + ") over " +
+    entry.games.toLocaleString() + " games; " + entry.size + " rule" + (entry.size === 1 ? "" : "s") +
+    (entry.validated ? "; validated" : "");
+  div.appendChild(stats);
+
+  var pre = document.createElement("pre");
+  pre.className = "toml";
+  pre.textContent = entry.toml;
+  div.appendChild(pre);
+
+  var row = document.createElement("div");
+  row.className = "row";
+  var copyBtn = document.createElement("button");
+  copyBtn.textContent = "Copy TOML";
+  copyBtn.addEventListener("click", function () {
+    navigator.clipboard && navigator.clipboard.writeText(entry.toml).catch(function () {});
+  });
+  var saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save to strategies/evolved";
+  var savedSpan = document.createElement("span");
+  savedSpan.className = "saved-path";
+  saveBtn.addEventListener("click", function () {
+    saveBtn.disabled = true;
+    postJson("/api/save", { toml: entry.toml }).then(function (res) {
+      savedSpan.textContent = "saved: " + res.path;
+      saveBtn.disabled = false;
+    }).catch(function (e) {
+      savedSpan.textContent = "error: " + e.message;
+      saveBtn.disabled = false;
+    });
+  });
+  var assessBtn = document.createElement("button");
+  assessBtn.textContent = "Assess (full behaviour)";
+  assessBtn.addEventListener("click", function () {
+    $("assess-toml").value = entry.toml;
+    $("assess-full").checked = true;
+    runAssess();
+    window.scrollTo({ top: $("assess-panel").offsetTop, behavior: "smooth" });
+  });
+  row.appendChild(copyBtn); row.appendChild(saveBtn); row.appendChild(assessBtn);
+  div.appendChild(row);
+  div.appendChild(savedSpan);
+  return div;
+}
+
+function renderResult(progress) {
+  var body = $("result-body");
+  body.innerHTML = "";
+  var entry = state.selectedTomlSource || (progress && (progress.result || progress.champion));
+  if (!entry) { body.className = "muted"; body.textContent = "No result yet."; return; }
+  body.className = "";
+  body.appendChild(entryHtml(entry));
+}
+
+function renderHof(hof) {
+  var body = $("hof-body");
+  hof = hof || [];
+  if (!hof.length) { body.className = "muted"; body.innerHTML = "Empty."; return; }
+  body.className = "";
+  var table = document.createElement("table");
+  table.className = "hof";
+  table.innerHTML = "<thead><tr><th>#</th><th>win rate</th><th>95% CI</th><th>games</th><th>size</th><th>gen</th><th>summary</th><th></th></tr></thead>";
+  var tbody = document.createElement("tbody");
+  hof.forEach(function (e, i) {
+    var tr = document.createElement("tr");
+    tr.className = "hof-row";
+    tr.innerHTML = "<td>" + (i + 1) + "</td><td>" + fmtPct(e.win_rate) + "</td><td>" + fmtPct(e.ci_lo) + "-" + fmtPct(e.ci_hi) +
+      "</td><td>" + e.games.toLocaleString() + "</td><td>" + e.size + "</td><td>" + e.generation + "</td><td>" + escapeHtml(e.summary) + "</td>";
+    var td = document.createElement("td");
+    var saveBtn = document.createElement("button");
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      postJson("/api/save", { toml: e.toml }).then(function (res) {
+        saveBtn.textContent = "saved";
+      }).catch(function () { saveBtn.textContent = "error"; });
+    });
+    td.appendChild(saveBtn);
+    tr.appendChild(td);
+    tr.addEventListener("click", function () {
+      state.selectedTomlSource = e;
+      renderResult(state.status && state.status.progress);
+      window.scrollTo({ top: $("result-panel").offsetTop, behavior: "smooth" });
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.innerHTML = "";
+  body.appendChild(table);
+}
+
+function renderLog(log) {
+  var panel = $("log-panel");
+  panel.textContent = (log || []).join("\n");
+  panel.scrollTop = panel.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Assess panel
+// ---------------------------------------------------------------------------------------------
+
+function runAssess() {
+  var toml = $("assess-toml").value;
+  if (!toml.trim()) { $("assess-result").textContent = "Paste a strategy TOML first."; return; }
+  var req = buildRequest();
+  var body = { toml: toml, opponents: req.opponents, config: req.config, games: parseInt($("assess-games").value, 10) || 20000, full: $("assess-full").checked };
+  $("assess-result").textContent = "Running...";
+  $("assess-run").disabled = true;
+  postJson("/api/assess", body).then(function (entry) {
+    $("assess-result").textContent = "win rate " + fmtPct(entry.win_rate) + " (95% CI " + fmtPct(entry.ci_lo) + "-" + fmtPct(entry.ci_hi) + ") over " + entry.games.toLocaleString() + " games";
+    $("assess-run").disabled = false;
+  }).catch(function (e) {
+    $("assess-result").textContent = "error: " + e.message;
+    $("assess-run").disabled = false;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------------------------
+
+function wireStaticEvents() {
+  $("track-fixed").addEventListener("change", function () { form.trackKind = "fixed"; renderForm(); saveConfig(); });
+  $("track-random").addEventListener("change", function () { form.trackKind = "random"; renderForm(); saveConfig(); });
+  $("kingdoms-per-generation").addEventListener("change", function () { form.kingdomsPerGeneration = parseInt($("kingdoms-per-generation").value, 10) || 8; saveConfig(); });
+  $("seeds-all").addEventListener("click", function (ev) { ev.preventDefault(); state.strategies.forEach(function (s) { if (!s.error) form.seeds.add(s.file); }); renderSeedsList(); saveConfig(); });
+  $("seeds-none").addEventListener("click", function (ev) { ev.preventDefault(); form.seeds.clear(); renderSeedsList(); saveConfig(); });
+  Object.keys(form.numbers).forEach(function (k) {
+    var el = $("cfg-" + k);
+    if (el) el.addEventListener("change", function () { readNumbersFromForm(); saveConfig(); });
+  });
+  $("cfg-validate_full").addEventListener("change", function () { form.validate_full = $("cfg-validate_full").checked; saveConfig(); });
+  $("reset-defaults").addEventListener("click", function (ev) {
+    ev.preventDefault();
+    try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    if (state.defaults) applyRequestToForm(state.defaults);
+  });
+  $("start-btn").addEventListener("click", onStart);
+  $("stop-btn").addEventListener("click", onStop);
+  $("assess-run").addEventListener("click", runAssess);
+}
+
+function init() {
+  wireStaticEvents();
+  Promise.all([
+    fetchJson("/api/cards"),
+    fetchJson("/api/strategies"),
+    fetchJson("/api/defaults"),
+    fetchJson("/api/status"),
+  ]).then(function (results) {
+    state.cards = results[0];
+    state.strategies = results[1];
+    state.defaults = results[2];
+    state.status = results[3];
+
+    var initial = (state.status && state.status.running && state.status.request) ? state.status.request : (loadSavedConfig() || state.defaults);
+    applyRequestToForm(initial);
+    renderStatus();
+    schedulePoll();
+  }).catch(function (e) {
+    $("status-error").textContent = "failed to load: " + e.message;
+  });
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

@@ -371,24 +371,41 @@
     });
   }
 
+  // The log only grows during a game (the last line can still change when a run of draws or
+  // plays is condensed onto it), so append new lines and refresh the last one; rebuild when the
+  // log was reset or rewritten (new game, load).
+  let renderedLog = [];
+
+  function logRow(line) {
+    const cls = line.startsWith("---")
+      ? "turn-marker"
+      : line.startsWith("::")
+      ? "phase-marker"
+      : line.startsWith("--")
+      ? "sys-marker"
+      : "";
+    const row = el("div", cls || null);
+    row.appendChild(decorate(line));
+    return row;
+  }
+
   function renderLog(view) {
     const list = $("log-list");
     const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
-    list.innerHTML = "";
-    for (const line of view.log) {
-      const cls = line.startsWith("---")
-        ? "turn-marker"
-        : line.startsWith("::")
-        ? "phase-marker"
-        : line.startsWith("--")
-        ? "sys-marker"
-        : "";
-      const row = el("div", cls || null);
-      row.appendChild(decorate(line));
-      list.appendChild(row);
+    const log = view.log;
+    const keep = renderedLog.length && log.length >= renderedLog.length && log[0] === renderedLog[0]
+      ? renderedLog.length - 1
+      : 0;
+    if (keep === 0) {
+      list.innerHTML = "";
+    } else {
+      while (list.children.length > keep) list.removeChild(list.lastChild);
     }
-    if (atBottom || view.log.length <= 1) list.scrollTop = list.scrollHeight;
+    for (let i = keep; i < log.length; i++) list.appendChild(logRow(log[i]));
+    renderedLog = log.slice();
+    if (atBottom || log.length <= 1) list.scrollTop = list.scrollHeight;
   }
+
 
   let seats = [];
 

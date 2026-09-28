@@ -107,8 +107,6 @@ const DEFAULT_BOT: u32 = FIRST_STRATEGY_SEAT + 1; // Big Money Ultimate
 const DEFAULT_P1: u32 = FIRST_STRATEGY_SEAT + 3; // Double Witch
 
 const HISTORY_CAP: usize = 1000;
-const LOG_CAP: usize = 4000;
-const LOG_VIEW_CAP: usize = 200;
 
 struct App {
     state: GameState,
@@ -187,11 +185,6 @@ impl App {
             self.log_group = Some((tag, player, self.log.len() - 1));
         } else {
             self.log.push(render_event(e));
-            self.log_group = None;
-        }
-        if self.log.len() > LOG_CAP {
-            let drop_n = self.log.len() - LOG_CAP;
-            self.log.drain(0..drop_n);
             self.log_group = None;
         }
     }
@@ -1316,8 +1309,8 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
     } else {
         "[]".to_string()
     };
-    let log_start = log.len().saturating_sub(LOG_VIEW_CAP);
-    let log_json: Vec<String> = log[log_start..].iter().map(|l| jstr(l)).collect();
+    // The whole game's log: the page appends only what's new.
+    let log_json: Vec<String> = log.iter().map(|l| jstr(l)).collect();
 
     format!(
         concat!(

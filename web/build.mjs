@@ -1,3 +1,20 @@
+import { execSync } from "node:child_process";
+
+// "build 2026-09-27 16:42 · 1c2190a" (commit id, "+dirty" when there are uncommitted changes).
+function buildStamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const when = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  let rev = "";
+  try {
+    rev = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    if (execSync("git status --porcelain", { encoding: "utf8" }).trim()) rev += "+dirty";
+  } catch {
+    rev = "no-git";
+  }
+  return `build ${when} · ${rev}`;
+}
+
 #!/usr/bin/env node
 // Builds web/dist/index.html: a single static file with the compiled wasm module inlined as
 // base64, so it opens directly via file:// with no server and no bundler. Also copies the raw
@@ -37,6 +54,7 @@ function main() {
   html = html.replace("/*__STYLE__*/", () => style);
   html = html.replace("__WASM_BASE64__", () => wasmBase64);
   html = html.replace("/*__APP_JS__*/", () => appJs);
+  html = html.replace("__BUILD_STAMP__", () => buildStamp());
 
   const outPath = join(distDir, "index.html");
   writeFileSync(outPath, html, "utf8");

@@ -377,3 +377,5 @@ section, .panel {
   cursor: pointer;
 }
 .close-x:hover { color: var(--text); }
+
+.build-stamp { font-size: 11px; font-weight: 400; color: var(--text-dim); margin-left: 10px; font-family: var(--mono); }

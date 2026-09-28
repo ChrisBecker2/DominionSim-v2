@@ -128,6 +128,17 @@ name = "dominion-engine"
 version = "0.1.0"
 
 [[package]]
+name = "dominion-evolve"
+version = "0.1.0"
+dependencies = [
+ "dominion-engine",
+ "dominion-sim",
+ "rayon",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "dominion-search"
 version = "0.1.0"
 dependencies = [

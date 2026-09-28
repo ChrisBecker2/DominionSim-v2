@@ -1,0 +1,14 @@
+[package]
+name = "dominion-evolve"
+edition.workspace = true
+version.workspace = true
+description = "Strategy discovery: evolves human-readable strategy files (genetic search over rule lists)."
+
+[dependencies]
+dominion-engine = { path = "../engine" }
+dominion-sim = { path = "../sim" }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[dev-dependencies]

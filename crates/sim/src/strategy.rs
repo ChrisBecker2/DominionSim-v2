@@ -123,6 +123,13 @@ struct StrategyFile {
     /// certain, acquiring only cards in the gain list; play it if found. Default true.
     #[serde(default = "default_true")]
     win_this_turn: bool,
+    /// Cards never gained, even when a forced gain (Workshop, Remodel...) has nothing listed.
+    #[serde(default)]
+    never_gain: Vec<String>,
+    /// Choose which action to play by searching the turn (true, default) or by rule order alone
+    /// (false: much faster; used when evaluating many candidate strategies).
+    #[serde(default = "default_true")]
+    search_play: bool,
 }
 
 // -------------------------------------------------------------------------------------------
@@ -142,6 +149,8 @@ pub struct Strategy {
     trash: Vec<(CardId, Option<Expr>)>,
     keep_treasure: u8,
     pub win_this_turn: bool,
+    never_gain: Vec<CardId>,
+    pub search_play: bool,
 }
 
 impl Strategy {
@@ -202,6 +211,12 @@ impl Strategy {
             trash,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
             win_this_turn: raw.win_this_turn,
+            never_gain: raw
+                .never_gain
+                .iter()
+                .map(|n| cards::by_name(n).ok_or_else(|| format!("unknown card {n:?} in never_gain")))
+                .collect::<Result<_, _>>()?,
+            search_play: raw.search_play,
         })
     }
 
@@ -362,7 +377,7 @@ impl Strategy {
         let endgame = view.supply(id::PROVINCE) <= 3 || view.empty_piles() >= 2;
         let key = |c: CardId| (c != id::CURSE, endgame || !cards::is(c, cards::VICTORY), cards::cost(c));
         let mut best: Option<CardId> = None;
-        for c in iter_cards(choices) {
+        for c in iter_cards(choices).filter(|c| !self.never_gain.contains(c)) {
             let better = match best {
                 None => true,
                 Some(b) => key(c) > key(b),
@@ -371,7 +386,12 @@ impl Strategy {
                 best = Some(c);
             }
         }
-        best.map(Choice::Card).unwrap_or(Choice::Pass)
+        match best {
+            Some(c) => Choice::Card(c),
+            None if choices.contains(&Choice::Pass) || choices.is_empty() => Choice::Pass,
+            // Only never_gain cards are legal and the gain is mandatory: take the cheapest.
+            None => iter_cards(choices).min_by_key(|&c| cards::cost(c)).map(Choice::Card).unwrap_or(choices[0]),
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -426,7 +446,7 @@ impl Strategy {
     /// the best line; a single playable card is simply played. The rule order in `best_play` is
     /// only a fallback if the search can't run.
     fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
-        if iter_cards(choices).count() >= 2 && decision.player == view.me() {
+        if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;

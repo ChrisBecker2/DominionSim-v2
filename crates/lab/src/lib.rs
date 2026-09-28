@@ -80,7 +80,22 @@ pub fn handle(state: &AppState, method: &str, path: &str, body: &[u8]) -> Respon
         ("GET", "/api/status") => handle_status(state),
         ("POST", "/api/save") => handle_save(state, body),
         ("POST", "/api/assess") => handle_assess(state, body),
+        ("GET", "/game") => game_page(state),
         _ => Response::err(404, "not found"),
+    }
+}
+
+/// The game UI (`web/dist/index.html`, next to the strategies directory), read from disk so the
+/// Lab can open a strategy in it (`/game#strategy=<base64 TOML>`).
+fn game_page(state: &AppState) -> Response {
+    let root = state.strategies_dir.canonicalize().unwrap_or_else(|_| state.strategies_dir.clone());
+    let path = root.parent().map(|p| p.join("web").join("dist").join("index.html"));
+    match path.as_ref().map(std::fs::read_to_string) {
+        Some(Ok(html)) => Response::html(200, &html),
+        _ => Response::html(
+            404,
+            "<p>The game page isn't built yet (web/dist/index.html). Run <code>./build-web.ps1</code> in the repository, then reload.</p>",
+        ),
     }
 }
 

@@ -194,3 +194,19 @@ fn unknown_route_is_404() {
     let (status, _) = call(&state, "GET", "/nope", b"");
     assert_eq!(status, 404);
 }
+
+#[test]
+fn game_page_is_served_from_the_repo_or_explains_how_to_build_it() {
+    // The real strategies dir sits next to web/dist in the repo.
+    let real = AppState::new(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../strategies")));
+    let built = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/dist/index.html")).exists();
+    let resp = handle(&real, "GET", "/game", b"");
+    assert_eq!(resp.status, if built { 200 } else { 404 });
+    if built {
+        assert!(String::from_utf8_lossy(&resp.body).contains("#strategy="), "the game page reads strategy links");
+    }
+    // A strategies dir elsewhere has no game page next to it.
+    let resp = handle(&AppState::new(strategies_fixture()), "GET", "/game", b"");
+    assert_eq!(resp.status, 404);
+    assert!(String::from_utf8_lossy(&resp.body).contains("build-web.ps1"));
+}

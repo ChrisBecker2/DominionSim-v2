@@ -1318,6 +1318,31 @@ pub extern "C" fn set_seat(player: u32, bot: u32) -> i32 {
     result_of(r)
 }
 
+/// Add a strategy from TOML text as a new seat controller, or replace an earlier added one
+/// with the same name (shipped strategies are never replaced). Writes JSON {id, name, replaced}.
+#[no_mangle]
+pub extern "C" fn add_strategy(ptr: u32, len: u32) -> i32 {
+    let text = read_str(ptr, len);
+    let r = APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let strategy = Strategy::parse(&text)?;
+        let name = strategy.name.clone();
+        let existing = (STRATEGY_SOURCES.len()..app.strategies.len()).find(|&i| app.strategies[i].name == name);
+        let (index, replaced) = match existing {
+            Some(i) => {
+                app.strategies[i] = strategy;
+                (i, true)
+            }
+            None => {
+                app.strategies.push(strategy);
+                (app.strategies.len() - 1, false)
+            }
+        };
+        Ok(format!("{{\"id\":{},\"name\":{},\"replaced\":{replaced}}}", FIRST_STRATEGY_SEAT + index as u32, jstr(&name)))
+    });
+    result_of(r)
+}
+
 /// Let every seat play until the game ends.
 #[no_mangle]
 pub extern "C" fn run_bots() -> i32 {

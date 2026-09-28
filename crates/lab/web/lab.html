@@ -740,7 +740,14 @@ function entryHtml(entry, source, idx) {
     runAssess();
     window.scrollTo({ top: $("assess-panel").offsetTop, behavior: "smooth" });
   });
-  row.appendChild(copyBtn); row.appendChild(saveBtn); row.appendChild(assessBtn);
+  var gameBtn = document.createElement("button");
+  gameBtn.textContent = "Open in game";
+  gameBtn.title = "Open the game UI with this strategy loaded as Player 2 (Player 1 is Double Witch)";
+  gameBtn.addEventListener("click", function () {
+    var b64 = btoa(unescape(encodeURIComponent(entry.toml)));
+    window.open("/game#strategy=" + encodeURIComponent(b64), "_blank");
+  });
+  row.appendChild(copyBtn); row.appendChild(saveBtn); row.appendChild(gameBtn); row.appendChild(assessBtn);
   div.appendChild(row);
   div.appendChild(savedSpan);
   return div;

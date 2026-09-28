@@ -129,6 +129,12 @@
     resume() {
       ok(wasm.resume());
     },
+    addStrategy(toml) {
+      const s = writeString(toml);
+      const status = wasm.add_strategy(s.ptr, s.len);
+      freeString(s);
+      return JSON.parse(ok(status));
+    },
     seatKingdom(players) {
       return JSON.parse(ok(wasm.seat_kingdom(players >>> 0)));
     },
@@ -141,6 +147,41 @@
   };
 
   let botNames = [];
+
+  // ---- loaded strategies --------------------------------------------------------
+  // Strategy files added in the page. Seat ids follow load order, so the same list is replayed
+  // into every worker (init + "add" messages) and into the page on reload (localStorage).
+  const CUSTOM_KEY = "dominion.loadedStrategies";
+  let customStrategies = []; // [{ name, toml }]
+
+  function storedStrategies() {
+    try {
+      const v = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
+      return Array.isArray(v) ? v.filter((x) => x && typeof x.toml === "string") : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function persistStrategies() {
+    try {
+      localStorage.setItem(CUSTOM_KEY, JSON.stringify(customStrategies));
+    } catch (e) {
+      /* storage unavailable: strategies last until reload */
+    }
+  }
+
+  // Add (or replace by name) a strategy; returns { id, name, replaced }. Throws on a bad file.
+  function addStrategy(toml, persist = true) {
+    const r = api.addStrategy(toml);
+    const i = customStrategies.findIndex((c) => c.name === r.name);
+    if (i >= 0) customStrategies[i] = { name: r.name, toml };
+    else customStrategies.push({ name: r.name, toml });
+    if (persist) persistStrategies();
+    botNames = api.listBots();
+    if (pool) pool.forEach((p) => p.worker.postMessage({ type: "add", toml }));
+    return r;
+  }
 
   // ---- card type highlighting ------------------------------------------------
 
@@ -455,11 +496,23 @@
     let w = null;
     onmessage = async (e) => {
       const m = e.data;
+      const addStrategy = (toml) => {
+        const bytes = new TextEncoder().encode(toml);
+        const p = w.alloc(bytes.length);
+        new Uint8Array(w.memory.buffer, p, bytes.length).set(bytes);
+        w.add_strategy(p, bytes.length);
+        w.dealloc(p, bytes.length);
+      };
       if (m.type === "init") {
         const inst = await WebAssembly.instantiate(m.module, {});
         w = inst.exports;
         w.init();
+        (m.custom || []).forEach(addStrategy);
         postMessage({ type: "ready" });
+        return;
+      }
+      if (m.type === "add") {
+        addStrategy(m.toml);
         return;
       }
       if (m.type === "sim") {
@@ -519,7 +572,7 @@
         worker.onmessage = (e) => e.data.type === "ready" && resolve();
         worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
       });
-      worker.postMessage({ type: "init", module: wasmModule });
+      worker.postMessage({ type: "init", module: wasmModule, custom: customStrategies.map((c) => c.toml) });
       pool.push({ worker, ready });
     }
     return pool;
@@ -1070,7 +1123,65 @@
 
   // ---- wiring ---------------------------------------------------------------
 
+  function refreshStrategySeatChoices() {
+    const sel = $("strategy-seat");
+    const n = lastView ? lastView.players.length : parseInt($("ng-players").value, 10) || 2;
+    const prev = sel.value;
+    sel.innerHTML = "";
+    const none = el("option", null, "(don't seat)");
+    none.value = "";
+    sel.appendChild(none);
+    for (let p = 0; p < n; p++) {
+      const o = el("option", null, `Player ${p + 1}`);
+      o.value = String(p);
+      sel.appendChild(o);
+    }
+    sel.value = prev !== "" && Number(prev) < n ? prev : n > 1 ? "1" : "";
+  }
+
+  function wireStrategyLoader() {
+    const msg = (text, isError) => {
+      const m = $("strategy-msg");
+      m.textContent = text;
+      m.className = "inline" + (isError ? " error" : "");
+    };
+    $("btn-load-strategy").addEventListener("click", () => {
+      const panel = $("strategy-loader");
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) refreshStrategySeatChoices();
+    });
+    $("strategy-file").addEventListener("change", async () => {
+      const f = $("strategy-file").files[0];
+      if (f) $("strategy-text").value = await f.text();
+    });
+    $("btn-add-strategy").addEventListener("click", () => {
+      const toml = $("strategy-text").value;
+      if (!toml.trim()) return msg("Paste a strategy or choose a file first.", true);
+      let r;
+      try {
+        r = addStrategy(toml);
+      } catch (e) {
+        return msg(String(e.message || e), true);
+      }
+      const seat = $("strategy-seat").value;
+      const untouched = !api.canUndo() && lastView && lastView.turn.number === 1;
+      doAction(() => {
+        if (seat !== "") {
+          api.setSeat(parseInt(seat, 10), r.id);
+          if (syncKingdomFromSeats() && untouched) startNewGame();
+        }
+      });
+      msg(`${r.replaced ? "Replaced" : "Added"} \u201c${r.name}\u201d` + (seat !== "" ? ` as Player ${Number(seat) + 1}.` : "."), false);
+    });
+    $("btn-forget-strategies").addEventListener("click", () => {
+      customStrategies = [];
+      persistStrategies();
+      location.reload();
+    });
+  }
+
   function wire() {
+    wireStrategyLoader();
     $("btn-new-game").addEventListener("click", () => {
       try {
         startNewGame();
@@ -1184,9 +1295,29 @@
     wasmModule = module;
     wasm = instance.exports;
     wasm.init();
+    for (const c of storedStrategies()) {
+      try {
+        addStrategy(c.toml, false);
+      } catch (e) {
+        /* a stored file that no longer parses is dropped */
+      }
+    }
+    persistStrategies();
     botNames = api.listBots();
     initCards();
     wire();
+    // index.html#strategy=<base64 TOML> (e.g. from the Strategy Lab): load it and seat it as
+    // Player 2, so it faces the default Player 1 (Double Witch).
+    if (location.hash.startsWith("#strategy=")) {
+      try {
+        const toml = decodeURIComponent(escape(atob(decodeURIComponent(location.hash.slice("#strategy=".length)))));
+        const r = addStrategy(toml);
+        api.setSeat(1, r.id);
+        history.replaceState(null, "", location.pathname + location.search);
+      } catch (e) {
+        showNewGameError("Could not load the linked strategy: " + String(e.message || e));
+      }
+    }
     // Start with a kingdom matching the default seats' rules.
     try {
       startNewGame();

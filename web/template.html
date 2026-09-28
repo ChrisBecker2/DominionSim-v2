@@ -20,7 +20,19 @@
         <input id="ng-seed" type="number" value="1" step="1">
       </label>
       <button id="btn-new-game" class="primary">New game</button>
+      <button id="btn-load-strategy" title="Add a strategy file (.toml) as a bot you can seat">Load strategy&hellip;</button>
       <span id="newgame-error" class="error inline" hidden></span>
+    </div>
+    <div id="strategy-loader" hidden>
+      <p class="hint">Paste a strategy file or pick a <code>.toml</code> (e.g. from <code>strategies/evolved/</code>). It becomes a bot in the seat menus and is remembered in this browser. Loading one with the same name replaces it.</p>
+      <textarea id="strategy-text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="name = &quot;My strategy&quot;&#10;&#10;[[gain]]&#10;card = &quot;Province&quot;&#10;..."></textarea>
+      <div class="loader-row">
+        <input id="strategy-file" type="file" accept=".toml,text/plain">
+        <label>Seat as <select id="strategy-seat"></select></label>
+        <button id="btn-add-strategy" class="primary">Add strategy</button>
+        <button id="btn-forget-strategies" title="Remove every loaded strategy from this browser (reloads the page)">Forget loaded</button>
+        <span id="strategy-msg" class="inline"></span>
+      </div>
     </div>
   </header>
 

@@ -6,9 +6,9 @@
 //!
 //! `[[play]]` (action play order) and `[[trash]]` (what to trash when given the chance) are rule
 //! lists like `[[gain]]`, each entry `card` + optional `if`. Stated rules always come first;
-//! built-in defaults only apply below them (default trash: Curse only; treasures are never
-//! trashed from hand below `keep_treasure`), and a default for a card is dropped when the
-//! strategy states its own rule for that card.
+//! built-in defaults only apply below them (default trash: Curse, then Estate, then Copper;
+//! treasures are never trashed from hand below `keep_treasure`), and a default for a card is
+//! dropped when the strategy states its own rule for that card.
 //!
 //! The gain list drives every gain, strictly in order: buys, Workshop/Artisan gains, and
 //! "trash a card, gain a better one" upgrades (Remodel, Mine): for an upgrade, the strategy trashes
@@ -78,8 +78,9 @@ impl RulesOrNames {
 }
 
 /// Built-in trash rules, used below the strategy's own `[[trash]]` rules (skipping any card the
-/// strategy lists itself): only Curses. Anything else a strategy trashes must be stated.
-const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[("Curse", None)];
+/// strategy lists itself): Curse, then Estate, then Copper (treasures never below
+/// `keep_treasure` in hand).
+const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[("Curse", None), ("Estate", None), ("Copper", None)];
 
 fn compile_rules(raw: &[BuyRuleRaw], what: &str) -> Result<Vec<(CardId, Option<Expr>)>, String> {
     raw.iter()
@@ -650,8 +651,8 @@ mod tests {
         assert_eq!(s.buy.len(), 2);
         assert_eq!(s.play_rank[id::VILLAGE as usize], 0);
         assert_eq!(s.play_rank[id::SMITHY as usize], 1);
-        // With no stated trash rules, the only default is Curse.
-        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::CURSE]);
+        // With no stated trash rules, the defaults: Curse, Estate, Copper.
+        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::CURSE, id::ESTATE, id::COPPER]);
     }
 
     #[test]
@@ -673,8 +674,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.play.len(), 2);
-        // Stated rules first, then the Curse default.
-        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::ESTATE, id::CURSE]);
+        // Stated Estate rule first (replacing the default Estate rule), then Curse and Copper defaults.
+        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::ESTATE, id::CURSE, id::COPPER]);
     }
 
     #[test]

@@ -20,7 +20,3 @@ card = "Silver"
 
 [[play]]
 card = "Moneylender"
-
-# Moneylender's +$3 comes from trashing a Copper.
-[[trash]]
-card = "Copper"

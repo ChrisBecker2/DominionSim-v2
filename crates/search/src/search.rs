@@ -231,6 +231,39 @@ impl Searcher {
         None
     }
 
+    /// The best root choice (first in legal-choice order among equal values) with its value and
+    /// exactness. Allocation-free, for bots deciding inside batch simulations.
+    pub fn best_choice<E: Evaluator>(&mut self, state: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> Option<(Choice, f64, bool)> {
+        self.nodes = 0;
+        self.tt_hits = 0;
+        self.tt_stores = 0;
+        self.rng = Rng::new(cfg.seed);
+        self.generation = self.generation.wrapping_add(1).max(1);
+        let mut root = *state;
+        root.chance_mode = true;
+        root.pause_at_turn_start = false;
+        let d = root.pending_decision()?;
+        if d.player != me {
+            return None;
+        }
+        let mut buf = ChoiceBuf::default();
+        root.legal_choices(&mut buf);
+        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
+        let mut best: Option<(Choice, f64, bool)> = None;
+        for &choice in buf.as_slice() {
+            if any_allowed && !eval.allows(&root, me, &d, choice) {
+                continue;
+            }
+            let mut child = root;
+            child.apply(choice, &mut NoEvents).ok()?;
+            let r = self.node_value(&root, &child, me, cfg, eval);
+            if best.map_or(true, |(_, v, _)| r.ev > v) {
+                best = Some((choice, r.ev, r.exact));
+            }
+        }
+        best
+    }
+
     /// Value of one subtree (a state with nothing pending) plus its best continuation, as a
     /// self-contained unit of work for parallel analysis (`plan::Plan`). Uses this searcher's
     /// own transposition table, scoped to this call.
@@ -332,7 +365,9 @@ impl Searcher {
                 }
                 Step::Decision(d) => {
                     s.legal_choices(&mut buf);
-                    let choice = if let Some(c) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
+                    let choice = if let Some(c) = fixed_choice(eval, &s, me, &d, buf.as_slice())
+                        .or_else(|| eval.playout_choice(&s, me, &d, buf.as_slice()))
+                    {
                         c
                     } else {
                         let mut best = (f64::NEG_INFINITY, buf.as_slice()[0]);

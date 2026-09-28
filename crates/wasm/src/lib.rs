@@ -68,15 +68,6 @@ fn seat_eval(strategies: &[Strategy], strategy: u32) -> (SeatEval<'_>, String) {
     }
 }
 
-/// Hidden-information samples are seeded from the position itself, so Analyze, Auto-step and
-/// Run to end of turn all see the same sampled opponent hands for the same position.
-fn position_rng(state: &GameState) -> Rng {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    state.hash(&mut h);
-    Rng::new(h.finish())
-}
-
 /// A stable id for the current position, so the UI can tell whether an analysis is current.
 #[no_mangle]
 pub extern "C" fn state_id() -> u32 {
@@ -623,7 +614,7 @@ fn bot_choice(app: &mut App) -> Result<Choice, String> {
         let view = PlayerView::new(&app.state, d.player);
         return Ok(app.strategies[(seat - FIRST_STRATEGY_SEAT) as usize].decide(&view, &d, buf.as_slice()));
     }
-    let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
+    let world = { let v = PlayerView::new(&app.state, d.player); v.determinize(&mut Rng::new(v.stable_seed())) };
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
     Ok(a.best().choice)
 }
@@ -647,7 +638,7 @@ fn run_bots_impl(app: &mut App) -> Result<(), String> {
 
 fn analyze_json(app: &mut App) -> Result<String, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
-    let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
+    let world = { let v = PlayerView::new(&app.state, d.player); v.determinize(&mut Rng::new(v.stable_seed())) };
     let (eval, scoring) = seat_eval(&app.strategies, scoring_strategy(app, d.player));
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &eval);
     Ok(analysis_json(app, &d, &a, &scoring, rules_pick(app, &d)))
@@ -755,7 +746,7 @@ pub extern "C" fn plan_start(target_tasks: u32) -> i32 {
         let mut guard = cell.borrow_mut();
         let app = &mut *guard;
         let d = app.state.pending_decision().ok_or("no decision is pending")?;
-        let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
+        let world = { let v = PlayerView::new(&app.state, d.player); v.determinize(&mut Rng::new(v.stable_seed())) };
         let strategy = scoring_strategy(app, d.player);
         let (eval, _) = seat_eval(&app.strategies, strategy);
         let plan = Plan::build(&world, d.player, target_tasks.max(1) as usize, &eval);

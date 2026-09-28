@@ -77,13 +77,13 @@ deck: 4 Copper, Estate
 }
 
 #[test]
-fn throne_room_does_not_chain_into_throne_rooms_without_targets() {
-    // 5 Throne Rooms but only one ordinary action (Remodel) left after Village: play Village,
-    // one Throne Room on Remodel, and leave the other Throne Rooms (nothing to double).
+fn five_throne_rooms_still_remodel_both_golds() {
+    // The bot searches its play order; whatever line it picks must turn both Golds into
+    // Provinces (its top gain priority).
     let (played, g) = bot_action_plays("5 Throne Room Gold Gold Remodel Village");
-    assert_eq!(played, vec![id::VILLAGE, id::THRONE_ROOM, id::REMODEL]);
+    assert!(played.contains(&id::REMODEL), "{played:?}");
+    assert_eq!(g.trash.get(id::GOLD), 2);
     assert_eq!(g.players[0].discard.get(id::PROVINCE), 2);
-    assert_eq!(g.players[0].hand.get(id::THRONE_ROOM), 4);
 }
 
 #[test]
@@ -319,4 +319,13 @@ fn analysis_ranks_the_rules_pick_first_when_win_this_turn_applies() {
     let a = dominion_search::analyze(&g, 0, &dominion_search::SearchConfig::default(), &dominion_sim::GainListEvaluator::new(&strat));
     assert_eq!(a.best().choice, pick, "analysis best = rules' pick; got {:?}", a.options);
     assert!(a.best().pv.contains("Gain Duchy") && a.best().pv.contains("Buy Duchy"), "{}", a.best().pv);
+}
+
+#[test]
+fn non_terminal_actions_are_played_before_stated_terminals() {
+    // Double Witch states [[play]] Witch, but Village gives the action back: Village first keeps
+    // every option open, then Witch (stated), then Chapel with the spare action.
+    let (played, g) = bot_action_plays("Chapel Curse Witch Village");
+    assert_eq!(played, vec![id::VILLAGE, id::WITCH, id::CHAPEL]);
+    assert_eq!(g.trash.get(id::CURSE), 1, "Chapel trashes the Curse (default trash rule)");
 }

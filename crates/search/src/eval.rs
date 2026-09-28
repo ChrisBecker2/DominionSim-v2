@@ -29,6 +29,12 @@ pub trait Evaluator {
     fn policy(&self, _state: &GameState, _me: u8, _decision: &Decision, _choices: &[Choice]) -> Option<Choice> {
         None
     }
+
+    /// A cheap choice for `me` inside budget-exceeded playouts, where searching is too costly.
+    /// `None` = greedy one-step lookahead with `leaf_value`.
+    fn playout_choice(&self, _state: &GameState, _me: u8, _decision: &Decision, _choices: &[Choice]) -> Option<Choice> {
+        None
+    }
 }
 
 /// Dominates every other term: winning the game outright if this turn ends it, sharing it,

@@ -126,6 +126,30 @@ impl<'a> PlayerView<'a> {
         after.result_if_turn_ends()
     }
 
+    /// A seed derived only from what `me` can see, so every path that samples hidden
+    /// information for the same position (a bot's own search, the analysis) samples alike.
+    pub fn stable_seed(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let s = self.state;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.me.hash(&mut h);
+        s.players[self.me as usize].hash(&mut h);
+        s.turn.hash(&mut h);
+        s.supply.hash(&mut h);
+        s.trash.hash(&mut h);
+        s.stack.hash(&mut h);
+        for p in 0..s.num_players {
+            if p != self.me {
+                let ps = &s.players[p as usize];
+                ps.all_cards().hash(&mut h);
+                ps.hand.total().hash(&mut h);
+                ps.discard.hash(&mut h);
+                ps.in_play.hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
     /// A concrete `GameState` consistent with everything `me` honestly knows, for search.
     /// My own zones are exact. For each opponent, hand + deck are pooled (their split and any
     /// order are hidden from me) and a random hand of the same size is dealt back out; their

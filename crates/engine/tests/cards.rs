@@ -929,3 +929,21 @@ fn throne_room_merchant_bonus_counts_both_plays_but_only_the_first_silver() {
     assert_eq!(g.turn.merchants, 2, "two Merchant plays");
     assert_eq!(g.turn.coins, 6);
 }
+
+#[test]
+fn workshop_with_nothing_affordable_in_the_supply_gains_nothing() {
+    // Every pile costing $4 or less is empty: Workshop's gain has no legal target, so it is
+    // skipped (no decision) and the turn continues to the buy phase with nothing gained.
+    let mut g = new_state(&[id::WORKSHOP, id::MARKET], 2);
+    for c in [id::COPPER, id::SILVER, id::ESTATE, id::CURSE, id::WORKSHOP] {
+        empty_pile(&mut g, c);
+    }
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::ESTATE]);
+    // With 5 piles empty the game ends this turn; stop at the (pass-only) buy to inspect it.
+    g.auto_single = false;
+    let before = g.players[0].all_cards();
+    let next = play(&mut g, id::WORKSHOP);
+    assert!(matches!(next, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "no Gain decision: {next:?}");
+    assert_eq!(g.players[0].all_cards().total(), before.total(), "nothing gained");
+    assert!(g.players[0].in_play.has(id::WORKSHOP));
+}

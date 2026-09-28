@@ -4,6 +4,9 @@
 //! optionally gated by a condition, see `expr.rs`), an ordered **action play priority list**, and
 //! a few optional knobs for sub-decisions (Chapel/Sentry trashing, how much treasure to keep in hand).
 //!
+//! Which action to play is found by searching the turn with the strategy's own scoring: the gain
+//! list first, then stated `[[play]]` rules (earlier rules worth more), then defaults (attacks,
+//! wanted trashes, playing actions/treasures). The rule order is only a fallback.
 //! `[[play]]` (action play order) and `[[trash]]` (what to trash when given the chance) are rule
 //! lists like `[[gain]]`, each entry `card` + optional `if`. Stated rules always come first;
 //! built-in defaults only apply below them (default trash: Curse, then Estate, then Copper;
@@ -234,8 +237,19 @@ impl Strategy {
                 return c;
             }
         }
+        self.decide_by_rules(view, decision, choices)
+    }
+
+    /// Whether `win_this_turn` could apply here (a search inside the strategy's own scoring then
+    /// maximizes such decisions instead of following the rules, finding the same wins).
+    pub fn win_check_applies(&self, view: &PlayerView) -> bool {
+        self.win_this_turn && Self::game_could_end_soon(view)
+    }
+
+    /// `decide` without the `win_this_turn` lookahead: the rules only.
+    pub fn decide_by_rules(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         match decision.kind {
-            DecisionKind::PlayAction => self.best_play(view, choices, false).map(Choice::Card).unwrap_or(Choice::Pass),
+            DecisionKind::PlayAction => self.play_decision(view, decision, choices, false),
             DecisionKind::Buy => self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, max, ordered } => {
@@ -243,7 +257,7 @@ impl Strategy {
                     Act::Discard => self.choose_discard(view, from, filter, choices, min, max, ordered),
                     Act::Trash => self.choose_trash(view, decision, choices, from, filter, min, max, ordered),
                     Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
-                    Act::Play => self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass),
+                    Act::Play => self.play_decision(view, decision, choices, decision.play_times > 1),
                     Act::SetAside => Choice::Pass, // not used via Select in the base set
                 }
             }
@@ -396,16 +410,46 @@ impl Strategy {
         let ordinary_in_hand: u32 =
             view.hand().iter().filter(|&(c, _)| cards::is(c, ACTION) && cards::def(c).plays == 0).map(|(_, n)| n as u32).sum();
         let multiplier_ok = if for_multiplier { ordinary_in_hand >= 2 } else { ordinary_in_hand >= 1 };
-        // Stated [[play]] rules first, in order, when their condition holds.
+        // Stated [[play]] rules first, in order, when their condition holds; then the default order.
         for (card, cond) in &self.play {
             if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
                 return Some(*card);
             }
         }
-        // Defaults below: the built-in play order.
         iter_cards(choices)
             .filter(|&c| cards::def(c).plays == 0 || multiplier_ok)
             .min_by_key(|&c| (self.play_rank_of(c), c))
+    }
+
+    /// Which action to play (or what a Throne Room plays). With a real choice, the bot searches
+    /// its own turn with its own scoring (gain list > stated [[play]] rules > defaults) and plays
+    /// the best line; a single playable card is simply played. The rule order in `best_play` is
+    /// only a fallback if the search can't run.
+    fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
+        if iter_cards(choices).count() >= 2 && decision.player == view.me() {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
+        self.best_play(view, choices, for_multiplier).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// The play choice by rule order alone (stated [[play]] rules, then the default order), without
+    /// searching. Used in search playouts.
+    pub fn rule_play(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// For a card played this turn: how many stated [[play]] rules rank below its first rule
+    /// whose condition holds (`None` if no stated rule applies). Used for scoring.
+    pub fn play_rules_below(&self, view: &PlayerView, card: CardId) -> Option<usize> {
+        let n = self.play.len();
+        self.play
+            .iter()
+            .position(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
+            .map(|i| n - 1 - i)
     }
 
     /// Whether the trash rules (stated, then defaults) want `card` gone right now.

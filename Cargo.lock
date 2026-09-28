@@ -140,6 +140,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dominion-engine",
+ "dominion-search",
  "rayon",
  "serde",
  "toml",

@@ -101,7 +101,6 @@ header {
   gap: 2px;
 }
 .newgame-bar input[type="number"] { width: 64px; }
-.kingdom-field input { width: 480px; max-width: 40vw; }
 
 input, textarea, button, select {
   font-family: inherit;

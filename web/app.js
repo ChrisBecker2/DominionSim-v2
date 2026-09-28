@@ -540,22 +540,26 @@
 
   let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
 
-  // Kingdom = union of the kingdom cards the strategy seats' rules name (no padding). Leaves the
-  // field alone when no seat is a strategy (the Search seat names no cards). Returns whether
-  // the field changed.
-  function syncKingdomFromSeats() {
+  // The kingdom is always the union of the kingdom cards the seats' rules name (no padding);
+  // Search seats name none. `gameKingdom` is the kingdom the current game was started with.
+  let gameKingdom = null;
+
+  function seatsKingdom() {
     const players = parseInt($("ng-players").value, 10) || 2;
-    const k = api.seatKingdom(players);
-    if (!k.strategySeats || $("ng-kingdom").value === k.kingdom) return false;
-    $("ng-kingdom").value = k.kingdom;
-    return true;
+    return api.seatKingdom(players).kingdom;
+  }
+
+  // Whether the seats now imply a different kingdom than the current game's.
+  function syncKingdomFromSeats() {
+    return gameKingdom !== null && seatsKingdom() !== gameKingdom;
   }
 
   function startNewGame() {
     const players = parseInt($("ng-players").value, 10) || 2;
     const seed = parseInt($("ng-seed").value, 10) || 0;
     cancelAnalysis();
-    api.newGame(players, $("ng-kingdom").value, seed, 0);
+    gameKingdom = seatsKingdom();
+    api.newGame(players, gameKingdom, seed, 0);
     showNewGameError("");
     $("state-text").value = api.getStartText();
   }
@@ -623,7 +627,6 @@
 
   function wire() {
     $("btn-new-game").addEventListener("click", () => {
-      syncKingdomFromSeats();
       try {
         startNewGame();
         render();
@@ -631,7 +634,6 @@
         showNewGameError(String(e.message || e));
       }
     });
-    $("ng-players").addEventListener("change", () => syncKingdomFromSeats());
 
     $("btn-load").addEventListener("click", () => {
       try {
@@ -719,7 +721,6 @@
     initCards();
     wire();
     // Start with a kingdom matching the default seats' rules.
-    syncKingdomFromSeats();
     try {
       startNewGame();
     } catch (e) {

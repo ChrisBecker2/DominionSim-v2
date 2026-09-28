@@ -145,7 +145,8 @@ impl App {
         let mut sink: Vec<Event> = Vec::new();
         state.deal_opening_hands(&mut sink);
         let start_text = dominion_engine::format_state(&state);
-        let _ = state.advance(&mut sink);
+        // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
+        state.pause_at_turn_start = true;
         let strategies = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
         let mut seats = [DEFAULT_BOT; MAX_PLAYERS];
@@ -286,7 +287,8 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         let mut sink: Vec<Event> = Vec::new();
         state.deal_opening_hands(&mut sink);
         app.start_text = dominion_engine::format_state(&state);
-        let _ = state.advance(&mut sink);
+        // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
+        state.pause_at_turn_start = true;
         app.state = state;
         app.history.clear();
         app.redo.clear();

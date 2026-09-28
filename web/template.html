@@ -83,6 +83,27 @@
         <h2>Event log</h2>
         <div id="log-list"></div>
       </div>
+
+      <div id="sim-panel">
+        <h2>Simulation</h2>
+        <div class="sim-controls">
+          <label>Games <input id="sim-games" type="number" min="10" max="100000" step="10" value="1000"></label>
+          <button id="btn-simulate" class="primary" title="Play this many games from the current position with each seat's controller">Simulate from here</button>
+          <label>Show
+            <select id="sim-metric">
+              <option value="vp">VP over time</option>
+              <option value="money">Money per turn</option>
+              <option value="buys">Buys per turn</option>
+              <option value="winturn">Win turn</option>
+            </select>
+          </label>
+          <label class="checkbox"><input type="checkbox" id="sim-table-toggle"> table</label>
+          <span id="sim-status" class="subtitle"></span>
+        </div>
+        <div id="sim-summary"></div>
+        <div id="sim-chart" class="viz-root"></div>
+        <div id="sim-table" hidden></div>
+      </div>
     </section>
   </main>
 

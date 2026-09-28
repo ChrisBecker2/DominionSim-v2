@@ -451,6 +451,23 @@
         postMessage({ type: "ready" });
         return;
       }
+      if (m.type === "sim") {
+        m.seats.forEach((seat, p) => w.set_seat(p, seat));
+        const b = m.state, sp = w.alloc(b.length);
+        new Uint8Array(w.memory.buffer, sp, b.length).set(b);
+        let okSim, out;
+        try {
+          okSim = w.simulate(sp, m.games, m.seed);
+          out = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()));
+        } catch (e) {
+          const len = w.panic_message_len();
+          out = "worker crashed: " + (len ? new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.panic_message_ptr(), len)) : String(e.message || e));
+          okSim = 0;
+        }
+        w.dealloc(sp, b.length);
+        postMessage({ type: "sim", id: m.id, ok: !!okSim, out });
+        return;
+      }
       const put = (bytes) => {
         const p = w.alloc(bytes.length);
         new Uint8Array(w.memory.buffer, p, bytes.length).set(bytes);
@@ -707,6 +724,310 @@
     }
   }
 
+  // ---- simulation + chart ---------------------------------------------------------
+  //
+  // Plays N games from the current position with each seat's controller, split across the worker
+  // pool; each worker returns per-turn sums which are added up here. Charts: one line per player
+  // (categorical colors in fixed seat order), legend + end labels, crosshair tooltip, table view.
+
+  let simResult = null;
+  let simRun = 0;
+
+  // Same-thread fallback (no Web Workers): run the games in the page's own engine instance.
+  function simulateHere(games) {
+    wasm.state_bytes_current();
+    const state = resultBytes();
+    const seatsNow = api.getSeats();
+    const p = wasm.alloc(state.length);
+    new Uint8Array(wasm.memory.buffer, p, state.length).set(state);
+    const out = JSON.parse(ok(wasm.simulate(p, games, 1000)));
+    wasm.dealloc(p, state.length);
+    simResult = mergeSims([out], seatsNow.length);
+    simResult.names = seatsNow.map((seat, i) => `P${i + 1} ${botNames[seat] || ""}`.trim());
+    $("sim-status").textContent = `${simResult.games.toLocaleString()} games (in the page)`;
+    renderSim();
+  }
+
+  async function simulate() {
+    if (typeof Worker === "undefined" || !wasmModule) {
+      try {
+        simulateHere(Math.max(10, Math.min(20000, parseInt($("sim-games").value, 10) || 1000)));
+      } catch (e) {
+        if (!reportCrash(e, "Simulate")) $("sim-status").textContent = "Simulation failed: " + String(e.message || e);
+      }
+      return;
+    }
+    const run = ++simRun;
+    const games = Math.max(10, Math.min(100000, parseInt($("sim-games").value, 10) || 1000));
+    const workers = getPool();
+    const t0 = performance.now();
+    $("sim-status").textContent = `Starting ${workers.length} workers…`;
+    $("btn-simulate").disabled = true;
+    try {
+      await Promise.all(workers.map((p) => p.ready));
+      wasm.state_bytes_current();
+      const state = resultBytes();
+      const seatsNow = api.getSeats();
+      const players = seatsNow.length;
+      const per = Math.ceil(games / workers.length);
+      const jobs = [];
+      let assigned = 0;
+      workers.forEach((p, i) => {
+        const n = Math.min(per, games - assigned);
+        if (n <= 0) return;
+        assigned += n;
+        jobs.push(new Promise((resolve, reject) => {
+          p.worker.onmessage = (e) => {
+            const m = e.data;
+            if (m.type !== "sim") return;
+            if (!m.ok) return reject(new Error(m.out));
+            resolve(JSON.parse(m.out));
+          };
+          p.worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
+          // Distinct shuffle seeds per worker; the same inputs give the same results.
+          p.worker.postMessage({ type: "sim", id: i, state, seats: seatsNow, games: n, seed: 1000 + i });
+        }));
+      });
+      let done = 0;
+      jobs.forEach((j) => j.then(() => {
+        done++;
+        if (run === simRun) $("sim-status").textContent = `Simulating: ${done}/${jobs.length} workers done`;
+      }, () => {}));
+      const parts = await Promise.all(jobs);
+      if (run !== simRun) return;
+      simResult = mergeSims(parts, players);
+      simResult.seconds = (performance.now() - t0) / 1000;
+      simResult.names = seatsNow.map((seat, p) => `P${p + 1} ${botNames[seat] || ""}`.trim());
+      $("sim-status").textContent = `${simResult.games.toLocaleString()} games in ${simResult.seconds.toFixed(2)} s`;
+      renderSim();
+    } catch (e) {
+      if (!reportCrash(e, "Simulate")) $("sim-status").textContent = "Simulation failed: " + String(e.message || e);
+    } finally {
+      $("btn-simulate").disabled = false;
+    }
+  }
+
+  function mergeSims(parts, players) {
+    const add = (a, b) => {
+      const out = a.slice();
+      b.forEach((x, i) => (out[i] = (out[i] || 0) + x));
+      return out;
+    };
+    const r = { games: 0, capped: 0, lengthSum: 0, players: [] };
+    for (let p = 0; p < players; p++) r.players.push({ vp: [], money: [], buys: [], count: [], wins: 0, winsAt: [] });
+    for (const part of parts) {
+      r.games += part.games;
+      r.capped += part.capped;
+      r.lengthSum += part.lengthSum;
+      part.players.forEach((q, p) => {
+        const t = r.players[p];
+        t.vp = add(t.vp, q.vp);
+        t.money = add(t.money, q.money);
+        t.buys = add(t.buys, q.buys);
+        t.count = add(t.count, q.count);
+        t.winsAt = add(t.winsAt, q.winsAt);
+        t.wins += q.wins;
+      });
+    }
+    return r;
+  }
+
+  const METRICS = {
+    vp: { title: "Average VP after each turn", y: "VP", fmt: (v) => v.toFixed(1) },
+    money: { title: "Average money per turn ($ spent + left over)", y: "$", fmt: (v) => "$" + v.toFixed(2) },
+    buys: { title: "Average cards bought per turn", y: "buys", fmt: (v) => v.toFixed(2) },
+    winturn: { title: "Games won, by the winner's turn number", y: "% of games", fmt: (v) => v.toFixed(1) + "%" },
+  };
+
+  // Series per player: points {x: turn, y: value}. Per-turn averages only where enough games
+  // reached that turn (at least 5% of games) so the tail isn't a handful of long games.
+  function seriesFor(metric) {
+    const r = simResult;
+    return r.players.map((q, p) => {
+      const pts = [];
+      if (metric === "winturn") {
+        q.winsAt.forEach((w, i) => pts.push({ x: i + 1, y: (100 * w) / r.games }));
+      } else {
+        q.count.forEach((c, i) => {
+          if (c >= Math.max(1, r.games * 0.05)) pts.push({ x: i + 1, y: q[metric][i] / c });
+        });
+      }
+      return { name: r.names[p], color: `var(--series-${p + 1})`, pts };
+    });
+  }
+
+  // Win-turn curves are zero for the early turns and after the last win; show only the span where
+  // any player wins, plus one turn either side.
+  function trimToActive(series) {
+    const xs = series.flatMap((s) => s.pts.filter((p) => p.y > 0).map((p) => p.x));
+    if (!xs.length) return series;
+    const lo = Math.min(...xs) - 1, hi = Math.max(...xs) + 1;
+    return series.map((s) => ({ ...s, pts: s.pts.filter((p) => p.x >= lo && p.x <= hi) }));
+  }
+
+  function renderSim() {
+    if (!simResult) return;
+    const r = simResult;
+    const summary = $("sim-summary");
+    summary.innerHTML = "";
+    r.players.forEach((q, p) => {
+      const item = el("span", "sim-stat");
+      const key = el("span", "sim-key");
+      key.style.background = `var(--series-${p + 1})`;
+      item.appendChild(key);
+      item.appendChild(document.createTextNode(`${r.names[p]}: `));
+      item.appendChild(el("b", null, `${((100 * q.wins) / r.games).toFixed(1)}% wins`));
+      summary.appendChild(item);
+    });
+    const finished = r.games - r.capped;
+    summary.appendChild(el("span", "sim-stat muted", `average game ${finished ? (r.lengthSum / finished).toFixed(1) : "-"} turns each` + (r.capped ? ` · ${r.capped} hit the turn limit` : "")));
+    const metric = $("sim-metric").value;
+    const series = metric === "winturn" ? trimToActive(seriesFor(metric)) : seriesFor(metric);
+    drawLineChart($("sim-chart"), series, METRICS[metric]);
+    renderSimTable(series, METRICS[metric]);
+  }
+
+  function renderSimTable(series, m) {
+    const box = $("sim-table");
+    box.hidden = !$("sim-table-toggle").checked;
+    box.innerHTML = "";
+    const xs = [...new Set(series.flatMap((s) => s.pts.map((p) => p.x)))].sort((a, b) => a - b);
+    const table = el("table", "sim-table");
+    const head = el("tr");
+    head.appendChild(el("th", null, "Turn"));
+    series.forEach((s) => head.appendChild(el("th", null, s.name)));
+    table.appendChild(head);
+    xs.forEach((x) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", null, String(x)));
+      series.forEach((s) => {
+        const pt = s.pts.find((p) => p.x === x);
+        tr.appendChild(el("td", null, pt ? m.fmt(pt.y) : ""));
+      });
+      table.appendChild(tr);
+    });
+    box.appendChild(table);
+  }
+
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function svg(tag, attrs, parent) {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function niceTicks(max, count) {
+    if (max <= 0) return [0, 1];
+    const raw = max / count;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((st) => raw <= st) || 10 * mag;
+    const ticks = [];
+    for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(+v.toFixed(10));
+    if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+    return ticks;
+  }
+
+  function drawLineChart(host, series, m) {
+    host.innerHTML = "";
+    const all = series.flatMap((s) => s.pts);
+    if (!all.length) {
+      host.appendChild(el("div", "muted", "No data."));
+      return;
+    }
+    host.appendChild(el("div", "chart-title", m.title));
+    // Legend: line keys in seat order (mirrors the marks).
+    const legend = el("div", "chart-legend");
+    series.forEach((s) => {
+      const item = el("span", "legend-item");
+      const key = el("span", "legend-line");
+      key.style.background = s.color;
+      item.appendChild(key);
+      item.appendChild(document.createTextNode(s.name));
+      legend.appendChild(item);
+    });
+    host.appendChild(legend);
+
+    const W = Math.max(320, host.clientWidth || 800), H = 280;
+    const pad = { l: 48, r: 130, t: 10, b: 30 };
+    const xMax = Math.max(...all.map((p) => p.x)), xMin = Math.min(...all.map((p) => p.x));
+    const ticks = niceTicks(Math.max(...all.map((p) => p.y)), 5);
+    const yMax = ticks[ticks.length - 1] || 1;
+    const X = (x) => pad.l + ((x - xMin) / Math.max(1, xMax - xMin)) * (W - pad.l - pad.r);
+    const Y = (y) => H - pad.b - (y / yMax) * (H - pad.t - pad.b);
+    const root = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "chart-svg", role: "img", "aria-label": m.title });
+    // Recessive grid + axes.
+    ticks.forEach((t) => {
+      svg("line", { x1: pad.l, x2: W - pad.r, y1: Y(t), y2: Y(t), class: "grid" }, root);
+      const lab = svg("text", { x: pad.l - 8, y: Y(t) + 4, class: "tick", "text-anchor": "end" }, root);
+      lab.textContent = m.fmt(t).replace(/\.0+(?=%|$)/, "");
+    });
+    const xStep = Math.max(1, Math.ceil((xMax - xMin) / 12));
+    for (let x = xMin; x <= xMax; x += xStep) {
+      const lab = svg("text", { x: X(x), y: H - pad.b + 18, class: "tick", "text-anchor": "middle" }, root);
+      lab.textContent = String(x);
+    }
+    const xl = svg("text", { x: (pad.l + W - pad.r) / 2, y: H - 2, class: "axis-label", "text-anchor": "middle" }, root);
+    xl.textContent = "turn";
+    // Lines (2px), with a direct label at each line's end.
+    const ends = [];
+    series.forEach((s) => {
+      if (!s.pts.length) return;
+      const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
+      svg("path", { d, class: "series-line", style: `stroke:${s.color}` }, root);
+      const last = s.pts[s.pts.length - 1];
+      ends.push({ s, x: X(last.x), y: Y(last.y) });
+    });
+    // End labels stay above the x axis and stack upward when they would overlap.
+    ends.sort((a, b) => b.y - a.y);
+    ends.forEach((e, i) => {
+      const floor = i === 0 ? H - pad.b - 8 : ends[i - 1].y - 14;
+      e.y = Math.min(e.y, floor);
+    });
+    ends.forEach((e) => {
+      svg("circle", { cx: e.x, cy: Y(e.s.pts[e.s.pts.length - 1].y), r: 4, class: "end-dot", style: `fill:${e.s.color}` }, root);
+      const t = svg("text", { x: e.x + 8, y: e.y + 4, class: "end-label" }, root);
+      t.textContent = e.s.name;
+    });
+    // Crosshair + tooltip listing every series at the hovered turn.
+    const cross = svg("line", { y1: pad.t, y2: H - pad.b, class: "crosshair", visibility: "hidden" }, root);
+    const tip = el("div", "chart-tip");
+    tip.hidden = true;
+    const hit = svg("rect", { x: pad.l, y: pad.t, width: W - pad.l - pad.r, height: H - pad.t - pad.b, fill: "transparent", tabindex: 0 }, root);
+    const show = (clientX) => {
+      const box = root.getBoundingClientRect();
+      const px = ((clientX - box.left) / box.width) * W;
+      const x = Math.max(xMin, Math.min(xMax, Math.round(xMin + ((px - pad.l) / (W - pad.l - pad.r)) * (xMax - xMin))));
+      cross.setAttribute("x1", X(x));
+      cross.setAttribute("x2", X(x));
+      cross.setAttribute("visibility", "visible");
+      tip.innerHTML = "";
+      tip.appendChild(el("div", "tip-head", `Turn ${x}`));
+      series.forEach((s) => {
+        const pt = s.pts.find((p) => p.x === x);
+        const row = el("div", "tip-row");
+        const key = el("span", "legend-line");
+        key.style.background = s.color;
+        row.appendChild(key);
+        row.appendChild(el("b", null, pt ? m.fmt(pt.y) : "–"));
+        row.appendChild(document.createTextNode(" " + s.name));
+        tip.appendChild(row);
+      });
+      tip.hidden = false;
+      const left = (X(x) / W) * box.width;
+      tip.style.left = `${Math.min(left + 12, box.width - 220)}px`;
+    };
+    hit.addEventListener("pointermove", (e) => show(e.clientX));
+    hit.addEventListener("pointerleave", () => {
+      cross.setAttribute("visibility", "hidden");
+      tip.hidden = true;
+    });
+    const wrap = el("div", "chart-wrap");
+    wrap.appendChild(root);
+    wrap.appendChild(tip);
+    host.appendChild(wrap);
+  }
+
   // ---- wiring ---------------------------------------------------------------
 
   function wire() {
@@ -743,6 +1064,10 @@
     });
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn(), "Run to end of turn"));
     $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots(), "Run bots"));
+    $("btn-simulate").addEventListener("click", () => simulate());
+    $("sim-metric").addEventListener("change", () => renderSim());
+    $("sim-table-toggle").addEventListener("change", () => renderSim());
+    window.addEventListener("resize", () => renderSim());
     $("btn-analyze").addEventListener("click", () => {
       if (typeof Worker === "undefined" || !wasmModule) {
         try {
@@ -816,6 +1141,14 @@
     render();
     // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
+    // Test hook: open index.html#selftest-sim to run a simulation on load.
+    if (location.hash === "#selftest-sim") simulate();
+    // Test hook: open index.html#selftest-chart to simulate in the page and draw the chart.
+    if (location.hash.startsWith("#selftest-chart")) {
+      $("sim-metric").value = location.hash.split("-")[2] || "vp";
+      simulateHere(1000);
+    }
+    if (location.hash === "#selftest-analyze2") { api.resume(); render(); $("btn-analyze").click(); }
     // Test hook: open index.html#selftest-crash to exercise the crash panel.
     if (location.hash === "#selftest-crash") doAction(() => wasm.debug_panic(), "self-test crash");
   }

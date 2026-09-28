@@ -676,19 +676,164 @@ pub extern "C" fn resume() -> i32 {
 /// The choice the deciding seat's controller (a strategy or the search) would make.
 fn bot_choice(app: &mut App) -> Result<Choice, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
+    let state = app.state;
+    Ok(controller_choice(&app.seats, &app.strategies, &mut app.searcher, &app.search_cfg, &state, &d))
+}
+
+/// What `state`'s deciding seat's controller chooses for decision `d`.
+fn controller_choice(
+    seats: &[u32; MAX_PLAYERS],
+    strategies: &[Strategy],
+    searcher: &mut Searcher,
+    search_cfg: &SearchConfig,
+    state: &GameState,
+    d: &Decision,
+) -> Choice {
     let mut buf = ChoiceBuf::default();
-    app.state.legal_choices(&mut buf);
+    state.legal_choices(&mut buf);
     if buf.len() == 1 {
-        return Ok(buf.as_slice()[0]);
+        return buf.as_slice()[0];
     }
-    let seat = app.seats[d.player as usize];
+    let seat = seats[d.player as usize];
+    let view = PlayerView::new(state, d.player);
     if seat >= FIRST_STRATEGY_SEAT {
-        let view = PlayerView::new(&app.state, d.player);
-        return Ok(app.strategies[(seat - FIRST_STRATEGY_SEAT) as usize].decide(&view, &d, buf.as_slice()));
+        return strategies[(seat - FIRST_STRATEGY_SEAT) as usize].decide(&view, d, buf.as_slice());
     }
-    let world = { let v = PlayerView::new(&app.state, d.player); v.determinize(&mut Rng::new(v.stable_seed())) };
-    let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
-    Ok(a.best().choice)
+    let world = view.determinize(&mut Rng::new(view.stable_seed()));
+    searcher.analyze(&world, d.player, search_cfg, &NextHandEvaluator::default()).best().choice
+}
+
+// -----------------------------------------------------------------------------------------
+// Simulation from the current position (runs in workers; results are summed across workers)
+// -----------------------------------------------------------------------------------------
+
+/// Counts buys and coins spent (Buy events) during a turn.
+#[derive(Default)]
+struct BuyTally {
+    bought: u32,
+    spent: u32,
+}
+
+impl dominion_engine::EventSink for BuyTally {
+    fn event(&mut self, e: Event) {
+        if let Event::Buy { card, .. } = e {
+            self.bought += 1;
+            self.spent += cards::cost(card) as u32;
+        }
+    }
+}
+
+/// Raw bytes of the current position (for workers).
+#[no_mangle]
+pub extern "C" fn state_bytes_current() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        let bytes = state_bytes(&app.state);
+        app.result = bytes;
+        1
+    })
+}
+
+/// Play `games` games from the position at `state_ptr` with this instance's seat controllers,
+/// seeding game g's shuffles from (`seed`, g). Writes JSON of per-player sums, indexed by the
+/// player's own turn number t (index t-1): vp (after the turn), money (coins that turn: spent +
+/// left over), buys (cards bought), count (games that reached that turn); wins and winsAt (by the
+/// winner's turn count; a shared win counts 1/k); plus total game length in turns.
+#[no_mangle]
+pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
+    let start = state_from_ptr(state_ptr);
+    let r = APP.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let app = &mut *guard;
+        let n = start.num_players as usize;
+        let mut vp = vec![Vec::<f64>::new(); n];
+        let mut money = vec![Vec::<f64>::new(); n];
+        let mut buys = vec![Vec::<f64>::new(); n];
+        let mut count = vec![Vec::<f64>::new(); n];
+        let mut wins = vec![0f64; n];
+        let mut wins_at = vec![Vec::<f64>::new(); n];
+        let mut length_sum = 0f64;
+        let mut capped = 0u32;
+        let bump = |v: &mut Vec<f64>, i: usize, x: f64| {
+            if v.len() <= i {
+                v.resize(i + 1, 0.0);
+            }
+            v[i] += x;
+        };
+        let search_cfg = SearchConfig { node_budget: 20_000, ..app.search_cfg.clone() };
+        for g in 0..games {
+            let mut s = start;
+            s.chance_mode = false;
+            s.pause_at_turn_start = false;
+            s.rng = Rng::derive(seed as u64, g as u64);
+            let mut tally = BuyTally::default();
+            let (mut cur_player, mut cur_number) = (s.turn.player as usize, s.turn.number);
+            let mut leftover = s.turn.coins as u32;
+            for _ in 0..200_000 {
+                let step = s.advance(&mut tally);
+                let turn_ended = s.turn.number != cur_number || s.turn.phase == Phase::GameOver;
+                if turn_ended {
+                    let p = cur_player;
+                    let t = s.players[p].turns_taken.max(1) as usize - 1;
+                    bump(&mut vp[p], t, s.players[p].vp() as f64);
+                    bump(&mut money[p], t, (tally.spent + leftover) as f64);
+                    bump(&mut buys[p], t, tally.bought as f64);
+                    bump(&mut count[p], t, 1.0);
+                    tally = BuyTally::default();
+                    cur_player = s.turn.player as usize;
+                    cur_number = s.turn.number;
+                    leftover = 0;
+                }
+                match step {
+                    Step::GameOver => break,
+                    Step::TurnStart { .. } | Step::Chance { .. } => {}
+                    Step::Decision(d) => {
+                        let c = controller_choice(&app.seats, &app.strategies, &mut app.searcher, &search_cfg, &s, &d);
+                        if s.apply(c, &mut tally).is_err() {
+                            break;
+                        }
+                        if s.turn.phase == Phase::Buy || s.turn.phase == Phase::CleanupDraw {
+                            leftover = s.turn.coins as u32;
+                        }
+                    }
+                }
+            }
+            if !s.is_game_over() {
+                capped += 1;
+                continue;
+            }
+            let w = s.winners();
+            let k = w.count_ones() as f64;
+            let mut longest = 0;
+            for p in 0..n {
+                longest = longest.max(s.players[p].turns_taken);
+                if w & (1 << p) != 0 {
+                    wins[p] += 1.0 / k;
+                    bump(&mut wins_at[p], s.players[p].turns_taken.max(1) as usize - 1, 1.0 / k);
+                }
+            }
+            length_sum += longest as f64;
+        }
+        let arr = |v: &[f64]| format!("[{}]", v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(","));
+        let players: Vec<String> = (0..n)
+            .map(|p| {
+                format!(
+                    "{{\"vp\":{},\"money\":{},\"buys\":{},\"count\":{},\"wins\":{},\"winsAt\":{}}}",
+                    arr(&vp[p]),
+                    arr(&money[p]),
+                    arr(&buys[p]),
+                    arr(&count[p]),
+                    wins[p],
+                    arr(&wins_at[p])
+                )
+            })
+            .collect();
+        Ok::<String, String>(format!(
+            "{{\"games\":{games},\"capped\":{capped},\"lengthSum\":{length_sum},\"players\":[{}]}}",
+            players.join(",")
+        ))
+    });
+    result_of(r)
 }
 
 /// Let every seat's controller play until the game ends.

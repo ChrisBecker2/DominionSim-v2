@@ -123,6 +123,9 @@
     runBots() {
       ok(wasm.run_bots());
     },
+    gameStats() {
+      return JSON.parse(ok(wasm.game_stats()));
+    },
     resume() {
       ok(wasm.resume());
     },
@@ -734,6 +737,17 @@
   let simRun = 0;
 
   // Same-thread fallback (no Web Workers): run the games in the page's own engine instance.
+  // Chart the game just played (Run Game): the same charts, one game.
+  function showGameChart() {
+    const stats = api.gameStats();
+    const seatsNow = api.getSeats();
+    simResult = mergeSims([stats], seatsNow.length);
+    simResult.names = seatsNow.map((seat, i) => `P${i + 1} ${botNames[seat] || ""}`.trim());
+    simResult.single = true;
+    $("sim-status").textContent = stats.finished ? "This game (Run Game)" : "This game so far";
+    renderSim();
+  }
+
   function simulateHere(games) {
     wasm.state_bytes_current();
     const state = resultBytes();
@@ -758,7 +772,7 @@
       return;
     }
     const run = ++simRun;
-    const games = Math.max(10, Math.min(100000, parseInt($("sim-games").value, 10) || 1000));
+    const games = Math.max(10, Math.min(10000000, parseInt($("sim-games").value, 10) || 1000));
     const workers = getPool();
     const t0 = performance.now();
     $("sim-status").textContent = `Starting ${workers.length} workers…`;
@@ -876,7 +890,7 @@
       key.style.background = `var(--series-${p + 1})`;
       item.appendChild(key);
       item.appendChild(document.createTextNode(`${r.names[p]}: `));
-      item.appendChild(el("b", null, `${((100 * q.wins) / r.games).toFixed(1)}% wins`));
+      item.appendChild(el("b", null, r.single ? (q.wins > 0 ? "won" : "lost") : `${((100 * q.wins) / r.games).toFixed(1)}% wins`));
       summary.appendChild(item);
     });
     const finished = r.games - r.capped;
@@ -1063,7 +1077,11 @@
       doAction(() => (current ? api.choose(top.index) : api.stepAuto()), "Auto-step");
     });
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn(), "Run to end of turn"));
-    $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots(), "Run bots"));
+    // Run Game: play the game out with every seat's controller, then chart that game.
+    $("btn-run-bots").addEventListener("click", () => {
+      doAction(() => api.runBots(), "Run Game");
+      if (!crashed) showGameChart();
+    });
     $("btn-simulate").addEventListener("click", () => simulate());
     $("sim-metric").addEventListener("change", () => renderSim());
     $("sim-table-toggle").addEventListener("change", () => renderSim());

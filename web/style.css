@@ -149,8 +149,8 @@ section, .panel {
 #text-panel { position: sticky; top: 12px; }
 #state-text {
   width: 100%;
-  height: 60vh;
-  min-height: 320px;
+  height: 30vh;
+  min-height: 160px;
   resize: vertical;
   white-space: pre;
 }

@@ -145,6 +145,112 @@ impl dominion_engine::EventSink for LogSink {
     }
 }
 
+/// Per-turn record of the game being played in the page (for the charts after Run Game).
+/// Values are written per (player, own turn number), so undo/redo just overwrite them.
+#[derive(Default, Clone)]
+struct GameRecord {
+    vp: Vec<Vec<f64>>,
+    money: Vec<Vec<f64>>,
+    buys: Vec<Vec<f64>>,
+    /// The turn in progress: player, global turn number, coins spent, cards bought, and the most
+    /// coins seen in its buy phase (`leftover`).
+    cur_player: usize,
+    cur_number: u16,
+    spent: u32,
+    bought: u32,
+    leftover: u32,
+    over: bool,
+}
+
+impl GameRecord {
+    fn new(state: &GameState) -> Self {
+        let n = state.num_players as usize;
+        GameRecord {
+            vp: vec![Vec::new(); n],
+            money: vec![Vec::new(); n],
+            buys: vec![Vec::new(); n],
+            cur_player: state.turn.player as usize,
+            cur_number: state.turn.number,
+            leftover: state.turn.coins as u32,
+            ..Default::default()
+        }
+    }
+
+    fn set(v: &mut Vec<f64>, i: usize, x: f64) {
+        if v.len() <= i {
+            v.resize(i + 1, f64::NAN);
+        }
+        v[i] = x;
+    }
+
+    fn on_event(&mut self, e: &Event) {
+        if let Event::Buy { card, .. } = e {
+            self.bought += 1;
+            self.spent += cards::cost(*card) as u32;
+        }
+    }
+
+    /// After the state moved on: close out a finished turn, remember coins still unspent.
+    fn after_step(&mut self, s: &GameState) {
+        if s.turn.number != self.cur_number || s.is_game_over() {
+            if !self.over {
+                let p = self.cur_player;
+                if p < self.vp.len() {
+                    let t = s.players[p].turns_taken.max(1) as usize - 1;
+                    Self::set(&mut self.vp[p], t, s.players[p].vp() as f64);
+                    // Coins available in the buy phase (the most seen; spending only lowers it).
+                    Self::set(&mut self.money[p], t, self.leftover.max(self.spent) as f64);
+                    Self::set(&mut self.buys[p], t, self.bought as f64);
+                }
+            }
+            self.over = s.is_game_over();
+            self.cur_player = s.turn.player as usize;
+            self.cur_number = s.turn.number;
+            self.spent = 0;
+            self.bought = 0;
+            self.leftover = 0;
+        } else if s.turn.phase == Phase::Buy {
+            self.leftover = self.leftover.max(s.turn.coins as u32);
+        }
+    }
+
+    /// Same JSON shape as `simulate` (one game), so the page charts it the same way.
+    fn json(&self, s: &GameState) -> String {
+        let n = self.vp.len();
+        let arr = |v: &[f64]| format!("[{}]", v.iter().map(|x| if x.is_nan() { "0".to_string() } else { format!("{x}") }).collect::<Vec<_>>().join(","));
+        let count = |v: &[f64]| format!("[{}]", v.iter().map(|x| if x.is_nan() { "0" } else { "1" }).collect::<Vec<_>>().join(","));
+        let winners = if s.is_game_over() { s.winners() } else { 0 };
+        let k = winners.count_ones().max(1) as f64;
+        let players: Vec<String> = (0..n)
+            .map(|p| {
+                let won = winners & (1 << p) != 0;
+                let mut wins_at = vec![0f64; s.players[p].turns_taken as usize];
+                if won && !wins_at.is_empty() {
+                    let last = wins_at.len() - 1;
+                    wins_at[last] = 1.0 / k;
+                }
+                format!(
+                    "{{\"vp\":{},\"money\":{},\"buys\":{},\"count\":{},\"wins\":{},\"winsAt\":{}}}",
+                    arr(&self.vp[p]),
+                    arr(&self.money[p]),
+                    arr(&self.buys[p]),
+                    count(&self.vp[p]),
+                    if won { 1.0 / k } else { 0.0 },
+                    arr(&wins_at)
+                )
+            })
+            .collect();
+        let length = (0..n).map(|p| s.players[p].turns_taken).max().unwrap_or(0);
+        format!(
+            "{{\"games\":1,\"capped\":{},\"lengthSum\":{},\"finished\":{},\"players\":[{}]}}",
+            u8::from(!s.is_game_over()),
+            if s.is_game_over() { length } else { 0 },
+            s.is_game_over(),
+            players.join(",")
+        )
+    }
+}
+
 struct App {
     state: GameState,
     history: Vec<GameState>,
@@ -162,6 +268,8 @@ struct App {
     plan: Option<(Plan, Vec<Option<TaskResult>>, u32)>,
     /// State text at the start of turn 1 of the current game (opening hands dealt).
     start_text: String,
+    /// Turn-by-turn record of the current game (reset by New game / Load state).
+    record: GameRecord,
 }
 
 impl App {
@@ -190,7 +298,9 @@ impl App {
             log_group: None,
             plan: None,
             start_text,
+            record: GameRecord::default(),
         };
+        app.record = GameRecord::new(&app.state);
         for (e, depth) in &sink.events {
             app.push_log_event(e, *depth);
         }
@@ -209,6 +319,7 @@ impl App {
     /// discards, reveals and trashes by the same player share one line
     /// ("Player 1 draws Copper, Copper, Silver").
     fn push_log_event(&mut self, e: &Event, depth: u8) {
+        self.record.on_event(e);
         // Effects are indented under the card that caused them (non-breaking spaces survive HTML).
         let indent = "\u{a0}\u{a0}\u{a0}".repeat(depth as usize);
         if let Some((tag, player, card)) = groupable(e) {
@@ -354,6 +465,7 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         state.pause_at_turn_start = true;
         app.state = state;
         app.history.clear();
+        app.record = GameRecord::new(&app.state);
         app.redo.clear();
         app.log.clear();
         for (e, depth) in &sink.events {
@@ -376,6 +488,7 @@ pub extern "C" fn load_state(ptr: u32, len: u32) -> i32 {
             Ok(state) => {
                 app.state = state;
                 app.history.clear();
+        app.record = GameRecord::new(&app.state);
                 app.redo.clear();
                 app.log.clear();
                 app.log.push("Loaded state from text.".to_string());
@@ -553,6 +666,8 @@ fn advance_and_log(app: &mut App) {
             app.log_group = None;
         }
     }
+    let state = app.state;
+    app.record.after_step(&state);
 }
 
 /// Where a loaded turn starts: phase, coins/actions/buys already counted, cards already in play.
@@ -1094,6 +1209,16 @@ pub extern "C" fn plan_finish() -> i32 {
 pub extern "C" fn get_start_text() -> i32 {
     let t = APP.with(|cell| cell.borrow().start_text.clone());
     result_of(Ok(t))
+}
+
+/// The current game's per-turn record, in `simulate`'s JSON shape (one game).
+#[no_mangle]
+pub extern "C" fn game_stats() -> i32 {
+    let r = APP.with(|cell| {
+        let app = cell.borrow();
+        Ok::<String, String>(app.record.json(&app.state))
+    });
+    result_of(r)
 }
 
 /// JSON array of every card: {name, cost, types: ["action", "attack", ...]}.

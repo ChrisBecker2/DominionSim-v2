@@ -609,32 +609,64 @@ pub(crate) fn end_of_turn_label(leaf: &GameState, me: u8) -> String {
     }
 }
 
-/// A turn's result for `me`: the cards gained (priciest first), plus the game result if the turn
-/// ends the game. "Nothing" when nothing was gained.
+/// A turn's result for `me`: actions played (treasures are always played, so left out), cards
+/// trashed, cards gained, and the game result if the turn ends it. E.g.
+/// "Play Witch · Trash Estate · Gain Gold + Win Game". "Nothing" if none of those happened.
 pub(crate) fn outcome_label(root: &GameState, leaf: &GameState, me: u8) -> String {
+    use dominion_engine::cards::{CardId, NUM_CARDS, TREASURE};
+    let list = |items: &mut Vec<(u8, CardId, i32)>| -> String {
+        items.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        items
+            .iter()
+            .map(|&(_, c, n)| if n > 1 { format!("{n} {}", cards::name(c)) } else { cards::name(c).to_string() })
+            .collect::<Vec<_>>()
+            .join(" + ")
+    };
+    let (mut played, mut trashed, mut gained) = (Vec::new(), Vec::new(), Vec::new());
+    if leaf.turn.player == me && leaf.turn.number == root.turn.number {
+        for c in 0..NUM_CARDS as CardId {
+            let n = leaf.turn.played.get(c) as i32 - root.turn.played.get(c) as i32;
+            if n > 0 && !cards::is(c, TREASURE) {
+                played.push((cards::cost(c), c, n));
+            }
+        }
+    }
     let before = root.players[me as usize].all_cards();
     let after = leaf.players[me as usize].all_cards();
-    let mut gained: Vec<(u8, dominion_engine::CardId, i32)> = Vec::new();
-    for c in 0..dominion_engine::cards::NUM_CARDS as dominion_engine::CardId {
+    for c in 0..NUM_CARDS as CardId {
         let d = after.get(c) as i32 - before.get(c) as i32;
         if d > 0 {
             gained.push((cards::cost(c), c, d));
+        } else if d < 0 {
+            trashed.push((cards::cost(c), c, -d));
         }
     }
-    gained.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let mut parts: Vec<String> = gained
-        .iter()
-        .map(|&(_, c, n)| if n > 1 { format!("{n} {}", cards::name(c)) } else { cards::name(c).to_string() })
-        .collect();
-    match leaf.result_if_turn_ends() {
-        Some(w) if w == 1 << me => parts.push("Win Game".to_string()),
-        Some(_) => parts.push("game ends (not a win)".to_string()),
-        None => {}
+    let mut parts: Vec<String> = Vec::new();
+    if !played.is_empty() {
+        parts.push(format!("Play {}", list(&mut played)));
+    }
+    if !trashed.is_empty() {
+        parts.push(format!("Trash {}", list(&mut trashed)));
+    }
+    let mut end = String::new();
+    if !gained.is_empty() {
+        end = format!("Gain {}", list(&mut gained));
+    }
+    let result = match leaf.result_if_turn_ends() {
+        Some(w) if w == 1 << me => Some("Win Game"),
+        Some(_) => Some("game ends (not a win)"),
+        None => None,
+    };
+    if let Some(r) = result {
+        end = if end.is_empty() { r.to_string() } else { format!("{end} + {r}") };
+    }
+    if !end.is_empty() {
+        parts.push(end);
     }
     if parts.is_empty() {
         "Nothing".to_string()
     } else {
-        parts.join(" + ")
+        parts.join(" \u{b7} ")
     }
 }
 

@@ -53,6 +53,13 @@ check("draws condensed onto one line", !!drawLine);
 check("treasure plays condensed", !!copperLine);
 check("no single-card draw lines between condensed ones", !view.log.some((l, i) => i > 0 && /draws/.test(l) && /draws/.test(view.log[i - 1]) && !/Shuffle|shuffles/.test(l)));
 check("bots played to game over", view.gameOver === true);
+{
+  const g = JSON.parse(call(w.game_stats()));
+  const one = g.players[0];
+  check("Run Game records the game turn by turn", g.finished && one.vp.length > 5 && one.count.every((c) => c === 1));
+  check("money per turn is coins available (no double count)", g.players.every((q) => q.money.every((m) => m >= 0 && m <= 30)));
+  check("exactly one winner recorded", g.players.reduce((s, q) => s + q.wins, 0) === 1);
+}
 console.log("    scores", view.scores, "winners", view.winners);
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED");
 

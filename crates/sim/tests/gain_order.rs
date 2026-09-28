@@ -118,9 +118,8 @@ fn throne_room_is_played_before_remodel_to_double_it() {
     assert_eq!(g.players[0].discard.get(id::PROVINCE), 2, "into two Provinces");
 }
 
-fn buy_decision(strategy_file: &str, state_text: &str) -> (Choice, Vec<String>) {
-    let src = std::fs::read_to_string(format!("{}/../../strategies/{strategy_file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    let strat = Strategy::parse(&src).unwrap();
+fn buy_decision_src(src: &str, state_text: &str) -> (Choice, Vec<String>) {
+    let strat = Strategy::parse(src).unwrap();
     let mut g = parse_state(state_text).unwrap();
     let d = match g.advance(&mut NoEvents) {
         Step::Decision(d) => d,
@@ -137,38 +136,97 @@ fn buy_decision(strategy_file: &str, state_text: &str) -> (Choice, Vec<String>) 
     (pick, offered)
 }
 
+fn buy_decision(strategy_file: &str, state_text: &str) -> (Choice, Vec<String>) {
+    let src = std::fs::read_to_string(format!("{}/../../strategies/{strategy_file}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    buy_decision_src(&src, state_text)
+}
+
 fn endgame(provinces: u8, p1_hand: &str, p2_extra_vp: &str) -> String {
     format!(
-        "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
-         supply: Province={provinces}\nturn: 30  player: 1  phase: buy  actions: 0  buys: 1  coins: 0\n\n\
-         [player 1]\nhand: {p1_hand}\ndeck: 5 Copper\nturns: 14\n\n\
-         [player 2]\nhand: 5 Copper\ndeck: 5 Copper\ndiscard: {p2_extra_vp}\nturns: 15\n"
+        "players: 2
+kingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop
+         supply: Province={provinces}
+turn: 30  player: 1  phase: buy  actions: 0  buys: 1  coins: 0
+
+         [player 1]
+hand: {p1_hand}
+deck: 5 Copper
+turns: 14
+
+         [player 2]
+hand: 5 Copper
+deck: 5 Copper
+discard: {p2_extra_vp}
+turns: 15
+"
     )
 }
 
 #[test]
-fn bot_takes_the_game_winning_buy_over_its_list() {
-    // Behind 0-3 with $8 and one Province left: buying it ends the game 6-3 -> must buy it.
-    let (pick, _) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "Duchy"));
-    assert_eq!(pick, Choice::Card(id::PROVINCE));
-    // Double Witch too, whatever its list says.
-    let (pick, _) = buy_decision("double_witch.toml", &endgame(1, "Gold Gold Silver", "Duchy"));
-    assert_eq!(pick, Choice::Card(id::PROVINCE));
-}
-
-#[test]
-fn bot_does_not_end_the_game_on_a_tie() {
-    // 6-6 on equal turns would be a shared win: keep playing instead.
-    let (pick, _) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "Province"));
-    assert_ne!(pick, Choice::Card(id::PROVINCE));
-}
-
-#[test]
-fn bot_avoids_ending_the_game_on_a_loss() {
-    // Last Province while behind by 12: buying it ends the game on a loss -> don't.
+fn bots_follow_their_list_even_when_it_ends_the_game_on_a_loss() {
+    // Behind 0-18 with one Province left: Big Money's list says Province at $8, so it buys it
+    // (and loses). No hidden "don't lose" override.
     let (pick, offered) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "3 Province"));
-    assert_ne!(pick, Choice::Card(id::PROVINCE));
+    assert_eq!(pick, Choice::Card(id::PROVINCE));
+    assert!(offered.contains(&format!("{:?}", Choice::Card(id::PROVINCE))));
+}
+
+#[test]
+fn rules_can_ask_to_avoid_ending_the_game_badly() {
+    let src = r#"
+        name = "Careful Big Money"
+        [[gain]]
+        card = "Province"
+        if = "not loses_game"
+        [[gain]]
+        card = "Gold"
+        [[gain]]
+        card = "Silver"
+    "#;
+    // Losing ending: skips the Province, takes Gold (next entry).
+    let (pick, offered) = buy_decision_src(src, &endgame(1, "Gold Gold Silver", "3 Province"));
+    assert_eq!(pick, Choice::Card(id::GOLD));
     assert!(!offered.contains(&format!("{:?}", Choice::Card(id::PROVINCE))), "{offered:?}");
+    // Tied ending (6-6, equal turns = shared win) also counts as not winning.
+    let (pick, _) = buy_decision_src(src, &endgame(1, "Gold Gold Silver", "Province"));
+    assert_eq!(pick, Choice::Card(id::GOLD));
+    // Winning ending (6-3): buys it.
+    let (pick, _) = buy_decision_src(src, &endgame(1, "Gold Gold Silver", "Duchy"));
+    assert_eq!(pick, Choice::Card(id::PROVINCE));
+}
+
+#[test]
+fn rules_can_ask_to_take_a_game_winning_card() {
+    // Estate normally never bought; `wins_game` makes it the top priority when it ends the game
+    // with a win. One Province left is not affordable ($5), but the Estate pile's last card
+    // ends the game on piles.
+    let src = r#"
+        name = "Closer"
+        [[gain]]
+        card = "Estate"
+        if = "wins_game"
+        [[gain]]
+        card = "Silver"
+    "#;
+    let text = "players: 2
+kingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop
+                supply: Estate=1, Cellar=0, Moat=0
+turn: 30  player: 1  phase: buy  actions: 0  buys: 1  coins: 0
+
+                [player 1]
+hand: Gold Silver
+deck: 5 Copper
+discard: Duchy
+turns: 14
+
+                [player 2]
+hand: 5 Copper
+deck: 5 Copper
+discard: Duchy
+turns: 15
+";
+    let (pick, _) = buy_decision_src(src, text);
+    assert_eq!(pick, Choice::Card(id::ESTATE), "4 VP vs 3 VP after the Estate: wins");
 }
 
 #[test]

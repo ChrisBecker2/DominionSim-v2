@@ -146,12 +146,7 @@ impl Strategy {
     pub fn decide(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         match decision.kind {
             DecisionKind::PlayAction => self.best_play(view, choices, false).map(Choice::Card).unwrap_or(Choice::Pass),
-            DecisionKind::Buy => {
-                if let Some(c) = self.winning_gain(view, choices) {
-                    return Choice::Card(c);
-                }
-                self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass)
-            }
+            DecisionKind::Buy => self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, ordered, .. } => {
                 let forced = min > 0;
@@ -183,7 +178,7 @@ impl Strategy {
 
     /// Position of `card` in the gain list (first entry for it whose condition holds), or None.
     pub fn gain_rank(&self, view: &PlayerView, card: CardId) -> Option<usize> {
-        self.buy.iter().position(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool(view)))
+        self.buy.iter().position(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
     }
 
     /// Number of entries in the gain list.
@@ -199,46 +194,27 @@ impl Strategy {
                 && filter.matches(*card)
                 && view.in_supply(*card)
                 && view.supply(*card) > 0
-                && cond.as_ref().map_or(true, |e| e.eval_bool(view))
+                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
         })
     }
 
-    /// A gain that ends the game this turn with `me` winning outright (best VP margin first).
-    /// Winning outranks every other priority, including the gain list.
-    fn winning_gain(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-        iter_cards(choices)
-            .filter(|&c| view.result_if_gained(c) == Some(1 << view.me()))
-            .max_by_key(|&c| (cards::def(c).vp, cards::cost(c)))
-    }
-
-    /// Would gaining `c` end the game with `me` not winning outright?
-    fn ends_game_badly(view: &PlayerView, c: CardId) -> bool {
-        matches!(view.result_if_gained(c), Some(w) if w != 1 << view.me())
-    }
-
-    /// Gain-list match that skips cards whose gain would end the game on a loss or shared win.
+    /// First entry in the gain list that's a legal choice and whose condition holds.
     fn match_gain_list(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && !Self::ends_game_badly(view, *card) && cond.as_ref().map_or(true, |e| e.eval_bool(view)) {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
                 return Some(*card);
             }
         }
         None
     }
 
-    /// Whether the strategy would ever consider buying `card` here: it's in the gain list with
-    /// its condition true (and doesn't end the game badly), or buying it wins the game.
+    /// Whether the strategy's rules would ever buy `card` here: it's in the gain list with its
+    /// condition true.
     pub fn allows_buy(&self, view: &PlayerView, card: CardId) -> bool {
-        if view.result_if_gained(card) == Some(1 << view.me()) {
-            return true;
-        }
-        !Self::ends_game_badly(view, card) && self.gain_rank(view, card).is_some()
+        self.gain_rank(view, card).is_some()
     }
 
     fn choose_gain(&self, view: &PlayerView, _decision: &Decision, choices: &[Choice]) -> Choice {
-        if let Some(c) = self.winning_gain(view, choices) {
-            return Choice::Card(c);
-        }
         if let Some(c) = self.match_gain_list(view, choices) {
             return Choice::Card(c);
         }

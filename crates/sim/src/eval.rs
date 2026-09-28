@@ -42,13 +42,13 @@ impl Evaluator for GainListEvaluator<'_> {
                 v += d as f64 * self.weight(&view, c);
             }
         }
-        // Winning the game outranks every gain priority; the tie-break term already includes
-        // the general evaluator's game-end value, so add ours only once via `game_end_value`.
+        // Strictly the strategy's own priorities. The general evaluator's game-end term is removed
+        // from the tie-break: winning/losing only matters if the rules say so (`wins_game` etc.).
         let tie = self.tie_break.leaf_value(root, leaf, me) - game_end_value(leaf, me);
-        game_end_value(leaf, me) + v + 1e-3 * tie
+        v + 1e-3 * tie
     }
 
-    /// The strategy only buys cards in its gain list (or a game-winning card), else Done.
+    /// The strategy only buys cards in its gain list whose conditions hold, else Done.
     fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
         match (decision.kind, choice) {
             (DecisionKind::Buy, Choice::Card(c)) => self.strategy.allows_buy(&PlayerView::new(state, me), c),

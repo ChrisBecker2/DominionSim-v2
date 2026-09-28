@@ -16,6 +16,8 @@
 //! unary  := "-" unary | primary
 //! primary:= NUMBER | IDENT | IDENT "(" IDENT ")" | "(" expr ")"
 //! ```
+//! `wins_game` / `loses_game` refer to the card of the gain-list entry being evaluated: gaining
+//! it would end the game this turn with me winning outright / not winning outright.
 //! Card names in `count(..)` / `supply(..)` must be a single token (no spaces): use
 //! `ThroneRoom`, `Throne_Room`, or `throne-room` — all normalize to "Throne Room"
 //! (see `cards::by_name`).
@@ -103,6 +105,11 @@ pub enum Expr {
     CountType(u8),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
+    /// `wins_game`: gaining this entry's card ends the game this turn with me winning outright.
+    WinsGame,
+    /// `loses_game`: gaining this entry's card ends the game this turn with me not winning
+    /// outright (a loss or a shared win).
+    LosesGame,
     Neg(Box<Expr>),
     Not(Box<Expr>),
     Add(Box<Expr>, Box<Expr>),
@@ -122,6 +129,11 @@ pub enum Expr {
 impl Expr {
     /// Evaluate against the current view. Nonzero == true. Allocation-free.
     pub fn eval(&self, view: &PlayerView) -> i64 {
+        self.eval_in(view, None)
+    }
+
+    /// Evaluate with the gain-list entry's card as context (for `wins_game` / `loses_game`).
+    pub fn eval_in(&self, view: &PlayerView, card: Option<CardId>) -> i64 {
         use Expr::*;
         match self {
             Num(n) => *n,
@@ -129,23 +141,25 @@ impl Expr {
             Count(c) => view.my_cards().get(*c) as i64,
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
-            Neg(a) => -a.eval(view),
-            Not(a) => (a.eval(view) == 0) as i64,
-            Add(a, b) => a.eval(view).wrapping_add(b.eval(view)),
-            Sub(a, b) => a.eval(view).wrapping_sub(b.eval(view)),
-            Mul(a, b) => a.eval(view).wrapping_mul(b.eval(view)),
+            WinsGame => card.is_some_and(|c| view.result_if_gained(c) == Some(1 << view.me())) as i64,
+            LosesGame => card.is_some_and(|c| matches!(view.result_if_gained(c), Some(w) if w != 1 << view.me())) as i64,
+            Neg(a) => -a.eval_in(view, card),
+            Not(a) => (a.eval_in(view, card) == 0) as i64,
+            Add(a, b) => a.eval_in(view, card).wrapping_add(b.eval_in(view, card)),
+            Sub(a, b) => a.eval_in(view, card).wrapping_sub(b.eval_in(view, card)),
+            Mul(a, b) => a.eval_in(view, card).wrapping_mul(b.eval_in(view, card)),
             Div(a, b) => {
-                let d = b.eval(view);
-                if d == 0 { 0 } else { a.eval(view) / d }
+                let d = b.eval_in(view, card);
+                if d == 0 { 0 } else { a.eval_in(view, card) / d }
             }
-            Eq(a, b) => (a.eval(view) == b.eval(view)) as i64,
-            Ne(a, b) => (a.eval(view) != b.eval(view)) as i64,
-            Lt(a, b) => (a.eval(view) < b.eval(view)) as i64,
-            Le(a, b) => (a.eval(view) <= b.eval(view)) as i64,
-            Gt(a, b) => (a.eval(view) > b.eval(view)) as i64,
-            Ge(a, b) => (a.eval(view) >= b.eval(view)) as i64,
-            And(a, b) => ((a.eval(view) != 0) && (b.eval(view) != 0)) as i64,
-            Or(a, b) => ((a.eval(view) != 0) || (b.eval(view) != 0)) as i64,
+            Eq(a, b) => (a.eval_in(view, card) == b.eval_in(view, card)) as i64,
+            Ne(a, b) => (a.eval_in(view, card) != b.eval_in(view, card)) as i64,
+            Lt(a, b) => (a.eval_in(view, card) < b.eval_in(view, card)) as i64,
+            Le(a, b) => (a.eval_in(view, card) <= b.eval_in(view, card)) as i64,
+            Gt(a, b) => (a.eval_in(view, card) > b.eval_in(view, card)) as i64,
+            Ge(a, b) => (a.eval_in(view, card) >= b.eval_in(view, card)) as i64,
+            And(a, b) => ((a.eval_in(view, card) != 0) && (b.eval_in(view, card) != 0)) as i64,
+            Or(a, b) => ((a.eval_in(view, card) != 0) || (b.eval_in(view, card) != 0)) as i64,
         }
     }
 
@@ -154,12 +168,17 @@ impl Expr {
         self.eval(view) != 0
     }
 
+    /// True/nonzero, with the gain-list entry's card as context.
+    pub fn eval_bool_for(&self, view: &PlayerView, card: CardId) -> bool {
+        self.eval_in(view, Some(card)) != 0
+    }
+
     /// Visits every card id this condition names via `count(..)` / `supply(..)`. Used to build
     /// an "auto" kingdom (the union of cards strategies reference).
     pub fn for_each_card_ref(&self, f: &mut impl FnMut(CardId)) {
         use Expr::*;
         match self {
-            Num(_) | Var(_) | CountType(_) => {}
+            Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame => {}
             Count(c) | Supply(c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
@@ -375,7 +394,11 @@ impl<'a> Parser<'a> {
                     self.expect(Tok::RParen)?;
                     make_call(name, arg, self.src)
                 } else {
-                    Var::parse(name).map(Expr::Var).ok_or_else(|| format!("unknown variable {name:?} in condition {:?}", self.src))
+                    match name.to_ascii_lowercase().as_str() {
+                        "wins_game" | "winsgame" => Ok(Expr::WinsGame),
+                        "loses_game" | "losesgame" => Ok(Expr::LosesGame),
+                        _ => Var::parse(name).map(Expr::Var).ok_or_else(|| format!("unknown variable {name:?} in condition {:?}", self.src)),
+                    }
                 }
             }
             other => Err(format!("unexpected token {other:?} in condition {:?}", self.src)),

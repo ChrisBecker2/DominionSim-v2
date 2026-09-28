@@ -918,6 +918,32 @@ pub extern "C" fn list_bots() -> i32 {
     result_of(Ok(names))
 }
 
+/// Kingdom implied by the seats' rules: the union of kingdom cards named by the strategies of
+/// seats `0..players` (gain lists, play lists, conditions), in first-mentioned order. Writes
+/// JSON {strategySeats, kingdom} where kingdom is a comma-separated list (possibly empty).
+#[no_mangle]
+pub extern "C" fn seat_kingdom(players: u32) -> i32 {
+    let r = APP.with(|cell| {
+        let app = cell.borrow();
+        let n = (players as usize).clamp(2, MAX_PLAYERS);
+        let mut cards: Vec<u8> = Vec::new();
+        let mut strategy_seats = 0;
+        for &seat in &app.seats[..n] {
+            if let Some(s) = seat.checked_sub(2).and_then(|i| app.strategies.get(i as usize)) {
+                strategy_seats += 1;
+                for c in s.kingdom_refs() {
+                    if !cards.contains(&c) {
+                        cards.push(c);
+                    }
+                }
+            }
+        }
+        let names: Vec<&str> = cards.iter().map(|&c| cards::name(c)).collect();
+        format!("{{\"strategySeats\":{strategy_seats},\"kingdom\":{}}}", jstr(&names.join(", ")))
+    });
+    result_of(Ok(r))
+}
+
 /// JSON array: controller id for each seat in the current game.
 #[no_mangle]
 pub extern "C" fn get_seats() -> i32 {

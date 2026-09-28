@@ -101,6 +101,9 @@
     resume() {
       ok(wasm.resume());
     },
+    seatKingdom(players) {
+      return JSON.parse(ok(wasm.seat_kingdom(players >>> 0)));
+    },
     analyze() {
       return JSON.parse(ok(wasm.analyze()));
     },
@@ -286,9 +289,12 @@
       });
       sel.value = String(seats[p.index] ?? 0);
       sel.addEventListener("change", () => {
+        const untouched = !api.canUndo() && lastView && lastView.turn.number === 1;
         doAction(() => {
           api.setSeat(p.index, parseInt(sel.value, 10));
-          maybeRunBots();
+          // The kingdom follows the seats' rules; restart if the game hasn't started yet.
+          if (syncKingdomFromSeats() && untouched) startNewGame();
+          else maybeRunBots();
         });
       });
       h.appendChild(sel);
@@ -548,6 +554,26 @@
 
   let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
 
+  // Kingdom = union of the kingdom cards the strategy seats' rules name (no padding). Leaves the
+  // field alone when no seat is a strategy (Human/Search seats name no cards). Returns whether
+  // the field changed.
+  function syncKingdomFromSeats() {
+    const players = parseInt($("ng-players").value, 10) || 2;
+    const k = api.seatKingdom(players);
+    if (!k.strategySeats || $("ng-kingdom").value === k.kingdom) return false;
+    $("ng-kingdom").value = k.kingdom;
+    return true;
+  }
+
+  function startNewGame() {
+    const players = parseInt($("ng-players").value, 10) || 2;
+    const seed = parseInt($("ng-seed").value, 10) || 0;
+    cancelAnalysis();
+    api.newGame(players, $("ng-kingdom").value, seed, 0);
+    showNewGameError("");
+    $("state-text").value = api.getStartText();
+  }
+
   function renderAnalysis(result) {
     shownAnalysis = result;
     const panel = $("analysis-panel");
@@ -611,19 +637,15 @@
 
   function wire() {
     $("btn-new-game").addEventListener("click", () => {
-      const players = parseInt($("ng-players").value, 10) || 2;
-      const kingdom = $("ng-kingdom").value;
-      const seed = parseInt($("ng-seed").value, 10) || 0;
+      syncKingdomFromSeats();
       try {
-        cancelAnalysis();
-        api.newGame(players, kingdom, seed, 0);
-        showNewGameError("");
-        $("state-text").value = api.getStartText();
+        startNewGame();
         render();
       } catch (e) {
         showNewGameError(String(e.message || e));
       }
     });
+    $("ng-players").addEventListener("change", () => syncKingdomFromSeats());
 
     $("btn-load").addEventListener("click", () => {
       try {
@@ -711,7 +733,14 @@
     botNames = api.listBots();
     initCards();
     wire();
-    $("state-text").value = api.getStartText();
+    // Start with a kingdom matching the default seats' rules.
+    syncKingdomFromSeats();
+    try {
+      startNewGame();
+    } catch (e) {
+      showNewGameError(String(e.message || e));
+      $("state-text").value = api.getStartText();
+    }
     render();
     // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();

@@ -13,6 +13,16 @@ const check = (name, cond) => { console.log((cond ? "  ok   " : "  FAIL ") + nam
 const bots = JSON.parse(call(w.list_bots()));
 check("player 1 defaults to Double Witch", bots[JSON.parse(call(w.get_seats()))[0]] === "Double Witch");
 check("bots listed", bots[0] === "Human" && bots.length === 13);
+{
+  const k0 = JSON.parse(call(w.seat_kingdom(2)));
+  check("default seats' kingdom is Witch", k0.kingdom === "Witch" && k0.strategySeats === 2);
+  const smithy = bots.indexOf("Smithy-BM"), human = bots.indexOf("Human"), dw = bots.indexOf("Double Witch");
+  call(w.set_seat(1, smithy));
+  check("Double Witch + Smithy-BM -> Witch, Smithy", JSON.parse(call(w.seat_kingdom(2))).kingdom === "Witch, Smithy");
+  call(w.set_seat(0, human)); call(w.set_seat(1, human));
+  check("no strategy seats -> no kingdom from rules", JSON.parse(call(w.seat_kingdom(2))).strategySeats === 0);
+  call(w.set_seat(0, dw)); call(w.set_seat(1, bots.indexOf("Big Money Ultimate")));
+}
 
 load(`players: 2
 kingdom: Village, Smithy, Moneylender, Chapel, Cellar, Laboratory, Market, Militia, Throne Room, Library

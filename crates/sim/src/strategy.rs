@@ -145,7 +145,7 @@ impl Strategy {
     /// Which of `choices` this strategy picks for `decision`. Allocation-free.
     pub fn decide(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         match decision.kind {
-            DecisionKind::PlayAction => self.best_play(choices).map(Choice::Card).unwrap_or(Choice::Pass),
+            DecisionKind::PlayAction => self.best_play(view, choices, false).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Buy => self.match_buy_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, ordered, .. } => {
@@ -154,7 +154,7 @@ impl Strategy {
                     Act::Discard => self.choose_discard(choices, forced),
                     Act::Trash => self.choose_trash(view, decision, choices, from, forced),
                     Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
-                    Act::Play => self.best_play(choices).map(Choice::Card).unwrap_or(Choice::Pass),
+                    Act::Play => self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass),
                     Act::SetAside => Choice::Pass, // not used via Select in the base set
                 }
             }
@@ -260,8 +260,17 @@ impl Strategy {
         UNLISTED + score
     }
 
-    fn best_play(&self, choices: &[Choice]) -> Option<CardId> {
-        iter_cards(choices).min_by_key(|&c| (self.play_rank_of(c), c))
+    /// Best action to play. Cards that play other actions (Throne Room) are only worth playing
+    /// when the hand holds an ordinary action for them to multiply; when choosing what a
+    /// multiplier plays (`for_multiplier`), another multiplier is picked only if at least two
+    /// ordinary actions remain to use its extra plays on.
+    fn best_play(&self, view: &PlayerView, choices: &[Choice], for_multiplier: bool) -> Option<CardId> {
+        let ordinary_in_hand: u32 =
+            view.hand().iter().filter(|&(c, _)| cards::is(c, ACTION) && cards::def(c).plays == 0).map(|(_, n)| n as u32).sum();
+        let multiplier_ok = if for_multiplier { ordinary_in_hand >= 2 } else { ordinary_in_hand >= 1 };
+        iter_cards(choices)
+            .filter(|&c| cards::def(c).plays == 0 || multiplier_ok)
+            .min_by_key(|&c| (self.play_rank_of(c), c))
     }
 
     // -----------------------------------------------------------------------------------------

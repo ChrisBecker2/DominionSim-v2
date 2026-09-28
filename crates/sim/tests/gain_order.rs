@@ -33,6 +33,59 @@ fn remodel_follows_gain_order_strictly() {
     assert_eq!(remodel_pick("double_witch.toml", "Remodel 3 Estate Copper"), Choice::Card(id::ESTATE));
 }
 
+fn bot_action_plays(hand: &str) -> (Vec<dominion_engine::CardId>, dominion_engine::GameState) {
+    use dominion_engine::Phase;
+    let src = std::fs::read_to_string(format!("{}/../../strategies/double_witch.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let strat = Strategy::parse(&src).unwrap();
+    let text = format!(
+        "players: 2
+kingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop
+         turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+         [player 1]
+hand: {hand}
+deck: 2 Copper, 3 Estate
+
+[player 2]
+hand: 3 Copper, 2 Estate
+deck: 4 Copper, Estate
+"
+    );
+    let mut g = parse_state(&text).unwrap();
+    let mut played = Vec::new();
+    let mut buf = ChoiceBuf::default();
+    loop {
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            s => panic!("{s:?}"),
+        };
+        if g.turn.phase != Phase::Action {
+            break;
+        }
+        g.legal_choices(&mut buf);
+        let c = strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice());
+        if let Choice::Card(card) = c {
+            if d.kind == dominion_engine::DecisionKind::PlayAction
+                || matches!(d.kind, dominion_engine::DecisionKind::Select { act: dominion_engine::Act::Play, .. })
+            {
+                played.push(card);
+            }
+        }
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+    (played, g)
+}
+
+#[test]
+fn throne_room_does_not_chain_into_throne_rooms_without_targets() {
+    // 5 Throne Rooms but only one ordinary action (Remodel) left after Village: play Village,
+    // one Throne Room on Remodel, and leave the other Throne Rooms (nothing to double).
+    let (played, g) = bot_action_plays("5 Throne Room Gold Gold Remodel Village");
+    assert_eq!(played, vec![id::VILLAGE, id::THRONE_ROOM, id::REMODEL]);
+    assert_eq!(g.players[0].discard.get(id::PROVINCE), 2);
+    assert_eq!(g.players[0].hand.get(id::THRONE_ROOM), 4);
+}
+
 #[test]
 fn throne_room_is_played_before_remodel_to_double_it() {
     use dominion_engine::Phase;

@@ -95,4 +95,14 @@ deck: 2 Copper, 3 Estate
   check("parallel values equal serial", serial.options.every((o) => Math.abs(par.options.find((p) => p.label === o.label).ev - o.ev) < 1e-3));
   check("parallel pv is readable", par.options[0].pv.startsWith("Play Village") && par.options[0].pv.includes("end turn"));
 }
+// ---- crash reporting: a Rust panic's message survives the "unreachable" trap ----
+{
+  const inst = (await WebAssembly.instantiate(await WebAssembly.compile(bytes), {})).exports;
+  inst.init();
+  let trapped = null;
+  try { inst.debug_panic(); } catch (e) { trapped = e; }
+  const msg = new TextDecoder().decode(new Uint8Array(inst.memory.buffer, inst.panic_message_ptr(), inst.panic_message_len()));
+  check("panic traps as a RuntimeError", trapped instanceof WebAssembly.RuntimeError);
+  check("panic message is recoverable", msg.includes("debug_panic called"));
+}
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED (parallel)");

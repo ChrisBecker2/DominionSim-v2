@@ -388,3 +388,12 @@ section, .panel {
   color: var(--c-attack-edge);
   white-space: nowrap;
 }
+
+#crash-panel {
+  position: fixed; left: 50%; top: 60px; transform: translateX(-50%);
+  width: min(900px, 92vw); max-height: 80vh; overflow: auto; z-index: 50;
+  background: var(--panel); border: 2px solid var(--danger); border-radius: 8px; padding: 12px 16px;
+  box-shadow: 0 8px 24px #0005;
+}
+#crash-panel h2 { color: var(--danger); margin-top: 0; }
+#crash-text { white-space: pre-wrap; font-family: var(--mono); font-size: 12px; user-select: all; }

@@ -32,6 +32,31 @@
     const bytes = new Uint8Array(wasm.memory.buffer, ptr, len);
     return new TextDecoder().decode(bytes);
   }
+  // A Rust panic surfaces as a WebAssembly "unreachable" trap. Recover the real message, and
+  // since the engine can't be trusted afterwards, say so and show the last position.
+  let lastStateText = "";
+  let crashed = false;
+
+  function panicMessage() {
+    try {
+      const ptr = wasm.panic_message_ptr(), len = wasm.panic_message_len();
+      return len ? new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, len)) : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function reportCrash(e, action) {
+    if (!(e instanceof WebAssembly.RuntimeError) || crashed) return false;
+    crashed = true;
+    const msg = panicMessage() || String(e.message || e);
+    const box = $("crash-panel");
+    box.hidden = false;
+    $("crash-text").textContent =
+      `Engine crashed during "${action}": ${msg}\n\nLast position before the crash:\n\n${lastStateText}`;
+    return true;
+  }
+
   function ok(status) {
     const msg = readResult();
     if (!status) throw new Error(msg || "operation failed");
@@ -366,7 +391,7 @@
       b.addEventListener("click", () => doAction(() => {
         if (c.index < 0) api.resume();
         else api.choose(c.index);
-      }));
+      }, c.label));
       choices.appendChild(b);
     });
   }
@@ -422,6 +447,7 @@
       if (m.type === "init") {
         const inst = await WebAssembly.instantiate(m.module, {});
         w = inst.exports;
+        w.init();
         postMessage({ type: "ready" });
         return;
       }
@@ -431,7 +457,15 @@
         return p;
       };
       const rp = put(m.root), sp = put(m.state);
-      const ok = w.eval_task(rp, sp, m.me, m.budget, m.strategy);
+      let ok;
+      try {
+        ok = w.eval_task(rp, sp, m.me, m.budget, m.strategy);
+      } catch (e) {
+        const len = w.panic_message_len();
+        const msg = len ? new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.panic_message_ptr(), len)) : String(e.message || e);
+        postMessage({ type: "result", id: m.id, ok: false, out: "worker crashed: " + msg });
+        return;
+      }
       const out = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()));
       w.dealloc(rp, m.root.length);
       w.dealloc(sp, m.state.length);
@@ -613,7 +647,17 @@
   }
 
   function render() {
+    if (crashed) return;
+    try {
+      renderInner();
+    } catch (e) {
+      if (!reportCrash(e, "render")) throw e;
+    }
+  }
+
+  function renderInner() {
     seats = api.getSeats();
+    lastStateText = api.getStateText();
     const view = api.getView();
     lastView = view;
     renderTurnBar(view);
@@ -622,12 +666,15 @@
     renderTrash(view);
     renderDecision(view);
     renderLog(view);
+    // Nothing to analyze while the game waits at a turn boundary ("Start turn").
+    $("btn-analyze").disabled = !view.pending || !!view.pending.paused || view.gameOver;
     $("btn-undo").disabled = !api.canUndo();
     $("btn-redo").disabled = !api.canRedo();
     if ($("auto-sync").checked) syncTextFromGame();
   }
 
-  function doAction(fn) {
+  function doAction(fn, action) {
+    if (crashed) return;
     if ($("analysis-progress") && !$("analysis-progress").hidden) cancelAnalysis();
     renderAnalysis(null);
     try {
@@ -635,6 +682,7 @@
       showLoadError("");
       render();
     } catch (e) {
+      if (reportCrash(e, action || "action")) return;
       showToast(String(e.message || e));
       render();
     }
@@ -648,7 +696,7 @@
         startNewGame();
         render();
       } catch (e) {
-        showNewGameError(String(e.message || e));
+        if (!reportCrash(e, "New game")) showNewGameError(String(e.message || e));
       }
     });
 
@@ -660,7 +708,7 @@
         showLoadError("");
         render();
       } catch (e) {
-        showLoadError(String(e.message || e));
+        if (!reportCrash(e, "Load state")) showLoadError(String(e.message || e));
       }
     });
 
@@ -672,10 +720,10 @@
       const a = shownAnalysis;
       const top = a && a.options && a.options[0];
       const current = a && (a.stateId >>> 0) === api.stateId() && top && top.index >= 0;
-      doAction(() => (current ? api.choose(top.index) : api.stepAuto()));
+      doAction(() => (current ? api.choose(top.index) : api.stepAuto()), "Auto-step");
     });
-    $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn()));
-    $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots()));
+    $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn(), "Run to end of turn"));
+    $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots(), "Run bots"));
     $("btn-analyze").addEventListener("click", () => {
       if (typeof Worker === "undefined" || !wasmModule) {
         try {
@@ -688,6 +736,7 @@
       $("btn-analyze").disabled = true;
       analyzeParallel()
         .catch((e) => {
+          if (reportCrash(e, "Analyze decision")) return;
           showToast("Analysis failed: " + String(e.message || e));
           cancelAnalysis();
         })
@@ -701,8 +750,8 @@
       cancelAnalysis();
       $("btn-analyze").disabled = false;
     });
-    $("btn-undo").addEventListener("click", () => doAction(() => api.undo()));
-    $("btn-redo").addEventListener("click", () => doAction(() => api.redo()));
+    $("btn-undo").addEventListener("click", () => doAction(() => api.undo(), "Undo"));
+    $("btn-redo").addEventListener("click", () => doAction(() => api.redo(), "Redo"));
 
     window.addEventListener("keydown", (e) => {
       const tag = document.activeElement && document.activeElement.tagName;
@@ -724,7 +773,7 @@
         $("btn-analyze").click();
       } else if (e.key === " ") {
         e.preventDefault();
-        doAction(() => api.stepAuto());
+        doAction(() => api.stepAuto(), "Auto-step");
       }
     });
   }
@@ -734,6 +783,7 @@
     const { module, instance } = await WebAssembly.instantiate(bytes, {});
     wasmModule = module;
     wasm = instance.exports;
+    wasm.init();
     botNames = api.listBots();
     initCards();
     wire();
@@ -747,6 +797,8 @@
     render();
     // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
+    // Test hook: open index.html#selftest-crash to exercise the crash panel.
+    if (location.hash === "#selftest-crash") doAction(() => wasm.debug_panic(), "self-test crash");
   }
 
   main().catch((e) => {

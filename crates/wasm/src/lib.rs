@@ -237,6 +237,44 @@ impl App {
 
 thread_local! {
     static APP: RefCell<App> = RefCell::new(App::new());
+    /// The last Rust panic message. WebAssembly only reports a panic as "unreachable", so the hook
+    /// saves the real message here for the page to show (see `panic_message`).
+    static PANIC: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        PANIC.with(|p| {
+            if let Ok(mut p) = p.try_borrow_mut() {
+                *p = msg.into_bytes();
+            }
+        });
+    }));
+}
+
+/// Pointer/length of the last panic message (empty if none). Safe to call after a crash: it
+/// doesn't touch the (possibly still-borrowed) game state.
+#[no_mangle]
+pub extern "C" fn panic_message_ptr() -> u32 {
+    PANIC.with(|p| p.borrow().as_ptr() as u32)
+}
+
+#[no_mangle]
+pub extern "C" fn panic_message_len() -> u32 {
+    PANIC.with(|p| p.borrow().len() as u32)
+}
+
+/// Test hook: panics on purpose, so the page's crash reporting can be exercised.
+#[no_mangle]
+pub extern "C" fn debug_panic() {
+    panic!("debug_panic called (test of crash reporting)");
+}
+
+/// Called by the page once at startup (and by workers) so panics are reported with their message.
+#[no_mangle]
+pub extern "C" fn init() {
+    install_panic_hook();
 }
 
 // -----------------------------------------------------------------------------------------

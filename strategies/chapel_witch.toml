@@ -5,7 +5,7 @@
 
 name = "Chapel/Witch"
 description = "Chapel trims the deck early; two Witches curse the opponents; Big Money after."
-play = ["Witch", "Chapel"]
+
 keep_treasure = 3
 
 [[gain]]
@@ -28,3 +28,18 @@ if = "provinces_left <= 4"
 
 [[gain]]
 card = "Silver"
+
+[[play]]
+card = "Witch"
+
+[[play]]
+card = "Chapel"
+
+# Chapel away the starting junk: Estates while the game is young, then Coppers (never below
+# keep_treasure treasures in hand). Curses are always trashed by default.
+[[trash]]
+card = "Estate"
+if = "provinces_left >= 5"
+
+[[trash]]
+card = "Copper"

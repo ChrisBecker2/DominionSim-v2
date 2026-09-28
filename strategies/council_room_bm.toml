@@ -4,7 +4,6 @@
 
 name = "Council Room-BM"
 description = "Big Money using Council Room's big draw to accelerate through the deck."
-play = ["Council Room"]
 
 [[gain]]
 card = "Province"
@@ -18,3 +17,6 @@ card = "Gold"
 
 [[gain]]
 card = "Silver"
+
+[[play]]
+card = "Council Room"

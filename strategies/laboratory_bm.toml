@@ -4,7 +4,6 @@
 
 name = "Laboratory-BM"
 description = "Big Money with up to two Laboratories for smoother draws."
-play = ["Laboratory"]
 
 [[gain]]
 card = "Province"
@@ -18,3 +17,6 @@ card = "Gold"
 
 [[gain]]
 card = "Silver"
+
+[[play]]
+card = "Laboratory"

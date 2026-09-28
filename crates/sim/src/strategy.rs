@@ -4,6 +4,12 @@
 //! optionally gated by a condition, see `expr.rs`), an ordered **action play priority list**, and
 //! a few optional knobs for sub-decisions (Chapel/Sentry trashing, how much treasure to keep in hand).
 //!
+//! `[[play]]` (action play order) and `[[trash]]` (what to trash when given the chance) are rule
+//! lists like `[[gain]]`, each entry `card` + optional `if`. Stated rules always come first;
+//! built-in defaults only apply below them (default trash: Curse only; treasures are never
+//! trashed from hand below `keep_treasure`), and a default for a card is dropped when the
+//! strategy states its own rule for that card.
+//!
 //! The gain list drives every gain, strictly in order: buys, Workshop/Artisan gains, and
 //! "trash a card, gain a better one" upgrades (Remodel, Mine): for an upgrade, the strategy trashes
 //! whichever card unlocks the highest-ranked gain in the list (ties: trash the cheaper card).
@@ -27,6 +33,7 @@ use std::path::Path;
 use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{self, id, CardId, ACTION, NUM_CARDS, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision, DecisionKind};
+use dominion_engine::Counts;
 use dominion_engine::state::{Act, Filter, Zone};
 use serde::Deserialize;
 
@@ -47,6 +54,43 @@ fn default_true() -> bool {
     true
 }
 
+/// `play = ["Village", "Smithy"]` or `[[play]] card = "..." if = "..."`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RulesOrNames {
+    Names(Vec<String>),
+    Rules(Vec<BuyRuleRaw>),
+}
+
+impl Default for RulesOrNames {
+    fn default() -> Self {
+        RulesOrNames::Names(Vec::new())
+    }
+}
+
+impl RulesOrNames {
+    fn into_rules(self) -> Vec<BuyRuleRaw> {
+        match self {
+            RulesOrNames::Names(n) => n.into_iter().map(|card| BuyRuleRaw { card, cond: None }).collect(),
+            RulesOrNames::Rules(r) => r,
+        }
+    }
+}
+
+/// Built-in trash rules, used below the strategy's own `[[trash]]` rules (skipping any card the
+/// strategy lists itself): only Curses. Anything else a strategy trashes must be stated.
+const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[("Curse", None)];
+
+fn compile_rules(raw: &[BuyRuleRaw], what: &str) -> Result<Vec<(CardId, Option<Expr>)>, String> {
+    raw.iter()
+        .map(|r| {
+            let card = cards::by_name(&r.card).ok_or_else(|| format!("unknown card {:?} in {what} list", r.card))?;
+            let cond = r.cond.as_deref().map(Expr::parse).transpose()?;
+            Ok((card, cond))
+        })
+        .collect()
+}
+
 #[derive(Deserialize, Default)]
 struct StrategyFile {
     name: String,
@@ -58,11 +102,13 @@ struct StrategyFile {
     /// Older name for `gain`.
     #[serde(default)]
     buy: Vec<BuyRuleRaw>,
-    /// Action play priority, highest priority first.
+    /// Action play priority (`[[play]]` rules, or the shorthand `play = ["Witch", ...]`).
     #[serde(default)]
-    play: Vec<String>,
-    /// Priority order for "junk" cards trashed by Chapel/Sentry/Remodel/the forced-trash
-    /// fallback. Defaults to `["Curse", "Estate", "Copper"]`.
+    play: RulesOrNames,
+    /// Trash priority for optional trashing (Chapel, Sentry, Moneylender...) and forced trashing.
+    #[serde(default)]
+    trash: Vec<BuyRuleRaw>,
+    /// Older shorthand for `[[trash]]` without conditions.
     #[serde(default)]
     trash_priority: Option<Vec<String>>,
     /// Chapel/Sentry won't trash a treasure from hand if doing so would leave fewer than this
@@ -84,9 +130,12 @@ pub struct Strategy {
     pub name: String,
     pub description: String,
     buy: Vec<(CardId, Option<Expr>)>,
-    /// Rank of each card in the `play` list (lower = earlier), or `-1` if unlisted.
+    /// `[[play]]` rules in priority order.
+    play: Vec<(CardId, Option<Expr>)>,
+    /// Rank of each card's first `[[play]]` rule (lower = earlier), or `-1` if unlisted.
     play_rank: [i16; NUM_CARDS],
-    trash_priority: Vec<CardId>,
+    /// `[[trash]]` rules followed by the defaults (`DEFAULT_TRASH`).
+    trash: Vec<(CardId, Option<Expr>)>,
     keep_treasure: u8,
     pub win_this_turn: bool,
 }
@@ -114,21 +163,42 @@ impl Strategy {
             buy.push((card, cond));
         }
 
+        let play = compile_rules(&raw.play.into_rules(), "play")?;
         let mut play_rank = [-1i16; NUM_CARDS];
-        for (i, name) in raw.play.iter().enumerate() {
-            let card = cards::by_name(name).ok_or_else(|| format!("unknown card {name:?} in play list"))?;
-            if !cards::is(card, ACTION) {
-                return Err(format!("{name:?} in play list is not an Action card"));
+        for (i, (card, _)) in play.iter().enumerate() {
+            if !cards::is(*card, ACTION) {
+                return Err(format!("{:?} in play list is not an Action card", cards::name(*card)));
             }
-            play_rank[card as usize] = i as i16;
+            if play_rank[*card as usize] < 0 {
+                play_rank[*card as usize] = i as i16;
+            }
         }
 
-        let trash_priority = match raw.trash_priority {
-            Some(names) => names.iter().map(|n| cards::by_name(n).ok_or_else(|| format!("unknown card {n:?} in trash_priority"))).collect::<Result<Vec<_>, _>>()?,
-            None => vec![id::CURSE, id::ESTATE, id::COPPER],
+        if !raw.trash.is_empty() && raw.trash_priority.is_some() {
+            return Err("use either [[trash]] or trash_priority (older shorthand), not both".to_string());
+        }
+        let stated: Vec<BuyRuleRaw> = match raw.trash_priority {
+            Some(names) => names.into_iter().map(|card| BuyRuleRaw { card, cond: None }).collect(),
+            None => raw.trash,
         };
+        let mut trash = compile_rules(&stated, "trash")?;
+        for (name, cond) in DEFAULT_TRASH {
+            let card = cards::by_name(name).expect("default trash card");
+            if !trash.iter().any(|(c, _)| *c == card) {
+                trash.push((card, cond.map(|c| Expr::parse(c).expect("default trash condition"))));
+            }
+        }
 
-        Ok(Strategy { name: raw.name, description: raw.description, buy, play_rank, trash_priority, keep_treasure: raw.keep_treasure.unwrap_or(2), win_this_turn: raw.win_this_turn })
+        Ok(Strategy {
+            name: raw.name,
+            description: raw.description,
+            buy,
+            play,
+            play_rank,
+            trash,
+            keep_treasure: raw.keep_treasure.unwrap_or(2),
+            win_this_turn: raw.win_this_turn,
+        })
     }
 
     /// Every kingdom card (id >= `FIRST_KINGDOM`) this strategy names, in its buy list, play
@@ -147,9 +217,10 @@ impl Strategy {
                 e.for_each_card_ref(&mut push);
             }
         }
-        for c in 0..NUM_CARDS as CardId {
-            if self.play_rank[c as usize] >= 0 {
-                push(c);
+        for (card, cond) in self.play.iter().chain(self.trash.iter()) {
+            push(*card);
+            if let Some(e) = cond {
+                e.for_each_card_ref(&mut push);
             }
         }
         out
@@ -166,11 +237,10 @@ impl Strategy {
             DecisionKind::PlayAction => self.best_play(view, choices, false).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Buy => self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
-            DecisionKind::Select { from, act, filter, min, ordered, .. } => {
-                let forced = min > 0;
+            DecisionKind::Select { from, act, filter, min, max, ordered } => {
                 match act {
-                    Act::Discard => self.choose_discard(choices, forced),
-                    Act::Trash => self.choose_trash(view, decision, choices, from, forced),
+                    Act::Discard => self.choose_discard(view, from, filter, choices, min, max, ordered),
+                    Act::Trash => self.choose_trash(view, decision, choices, from, filter, min, max, ordered),
                     Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
                     Act::Play => self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass),
                     Act::SetAside => Choice::Pass, // not used via Select in the base set
@@ -325,9 +395,21 @@ impl Strategy {
         let ordinary_in_hand: u32 =
             view.hand().iter().filter(|&(c, _)| cards::is(c, ACTION) && cards::def(c).plays == 0).map(|(_, n)| n as u32).sum();
         let multiplier_ok = if for_multiplier { ordinary_in_hand >= 2 } else { ordinary_in_hand >= 1 };
+        // Stated [[play]] rules first, in order, when their condition holds.
+        for (card, cond) in &self.play {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+                return Some(*card);
+            }
+        }
+        // Defaults below: the built-in play order.
         iter_cards(choices)
             .filter(|&c| cards::def(c).plays == 0 || multiplier_ok)
             .min_by_key(|&c| (self.play_rank_of(c), c))
+    }
+
+    /// Whether the trash rules (stated, then defaults) want `card` gone right now.
+    pub fn wants_trash(&self, view: &PlayerView, card: CardId) -> bool {
+        self.trash.iter().any(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
     }
 
     // -----------------------------------------------------------------------------------------
@@ -346,12 +428,29 @@ impl Strategy {
         }
     }
 
-    fn choose_discard(&self, choices: &[Choice], forced: bool) -> Choice {
-        let best = iter_cards(choices).min_by_key(|&c| (Strategy::discard_rank(c), c));
-        match best {
-            Some(c) if forced || Strategy::discard_rank(c) < 0 => Choice::Card(c),
-            _ => Choice::Pass,
+    #[allow(clippy::too_many_arguments)]
+    fn choose_discard(&self, view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice], min: u8, max: u8, ordered: bool) -> Choice {
+        // Optional discards: only dead cards (Curse/Victory). Forced: worst first up to `min`.
+        let zone = zone_of(view, from, filter, choices);
+        let mut wanted = Counts::EMPTY;
+        let mut left = if min > 0 { min as u32 } else { max as u32 };
+        let mut order: [CardId; NUM_CARDS] = [0; NUM_CARDS];
+        for (i, o) in order.iter_mut().enumerate() {
+            *o = i as CardId;
         }
+        order.sort_by_key(|&c| (Strategy::discard_rank(c), c));
+        for c in order {
+            if left == 0 {
+                break;
+            }
+            if min == 0 && Strategy::discard_rank(c) >= 0 {
+                break;
+            }
+            let take = (zone.get(c) as u32).min(left);
+            wanted.add(c, take as u8);
+            left -= take;
+        }
+        pick_wanted(&wanted, choices, ordered, min > 0)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -359,7 +458,9 @@ impl Strategy {
     // subject to a money floor in hand; special-cased upgrades for Remodel and Mine.
     // -----------------------------------------------------------------------------------------
 
-    fn choose_trash(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], from: Zone, forced: bool) -> Choice {
+    #[allow(clippy::too_many_arguments)]
+    fn choose_trash(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], from: Zone, filter: Filter, min: u8, max: u8, ordered: bool) -> Choice {
+        let forced = min > 0;
         // Upgrades (Remodel, Mine, ...): trash whichever card unlocks the best gain in the gain
         // list, strictly by list order; ties trash the cheaper card.
         if let Some(up) = decision.upgrade {
@@ -381,23 +482,50 @@ impl Strategy {
             // Forced and nothing unlocks a listed gain: fall through to junk-first.
         }
 
-        for &jc in &self.trash_priority {
-            if !has_card(choices, jc) {
+        // The whole set the trash rules want (stated rules first, then defaults), up to `max`,
+        // never dipping below `keep_treasure` treasures in hand unless forced; then fill a forced
+        // minimum with the cheapest cards.
+        let zone = zone_of(view, from, filter, choices);
+        let mut wanted = Counts::EMPTY;
+        let mut left = max as u32;
+        let mut treasure_budget = if from == Zone::Hand && !forced {
+            view.hand().count_type(TREASURE).saturating_sub(self.keep_treasure as u32)
+        } else {
+            u32::MAX
+        };
+        for (jc, cond) in &self.trash {
+            let jc = *jc;
+            if left == 0 {
+                break;
+            }
+            if !cond.as_ref().map_or(true, |e| e.eval_bool_for(view, jc)) {
                 continue;
             }
-            if from == Zone::Hand && cards::is(jc, TREASURE) && !forced {
-                let treasures_in_hand = view.hand().count_type(TREASURE);
-                if treasures_in_hand <= self.keep_treasure as u32 {
-                    continue; // don't dip below our money floor; try the next junk card, if any
-                }
+            let mut take = ((zone.get(jc) - wanted.get(jc)) as u32).min(left);
+            if cards::is(jc, TREASURE) {
+                take = take.min(treasure_budget);
+                treasure_budget -= take;
             }
-            return Choice::Card(jc);
+            wanted.add(jc, take as u8);
+            left -= take;
         }
-        if forced {
-            cheapest_choice(choices)
-        } else {
-            Choice::Pass
+        let mut need = (min as u32).saturating_sub(wanted.total());
+        if need > 0 {
+            let mut rest: [CardId; NUM_CARDS] = [0; NUM_CARDS];
+            for (i, r) in rest.iter_mut().enumerate() {
+                *r = i as CardId;
+            }
+            rest.sort_by_key(|&c| (cards::cost(c), c));
+            for c in rest {
+                if need == 0 {
+                    break;
+                }
+                let take = ((zone.get(c) - wanted.get(c)) as u32).min(need);
+                wanted.add(c, take as u8);
+                need -= take;
+            }
         }
+        pick_wanted(&wanted, choices, ordered, forced)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -458,6 +586,44 @@ fn has_card(choices: &[Choice], c: CardId) -> bool {
     choices.contains(&Choice::Card(c))
 }
 
+/// The cards eligible for a selection: its zone's cards that match the selection's filter (and at
+/// least one of each offered card).
+fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) -> Counts {
+    let mut z = match from {
+        Zone::Hand => *view.hand(),
+        Zone::Discard => *view.discard(),
+        Zone::Revealed => *view.revealed(),
+    };
+    for c in 0..NUM_CARDS as CardId {
+        if !filter.matches(c) {
+            z.set(c, 0);
+        }
+    }
+    z.max_with(|c| u8::from(has_card(choices, c)))
+}
+
+/// Multi-card selections offer picks in non-decreasing card order (so each set of cards has one
+/// path). Decide the whole `wanted` set first, then take its lowest offered card; `Pass` once
+/// nothing wanted is offered (or the cheapest offered card if a pick is still required).
+fn pick_wanted(wanted: &Counts, choices: &[Choice], ordered: bool, forced: bool) -> Choice {
+    let pick = if ordered {
+        iter_cards(choices).find(|&c| wanted.has(c))
+    } else {
+        (0..NUM_CARDS as CardId).find(|&c| wanted.has(c) && has_card(choices, c))
+    };
+    match pick {
+        Some(c) => Choice::Card(c),
+        None if forced => cheapest_choice(choices),
+        None => {
+            if choices.contains(&Choice::Pass) {
+                Choice::Pass
+            } else {
+                cheapest_choice(choices)
+            }
+        }
+    }
+}
+
 fn cheapest_choice(choices: &[Choice]) -> Choice {
     iter_cards(choices).min_by_key(|&c| (cards::cost(c), c)).map(Choice::Card).unwrap_or(Choice::Pass)
 }
@@ -484,6 +650,31 @@ mod tests {
         assert_eq!(s.buy.len(), 2);
         assert_eq!(s.play_rank[id::VILLAGE as usize], 0);
         assert_eq!(s.play_rank[id::SMITHY as usize], 1);
+        // With no stated trash rules, the only default is Curse.
+        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::CURSE]);
+    }
+
+    #[test]
+    fn play_and_trash_rules_with_conditions() {
+        let s = Strategy::parse(
+            r#"
+            name = "Rules"
+            [[play]]
+            card = "Witch"
+            [[play]]
+            card = "Smithy"
+            if = "actions >= 1"
+            [[trash]]
+            card = "Estate"
+            if = "provinces_left > 6"
+            [[gain]]
+            card = "Silver"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(s.play.len(), 2);
+        // Stated rules first, then the Curse default.
+        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::ESTATE, id::CURSE]);
     }
 
     #[test]

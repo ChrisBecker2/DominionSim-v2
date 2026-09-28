@@ -144,11 +144,13 @@ pub struct TurnState {
     /// Whether the turn's start has been announced (TurnStart/PhaseStart events). Deferred to
     /// the first step of the turn so a turn-boundary pause logs nothing of the next turn.
     pub announced: bool,
+    /// Every card played this turn, counting each resolution (Throne Room's target twice).
+    pub played: Counts,
 }
 
 impl TurnState {
     pub fn start(player: u8, number: u16) -> Self {
-        TurnState { player, phase: Phase::Action, actions: 1, buys: 1, coins: 0, merchants: 0, silvers_played: 0, number, announced: false }
+        TurnState { player, phase: Phase::Action, actions: 1, buys: 1, coins: 0, merchants: 0, silvers_played: 0, number, announced: false, played: Counts::EMPTY }
     }
 }
 

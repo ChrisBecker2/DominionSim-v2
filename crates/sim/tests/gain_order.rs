@@ -282,7 +282,8 @@ fn win_this_turn_finds_the_two_duchy_win() {
 
 #[test]
 fn win_this_turn_can_be_turned_off() {
-    let src = read_strategy("double_witch.toml").replace("play = [\"Witch\"]", "play = [\"Witch\"]\nwin_this_turn = false");
+    // Top-level keys must precede the first [[table]].
+    let src = read_strategy("double_witch.toml").replacen("[[", "win_this_turn = false\n\n[[", 1);
     let g = play_turn(&src, DUCHY_WIN);
     assert!(!g.is_game_over(), "without the rule it follows its list (Gold -> Province twice)");
     assert_eq!(g.players[0].all_cards().get(id::PROVINCE), 2);

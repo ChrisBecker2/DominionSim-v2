@@ -14,8 +14,9 @@ use std::cell::RefCell;
 /// turn above everything): every card gained this turn is worth
 /// its place in the list, each entry outranking everything below it (weights are powers of 10),
 /// and every card trashed this turn costs its own list value (so Remodel Gold -> Gold nets zero).
-/// Conditions are evaluated at the start of the analyzed decision. A tiny general-purpose
-/// economy term breaks ties between lines that gain the same things.
+/// Conditions are evaluated at the start of the analyzed decision. Below every stated priority:
+/// default preferences (attacking, trashing unwanted cards, playing actions/treasures), then a
+/// tiny general-purpose economy term to break remaining ties.
 pub struct GainListEvaluator<'a> {
     pub strategy: &'a Strategy,
     pub tie_break: NextHandEvaluator,
@@ -31,6 +32,38 @@ impl<'a> GainListEvaluator<'a> {
             Some(rank) => 10f64.powi((self.strategy.gain_list_len() - rank) as i32),
             None => 0.0,
         }
+    }
+}
+
+impl GainListEvaluator<'_> {
+    /// Default preferences, always below every stated gain priority (the smallest gain weight is
+    /// 10): each Attack played +0.5, each card trashed that the trash rules want gone +0.3, each
+    /// Action played +0.1, each Treasure played +0.01.
+    fn preferences(&self, root: &GameState, leaf: &GameState, me: u8, before: &dominion_engine::Counts, after: &dominion_engine::Counts) -> f64 {
+        if leaf.turn.player != me {
+            return 0.0;
+        }
+        let view = PlayerView::new(root, me);
+        let mut p = 0.0;
+        for (c, n) in leaf.turn.played.iter() {
+            let n = n as f64;
+            if dominion_engine::cards::is(c, dominion_engine::cards::ATTACK) {
+                p += 0.5 * n;
+            }
+            if dominion_engine::cards::is(c, dominion_engine::cards::ACTION) {
+                p += 0.1 * n;
+            }
+            if dominion_engine::cards::is(c, dominion_engine::cards::TREASURE) {
+                p += 0.01 * n;
+            }
+        }
+        for c in 0..NUM_CARDS as CardId {
+            let gone = before.get(c) as i32 - after.get(c) as i32;
+            if gone > 0 && self.strategy.wants_trash(&view, c) {
+                p += 0.3 * gone as f64;
+            }
+        }
+        p
     }
 }
 
@@ -57,7 +90,7 @@ impl Evaluator for GainListEvaluator<'_> {
         } else {
             0.0
         };
-        win + v + 1e-3 * tie
+        win + v + self.preferences(root, leaf, me, &before, &after) + 1e-6 * tie
     }
 
     /// Below the analyzed decision, play exactly as the strategy's rules do, so the analysis

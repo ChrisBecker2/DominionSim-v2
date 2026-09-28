@@ -6,7 +6,6 @@
 
 name = "Double Witch"
 description = "Two Witches ASAP, then Big Money with a Duchy endgame."
-play = ["Witch"]
 
 [[gain]]
 card = "Province"
@@ -24,3 +23,6 @@ if = "provinces_left <= 4"
 
 [[gain]]
 card = "Silver"
+
+[[play]]
+card = "Witch"

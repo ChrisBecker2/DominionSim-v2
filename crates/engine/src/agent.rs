@@ -47,6 +47,10 @@ impl<'a> PlayerView<'a> {
     pub fn discard(&self) -> &Counts {
         &self.state.players[self.me as usize].discard
     }
+    /// My revealed / looked-at / set-aside cards (Sentry, Library, Bandit victim).
+    pub fn revealed(&self) -> &Counts {
+        &self.state.players[self.me as usize].set_aside
+    }
     /// Remaining deck as a multiset (order unknown except `deck_known_top`).
     pub fn deck(&self) -> Counts {
         self.state.players[self.me as usize].deck_counts()

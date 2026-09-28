@@ -69,6 +69,14 @@ impl Counts {
     pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
         self.0.iter().enumerate().filter(|(_, &n)| n > 0).map(|(i, &n)| (i as CardId, n))
     }
+    /// Each count raised to at least `floor(card)`.
+    pub fn max_with(mut self, floor: impl Fn(CardId) -> u8) -> Counts {
+        for i in 0..NUM_CARDS {
+            self.0[i] = self.0[i].max(floor(i as CardId));
+        }
+        self
+    }
+
     /// The card at position `idx` (0-based) when the multiset is laid out in id order.
     /// Used to sample uniformly: `nth(rng.below(total))`.
     #[inline]

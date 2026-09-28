@@ -410,6 +410,7 @@ impl GameState {
             let ps = &mut self.players[p as usize];
             ps.hand.set(c, 0);
             ps.in_play.add(c, n);
+            self.turn.played.add(c, n);
             for _ in 0..n {
                 sink.event(Event::Play { player: p, card: c });
             }

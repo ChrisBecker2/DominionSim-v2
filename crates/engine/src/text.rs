@@ -433,6 +433,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         number: tf.number,
         // A loaded position starts mid-turn from the reader's point of view; don't re-announce.
         announced: true,
+        played: Counts::EMPTY,
     };
 
     // Player blocks.
@@ -503,6 +504,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         return Err(format!("expected {num_players} '[player N]' blocks, found {seen}"));
     }
 
+    // "Played this turn" isn't stored in the text; the current player's in-play cards are the
+    // best reconstruction (a card played twice by Throne Room counts once).
+    state.turn.played = state.players[state.turn.player as usize].in_play;
     Ok(state)
 }
 

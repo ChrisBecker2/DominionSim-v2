@@ -4,7 +4,6 @@
 
 name = "Militia-BM"
 description = "Big Money plus two Militias to disrupt the opponent's hand."
-play = ["Militia"]
 
 [[gain]]
 card = "Province"
@@ -18,3 +17,6 @@ if = "count(Militia) < 2"
 
 [[gain]]
 card = "Silver"
+
+[[play]]
+card = "Militia"

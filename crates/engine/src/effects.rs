@@ -48,6 +48,7 @@ impl GameState {
     pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, sink: &mut S) {
         let p = self.turn.player;
         let def = cards::def(card);
+        self.turn.played.add(card, 1);
         self.turn.actions += def.actions;
         self.turn.buys += def.buys;
         self.turn.coins += def.coins as u16;

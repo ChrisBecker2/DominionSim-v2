@@ -91,7 +91,7 @@ pub extern "C" fn state_id() -> u32 {
 /// Strategy index whose priorities judge `player`'s decisions (`u32::MAX` = general).
 fn scoring_strategy(app: &App, player: u8) -> u32 {
     let seat = app.seats[player as usize];
-    if seat >= 2 { seat - 2 } else { u32::MAX }
+    if seat >= FIRST_STRATEGY_SEAT { seat - FIRST_STRATEGY_SEAT } else { u32::MAX }
 }
 use std::cell::RefCell;
 
@@ -110,11 +110,10 @@ const STRATEGY_SOURCES: &[&str] = &[
     include_str!("../../../strategies/gardens_workshop.toml"),
 ];
 
-/// Seat controller ids: 0 = human, 1 = search, 2.. = STRATEGY_SOURCES[i - 2].
-const SEAT_HUMAN: u32 = 0;
-const SEAT_SEARCH: u32 = 1;
-const DEFAULT_BOT: u32 = 3; // Big Money Ultimate
-const DEFAULT_P1: u32 = 5; // Double Witch
+/// Seat controller ids: 0 = search, 1.. = STRATEGY_SOURCES[i - 1].
+const FIRST_STRATEGY_SEAT: u32 = 1;
+const DEFAULT_BOT: u32 = FIRST_STRATEGY_SEAT + 1; // Big Money Ultimate
+const DEFAULT_P1: u32 = FIRST_STRATEGY_SEAT + 3; // Double Witch
 
 const HISTORY_CAP: usize = 1000;
 const LOG_CAP: usize = 4000;
@@ -151,7 +150,6 @@ impl App {
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
         let mut seats = [DEFAULT_BOT; MAX_PLAYERS];
         seats[0] = DEFAULT_P1;
-        let _ = SEAT_SEARCH;
         let mut app = App {
             state,
             history: Vec::new(),
@@ -587,7 +585,7 @@ fn step_auto_impl(app: &mut App) -> Result<(), String> {
         resume_impl(app);
         return Ok(());
     }
-    let choice = bot_choice(app, true)?;
+    let choice = bot_choice(app)?;
     apply_choice(app, choice)
 }
 
@@ -610,9 +608,8 @@ pub extern "C" fn resume() -> i32 {
     })
 }
 
-/// The choice the deciding seat's controller would make. Human seats get the search's choice
-/// when `human_uses_search` (used by Auto-step as a suggestion).
-fn bot_choice(app: &mut App, human_uses_search: bool) -> Result<Choice, String> {
+/// The choice the deciding seat's controller (a strategy or the search) would make.
+fn bot_choice(app: &mut App) -> Result<Choice, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
     let mut buf = ChoiceBuf::default();
     app.state.legal_choices(&mut buf);
@@ -620,38 +617,27 @@ fn bot_choice(app: &mut App, human_uses_search: bool) -> Result<Choice, String> 
         return Ok(buf.as_slice()[0]);
     }
     let seat = app.seats[d.player as usize];
-    if seat >= 2 {
+    if seat >= FIRST_STRATEGY_SEAT {
         let view = PlayerView::new(&app.state, d.player);
-        return Ok(app.strategies[(seat - 2) as usize].decide(&view, &d, buf.as_slice()));
-    }
-    if seat == SEAT_HUMAN && !human_uses_search {
-        return Err("a human seat is deciding".to_string());
+        return Ok(app.strategies[(seat - FIRST_STRATEGY_SEAT) as usize].decide(&view, &d, buf.as_slice()));
     }
     let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
     Ok(a.best().choice)
 }
 
+/// Let every seat's controller play until the game ends.
 fn run_bots_impl(app: &mut App) -> Result<(), String> {
-    for step in 0..100_000 {
+    for _ in 0..1_000_000 {
         if app.state.turn.phase == Phase::GameOver {
             return Ok(());
         }
-        let Some(d) = app.state.pending_decision() else {
-            // Turn boundary: bots keep going into the next turn.
+        if app.state.pending_decision().is_none() {
+            // Turn boundary: keep going into the next turn.
             resume_impl(app);
             continue;
-        };
-        if app.seats[d.player as usize] == SEAT_HUMAN {
-            if step == 0 {
-                return Err(format!(
-                    "Nothing for bots to do: Player {} is Human and must decide. Set their seat to a bot, or use Auto-step.",
-                    d.player + 1
-                ));
-            }
-            return Ok(());
         }
-        let choice = bot_choice(app, false)?;
+        let choice = bot_choice(app)?;
         apply_choice(app, choice)?;
     }
     Err("run_bots: too many steps".to_string())
@@ -668,7 +654,7 @@ fn analyze_json(app: &mut App) -> Result<String, String> {
 /// What the deciding seat's strategy would choose here (None for human/search seats).
 fn rules_pick(app: &App, d: &Decision) -> Option<Choice> {
     let seat = app.seats[d.player as usize];
-    let strategy = app.strategies.get(seat.checked_sub(2)? as usize)?;
+    let strategy = app.strategies.get(seat.checked_sub(FIRST_STRATEGY_SEAT)? as usize)?;
     let mut buf = ChoiceBuf::default();
     app.state.legal_choices(&mut buf);
     Some(strategy.decide(&PlayerView::new(&app.state, d.player), d, buf.as_slice()))
@@ -911,7 +897,7 @@ pub extern "C" fn card_info() -> i32 {
 pub extern "C" fn list_bots() -> i32 {
     let names = APP.with(|cell| {
         let app = cell.borrow();
-        let mut v = vec![jstr("Human"), jstr("Search (exact turn lookahead)")];
+        let mut v = vec![jstr("Search (exact turn lookahead)")];
         v.extend(app.strategies.iter().map(|s| jstr(&s.name)));
         format!("[{}]", v.join(","))
     });
@@ -929,7 +915,7 @@ pub extern "C" fn seat_kingdom(players: u32) -> i32 {
         let mut cards: Vec<u8> = Vec::new();
         let mut strategy_seats = 0;
         for &seat in &app.seats[..n] {
-            if let Some(s) = seat.checked_sub(2).and_then(|i| app.strategies.get(i as usize)) {
+            if let Some(s) = seat.checked_sub(FIRST_STRATEGY_SEAT).and_then(|i| app.strategies.get(i as usize)) {
                 strategy_seats += 1;
                 for c in s.kingdom_refs() {
                     if !cards.contains(&c) {
@@ -959,7 +945,7 @@ pub extern "C" fn get_seats() -> i32 {
 pub extern "C" fn set_seat(player: u32, bot: u32) -> i32 {
     let r = APP.with(|cell| {
         let mut app = cell.borrow_mut();
-        let max = 2 + app.strategies.len() as u32;
+        let max = FIRST_STRATEGY_SEAT + app.strategies.len() as u32;
         if player as usize >= MAX_PLAYERS || bot >= max {
             return Err("bad seat or controller".to_string());
         }
@@ -969,7 +955,7 @@ pub extern "C" fn set_seat(player: u32, bot: u32) -> i32 {
     result_of(r)
 }
 
-/// Let bot seats play until a human seat must decide or the game ends.
+/// Let every seat play until the game ends.
 #[no_mangle]
 pub extern "C" fn run_bots() -> i32 {
     let r = APP.with(|cell| run_bots_impl(&mut cell.borrow_mut()).map(|_| String::new()));
@@ -999,7 +985,7 @@ fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
             resume_impl(app);
             continue;
         }
-        let choice = bot_choice(app, true)?;
+        let choice = bot_choice(app)?;
         apply_choice(app, choice)?;
     }
     Err("run_to_end_of_turn: too many steps, aborting".to_string())

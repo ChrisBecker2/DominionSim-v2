@@ -12,14 +12,14 @@ const check = (name, cond) => { console.log((cond ? "  ok   " : "  FAIL ") + nam
 
 const bots = JSON.parse(call(w.list_bots()));
 check("player 1 defaults to Double Witch", bots[JSON.parse(call(w.get_seats()))[0]] === "Double Witch");
-check("bots listed", bots[0] === "Human" && bots.length === 13);
+check("bots listed", bots[0].startsWith("Search") && bots.length === 12 && !bots.includes("Human"));
 {
   const k0 = JSON.parse(call(w.seat_kingdom(2)));
   check("default seats' kingdom is Witch", k0.kingdom === "Witch" && k0.strategySeats === 2);
-  const smithy = bots.indexOf("Smithy-BM"), human = bots.indexOf("Human"), dw = bots.indexOf("Double Witch");
+  const smithy = bots.indexOf("Smithy-BM"), search = bots.indexOf("Search (exact turn lookahead)"), dw = bots.indexOf("Double Witch");
   call(w.set_seat(1, smithy));
   check("Double Witch + Smithy-BM -> Witch, Smithy", JSON.parse(call(w.seat_kingdom(2))).kingdom === "Witch, Smithy");
-  call(w.set_seat(0, human)); call(w.set_seat(1, human));
+  call(w.set_seat(0, search)); call(w.set_seat(1, search));
   check("no strategy seats -> no kingdom from rules", JSON.parse(call(w.seat_kingdom(2))).strategySeats === 0);
   call(w.set_seat(0, dw)); call(w.set_seat(1, bots.indexOf("Big Money Ultimate")));
 }
@@ -41,11 +41,9 @@ console.log(a.options.map((o) => `    ${o.ev.toFixed(2)}  ${o.label}  ::  ${o.pv
 check("analysis ranks Play Village first", a.options[0].label.includes("Village"));
 check("smithy line never plays village", !a.options.find((o) => o.label.includes("Smithy")).pv.includes("Play Village"));
 
-// Seat 1 = Double Witch bot, seat 0 = search; run a whole game.
-call(w.set_seat(0, 0));
-check("run_bots reports when a human must decide", w.run_bots() === 0 && /Human/.test(res()));
-call(w.set_seat(0, 1));
-call(w.set_seat(1, 5));
+// Seat 0 = search, seat 1 = Double Witch bot; run a whole game.
+call(w.set_seat(0, bots.indexOf("Search (exact turn lookahead)")));
+call(w.set_seat(1, bots.indexOf("Double Witch")));
 call(w.run_bots());
 const view = JSON.parse((w.get_view(), res()));
 const drawLine = view.log.find((l) => /draws \w+, \w+/.test(l));

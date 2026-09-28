@@ -294,7 +294,6 @@
           api.setSeat(p.index, parseInt(sel.value, 10));
           // The kingdom follows the seats' rules; restart if the game hasn't started yet.
           if (syncKingdomFromSeats() && untouched) startNewGame();
-          else maybeRunBots();
         });
       });
       h.appendChild(sel);
@@ -359,7 +358,7 @@
       desc.textContent = view.gameOver ? "Game over." : "No decision pending.";
       return;
     }
-    const who = botNames[seats[view.pending.player] ?? 0] || "Human";
+    const who = botNames[seats[view.pending.player] ?? 0] || "";
     desc.textContent = `${view.pending.description}  [${who}]`;
     view.pending.choices.forEach((c, i) => {
       const b = el("button");
@@ -367,7 +366,6 @@
       b.addEventListener("click", () => doAction(() => {
         if (c.index < 0) api.resume();
         else api.choose(c.index);
-        maybeRunBots();
       }));
       choices.appendChild(b);
     });
@@ -393,18 +391,6 @@
   }
 
   let seats = [];
-
-  // Auto-run plays bots only up to a human seat's decision. With no human seat it would play
-  // the whole game in one go, so then the game waits for Auto-step / Run to end of turn.
-  function maybeRunBots() {
-    if (!$("auto-bots").checked) return;
-    if (!api.getSeats().some((s) => s === 0)) return;
-    try {
-      api.runBots();
-    } catch (e) {
-      // A human seat is deciding: nothing to run.
-    }
-  }
 
   // ---- parallel analysis in Web Workers -------------------------------------------
   //
@@ -555,7 +541,7 @@
   let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
 
   // Kingdom = union of the kingdom cards the strategy seats' rules name (no padding). Leaves the
-  // field alone when no seat is a strategy (Human/Search seats name no cards). Returns whether
+  // field alone when no seat is a strategy (the Search seat names no cards). Returns whether
   // the field changed.
   function syncKingdomFromSeats() {
     const players = parseInt($("ng-players").value, 10) || 2;
@@ -709,7 +695,6 @@
             const idx = lastView.pending.choices[i].index;
             if (idx < 0) api.resume();
             else api.choose(idx);
-            maybeRunBots();
           });
         }
       } else if (e.key === "z" || e.key === "u") {

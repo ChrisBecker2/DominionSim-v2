@@ -1,0 +1,1278 @@
+{
+ "timestamp": "20260927-215120",
+ "commit": "298daa1",
+ "dirty": false,
+ "games_per_pair": 10000,
+ "seed": 1,
+ "cpus": 32,
+ "platform": "win32",
+ "total_ms": 143362.72,
+ "total_games": 550000,
+ "pairs": [
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/big_money_ultimate.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 19.1,
+    "lo": 18.3,
+    "hi": 19.8,
+    "vp": 28.4,
+    "turns": 17.6
+   },
+   "b": {
+    "name": "Big Money Ultimate",
+    "win": 80.9,
+    "lo": 80.2,
+    "hi": 81.7,
+    "vp": 34.1,
+    "turns": 17.5
+   },
+   "kingdom": "Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat, Gardens",
+   "ms": 14.95,
+   "games_per_sec": 668677
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/chapel_witch.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 7.1,
+    "lo": 6.6,
+    "hi": 7.6,
+    "vp": 17.2,
+    "turns": 19.0
+   },
+   "b": {
+    "name": "Chapel/Witch",
+    "win": 92.9,
+    "lo": 92.4,
+    "hi": 93.4,
+    "vp": 30.4,
+    "turns": 19.1
+   },
+   "kingdom": "Chapel, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 53.39,
+   "games_per_sec": 187290
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/council_room_bm.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 43.5,
+    "lo": 42.6,
+    "hi": 44.5,
+    "vp": 26.5,
+    "turns": 14.9
+   },
+   "b": {
+    "name": "Council Room-BM",
+    "win": 56.5,
+    "lo": 55.5,
+    "hi": 57.4,
+    "vp": 27.5,
+    "turns": 14.9
+   },
+   "kingdom": "Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 93.5,
+   "games_per_sec": 106955
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/double_witch.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 4.4,
+    "lo": 4.0,
+    "hi": 4.8,
+    "vp": 16.6,
+    "turns": 19.2
+   },
+   "b": {
+    "name": "Double Witch",
+    "win": 95.6,
+    "lo": 95.2,
+    "hi": 96.0,
+    "vp": 32.8,
+    "turns": 19.3
+   },
+   "kingdom": "Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 28.2,
+   "games_per_sec": 354594
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/gardens_workshop.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 96.4,
+    "lo": 96.0,
+    "hi": 96.7,
+    "vp": 47.5,
+    "turns": 24.8
+   },
+   "b": {
+    "name": "Gardens/Workshop",
+    "win": 3.6,
+    "lo": 3.3,
+    "hi": 4.0,
+    "vp": 32.4,
+    "turns": 24.5
+   },
+   "kingdom": "Workshop, Gardens, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Bureaucrat",
+   "ms": 28.11,
+   "games_per_sec": 355771
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 46.2,
+    "lo": 45.2,
+    "hi": 47.1,
+    "vp": 26.6,
+    "turns": 16.9
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 53.8,
+    "lo": 52.9,
+    "hi": 54.8,
+    "vp": 27.4,
+    "turns": 16.9
+   },
+   "kingdom": "Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 41.07,
+   "games_per_sec": 243482
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 22.7,
+    "lo": 21.9,
+    "hi": 23.5,
+    "vp": 23.8,
+    "turns": 18.8
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 77.3,
+    "lo": 76.5,
+    "hi": 78.1,
+    "vp": 30.2,
+    "turns": 18.8
+   },
+   "kingdom": "Militia, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 20.52,
+   "games_per_sec": 487377
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 47.3,
+    "lo": 46.4,
+    "hi": 48.3,
+    "vp": 26.8,
+    "turns": 17.0
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 52.7,
+    "lo": 51.7,
+    "hi": 53.6,
+    "vp": 27.2,
+    "turns": 17.0
+   },
+   "kingdom": "Moneylender, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 17.81,
+   "games_per_sec": 561470
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 26.6,
+    "lo": 25.7,
+    "hi": 27.5,
+    "vp": 24.7,
+    "turns": 16.2
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 73.4,
+    "lo": 72.5,
+    "hi": 74.3,
+    "vp": 29.3,
+    "turns": 16.2
+   },
+   "kingdom": "Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 24.66,
+   "games_per_sec": 405533
+  },
+  {
+   "a_file": "strategies/big_money.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Big Money",
+    "win": 63.9,
+    "lo": 63.0,
+    "hi": 64.9,
+    "vp": 28.5,
+    "turns": 17.7
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 36.1,
+    "lo": 35.1,
+    "hi": 37.0,
+    "vp": 25.5,
+    "turns": 17.6
+   },
+   "kingdom": "Village, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop, Bureaucrat",
+   "ms": 11030.0,
+   "games_per_sec": 907
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/chapel_witch.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 24.7,
+    "lo": 23.9,
+    "hi": 25.6,
+    "vp": 25.3,
+    "turns": 19.4
+   },
+   "b": {
+    "name": "Chapel/Witch",
+    "win": 75.3,
+    "lo": 74.4,
+    "hi": 76.1,
+    "vp": 31.7,
+    "turns": 19.6
+   },
+   "kingdom": "Chapel, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 58.55,
+   "games_per_sec": 170805
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/council_room_bm.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 73.3,
+    "lo": 72.5,
+    "hi": 74.2,
+    "vp": 32.7,
+    "turns": 15.3
+   },
+   "b": {
+    "name": "Council Room-BM",
+    "win": 26.7,
+    "lo": 25.8,
+    "hi": 27.5,
+    "vp": 29.1,
+    "turns": 15.4
+   },
+   "kingdom": "Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 110.93,
+   "games_per_sec": 90150
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/double_witch.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 14.4,
+    "lo": 13.7,
+    "hi": 15.1,
+    "vp": 25.0,
+    "turns": 19.6
+   },
+   "b": {
+    "name": "Double Witch",
+    "win": 85.6,
+    "lo": 84.9,
+    "hi": 86.3,
+    "vp": 34.3,
+    "turns": 19.8
+   },
+   "kingdom": "Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 31.33,
+   "games_per_sec": 319205
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/gardens_workshop.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 99.2,
+    "lo": 99.0,
+    "hi": 99.4,
+    "vp": 59.3,
+    "turns": 26.4
+   },
+   "b": {
+    "name": "Gardens/Workshop",
+    "win": 0.8,
+    "lo": 0.6,
+    "hi": 1.0,
+    "vp": 36.7,
+    "turns": 26.4
+   },
+   "kingdom": "Workshop, Gardens, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Bureaucrat",
+   "ms": 34.54,
+   "games_per_sec": 289516
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 78.9,
+    "lo": 78.1,
+    "hi": 79.7,
+    "vp": 33.7,
+    "turns": 17.3
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 21.1,
+    "lo": 20.3,
+    "hi": 21.9,
+    "vp": 28.8,
+    "turns": 17.4
+   },
+   "kingdom": "Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 44.52,
+   "games_per_sec": 224594
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 53.2,
+    "lo": 52.2,
+    "hi": 54.2,
+    "vp": 32.1,
+    "turns": 19.2
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 46.8,
+    "lo": 45.8,
+    "hi": 47.8,
+    "vp": 31.7,
+    "turns": 19.4
+   },
+   "kingdom": "Militia, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 23.13,
+   "games_per_sec": 432389
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 78.4,
+    "lo": 77.6,
+    "hi": 79.2,
+    "vp": 33.9,
+    "turns": 17.4
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 21.6,
+    "lo": 20.8,
+    "hi": 22.4,
+    "vp": 28.6,
+    "turns": 17.5
+   },
+   "kingdom": "Moneylender, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 19.8,
+   "games_per_sec": 505173
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 58.3,
+    "lo": 57.3,
+    "hi": 59.3,
+    "vp": 32.0,
+    "turns": 16.6
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 41.7,
+    "lo": 40.7,
+    "hi": 42.7,
+    "vp": 31.0,
+    "turns": 16.8
+   },
+   "kingdom": "Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 28.64,
+   "games_per_sec": 349202
+  },
+  {
+   "a_file": "strategies/big_money_ultimate.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Big Money Ultimate",
+    "win": 89.3,
+    "lo": 88.7,
+    "hi": 89.9,
+    "vp": 35.8,
+    "turns": 18.1
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 10.7,
+    "lo": 10.1,
+    "hi": 11.3,
+    "vp": 26.9,
+    "turns": 18.2
+   },
+   "kingdom": "Village, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop, Bureaucrat",
+   "ms": 12190.0,
+   "games_per_sec": 820
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/council_room_bm.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 87.6,
+    "lo": 86.9,
+    "hi": 88.2,
+    "vp": 28.7,
+    "turns": 17.1
+   },
+   "b": {
+    "name": "Council Room-BM",
+    "win": 12.4,
+    "lo": 11.8,
+    "hi": 13.1,
+    "vp": 19.0,
+    "turns": 17.0
+   },
+   "kingdom": "Chapel, Council Room, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 190.04,
+   "games_per_sec": 52619
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/double_witch.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 42.4,
+    "lo": 41.5,
+    "hi": 43.4,
+    "vp": 23.8,
+    "turns": 22.0
+   },
+   "b": {
+    "name": "Double Witch",
+    "win": 57.6,
+    "lo": 56.6,
+    "hi": 58.5,
+    "vp": 25.7,
+    "turns": 22.0
+   },
+   "kingdom": "Chapel, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop, Bureaucrat",
+   "ms": 73.52,
+   "games_per_sec": 136009
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/gardens_workshop.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 99.5,
+    "lo": 99.4,
+    "hi": 99.7,
+    "vp": 50.5,
+    "turns": 26.1
+   },
+   "b": {
+    "name": "Gardens/Workshop",
+    "win": 0.5,
+    "lo": 0.3,
+    "hi": 0.6,
+    "vp": 27.6,
+    "turns": 25.7
+   },
+   "kingdom": "Chapel, Workshop, Gardens, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 78.92,
+   "games_per_sec": 126717
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 94.0,
+    "lo": 93.5,
+    "hi": 94.4,
+    "vp": 30.7,
+    "turns": 19.2
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 6.0,
+    "lo": 5.6,
+    "hi": 6.5,
+    "vp": 16.8,
+    "turns": 19.1
+   },
+   "kingdom": "Chapel, Laboratory, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 90.63,
+   "games_per_sec": 110340
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 70.8,
+    "lo": 69.9,
+    "hi": 71.7,
+    "vp": 27.4,
+    "turns": 21.3
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 29.2,
+    "lo": 28.3,
+    "hi": 30.1,
+    "vp": 21.0,
+    "turns": 21.2
+   },
+   "kingdom": "Chapel, Militia, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 57.7,
+   "games_per_sec": 173296
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 92.9,
+    "lo": 92.4,
+    "hi": 93.4,
+    "vp": 30.9,
+    "turns": 19.3
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 7.1,
+    "lo": 6.6,
+    "hi": 7.6,
+    "vp": 16.6,
+    "turns": 19.2
+   },
+   "kingdom": "Chapel, Moneylender, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 60.04,
+   "games_per_sec": 166563
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 80.7,
+    "lo": 79.9,
+    "hi": 81.5,
+    "vp": 27.9,
+    "turns": 18.2
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 19.3,
+    "lo": 18.5,
+    "hi": 20.1,
+    "vp": 20.2,
+    "turns": 18.1
+   },
+   "kingdom": "Chapel, Smithy, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 71.01,
+   "games_per_sec": 140820
+  },
+  {
+   "a_file": "strategies/chapel_witch.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Chapel/Witch",
+    "win": 98.7,
+    "lo": 98.5,
+    "hi": 98.9,
+    "vp": 35.1,
+    "turns": 20.8
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 1.3,
+    "lo": 1.1,
+    "hi": 1.5,
+    "vp": 11.9,
+    "turns": 20.6
+   },
+   "kingdom": "Chapel, Village, Smithy, Witch, Cellar, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 22060.0,
+   "games_per_sec": 453
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/double_witch.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 7.6,
+    "lo": 7.1,
+    "hi": 8.1,
+    "vp": 18.4,
+    "turns": 17.1
+   },
+   "b": {
+    "name": "Double Witch",
+    "win": 92.4,
+    "lo": 91.9,
+    "hi": 92.9,
+    "vp": 31.5,
+    "turns": 17.2
+   },
+   "kingdom": "Council Room, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 158.72,
+   "games_per_sec": 63005
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/gardens_workshop.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 97.3,
+    "lo": 97.0,
+    "hi": 97.6,
+    "vp": 47.4,
+    "turns": 22.0
+   },
+   "b": {
+    "name": "Gardens/Workshop",
+    "win": 2.7,
+    "lo": 2.4,
+    "hi": 3.0,
+    "vp": 31.1,
+    "turns": 21.7
+   },
+   "kingdom": "Workshop, Gardens, Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 158.71,
+   "games_per_sec": 63007
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 56.5,
+    "lo": 55.5,
+    "hi": 57.5,
+    "vp": 27.5,
+    "turns": 14.8
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 43.5,
+    "lo": 42.5,
+    "hi": 44.5,
+    "vp": 26.5,
+    "turns": 14.9
+   },
+   "kingdom": "Council Room, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 123.2,
+   "games_per_sec": 81169
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 38.0,
+    "lo": 37.0,
+    "hi": 38.9,
+    "vp": 25.7,
+    "turns": 16.1
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 62.0,
+    "lo": 61.1,
+    "hi": 63.0,
+    "vp": 28.3,
+    "turns": 16.2
+   },
+   "kingdom": "Militia, Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 100.59,
+   "games_per_sec": 99412
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 54.9,
+    "lo": 53.9,
+    "hi": 55.8,
+    "vp": 27.4,
+    "turns": 14.8
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 45.1,
+    "lo": 44.2,
+    "hi": 46.1,
+    "vp": 26.6,
+    "turns": 14.8
+   },
+   "kingdom": "Moneylender, Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 100.23,
+   "games_per_sec": 99771
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 34.6,
+    "lo": 33.7,
+    "hi": 35.6,
+    "vp": 25.6,
+    "turns": 14.2
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 65.4,
+    "lo": 64.4,
+    "hi": 66.3,
+    "vp": 28.4,
+    "turns": 14.2
+   },
+   "kingdom": "Smithy, Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 108.21,
+   "games_per_sec": 92413
+  },
+  {
+   "a_file": "strategies/council_room_bm.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Council Room-BM",
+    "win": 76.4,
+    "lo": 75.5,
+    "hi": 77.2,
+    "vp": 29.8,
+    "turns": 15.7
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 23.6,
+    "lo": 22.8,
+    "hi": 24.5,
+    "vp": 24.2,
+    "turns": 15.7
+   },
+   "kingdom": "Village, Smithy, Council Room, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 9390.0,
+   "games_per_sec": 1066
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/gardens_workshop.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 99.7,
+    "lo": 99.5,
+    "hi": 99.8,
+    "vp": 52.8,
+    "turns": 26.4
+   },
+   "b": {
+    "name": "Gardens/Workshop",
+    "win": 0.3,
+    "lo": 0.2,
+    "hi": 0.5,
+    "vp": 27.7,
+    "turns": 26.0
+   },
+   "kingdom": "Workshop, Gardens, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 48.06,
+   "games_per_sec": 208087
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 96.2,
+    "lo": 95.8,
+    "hi": 96.6,
+    "vp": 33.3,
+    "turns": 19.4
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 3.8,
+    "lo": 3.4,
+    "hi": 4.2,
+    "vp": 16.2,
+    "turns": 19.3
+   },
+   "kingdom": "Laboratory, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 65.27,
+   "games_per_sec": 153205
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 85.3,
+    "lo": 84.6,
+    "hi": 85.9,
+    "vp": 30.8,
+    "turns": 20.9
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 14.7,
+    "lo": 14.1,
+    "hi": 15.4,
+    "vp": 18.7,
+    "turns": 20.9
+   },
+   "kingdom": "Militia, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 35.74,
+   "games_per_sec": 279777
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 95.6,
+    "lo": 95.2,
+    "hi": 96.0,
+    "vp": 33.5,
+    "turns": 19.5
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 4.4,
+    "lo": 4.0,
+    "hi": 4.8,
+    "vp": 16.0,
+    "turns": 19.4
+   },
+   "kingdom": "Moneylender, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 33.06,
+   "games_per_sec": 302525
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 86.5,
+    "lo": 85.8,
+    "hi": 87.1,
+    "vp": 30.4,
+    "turns": 18.3
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 13.5,
+    "lo": 12.9,
+    "hi": 14.2,
+    "vp": 19.5,
+    "turns": 18.3
+   },
+   "kingdom": "Smithy, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 45.65,
+   "games_per_sec": 219040
+  },
+  {
+   "a_file": "strategies/double_witch.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Double Witch",
+    "win": 99.3,
+    "lo": 99.1,
+    "hi": 99.5,
+    "vp": 38.0,
+    "turns": 21.2
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 0.7,
+    "lo": 0.5,
+    "hi": 0.9,
+    "vp": 11.1,
+    "turns": 21.1
+   },
+   "kingdom": "Village, Smithy, Witch, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 22210.0,
+   "games_per_sec": 450
+  },
+  {
+   "a_file": "strategies/gardens_workshop.toml",
+   "b_file": "strategies/laboratory_bm.toml",
+   "a": {
+    "name": "Gardens/Workshop",
+    "win": 3.2,
+    "lo": 2.9,
+    "hi": 3.6,
+    "vp": 32.0,
+    "turns": 24.3
+   },
+   "b": {
+    "name": "Laboratory-BM",
+    "win": 96.8,
+    "lo": 96.4,
+    "hi": 97.1,
+    "vp": 47.6,
+    "turns": 24.5
+   },
+   "kingdom": "Workshop, Gardens, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 61.63,
+   "games_per_sec": 162249
+  },
+  {
+   "a_file": "strategies/gardens_workshop.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Gardens/Workshop",
+    "win": 1.9,
+    "lo": 1.6,
+    "hi": 2.2,
+    "vp": 31.5,
+    "turns": 25.3
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 98.1,
+    "lo": 97.8,
+    "hi": 98.4,
+    "vp": 48.6,
+    "turns": 25.6
+   },
+   "kingdom": "Workshop, Gardens, Militia, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 36.94,
+   "games_per_sec": 270735
+  },
+  {
+   "a_file": "strategies/gardens_workshop.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Gardens/Workshop",
+    "win": 3.6,
+    "lo": 3.2,
+    "hi": 4.0,
+    "vp": 32.4,
+    "turns": 24.4
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 96.4,
+    "lo": 96.0,
+    "hi": 96.8,
+    "vp": 47.5,
+    "turns": 24.7
+   },
+   "kingdom": "Workshop, Gardens, Moneylender, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 32.24,
+   "games_per_sec": 310183
+  },
+  {
+   "a_file": "strategies/gardens_workshop.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Gardens/Workshop",
+    "win": 1.5,
+    "lo": 1.3,
+    "hi": 1.7,
+    "vp": 30.4,
+    "turns": 23.1
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 98.5,
+    "lo": 98.3,
+    "hi": 98.7,
+    "vp": 48.4,
+    "turns": 23.5
+   },
+   "kingdom": "Workshop, Gardens, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village",
+   "ms": 45.17,
+   "games_per_sec": 221393
+  },
+  {
+   "a_file": "strategies/gardens_workshop.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Gardens/Workshop",
+    "win": 9.0,
+    "lo": 8.5,
+    "hi": 9.6,
+    "vp": 34.9,
+    "turns": 25.7
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 91.0,
+    "lo": 90.4,
+    "hi": 91.5,
+    "vp": 46.3,
+    "turns": 26.0
+   },
+   "kingdom": "Village, Workshop, Gardens, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal",
+   "ms": 21340.0,
+   "games_per_sec": 469
+  },
+  {
+   "a_file": "strategies/laboratory_bm.toml",
+   "b_file": "strategies/militia_bm.toml",
+   "a": {
+    "name": "Laboratory-BM",
+    "win": 29.1,
+    "lo": 28.2,
+    "hi": 30.0,
+    "vp": 24.7,
+    "turns": 18.4
+   },
+   "b": {
+    "name": "Militia-BM",
+    "win": 70.9,
+    "lo": 70.0,
+    "hi": 71.8,
+    "vp": 29.3,
+    "turns": 18.5
+   },
+   "kingdom": "Militia, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 45.1,
+   "games_per_sec": 221735
+  },
+  {
+   "a_file": "strategies/laboratory_bm.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Laboratory-BM",
+    "win": 52.3,
+    "lo": 51.3,
+    "hi": 53.3,
+    "vp": 27.3,
+    "turns": 16.9
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 47.7,
+    "lo": 46.7,
+    "hi": 48.7,
+    "vp": 26.7,
+    "turns": 16.9
+   },
+   "kingdom": "Moneylender, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 43.32,
+   "games_per_sec": 230828
+  },
+  {
+   "a_file": "strategies/laboratory_bm.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Laboratory-BM",
+    "win": 29.5,
+    "lo": 28.6,
+    "hi": 30.4,
+    "vp": 25.1,
+    "turns": 16.0
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 70.5,
+    "lo": 69.6,
+    "hi": 71.4,
+    "vp": 28.9,
+    "turns": 16.0
+   },
+   "kingdom": "Smithy, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 51.57,
+   "games_per_sec": 193912
+  },
+  {
+   "a_file": "strategies/laboratory_bm.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Laboratory-BM",
+    "win": 68.0,
+    "lo": 67.1,
+    "hi": 68.9,
+    "vp": 28.9,
+    "turns": 17.5
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 32.0,
+    "lo": 31.1,
+    "hi": 32.9,
+    "vp": 25.1,
+    "turns": 17.5
+   },
+   "kingdom": "Village, Smithy, Laboratory, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 10840.0,
+   "games_per_sec": 923
+  },
+  {
+   "a_file": "strategies/militia_bm.toml",
+   "b_file": "strategies/moneylender_bm.toml",
+   "a": {
+    "name": "Militia-BM",
+    "win": 82.1,
+    "lo": 81.4,
+    "hi": 82.9,
+    "vp": 31.2,
+    "turns": 19.2
+   },
+   "b": {
+    "name": "Moneylender-BM",
+    "win": 17.9,
+    "lo": 17.1,
+    "hi": 18.6,
+    "vp": 22.8,
+    "turns": 19.2
+   },
+   "kingdom": "Militia, Moneylender, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 24.58,
+   "games_per_sec": 406823
+  },
+  {
+   "a_file": "strategies/militia_bm.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Militia-BM",
+    "win": 48.5,
+    "lo": 47.6,
+    "hi": 49.5,
+    "vp": 26.9,
+    "turns": 17.5
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 51.4,
+    "lo": 50.5,
+    "hi": 52.4,
+    "vp": 27.1,
+    "turns": 17.5
+   },
+   "kingdom": "Militia, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 30.81,
+   "games_per_sec": 324587
+  },
+  {
+   "a_file": "strategies/militia_bm.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Militia-BM",
+    "win": 84.9,
+    "lo": 84.2,
+    "hi": 85.6,
+    "vp": 31.5,
+    "turns": 19.3
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 15.1,
+    "lo": 14.4,
+    "hi": 15.8,
+    "vp": 22.5,
+    "turns": 19.3
+   },
+   "kingdom": "Village, Militia, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 10610.0,
+   "games_per_sec": 943
+  },
+  {
+   "a_file": "strategies/moneylender_bm.toml",
+   "b_file": "strategies/smithy_bm.toml",
+   "a": {
+    "name": "Moneylender-BM",
+    "win": 28.7,
+    "lo": 27.8,
+    "hi": 29.6,
+    "vp": 24.9,
+    "turns": 16.1
+   },
+   "b": {
+    "name": "Smithy-BM",
+    "win": 71.3,
+    "lo": 70.4,
+    "hi": 72.2,
+    "vp": 29.1,
+    "turns": 16.1
+   },
+   "kingdom": "Moneylender, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop",
+   "ms": 28.41,
+   "games_per_sec": 351940
+  },
+  {
+   "a_file": "strategies/moneylender_bm.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Moneylender-BM",
+    "win": 65.3,
+    "lo": 64.3,
+    "hi": 66.2,
+    "vp": 28.7,
+    "turns": 17.6
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 34.7,
+    "lo": 33.8,
+    "hi": 35.7,
+    "vp": 25.3,
+    "turns": 17.6
+   },
+   "kingdom": "Village, Moneylender, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop",
+   "ms": 11010.0,
+   "games_per_sec": 909
+  },
+  {
+   "a_file": "strategies/smithy_bm.toml",
+   "b_file": "strategies/village_smithy_engine.toml",
+   "a": {
+    "name": "Smithy-BM",
+    "win": 82.8,
+    "lo": 82.1,
+    "hi": 83.5,
+    "vp": 30.7,
+    "turns": 16.7
+   },
+   "b": {
+    "name": "Village/Smithy Engine",
+    "win": 17.2,
+    "lo": 16.5,
+    "hi": 17.9,
+    "vp": 23.3,
+    "turns": 16.7
+   },
+   "kingdom": "Village, Smithy, Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Workshop, Bureaucrat",
+   "ms": 10010.0,
+   "games_per_sec": 999
+  }
+ ]
+}

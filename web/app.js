@@ -685,10 +685,10 @@
       });
       const rest = o.outcomes.slice(shown.length).reduce((a, x) => a + x.p, 0);
       if (rest > 0.0005) oc.appendChild(el("span", "outcome muted", `other ${formatPct(rest)}`));
-      tr.appendChild(oc);
       const pv = el("td", "pv");
       pv.appendChild(decorate(o.pv));
       tr.appendChild(pv);
+      tr.appendChild(oc);
       tbody.appendChild(tr);
     });
   }

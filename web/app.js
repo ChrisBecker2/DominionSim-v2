@@ -1199,6 +1199,29 @@
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
     // Test hook: open index.html#selftest-sim to run a simulation on load.
     if (location.hash === "#selftest-sim") simulate();
+    // Test hook for the README screenshot: a base-game position, analyzed, plus a simulation chart.
+    if (location.hash === "#selftest-readme") {
+      $("state-text").value = [
+        "players: 2",
+        "kingdom: Village, Smithy, Market, Witch, Throne Room, Remodel, Cellar, Militia, Moat, Laboratory",
+        "turn: 9  player: 1  phase: action  actions: 1  buys: 1  coins: 0",
+        "",
+        "[player 1]",
+        "hand: Village, Smithy, Witch, Copper, Silver",
+        "deck: 4 Copper, 2 Estate, Gold, Silver, Curse",
+        "discard: 2 Copper, Estate",
+        "",
+        "[player 2]",
+        "hand: 3 Copper, Silver, Estate",
+        "deck: 3 Copper, 2 Estate, Silver, Gold",
+        "discard: Curse, Copper",
+        "",
+      ].join("\n");
+      $("btn-load").click();
+      renderAnalysis(api.analyze());
+      $("sim-metric").value = "vp";
+      simulateHere(1000);
+    }
     if (location.hash === "#selftest-simcancel") {
       $("sim-games").value = "10000000";
       simulate();

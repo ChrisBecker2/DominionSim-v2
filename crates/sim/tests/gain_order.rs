@@ -351,3 +351,25 @@ fn second_copy_is_scored_with_its_condition_rechecked() {
     assert!(one > 1000.0, "first Witch counts: {one}");
     assert!((two - one).abs() < 1.0, "second Witch adds (almost) nothing: one {one}, two {two}");
 }
+
+#[test]
+fn big_hand_game_plays_to_the_end_without_panicking() {
+    // Regression: playouts past the node budget asked the action-play rule for every decision and
+    // answered "Pass" at a gain (no Pass there) -> "illegal choice" panic. Play the reported
+    // position to the end with several strategy pairings.
+    let text = "players: 2\nkingdom: Witch\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\nseed: 17600139498230406601\n\n\
+                [player 1]\nhand: Bandit, Council Room, Festival, Laboratory, Library, 2 Market, Mine, Sentry, Witch\ndeck: 4 Copper, Estate\n\n\
+                [player 2]\nhand: 4 Copper, Estate\ndeck: 3 Copper, 2 Estate\n";
+    for (a, b) in [("double_witch.toml", "big_money_ultimate.toml"), ("big_money_ultimate.toml", "double_witch.toml"), ("chapel_witch.toml", "smithy_bm.toml")] {
+        let sa = Strategy::parse(&read_strategy(a)).unwrap();
+        let sb = Strategy::parse(&read_strategy(b)).unwrap();
+        for seed in 0..3u64 {
+            let mut g = parse_state(text).unwrap();
+            g.rng = dominion_engine::rng::Rng::new(seed);
+            let mut ga = dominion_sim::StrategyAgent::new(&sa);
+            let mut gb = dominion_sim::StrategyAgent::new(&sb);
+            let r = dominion_engine::play_game(&mut g, &mut [&mut ga, &mut gb], &mut NoEvents);
+            assert!(g.is_game_over() && r.winners != 0);
+        }
+    }
+}

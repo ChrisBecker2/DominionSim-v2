@@ -116,7 +116,12 @@ impl Evaluator for GainListEvaluator<'_> {
     /// values each option by what the bot will actually do next.
     /// In playouts past the node budget, play actions in the strategy's rule order (no search).
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
-        Some(self.strategy.rule_play(&PlayerView::new(state, me), decision, choices))
+        let view = PlayerView::new(state, me);
+        Some(if is_play_decision(decision) {
+            self.strategy.rule_play(&view, decision, choices)
+        } else {
+            self.strategy.decide_by_rules(&view, decision, choices)
+        })
     }
 
     /// Below the root, follow the strategy's rules, except for choosing which action to play

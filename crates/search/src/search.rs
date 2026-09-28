@@ -388,6 +388,12 @@ impl Searcher {
                         }
                         best.1
                     };
+                    let choice = if buf.contains(choice) {
+                        choice
+                    } else {
+                        debug_assert!(false, "playout suggested an illegal choice {choice:?} for {d:?}");
+                        buf.as_slice()[0]
+                    };
                     s.apply(choice, &mut NoEvents).expect("legal choice");
                 }
             }

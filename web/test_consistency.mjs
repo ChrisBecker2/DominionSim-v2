@@ -64,7 +64,8 @@ for (const [pi, text] of POSITIONS.entries()) {
       const rp = W.put(root), sp = W.put(st);
       W.w.eval_task(rp, sp, plan.player, 200000, plan.strategy); const r = JSON.parse(W.rd());
       const pv = enc.encode(r.pv); const pp = P.put(pv);
-      P.w.plan_put_result(i, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pp, pv.length);
+      const ob = enc.encode(r.outcomes); const op = P.put(ob);
+      P.w.plan_put_result(i, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pp, pv.length, op, ob.length);
     }
     const par = JSON.parse((P.w.plan_finish(), P.rd()));
 

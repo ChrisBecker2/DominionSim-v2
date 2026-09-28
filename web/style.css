@@ -397,3 +397,10 @@ section, .panel {
 }
 #crash-panel h2 { color: var(--danger); margin-top: 0; }
 #crash-text { white-space: pre-wrap; font-family: var(--mono); font-size: 12px; user-select: all; }
+
+#analysis-table td.outcomes { font-size: 12px; min-width: 220px; }
+#analysis-table .outcome { display: block; white-space: nowrap; line-height: 1.6; }
+#analysis-table .outcome b { font-variant-numeric: tabular-nums; margin-left: 4px; }
+#analysis-table .outcome.win b { color: var(--accent-2); }
+#analysis-table .outcome.win { font-weight: 600; }
+#analysis-table .outcome.muted { color: var(--text-dim); }

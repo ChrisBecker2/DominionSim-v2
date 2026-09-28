@@ -742,13 +742,16 @@ fn analysis_json(app: &App, d: &Decision, a: &dominion_search::Analysis, scoring
         .map(|o| {
             let index = buf.as_slice().iter().position(|&c| c == o.choice).map_or(-1, |i| i as i64);
             let better = pick_ev.is_some_and(|pe| Some(o.choice) != pick && o.ev > pe + TIE);
+            let outcomes: Vec<String> =
+                o.outcomes.iter().map(|(l, p)| format!("{{\"label\":{},\"p\":{:.5}}}", jstr(l), p)).collect();
             format!(
-                "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"better\":{better},\"pv\":{}}}",
+                "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"better\":{better},\"pv\":{},\"outcomes\":[{}]}}",
                 jstr(&choice_label(d, o.choice)),
                 o.ev,
                 o.exact,
                 Some(o.choice) == pick,
-                jstr(&o.pv)
+                jstr(&o.pv),
+                outcomes.join(",")
             )
         })
         .collect();
@@ -883,21 +886,31 @@ pub extern "C" fn eval_task(root_ptr: u32, state_ptr: u32, me: u32, budget: u32,
             searcher.evaluate(&root, &state, me as u8, &cfg, &eval)
         })
     });
+    let outcomes: Vec<String> = r.outcomes.iter().map(|(l, p)| format!("{l}\u{2}{p}")).collect();
     let json = format!(
-        "{{\"ev\":{},\"exact\":{},\"nodes\":{},\"ttHits\":{},\"pv\":{}}}",
+        "{{\"ev\":{},\"exact\":{},\"nodes\":{},\"ttHits\":{},\"pv\":{},\"outcomes\":{}}}",
         r.ev,
         r.exact,
         r.nodes,
         r.tt_hits,
-        jstr(&r.pv.join("\u{1}"))
+        jstr(&r.pv.join("\u{1}")),
+        jstr(&outcomes.join("\u{1}"))
     );
     result_of(Ok(json))
 }
 
-/// Main side: record task `i`'s result (pv joined with U+0001, passed as a string).
+/// Main side: record task `i`'s result. `pv` is the line joined with U+0001; `outcomes` is
+/// "label U+0002 probability" entries joined with U+0001.
 #[no_mangle]
-pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hits: f64, pv_ptr: u32, pv_len: u32) -> i32 {
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hits: f64, pv_ptr: u32, pv_len: u32, out_ptr: u32, out_len: u32) -> i32 {
     let pv = read_str(pv_ptr, pv_len);
+    let outcomes_text = read_str(out_ptr, out_len);
+    let outcomes: Vec<(String, f64)> = outcomes_text
+        .split('\u{1}')
+        .filter(|e| !e.is_empty())
+        .filter_map(|e| e.split_once('\u{2}').map(|(l, p)| (l.to_string(), p.parse().unwrap_or(0.0))))
+        .collect();
     let r = APP.with(|cell| {
         let mut app = cell.borrow_mut();
         let (_, results, _) = app.plan.as_mut().ok_or("no analysis in progress")?;
@@ -908,6 +921,7 @@ pub extern "C" fn plan_put_result(i: u32, ev: f64, exact: u32, nodes: f64, tt_hi
             nodes: nodes as u64,
             tt_hits: tt_hits as u64,
             pv: pv.split('\u{1}').map(str::to_string).collect(),
+            outcomes,
         });
         Ok(String::new())
     });

@@ -562,8 +562,10 @@
           if (!m.ok) return reject(new Error(m.out));
           const r = JSON.parse(m.out);
           const pv = writeString(r.pv);
-          const st = wasm.plan_put_result(m.id, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pv.ptr, pv.len);
+          const oc = writeString(r.outcomes);
+          const st = wasm.plan_put_result(m.id, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pv.ptr, pv.len, oc.ptr, oc.len);
           freeString(pv);
+          freeString(oc);
           ok(st);
           done++;
           nodes += r.nodes;
@@ -587,6 +589,11 @@
     analysisRun++;
     killPool(); // workers may be mid-subtree; terminate and start fresh next time
     renderAnalysis(null);
+  }
+
+  function formatPct(p) {
+    const v = p * 100;
+    return v >= 99.95 ? "100%" : v >= 10 ? `${v.toFixed(0)}%` : v >= 1 ? `${v.toFixed(1)}%` : `${v.toFixed(2)}%`;
   }
 
   let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
@@ -639,6 +646,18 @@
       const ev = el("td", "ev", o.ev.toFixed(2));
       if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));
       tr.appendChild(ev);
+      // Outcomes this turn: most likely first; a turn that wins the game is highlighted.
+      const oc = el("td", "outcomes");
+      const shown = o.outcomes.slice(0, 6);
+      shown.forEach((x, k) => {
+        const item = el("span", "outcome" + (/Win Game/.test(x.label) ? " win" : ""));
+        item.appendChild(decorate(x.label));
+        item.appendChild(el("b", null, ` ${formatPct(x.p)}`));
+        oc.appendChild(item);
+      });
+      const rest = o.outcomes.slice(shown.length).reduce((a, x) => a + x.p, 0);
+      if (rest > 0.0005) oc.appendChild(el("span", "outcome muted", `other ${formatPct(rest)}`));
+      tr.appendChild(oc);
       const pv = el("td", "pv");
       pv.appendChild(decorate(o.pv));
       tr.appendChild(pv);

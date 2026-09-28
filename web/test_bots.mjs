@@ -88,7 +88,8 @@ deck: 2 Copper, 3 Estate
     const r = JSON.parse(rd(wk));
     wk.dealloc(rp, root.length); wk.dealloc(sp, st.length);
     const pv = enc.encode(r.pv); const pp = put(main, pv);
-    main.plan_put_result(i, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pp, pv.length); main.dealloc(pp, pv.length);
+    const ob = enc.encode(r.outcomes); const op = put(main, ob);
+    main.plan_put_result(i, r.ev, r.exact ? 1 : 0, r.nodes, r.ttHits, pp, pv.length, op, ob.length); main.dealloc(pp, pv.length);
   }
   const par = JSON.parse((main.plan_finish(), rd(main)));
   console.log(`    ${plan.tasks} subtrees; serial best ${serial.options[0].label} ${serial.options[0].ev}, parallel best ${par.options[0].label} ${par.options[0].ev}`);

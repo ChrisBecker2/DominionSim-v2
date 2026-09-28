@@ -51,7 +51,8 @@ for (let g = 0; g < GAMES && crashes === 0; g++) {
             worker.w.eval_task(rp, sp, plan.player, 50000, plan.strategy); const res = JSON.parse(worker.rd());
             worker.w.dealloc(rp, root.length); worker.w.dealloc(sp, st.length);
             const pv = enc.encode(res.pv); const pp = put(pv);
-            w.plan_put_result(i, res.ev, res.exact ? 1 : 0, res.nodes, res.ttHits, pp, pv.length);
+            const ob = enc.encode(res.outcomes); const op = put(ob);
+            w.plan_put_result(i, res.ev, res.exact ? 1 : 0, res.nodes, res.ttHits, pp, pv.length, op, ob.length);
           }
           w.plan_finish();
         }

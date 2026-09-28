@@ -11,7 +11,7 @@
 //! serial one; the values are identical whenever both are exact.
 
 use crate::eval::Evaluator;
-use crate::search::{describe, describe_chance, fixed_choice, is_leaf, Analysis, RootOption, TaskResult};
+use crate::search::{describe, describe_chance, end_of_turn_label, fixed_choice, is_leaf, outcome_label, Analysis, RootOption, TaskResult};
 use dominion_engine::{Choice, ChoiceBuf, GameState, NoEvents, Step};
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -24,8 +24,8 @@ enum Node {
     Chance(String, Vec<(f64, usize)>, usize),
     /// Another player's decision, resolved by the fixed policy.
     Forced(String, usize),
-    /// Already scored during planning (end of turn / game over).
-    Value(f64, &'static str),
+    /// Already scored during planning: value, line tail, outcome label.
+    Value(f64, String, String),
     /// Open subtree handed to a worker: index into `Plan::tasks`.
     Task(usize),
     /// Placeholder while planning.
@@ -84,12 +84,13 @@ impl Plan {
             let Some(n) = open.pop_front() else { break };
             let state = states[n].take().unwrap();
             nodes[n] = if is_leaf(&state) {
-                Node::Value(eval.leaf_value(&root, &state, me), "end turn")
+                Node::Value(eval.leaf_value(&root, &state, me), end_of_turn_label(&state, me), outcome_label(&root, &state, me))
             } else {
                 let mut s = state;
                 match s.advance(&mut NoEvents) {
-                    Step::GameOver => Node::Value(eval.leaf_value(&root, &s, me), "game over"),
-                    Step::TurnStart { .. } => Node::Value(eval.leaf_value(&root, &s, me), "end turn"),
+                    Step::GameOver | Step::TurnStart { .. } => {
+                        Node::Value(eval.leaf_value(&root, &s, me), end_of_turn_label(&s, me), outcome_label(&root, &s, me))
+                    }
                     Step::Chance { player } => {
                         let outcomes = s.chance_outcomes(player);
                         let total = outcomes.total();
@@ -153,7 +154,10 @@ impl Plan {
                 let (ev, exact) = self.value(*n, results);
                 let mut pv = vec![label.clone()];
                 self.pv(*n, results, &mut pv);
-                RootOption { choice: *choice, ev, exact, pv: pv.join(" \u{2192} ") }
+                let mut outcomes = Vec::new();
+                self.outcomes(*n, results, 1.0, &mut outcomes);
+                outcomes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                RootOption { choice: *choice, ev, exact, pv: pv.join(" \u{2192} "), outcomes }
             })
             .collect();
         options.sort_by(|a, b| b.ev.partial_cmp(&a.ev).unwrap_or(std::cmp::Ordering::Equal));
@@ -174,8 +178,39 @@ impl Plan {
                 (sum + p * v, ex && e)
             }),
             Node::Forced(_, k) => self.value(*k, r),
-            Node::Value(v, _) => (*v, true),
+            Node::Value(v, _, _) => (*v, true),
             Node::Task(i) => (r[*i].ev, r[*i].exact),
+            Node::Open => unreachable!(),
+        }
+    }
+
+    /// Outcome distribution below node `n` with probability `p`: best child at my decisions,
+    /// weighted at draws.
+    fn outcomes(&self, n: usize, r: &[TaskResult], p: f64, out: &mut Vec<(String, f64)>) {
+        let add = |label: &str, q: f64, out: &mut Vec<(String, f64)>| match out.iter_mut().find(|(l, _)| l == label) {
+            Some(e) => e.1 += q,
+            None => out.push((label.to_string(), q)),
+        };
+        match &self.nodes[n] {
+            Node::Max(kids) => {
+                let (_, k) = kids
+                    .iter()
+                    .max_by(|a, b| self.value(a.1, r).0.partial_cmp(&self.value(b.1, r).0).unwrap_or(std::cmp::Ordering::Equal))
+                    .unwrap();
+                self.outcomes(*k, r, p, out);
+            }
+            Node::Chance(_, kids, _) => {
+                for (q, k) in kids {
+                    self.outcomes(*k, r, p * q, out);
+                }
+            }
+            Node::Forced(_, k) => self.outcomes(*k, r, p, out),
+            Node::Value(_, _, label) => add(label, p, out),
+            Node::Task(i) => {
+                for (label, q) in &r[*i].outcomes {
+                    add(label, p * q, out);
+                }
+            }
             Node::Open => unreachable!(),
         }
     }
@@ -198,7 +233,7 @@ impl Plan {
                 out.push(label.clone());
                 self.pv(*k, r, out);
             }
-            Node::Value(_, tail) => out.push(tail.to_string()),
+            Node::Value(_, tail, _) => out.push(tail.clone()),
             Node::Task(i) => out.extend(r[*i].pv.iter().cloned()),
             Node::Open => unreachable!(),
         }

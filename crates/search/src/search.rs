@@ -101,6 +101,10 @@ pub struct RootOption {
     /// The best continuation line as readable text, e.g.
     /// `"Play Village → Play Smithy → draw {Gold 30%, Copper 50%, Estate 20%} → end turn"`.
     pub pv: String,
+    /// Probability of each distinct result of the turn under the best play after this choice:
+    /// the cards gained ("Gold + Silver"), plus "Win Game" if the turn ends the game with a win.
+    /// Most likely first.
+    pub outcomes: Vec<(String, f64)>,
 }
 
 /// The result of `analyze`: every legal choice at the root decision, ranked best-first.
@@ -130,6 +134,8 @@ pub struct TaskResult {
     pub tt_hits: u64,
     /// Best continuation from the subtree's root, as readable steps.
     pub pv: Vec<String>,
+    /// Outcome distribution of the subtree (see `RootOption::outcomes`).
+    pub outcomes: Vec<(String, f64)>,
 }
 
 /// Owns the transposition table and RNG so repeated `analyze` calls (e.g. one per turn across a
@@ -185,7 +191,8 @@ impl Searcher {
             let r = self.node_value(&root, &child, me, cfg, eval);
             let mut pv = vec![describe(&d, choice)];
             pv.extend(self.build_pv(&root, &child, me, cfg, eval));
-            options.push(RootOption { choice, ev: r.ev, exact: r.exact, pv: pv.join(" \u{2192} ") });
+            let outcomes = self.outcomes(&root, &child, me, cfg, eval);
+            options.push(RootOption { choice, ev: r.ev, exact: r.exact, pv: pv.join(" \u{2192} "), outcomes });
         }
         options.sort_by(|a, b| b.ev.partial_cmp(&a.ev).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -278,7 +285,8 @@ impl Searcher {
         self.generation = self.generation.wrapping_add(1).max(1);
         let r = self.node_value(root, state, me, cfg, eval);
         let pv = self.build_pv(root, state, me, cfg, eval);
-        TaskResult { ev: r.ev, exact: r.exact, nodes: self.nodes, tt_hits: self.tt_hits, pv }
+        let outcomes = self.outcomes(root, state, me, cfg, eval);
+        TaskResult { ev: r.ev, exact: r.exact, nodes: self.nodes, tt_hits: self.tt_hits, pv, outcomes }
     }
 
     // ------------------------------------------------------------------------------------
@@ -435,6 +443,86 @@ impl Searcher {
         }
     }
 
+    /// Outcome distribution after `after`: follow the best play (the same choices the value and
+    /// line use) and weight every draw by its probability. Past `OUTCOME_CHANCE_BUDGET` expanded
+    /// draws, only the most likely card is followed (the result is then approximate).
+    pub(crate) fn outcomes<E: Evaluator>(&mut self, root: &GameState, after: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> Vec<(String, f64)> {
+        const OUTCOME_CHANCE_BUDGET: u32 = 4_000;
+        let mut acc: Vec<(String, f64)> = Vec::new();
+        let mut budget = OUTCOME_CHANCE_BUDGET;
+        self.outcomes_rec(root, *after, me, cfg, eval, 1.0, &mut budget, &mut acc);
+        acc.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        acc
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn outcomes_rec<E: Evaluator>(
+        &mut self,
+        root: &GameState,
+        mut s: GameState,
+        me: u8,
+        cfg: &SearchConfig,
+        eval: &E,
+        p: f64,
+        budget: &mut u32,
+        acc: &mut Vec<(String, f64)>,
+    ) {
+        let add = |label: String, p: f64, acc: &mut Vec<(String, f64)>| match acc.iter_mut().find(|(l, _)| *l == label) {
+            Some(e) => e.1 += p,
+            None => acc.push((label, p)),
+        };
+        loop {
+            if is_leaf(&s) {
+                add(outcome_label(root, &s, me), p, acc);
+                return;
+            }
+            match s.advance(&mut NoEvents) {
+                Step::GameOver | Step::TurnStart { .. } => {
+                    add(outcome_label(root, &s, me), p, acc);
+                    return;
+                }
+                Step::Chance { player } => {
+                    let outcomes = s.chance_outcomes(player);
+                    let total = outcomes.total() as f64;
+                    if *budget > 0 {
+                        *budget -= 1;
+                        for (card, n) in outcomes.iter() {
+                            let mut c = s;
+                            c.resolve_chance(player, card);
+                            self.outcomes_rec(root, c, me, cfg, eval, p * n as f64 / total, budget, acc);
+                        }
+                        return;
+                    }
+                    let (card, _) = outcomes.iter().max_by_key(|&(_, n)| n).expect("nonempty outcomes");
+                    s.resolve_chance(player, card);
+                }
+                Step::Decision(d) => {
+                    let mut buf = ChoiceBuf::default();
+                    s.legal_choices(&mut buf);
+                    let choice = if let Some(c) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
+                        c
+                    } else {
+                        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
+                        let mut best = (f64::NEG_INFINITY, buf.as_slice()[0]);
+                        for &c in buf.as_slice() {
+                            if any_allowed && !eval.allows(&s, me, &d, c) {
+                                continue;
+                            }
+                            let mut child = s;
+                            child.apply(c, &mut NoEvents).expect("legal choice");
+                            let r = self.node_value(root, &child, me, cfg, eval);
+                            if r.ev > best.0 {
+                                best = (r.ev, c);
+                            }
+                        }
+                        best.1
+                    };
+                    s.apply(choice, &mut NoEvents).expect("legal choice");
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------------------------
     // Principal-variation text, built by greedily following argmax choices (backed by the
     // now-populated TT, so this is cheap) and, at chance nodes, the most likely outcome.
@@ -445,7 +533,7 @@ impl Searcher {
         let mut parts = Vec::new();
         loop {
             if is_leaf(&s) {
-                parts.push("end turn".to_string());
+                parts.push(end_of_turn_label(&s, me));
                 return parts;
             }
             match s.advance(&mut NoEvents) {
@@ -454,7 +542,7 @@ impl Searcher {
                     return parts;
                 }
                 Step::TurnStart { .. } => {
-                    parts.push("end turn".to_string());
+                    parts.push(end_of_turn_label(&s, me));
                     return parts;
                 }
                 Step::Chance { player } => {
@@ -509,6 +597,44 @@ fn with_source(base: String, source: Option<dominion_engine::CardId>, choice_car
     match source {
         Some(src) if Some(src) != choice_card => format!("{base} ({})", cards::name(src)),
         _ => base,
+    }
+}
+
+/// "end turn", or "end turn → Win Game" / "end turn → game ends (not a win)" when the turn ends it.
+pub(crate) fn end_of_turn_label(leaf: &GameState, me: u8) -> String {
+    match leaf.result_if_turn_ends() {
+        Some(w) if w == 1 << me => "end turn \u{2192} Win Game".to_string(),
+        Some(_) => "end turn \u{2192} game ends (not a win)".to_string(),
+        None => "end turn".to_string(),
+    }
+}
+
+/// A turn's result for `me`: the cards gained (priciest first), plus the game result if the turn
+/// ends the game. "Nothing" when nothing was gained.
+pub(crate) fn outcome_label(root: &GameState, leaf: &GameState, me: u8) -> String {
+    let before = root.players[me as usize].all_cards();
+    let after = leaf.players[me as usize].all_cards();
+    let mut gained: Vec<(u8, dominion_engine::CardId, i32)> = Vec::new();
+    for c in 0..dominion_engine::cards::NUM_CARDS as dominion_engine::CardId {
+        let d = after.get(c) as i32 - before.get(c) as i32;
+        if d > 0 {
+            gained.push((cards::cost(c), c, d));
+        }
+    }
+    gained.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut parts: Vec<String> = gained
+        .iter()
+        .map(|&(_, c, n)| if n > 1 { format!("{n} {}", cards::name(c)) } else { cards::name(c).to_string() })
+        .collect();
+    match leaf.result_if_turn_ends() {
+        Some(w) if w == 1 << me => parts.push("Win Game".to_string()),
+        Some(_) => parts.push("game ends (not a win)".to_string()),
+        None => {}
+    }
+    if parts.is_empty() {
+        "Nothing".to_string()
+    } else {
+        parts.join(" + ")
     }
 }
 

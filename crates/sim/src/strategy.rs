@@ -247,7 +247,9 @@ impl Strategy {
         const UNLISTED: i32 = 10_000;
         let d = cards::def(card);
         let terminal = d.actions == 0;
-        let mut score = if terminal { 500 } else { 0 };
+        // Non-terminals (+Actions) first, then cards that play other actions (Throne Room), so
+        // they multiply a terminal rather than a village, then plain terminals.
+        let mut score = if d.plays > 0 { 250 } else if terminal { 500 } else { 0 };
         score -= d.actions as i32 * 20; // extra +actions: safely play early
         score -= d.cards as i32 * 5; // draw cards before non-draw cards
         score -= d.buys as i32 * 2;

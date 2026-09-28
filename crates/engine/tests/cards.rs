@@ -914,3 +914,18 @@ fn artisan_gains_to_hand_then_topdecks_a_card() {
     assert_eq!(g.players[0].deck_known.peek_top(), Some(id::DUCHY));
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::CURSE]));
 }
+
+#[test]
+fn throne_room_merchant_bonus_counts_both_plays_but_only_the_first_silver() {
+    // One physical Merchant played twice sets up two "+$1 on the first Silver" bonuses; both
+    // trigger on the first Silver, none on the second: 2 Silvers ($4) + $2 = $6.
+    let mut g = new_state(&[id::THRONE_ROOM, id::MERCHANT], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MERCHANT, id::SILVER, id::SILVER]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::MERCHANT));
+    assert!(matches!(adv(&mut g), Step::Decision(Decision { kind: DecisionKind::Buy, .. })));
+    assert_eq!(g.players[0].in_play.get(id::MERCHANT), 1, "only one physical Merchant in play");
+    assert_eq!(g.turn.merchants, 2, "two Merchant plays");
+    assert_eq!(g.turn.coins, 6);
+}

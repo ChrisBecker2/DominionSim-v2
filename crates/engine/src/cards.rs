@@ -61,10 +61,16 @@ pub struct CardDef {
     pub cards: u8,
     pub actions: u8,
     pub buys: u8,
+    /// Plays another Action card this many times (Throne Room: 2); 0 if it doesn't.
+    pub plays: u8,
 }
 
 const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
-    CardDef { name, cost, types, coins, vp, cards, actions, buys }
+    CardDef { name, cost, types, coins, vp, cards, actions, buys, plays: 0 }
+}
+
+const fn plays(d: CardDef, times: u8) -> CardDef {
+    CardDef { plays: times, ..d }
 }
 
 pub static CARDS: [CardDef; NUM_CARDS] = [
@@ -90,7 +96,7 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     c("Poacher", 4, ACTION, 1, 0, 1, 1, 0),
     c("Remodel", 4, ACTION, 0, 0, 0, 0, 0),
     c("Smithy", 4, ACTION, 0, 0, 3, 0, 0),
-    c("Throne Room", 4, ACTION, 0, 0, 0, 0, 0),
+    plays(c("Throne Room", 4, ACTION, 0, 0, 0, 0, 0), 2),
     c("Bandit", 5, ACTION | ATTACK, 0, 0, 0, 0, 0),
     c("Council Room", 5, ACTION, 0, 0, 4, 0, 1),
     c("Festival", 5, ACTION, 2, 0, 0, 2, 1),

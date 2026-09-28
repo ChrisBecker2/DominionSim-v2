@@ -11,8 +11,7 @@
 //! serial one; the values are identical whenever both are exact.
 
 use crate::eval::Evaluator;
-use crate::policy::default_policy;
-use crate::search::{describe, describe_chance, is_leaf, Analysis, RootOption, TaskResult};
+use crate::search::{describe, describe_chance, fixed_choice, is_leaf, Analysis, RootOption, TaskResult};
 use dominion_engine::{Choice, ChoiceBuf, GameState, NoEvents, Step};
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -110,8 +109,7 @@ impl Plan {
                     Step::Decision(d) => {
                         let mut buf = ChoiceBuf::default();
                         s.legal_choices(&mut buf);
-                        if d.player != me {
-                            let choice = default_policy(&s, &d, buf.as_slice());
+                        if let Some(choice) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
                             let mut c = s;
                             c.apply(choice, &mut NoEvents).expect("policy choice is legal");
                             let idx = new_open(&mut nodes, &mut states, &mut open, c);

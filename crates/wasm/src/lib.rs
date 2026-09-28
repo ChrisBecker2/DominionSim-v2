@@ -63,9 +63,29 @@ impl Evaluator for SeatEval<'_> {
 /// `strategy`: index into the bundled strategies, or `u32::MAX` for the general evaluator.
 fn seat_eval(strategies: &[Strategy], strategy: u32) -> (SeatEval<'_>, String) {
     match strategies.get(strategy as usize) {
-        Some(s) => (SeatEval::Gains(GainListEvaluator::new(s)), format!("{}'s gain priorities", s.name)),
+        Some(s) => (SeatEval::Gains(GainListEvaluator::new(s)), format!("{}'s gain priorities, rest of turn played by its rules", s.name)),
         None => (SeatEval::General(NextHandEvaluator::default()), "search evaluator (VP + future money)".to_string()),
     }
+}
+
+/// Hidden-information samples are seeded from the position itself, so Analyze, Auto-step and
+/// Run to end of turn all see the same sampled opponent hands for the same position.
+fn position_rng(state: &GameState) -> Rng {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    state.hash(&mut h);
+    Rng::new(h.finish())
+}
+
+/// A stable id for the current position, so the UI can tell whether an analysis is current.
+#[no_mangle]
+pub extern "C" fn state_id() -> u32 {
+    APP.with(|cell| {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        cell.borrow().state.hash(&mut h);
+        h.finish() as u32
+    })
 }
 
 /// Strategy index whose priorities judge `player`'s decisions (`u32::MAX` = general).
@@ -110,7 +130,6 @@ struct App {
     strategies: Vec<Strategy>,
     searcher: Searcher,
     search_cfg: SearchConfig,
-    rng: Rng,
     /// (event tag, player, log line) of the run the last event started, for condensing.
     log_group: Option<(u8, u8, usize)>,
     /// Parallel analysis in progress: the split tree, results received so far, and the
@@ -143,7 +162,6 @@ impl App {
             strategies,
             searcher: Searcher::new(search_cfg.tt_bits),
             search_cfg,
-            rng: Rng::new(0x5eed),
             log_group: None,
             plan: None,
             start_text,
@@ -584,7 +602,7 @@ fn bot_choice(app: &mut App, human_uses_search: bool) -> Result<Choice, String> 
     if seat == SEAT_HUMAN && !human_uses_search {
         return Err("a human seat is deciding".to_string());
     }
-    let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
+    let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &NextHandEvaluator::default());
     Ok(a.best().choice)
 }
@@ -609,10 +627,10 @@ fn run_bots_impl(app: &mut App) -> Result<(), String> {
 
 fn analyze_json(app: &mut App) -> Result<String, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
-    let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
+    let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
     let (eval, scoring) = seat_eval(&app.strategies, scoring_strategy(app, d.player));
     let a = app.searcher.analyze(&world, d.player, &app.search_cfg, &eval);
-    Ok(analysis_json(&d, &a, &scoring, rules_pick(app, &d)))
+    Ok(analysis_json(app, &d, &a, &scoring, rules_pick(app, &d)))
 }
 
 /// What the deciding seat's strategy would choose here (None for human/search seats).
@@ -624,22 +642,25 @@ fn rules_pick(app: &App, d: &Decision) -> Option<Choice> {
     Some(strategy.decide(&PlayerView::new(&app.state, d.player), d, buf.as_slice()))
 }
 
-fn analysis_json(d: &Decision, a: &dominion_search::Analysis, scoring: &str, pick: Option<Choice>) -> String {
-    // Options tied at display precision are listed with the strategy's own pick first.
+fn analysis_json(app: &App, d: &Decision, a: &dominion_search::Analysis, scoring: &str, pick: Option<Choice>) -> String {
+    // A strategy seat's own choice is listed first: it is what Auto-step and Run to end of turn
+    // play. Other options follow by value; `better` flags any that would score higher.
     const TIE: f64 = 0.005;
+    let pick_ev = pick.and_then(|p| a.options.iter().find(|o| o.choice == p)).map(|o| o.ev);
     let mut options = a.options.clone();
     options.sort_by(|x, y| {
-        if (x.ev - y.ev).abs() < TIE {
-            (Some(y.choice) == pick).cmp(&(Some(x.choice) == pick))
-        } else {
-            y.ev.partial_cmp(&x.ev).unwrap_or(std::cmp::Ordering::Equal)
-        }
+        let (xp, yp) = (Some(x.choice) == pick, Some(y.choice) == pick);
+        yp.cmp(&xp).then(y.ev.partial_cmp(&x.ev).unwrap_or(std::cmp::Ordering::Equal))
     });
+    let mut buf = ChoiceBuf::default();
+    app.state.legal_choices(&mut buf);
     let opts: Vec<String> = options
         .iter()
         .map(|o| {
+            let index = buf.as_slice().iter().position(|&c| c == o.choice).map_or(-1, |i| i as i64);
+            let better = pick_ev.is_some_and(|pe| Some(o.choice) != pick && o.ev > pe + TIE);
             format!(
-                "{{\"label\":{},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"pv\":{}}}",
+                "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"better\":{better},\"pv\":{}}}",
                 jstr(&choice_label(d, o.choice)),
                 o.ev,
                 o.exact,
@@ -649,8 +670,14 @@ fn analysis_json(d: &Decision, a: &dominion_search::Analysis, scoring: &str, pic
         })
         .collect();
     format!(
-        "{{\"player\":{},\"scoring\":{},\"nodes\":{},\"ttHits\":{},\"options\":[{}]}}",
+        "{{\"player\":{},\"stateId\":{},\"scoring\":{},\"nodes\":{},\"ttHits\":{},\"options\":[{}]}}",
         d.player,
+        {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            app.state.hash(&mut h);
+            h.finish() as u32
+        },
         jstr(scoring),
         a.nodes,
         a.tt_hits,
@@ -708,7 +735,7 @@ pub extern "C" fn plan_start(target_tasks: u32) -> i32 {
         let mut guard = cell.borrow_mut();
         let app = &mut *guard;
         let d = app.state.pending_decision().ok_or("no decision is pending")?;
-        let world = PlayerView::new(&app.state, d.player).determinize(&mut app.rng);
+        let world = PlayerView::new(&app.state, d.player).determinize(&mut position_rng(&app.state));
         let strategy = scoring_strategy(app, d.player);
         let (eval, _) = seat_eval(&app.strategies, strategy);
         let plan = Plan::build(&world, d.player, target_tasks.max(1) as usize, &eval);
@@ -814,7 +841,7 @@ pub extern "C" fn plan_finish() -> i32 {
         let a = plan.finish(&results, std::time::Duration::ZERO);
         let d = app.state.pending_decision().ok_or("decision changed during analysis")?;
         let (_, scoring) = seat_eval(&app.strategies, strategy);
-        Ok(analysis_json(&d, &a, &scoring, rules_pick(&app, &d)))
+        Ok(analysis_json(&app, &d, &a, &scoring, rules_pick(&app, &d)))
     });
     result_of(r)
 }

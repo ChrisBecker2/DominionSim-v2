@@ -60,6 +60,12 @@ impl Evaluator for GainListEvaluator<'_> {
         win + v + 1e-3 * tie
     }
 
+    /// Below the analyzed decision, play exactly as the strategy's rules do, so the analysis
+    /// values each option by what the bot will actually do next.
+    fn policy(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        Some(self.strategy.decide(&PlayerView::new(state, me), decision, choices))
+    }
+
     /// The strategy only buys cards in its gain list whose conditions hold, else Done.
     fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
         match (decision.kind, choice) {

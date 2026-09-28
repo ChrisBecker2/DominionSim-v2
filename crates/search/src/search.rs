@@ -31,6 +31,16 @@ fn now() -> Option<Instant> {
     None
 }
 
+/// A decision that isn't searched: another player's (fixed default policy) or one of `me`'s
+/// when the evaluator supplies a policy.
+pub(crate) fn fixed_choice<E: Evaluator>(eval: &E, s: &GameState, me: u8, d: &Decision, choices: &[Choice]) -> Option<Choice> {
+    if d.player != me {
+        Some(default_policy(s, d, choices))
+    } else {
+        eval.policy(s, me, d, choices)
+    }
+}
+
 pub(crate) fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
         && (state.turn.phase == Phase::CleanupDraw || (state.turn.phase == Phase::Buy && state.turn.buys == 0))
@@ -266,10 +276,9 @@ impl Searcher {
                 let mut buf = ChoiceBuf::default();
                 s.legal_choices(&mut buf);
                 debug_assert!(!buf.is_empty());
-                if d.player != me {
-                    let choice = default_policy(&s, &d, buf.as_slice());
+                if let Some(choice) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
                     let mut child = s;
-                    child.apply(choice, &mut NoEvents).expect("default policy chose an illegal choice");
+                    child.apply(choice, &mut NoEvents).expect("fixed policy chose an illegal choice");
                     self.node_value(root, &child, me, cfg, eval)
                 } else {
                     let mut best = f64::NEG_INFINITY;
@@ -322,8 +331,8 @@ impl Searcher {
                 }
                 Step::Decision(d) => {
                     s.legal_choices(&mut buf);
-                    let choice = if d.player != me {
-                        default_policy(&s, &d, buf.as_slice())
+                    let choice = if let Some(c) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
+                        c
                     } else {
                         let mut best = (f64::NEG_INFINITY, buf.as_slice()[0]);
                         let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
@@ -409,7 +418,9 @@ impl Searcher {
                 Step::Decision(d) => {
                     let mut buf = ChoiceBuf::default();
                     s.legal_choices(&mut buf);
-                    let choice = if d.player == me {
+                    let choice = if let Some(c) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
+                        c
+                    } else {
                         let mut best_choice = buf.as_slice()[0];
                         let mut best = f64::NEG_INFINITY;
                         let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
@@ -426,8 +437,6 @@ impl Searcher {
                             }
                         }
                         best_choice
-                    } else {
-                        default_policy(&s, &d, buf.as_slice())
                     };
                     parts.push(describe(&d, choice));
                     s.apply(choice, &mut NoEvents).expect("PV replay: choice became illegal");

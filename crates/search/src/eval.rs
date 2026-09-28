@@ -22,6 +22,13 @@ pub trait Evaluator {
     fn value_when_nothing_allowed(&self) -> Option<f64> {
         None
     }
+
+    /// If `me` follows a fixed policy below the root (e.g. a strategy's rules), the choice it
+    /// makes here; the search then follows it instead of maximizing. The root decision itself is
+    /// always expanded, so every option there is still evaluated.
+    fn policy(&self, _state: &GameState, _me: u8, _decision: &Decision, _choices: &[Choice]) -> Option<Choice> {
+        None
+    }
 }
 
 /// Dominates every other term: winning the game outright if this turn ends it, sharing it,

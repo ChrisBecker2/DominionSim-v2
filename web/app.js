@@ -101,6 +101,9 @@
     analyze() {
       return JSON.parse(ok(wasm.analyze()));
     },
+    stateId() {
+      return wasm.state_id() >>> 0;
+    },
   };
 
   let botNames = [];
@@ -539,7 +542,10 @@
     renderAnalysis(null);
   }
 
+  let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
+
   function renderAnalysis(result) {
+    shownAnalysis = result;
     const panel = $("analysis-panel");
     const tbody = $("analysis-table").querySelector("tbody");
     tbody.innerHTML = "";
@@ -557,6 +563,7 @@
       const label = el("td");
       label.appendChild(decorate(o.label));
       if (o.rulesPick) label.appendChild(el("span", "rules-pick", "rules' pick"));
+      if (o.better) label.appendChild(el("span", "rules-better", "scores higher than rules' pick"));
       tr.appendChild(label);
       const ev = el("td", "ev", o.ev.toFixed(2));
       if (!o.exact) ev.appendChild(el("span", "approx", "~sampled"));
@@ -628,7 +635,14 @@
 
     $("btn-sync").addEventListener("click", () => syncTextFromGame());
 
-    $("btn-auto").addEventListener("click", () => doAction(() => api.stepAuto()));
+    // Auto-step plays the displayed analysis's top choice when it's for this exact position
+    // (for strategy seats that's the rules' pick), otherwise the seat's controller decides.
+    $("btn-auto").addEventListener("click", () => {
+      const a = shownAnalysis;
+      const top = a && a.options && a.options[0];
+      const current = a && (a.stateId >>> 0) === api.stateId() && top && top.index >= 0;
+      doAction(() => (current ? api.choose(top.index) : api.stepAuto()));
+    });
     $("btn-run-turn").addEventListener("click", () => doAction(() => api.runToEndOfTurn()));
     $("btn-run-bots").addEventListener("click", () => doAction(() => api.runBots()));
     $("btn-analyze").addEventListener("click", () => {

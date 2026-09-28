@@ -22,5 +22,5 @@ pub mod strategy;
 pub mod batch;
 
 pub use agent::StrategyAgent;
-pub use eval::GainListEvaluator;
+pub use eval::{certain_win_choice, GainListEvaluator, WinFinder};
 pub use strategy::Strategy;

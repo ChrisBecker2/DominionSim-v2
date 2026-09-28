@@ -16,6 +16,12 @@ pub trait Evaluator {
     fn allows(&self, _state: &GameState, _me: u8, _decision: &Decision, _choice: Choice) -> bool {
         true
     }
+
+    /// When none of `me`'s choices at a decision are allowed: `Some(v)` scores that line `v`
+    /// (prunes it); `None` falls back to considering every legal choice.
+    fn value_when_nothing_allowed(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// Dominates every other term: winning the game outright if this turn ends it, sharing it,

@@ -9,6 +9,10 @@
 //! whichever card unlocks the highest-ranked gain in the list (ties: trash the cheaper card).
 //! `[[buy]]` is accepted as an older alias for `[[gain]]`.
 //!
+//! One lookahead rule applies to every strategy unless the file sets `win_this_turn = false`: when
+//! the game is close to ending, if some line of play this turn wins for certain while acquiring
+//! only gain-list cards, play it.
+//!
 //! Everything else (Cellar, Militia, Bureaucrat, Throne Room, Bandit, Library,
 //! Harbinger, Vassal, Moneylender, Artisan, Sentry, Poacher...) is handled by sensible,
 //! table-driven defaults keyed on the *shape* of the decision (which zone, which action) rather
@@ -39,6 +43,10 @@ struct BuyRuleRaw {
     cond: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Deserialize, Default)]
 struct StrategyFile {
     name: String,
@@ -61,6 +69,10 @@ struct StrategyFile {
     /// many treasures in hand. Default 2.
     #[serde(default)]
     keep_treasure: Option<u8>,
+    /// Before following the lists, look for a line of play that wins the game this turn for
+    /// certain, acquiring only cards in the gain list; play it if found. Default true.
+    #[serde(default = "default_true")]
+    win_this_turn: bool,
 }
 
 // -------------------------------------------------------------------------------------------
@@ -76,6 +88,7 @@ pub struct Strategy {
     play_rank: [i16; NUM_CARDS],
     trash_priority: Vec<CardId>,
     keep_treasure: u8,
+    pub win_this_turn: bool,
 }
 
 impl Strategy {
@@ -115,7 +128,7 @@ impl Strategy {
             None => vec![id::CURSE, id::ESTATE, id::COPPER],
         };
 
-        Ok(Strategy { name: raw.name, description: raw.description, buy, play_rank, trash_priority, keep_treasure: raw.keep_treasure.unwrap_or(2) })
+        Ok(Strategy { name: raw.name, description: raw.description, buy, play_rank, trash_priority, keep_treasure: raw.keep_treasure.unwrap_or(2), win_this_turn: raw.win_this_turn })
     }
 
     /// Every kingdom card (id >= `FIRST_KINGDOM`) this strategy names, in its buy list, play
@@ -144,6 +157,11 @@ impl Strategy {
 
     /// Which of `choices` this strategy picks for `decision`. Allocation-free.
     pub fn decide(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if self.win_this_turn && view.is_my_turn() && decision.player == view.me() && Self::game_could_end_soon(view) {
+            if let Some(c) = crate::eval::certain_win_choice(self, view, choices) {
+                return c;
+            }
+        }
         match decision.kind {
             DecisionKind::PlayAction => self.best_play(view, choices, false).map(Choice::Card).unwrap_or(Choice::Pass),
             DecisionKind::Buy => self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
@@ -196,6 +214,35 @@ impl Strategy {
                 && view.supply(*card) > 0
                 && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
         })
+    }
+
+    /// Cheap gate for `win_this_turn`: only search when the game could end with at most
+    /// `MAX_ENDING_GAINS` more gains: the Province pile, or the smallest piles needed to reach
+    /// the empty-pile limit. Allocation-free.
+    fn game_could_end_soon(view: &PlayerView) -> bool {
+        const MAX_ENDING_GAINS: u32 = 3;
+        if (view.supply(id::PROVINCE) as u32) <= MAX_ENDING_GAINS {
+            return true;
+        }
+        let pile_limit: u32 = if view.num_players() >= 5 { 4 } else { 3 };
+        let need = pile_limit.saturating_sub(view.empty_piles()).min(4);
+        // Sum of the `need` smallest non-empty piles, via a small fixed-size selection.
+        let mut smallest = [u32::MAX; 4];
+        for c in 0..NUM_CARDS as CardId {
+            if view.in_supply(c) && view.supply(c) > 0 {
+                let n = view.supply(c) as u32;
+                let mut i = smallest.len();
+                while i > 0 && smallest[i - 1] > n {
+                    i -= 1;
+                }
+                if i < smallest.len() {
+                    smallest.copy_within(i..3, i + 1);
+                    smallest[i] = n;
+                }
+            }
+        }
+        let total: u32 = smallest[..need as usize].iter().fold(0u32, |a, &b| a.saturating_add(b));
+        total <= MAX_ENDING_GAINS
     }
 
     /// First entry in the gain list that's a legal choice and whose condition holds.

@@ -181,6 +181,45 @@ impl Searcher {
         Analysis { options, nodes: self.nodes, tt_hits: self.tt_hits, tt_stores: self.tt_stores, elapsed: start.map(|t| t.elapsed()).unwrap_or_default() }
     }
 
+    /// The first root choice (in legal-choice order) whose value satisfies `accept(ev, exact)`,
+    /// stopping as soon as one is found. No readable lines are built and nothing is allocated
+    /// (beyond the searcher's own table), so bots can call it inside batch simulations.
+    pub fn first_choice_where<E: Evaluator>(
+        &mut self,
+        state: &GameState,
+        me: u8,
+        cfg: &SearchConfig,
+        eval: &E,
+        accept: impl Fn(f64, bool) -> bool,
+    ) -> Option<Choice> {
+        self.nodes = 0;
+        self.tt_hits = 0;
+        self.tt_stores = 0;
+        self.rng = Rng::new(cfg.seed);
+        self.generation = self.generation.wrapping_add(1).max(1);
+        let mut root = *state;
+        root.chance_mode = true;
+        let d = root.pending_decision()?;
+        if d.player != me {
+            return None;
+        }
+        let mut buf = ChoiceBuf::default();
+        root.legal_choices(&mut buf);
+        let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
+        for &choice in buf.as_slice() {
+            if any_allowed && !eval.allows(&root, me, &d, choice) {
+                continue;
+            }
+            let mut child = root;
+            child.apply(choice, &mut NoEvents).ok()?;
+            let r = self.node_value(&root, &child, me, cfg, eval);
+            if accept(r.ev, r.exact) {
+                return Some(choice);
+            }
+        }
+        None
+    }
+
     /// Value of one subtree (a state with nothing pending) plus its best continuation, as a
     /// self-contained unit of work for parallel analysis (`plan::Plan`). Uses this searcher's
     /// own transposition table, scoped to this call.
@@ -236,6 +275,12 @@ impl Searcher {
                     let mut best = f64::NEG_INFINITY;
                     let mut exact = true;
                     let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&s, me, &d, c));
+                    if !any_allowed {
+                        if let Some(v) = eval.value_when_nothing_allowed() {
+                            best = v;
+                            buf.clear();
+                        }
+                    }
                     for &choice in buf.as_slice() {
                         if any_allowed && !eval.allows(&s, me, &d, choice) {
                             continue;

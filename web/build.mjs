@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { execSync } from "node:child_process";
 
 // "build 2026-09-27 16:42 · 1c2190a" (commit id, "+dirty" when there are uncommitted changes).
@@ -15,7 +16,6 @@ function buildStamp() {
   return `build ${when} · ${rev}`;
 }
 
-#!/usr/bin/env node
 // Builds web/dist/index.html: a single static file with the compiled wasm module inlined as
 // base64, so it opens directly via file:// with no server and no bundler. Also copies the raw
 // .wasm into web/dist/ for anyone who wants it standalone (e.g. web/test.mjs).

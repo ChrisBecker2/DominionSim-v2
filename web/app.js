@@ -743,6 +743,14 @@
 
   let simResult = null;
   let simRun = 0;
+  let cancelSim = null; // set while a simulation runs; stops it
+
+  function setSimButton(running) {
+    const b = $("btn-simulate");
+    b.textContent = running ? "Cancel" : "Simulate from here";
+    b.classList.toggle("primary", !running);
+    b.title = running ? "Stop the simulation" : "Play this many games from the current position with each seat's controller";
+  }
 
   // Same-thread fallback (no Web Workers): run the games in the page's own engine instance.
   // Chart the game just played (Run Game): the same charts, one game.
@@ -784,9 +792,12 @@
     const workers = getPool();
     const t0 = performance.now();
     $("sim-status").textContent = `Starting ${workers.length} workers…`;
-    $("btn-simulate").disabled = true;
+    const cancelled = new Promise((_, reject) => {
+      cancelSim = () => reject(new Error("cancelled"));
+    });
+    setSimButton(true);
     try {
-      await Promise.all(workers.map((p) => p.ready));
+      await Promise.race([Promise.all(workers.map((p) => p.ready)), cancelled]);
       wasm.state_bytes_current();
       const state = resultBytes();
       const seatsNow = api.getSeats();
@@ -815,7 +826,7 @@
         done++;
         if (run === simRun) $("sim-status").textContent = `Simulating: ${done}/${jobs.length} workers done`;
       }, () => {}));
-      const parts = await Promise.all(jobs);
+      const parts = await Promise.race([Promise.all(jobs), cancelled]);
       if (run !== simRun) return;
       simResult = mergeSims(parts, players);
       simResult.seconds = (performance.now() - t0) / 1000;
@@ -823,9 +834,16 @@
       $("sim-status").textContent = `${simResult.games.toLocaleString()} games in ${simResult.seconds.toFixed(2)} s`;
       renderSim();
     } catch (e) {
-      if (!reportCrash(e, "Simulate")) $("sim-status").textContent = "Simulation failed: " + String(e.message || e);
+      if (e && e.message === "cancelled") {
+        $("sim-status").textContent = "Simulation cancelled.";
+      } else if (!reportCrash(e, "Simulate")) {
+        $("sim-status").textContent = "Simulation failed: " + String(e.message || e);
+      }
     } finally {
-      $("btn-simulate").disabled = false;
+      if (run === simRun) {
+        cancelSim = null;
+        setSimButton(false);
+      }
     }
   }
 
@@ -1090,7 +1108,19 @@
       doAction(() => api.runBots(), "Run Game");
       if (!crashed) showGameChart();
     });
-    $("btn-simulate").addEventListener("click", () => simulate());
+    // The Simulate button turns into Cancel while a simulation runs.
+    $("btn-simulate").addEventListener("click", () => {
+      if (cancelSim) {
+        const stop = cancelSim;
+        cancelSim = null;
+        simRun++;
+        killPool(); // workers are busy mid-batch; stop them and start fresh next time
+        stop();
+        setSimButton(false);
+      } else {
+        simulate();
+      }
+    });
     $("sim-metric").addEventListener("change", () => renderSim());
     $("sim-table-toggle").addEventListener("change", () => renderSim());
     window.addEventListener("resize", () => renderSim());
@@ -1169,6 +1199,11 @@
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
     // Test hook: open index.html#selftest-sim to run a simulation on load.
     if (location.hash === "#selftest-sim") simulate();
+    if (location.hash === "#selftest-simcancel") {
+      $("sim-games").value = "10000000";
+      simulate();
+      setTimeout(() => $("btn-simulate").click(), 50);
+    }
     // Test hook: index.html#selftest-load=<base64 state text> loads that state and analyzes it.
     if (location.hash.startsWith("#selftest-load=")) {
       $("state-text").value = decodeURIComponent(escape(atob(location.hash.slice("#selftest-load=".length))));

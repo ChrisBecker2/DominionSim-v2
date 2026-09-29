@@ -356,8 +356,8 @@ impl GameState {
                 out.push(Choice::Pass);
             }
             DecisionKind::Buy => {
-                for c in 0..NUM_CARDS as CardId {
-                    if self.in_supply(c) && self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins {
+                for c in self.supply_cards() {
+                    if self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins {
                         out.push(Choice::Card(c));
                     }
                 }

@@ -327,8 +327,8 @@ impl GameState {
     pub(crate) fn frame_choices(&self, f: Frame, out: &mut ChoiceBuf) {
         match f.kind {
             K::Gain => {
-                for c in 0..cards::NUM_CARDS as CardId {
-                    if self.in_supply(c) && self.supply.get(c) > 0 && self.cost(c) <= f.max && f.filter.matches(c) {
+                for c in self.supply_cards() {
+                    if self.supply.get(c) > 0 && self.cost(c) <= f.max && f.filter.matches(c) {
                         out.push(Choice::Card(c));
                     }
                 }

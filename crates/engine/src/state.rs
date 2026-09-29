@@ -1,7 +1,7 @@
 //! Game state. Everything is fixed-size and `Copy`: cloning a state is a memcpy,
 //! which is what makes search and undo cheap and keeps the hot loop allocation-free.
 
-use crate::cards::{self, id, CardId, NUM_CARDS};
+use crate::cards::{self, id, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::rng::Rng;
@@ -483,8 +483,23 @@ impl GameState {
         self.in_supply & (1 << c) != 0
     }
 
+    /// The card ids of this game's supply piles, in id order (walks the `in_supply` bitmask, so
+    /// it costs one step per pile rather than one per card id).
+    #[inline]
+    pub fn supply_cards(&self) -> impl Iterator<Item = CardId> {
+        let mut bits = self.in_supply;
+        std::iter::from_fn(move || {
+            if bits == 0 {
+                return None;
+            }
+            let c = bits.trailing_zeros() as CardId;
+            bits &= bits - 1;
+            Some(c)
+        })
+    }
+
     pub fn empty_piles(&self) -> u32 {
-        (0..NUM_CARDS as CardId).filter(|&c| self.in_supply(c) && self.supply.get(c) == 0).count() as u32
+        self.supply_cards().filter(|&c| self.supply.get(c) == 0).count() as u32
     }
 
     pub fn is_game_over(&self) -> bool {

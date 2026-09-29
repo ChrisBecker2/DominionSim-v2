@@ -90,8 +90,9 @@ impl Var {
     }
 }
 
+/// Total coin value of the treasures in `c` (every Treasure, e.g. Harem too).
 fn money_value(c: &Counts) -> i64 {
-    c.get(id::COPPER) as i64 + 2 * c.get(id::SILVER) as i64 + 3 * c.get(id::GOLD) as i64
+    c.iter().filter(|&(card, _)| cards::is(card, cards::TREASURE)).map(|(card, n)| cards::def(card).coins as i64 * n as i64).sum()
 }
 
 /// A parsed condition. `Box`-allocated once at load time; `eval` never allocates.

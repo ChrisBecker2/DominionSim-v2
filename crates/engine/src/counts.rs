@@ -51,7 +51,8 @@ impl Counts {
     }
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.iter().all(|&x| x == 0)
+        // Whole-line compare (vectorized), rather than a short-circuiting scan.
+        self.0 == [0; LANES]
     }
     #[inline]
     pub fn add_all(&mut self, other: &Counts) {
@@ -73,7 +74,7 @@ impl Counts {
     /// Iterate (card, count) for nonzero counts, in card-id order.
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
-        self.0.iter().enumerate().filter(|(_, &n)| n > 0).map(|(i, &n)| (i as CardId, n))
+        self.0[..NUM_CARDS].iter().enumerate().filter(|(_, &n)| n > 0).map(|(i, &n)| (i as CardId, n))
     }
     /// Each count raised to at least `floor(card)`.
     pub fn max_with(mut self, floor: impl Fn(CardId) -> u8) -> Counts {
@@ -87,7 +88,7 @@ impl Counts {
     /// Used to sample uniformly: `nth(rng.below(total))`.
     #[inline]
     pub fn nth(&self, mut idx: u32) -> CardId {
-        for (i, &n) in self.0.iter().enumerate() {
+        for (i, &n) in self.0[..NUM_CARDS].iter().enumerate() {
             if idx < n as u32 {
                 return i as CardId;
             }

@@ -333,8 +333,8 @@ impl Strategy {
         let need = pile_limit.saturating_sub(view.empty_piles()).min(4);
         // Sum of the `need` smallest non-empty piles, via a small fixed-size selection.
         let mut smallest = [u32::MAX; 4];
-        for c in 0..NUM_CARDS as CardId {
-            if view.in_supply(c) && view.supply(c) > 0 {
+        for c in view.supply_cards() {
+            if view.supply(c) > 0 {
                 let n = view.supply(c) as u32;
                 let mut i = smallest.len();
                 while i > 0 && smallest[i - 1] > n {

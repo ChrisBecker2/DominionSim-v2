@@ -716,8 +716,14 @@
     }
     panel.hidden = false;
     $("analysis-progress").hidden = true;
-    const timing = result.seconds !== undefined ? `, ${result.seconds.toFixed(2)} s on ${result.workers} workers` : "";
-    $("analysis-meta").textContent = "";
+    // Compact search stats: nodes, share of nodes answered from the transposition table
+    // (positions reached again by another order of play), time and workers.
+    const count = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+    const meta = [];
+    if (result.nodes !== undefined) meta.push(`${count(result.nodes)} nodes`);
+    if (result.nodes && result.ttHits !== undefined) meta.push(`${Math.round((100 * result.ttHits) / result.nodes)}% transpositions`);
+    if (result.seconds !== undefined) meta.push(`${result.seconds.toFixed(2)} s on ${result.workers} worker${result.workers === 1 ? "" : "s"}`);
+    $("analysis-meta").textContent = meta.join(" · ");
     result.options.forEach((o, i) => {
       const tr = el("tr", i === 0 ? "best" : null);
       const label = el("td");

@@ -182,6 +182,10 @@ pub enum Zone {
     Revealed,
     /// Cards currently in play (Mining Village trashing itself).
     InPlay,
+    /// The shared Supply (Lurker: trash an Action card from it).
+    Supply,
+    /// The shared trash pile (Lurker: gain a card from it).
+    Trash,
 }
 
 /// What happens to a picked card.
@@ -194,6 +198,12 @@ pub enum Act {
     /// Play it (e.g. Throne Room target, Vassal's discarded action).
     Play,
     SetAside,
+    /// Gain it (to the frame's `dest`): a gain event, not a buy. Used for Select frames whose
+    /// zone is the source of the gain (Lurker: gain from the trash).
+    Gain,
+    /// Reveal it and leave it where it is (Courtier: reveal a card from hand without removing
+    /// it). Generic: any future "reveal a card from a zone" effect reuses this.
+    Reveal,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -272,6 +282,11 @@ pub enum Then {
     /// to hand, before anything left in the Revealed zone is dealt with by a later frame
     /// (Patrol: Victory cards and Curses go to hand, the rest get reordered back by a `Select`).
     MoveMatchingToHand(Filter),
+    /// Select (a reveal-from-hand pick): if a card was revealed, push a `Mode` frame over its
+    /// source's `cards::modes` table with picks = the revealed card's number of types, capped at
+    /// the table's length (Courtier: "for each type it has, choose a different one"). Generic
+    /// over any future "modes per type of the picked card" card.
+    ModePerType,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -289,13 +304,15 @@ pub struct Frame {
     pub filter: Filter,
     pub dest: Dest,
     /// Select: minimum/maximum picks. Draw/RevealTop: cards remaining. Gain: max cost (or the
-    /// exact cost when `exact`).
+    /// exact cost when `exact`). Mode: `min` is a bitmask of already-chosen indices into
+    /// `cards::modes(source)`; `max` is the total number of picks required.
     pub min: u8,
     pub max: u8,
     /// Gain: match `max` exactly rather than up to it (Upgrade). Select: all or nothing: pick
     /// none, or once a pick is made, `max` of them (clamped to what's available) (Mill).
     pub exact: bool,
-    /// Select: picks made so far. Library: 1 while `subject` awaits a decision.
+    /// Select: picks made so far. Library: 1 while `subject` awaits a decision. Mode: picks made
+    /// so far (`count == max` once the frame is done).
     pub count: u8,
     /// Select: last picked card (also the lower bound for canonical ordering).
     pub last: CardId,
@@ -351,6 +368,10 @@ pub enum FrameKind {
     Vassal,
     /// Library: draw to 7, may set aside Actions (`count` = 1 while `subject` awaits the decision).
     Library,
+    /// Choose `max` options (picking `min` as the bitmask of chosen indices) from
+    /// `cards::modes(source)`, offered in increasing index order; `player` may be another
+    /// player (Torturer's victim). Resolved in index order once every pick is made.
+    Mode,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

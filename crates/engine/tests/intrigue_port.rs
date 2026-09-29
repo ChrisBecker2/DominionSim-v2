@@ -9,7 +9,7 @@
 
 mod common;
 use common::*;
-use dominion_engine::cards::{self, id, CardSet};
+use dominion_engine::cards::{self, id, CardSet, ModeOpt};
 use dominion_engine::state;
 use dominion_engine::text::{format_state, parse_state};
 use dominion_engine::*;
@@ -921,4 +921,541 @@ fn replace_with_bridge_discount_and_throne_room() {
     choose(&mut g, Choice::Card(id::VILLAGE));
     assert_eq!(g.trash, counts_of(&[id::ESTATE, id::ESTATE]));
     assert_eq!(g.players[0].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::VILLAGE, id::VILLAGE]);
+}
+
+// ===========================================================================
+// Mode decisions ("choose one/many"): Pawn, Steward, Nobles, Minion, Courtier, Lurker,
+// Torturer's victim. See `cards::modes` / `state::FrameKind::Mode`.
+// ===========================================================================
+
+/// Index of the table entry matching `pred`, for readable test code.
+fn mode_idx(card: CardId, pred: impl Fn(&ModeOpt) -> bool) -> u8 {
+    cards::modes(card).iter().position(|o| pred(o)).expect("mode option exists") as u8
+}
+
+// ===========================================================================
+// Pawn — C++ TestPawn (line 110)
+// ===========================================================================
+
+#[test]
+fn pawn_two_different_bonuses() {
+    let d = cards::def(id::PAWN);
+    assert_eq!((d.cost, d.vp), (2, 0));
+    assert_eq!(cards::modes(id::PAWN).len(), 4);
+    let cards_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Cards(_)));
+    let actions_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Actions(_)));
+    let buys_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Buys(_)));
+    let coins_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Coins(_)));
+
+    // Actions, Buys.
+    let mut g = new_state(&[id::PAWN], 2);
+    set_hand(&mut g, 0, &[id::PAWN]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::PAWN);
+    let d0 = g.pending_decision().unwrap();
+    assert_eq!(d0.kind, DecisionKind::Mode { picks: 2, distinct: true });
+    assert_eq!(choices(&g).len(), 4);
+    choose(&mut g, Choice::Mode(actions_i));
+    assert!(!choices(&g).contains(&Choice::Mode(actions_i)), "can't pick the same option twice");
+    choose(&mut g, Choice::Mode(buys_i));
+    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (1, 2, 0));
+    assert!(g.players[0].hand.is_empty());
+
+    // Coins, Buys.
+    let mut g = new_state(&[id::PAWN], 2);
+    set_hand(&mut g, 0, &[id::PAWN]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::PAWN);
+    choose(&mut g, Choice::Mode(coins_i));
+    choose(&mut g, Choice::Mode(buys_i));
+    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (0, 2, 1));
+    assert!(g.players[0].hand.is_empty());
+
+    // Cards, Coins: the +1 Card must not resolve before the 2nd pick is made.
+    let mut g = new_state(&[id::PAWN], 2);
+    set_hand(&mut g, 0, &[id::PAWN]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::PAWN);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert!(g.players[0].hand.is_empty(), "not drawn until the 2nd pick is chosen too");
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (0, 1, 1));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE]));
+    assert!(g.players[0].deck_known.is_empty());
+
+    // Picking the same option twice (the C++ "Coins, Coins" / bad-choice cases) is illegal.
+    let mut g = new_state(&[id::PAWN], 2);
+    set_hand(&mut g, 0, &[id::PAWN]);
+    play(&mut g, id::PAWN);
+    choose(&mut g, Choice::Mode(coins_i));
+    assert!(g.apply(Choice::Mode(coins_i), &mut NoEvents).is_err(), "repeated pick rejected");
+    assert!(g.apply(Choice::Mode(9), &mut NoEvents).is_err(), "out-of-range index rejected");
+}
+
+// ===========================================================================
+// Nobles — C++ TestNobles (line 730)
+// ===========================================================================
+
+#[test]
+fn nobles_choose_cards_or_actions() {
+    let d = cards::def(id::NOBLES);
+    assert_eq!((d.cost, d.vp), (6, 2));
+    assert!(cards::is(id::NOBLES, cards::ACTION) && cards::is(id::NOBLES, cards::VICTORY));
+    let cards_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Cards(_)));
+    let actions_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Actions(_)));
+
+    // +3 Cards. Non-Treasure fillers throughout: with 0 actions left after Nobles, any Treasure
+    // drawn into hand would auto-play into the Buy phase, which isn't what these cases test.
+    let mut g = new_state(&[id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::NOBLES]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::VILLAGE, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::NOBLES);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Mode { picks: 1, distinct: false });
+    choose(&mut g, Choice::Mode(cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::VILLAGE, id::DUCHY]));
+    assert_eq!(g.players[0].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::DUCHY]);
+    assert_eq!(g.turn.actions, 0);
+
+    // +2 Actions.
+    let mut g = new_state(&[id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::NOBLES]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::VILLAGE, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::NOBLES);
+    choose(&mut g, Choice::Mode(actions_i));
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.turn.actions, 2);
+
+    // 2 cards left in deck.
+    let mut g = new_state(&[id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::NOBLES]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::VILLAGE]);
+    play(&mut g, id::NOBLES);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::VILLAGE]));
+    assert!(g.players[0].deck_known.is_empty());
+
+    // No cards left.
+    let mut g = new_state(&[id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::NOBLES]);
+    play(&mut g, id::NOBLES);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert!(g.players[0].hand.is_empty());
+
+    // An illegal mode index is rejected.
+    let mut g = new_state(&[id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::NOBLES]);
+    play(&mut g, id::NOBLES);
+    assert!(g.apply(Choice::Mode(2), &mut NoEvents).is_err());
+}
+
+// ===========================================================================
+// Steward — C++ TestSteward (line 775)
+// ===========================================================================
+
+#[test]
+fn steward_choose_one_of_three() {
+    let d = cards::def(id::STEWARD);
+    assert_eq!((d.cost, d.vp), (3, 0));
+    let cards_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::Cards(_)));
+    let coins_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::Coins(_)));
+    let trash_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::TrashFromHand(_)));
+
+    // Coins.
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::DUCHY, id::ESTATE]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!((g.turn.actions, g.turn.coins), (0, 2));
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::ESTATE]));
+
+    // Cards. Non-Treasure fillers: with 0 actions left after Steward, any Treasure in hand
+    // would auto-play into the Buy phase, which isn't what these cases test.
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::VILLAGE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::VILLAGE, id::ESTATE, id::DUCHY, id::PROVINCE]));
+    assert_eq!(g.players[0].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::DUCHY, id::DUCHY]);
+
+    // Draw 1 card (only 1 left in deck).
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::VILLAGE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::VILLAGE, id::ESTATE, id::DUCHY]));
+
+    // Draw 0 cards.
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::VILLAGE, id::ESTATE]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::VILLAGE, id::ESTATE]));
+
+    // Trash 2: a real choice among 3 cards (the last one left, DUCHY, isn't a Treasure either,
+    // so it's stable in hand once the stack empties).
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::COPPER, id::ESTATE, id::DUCHY]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert!(!choices(&g).contains(&Choice::Pass), "must trash 2");
+    choose(&mut g, Choice::Card(id::COPPER));
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY]));
+    assert_eq!(g.trash, counts_of(&[id::COPPER, id::ESTATE]));
+
+    // Trash 1 card (fewer than 2 in hand).
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::DUCHY]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.trash, counts_of(&[id::DUCHY]));
+
+    // Trash no cards (empty hand): nothing to trash.
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert!(g.players[0].hand.is_empty());
+    assert!(g.stack.is_empty());
+
+    // An illegal mode index (e.g. a made-up 4th option) is rejected.
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD]);
+    play(&mut g, id::STEWARD);
+    assert!(g.apply(Choice::Mode(3), &mut NoEvents).is_err());
+}
+
+// ===========================================================================
+// Minion — C++ TestMinion (line 2518)
+// ===========================================================================
+
+#[test]
+fn minion_coins_or_new_hands() {
+    let d = cards::def(id::MINION);
+    assert_eq!((d.cost, d.vp, d.actions), (5, 0, 1));
+    assert!(cards::is(id::MINION, cards::ATTACK));
+    let coins_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::Coins(_)));
+    let hand_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::DiscardHandDraw { .. }));
+
+    // +$2: nothing changes for the other player.
+    let mut g = new_state(&[id::MINION], 2);
+    set_hand(&mut g, 0, &[id::MINION, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::MINION);
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!((g.turn.actions, g.turn.coins), (1, 2));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE]));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]));
+
+    // Discard hand, +4 Cards; the other player (5+ cards) does the same.
+    let mut g = new_state(&[id::MINION], 2);
+    set_hand(&mut g, 0, &[id::MINION, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 1, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::MINION);
+    choose(&mut g, Choice::Mode(hand_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]));
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE]));
+    assert_eq!(g.players[1].hand, counts_of(&[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]));
+    assert_eq!(g.players[1].discard, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]));
+    assert_eq!(g.turn.actions, 1);
+
+    // Other player has fewer than 5 cards: unaffected.
+    let mut g = new_state(&[id::MINION], 2);
+    set_hand(&mut g, 0, &[id::MINION, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::MINION);
+    choose(&mut g, Choice::Mode(hand_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]), "fewer than 5 cards: unaffected");
+    assert!(g.players[1].discard.is_empty());
+
+    // Moat blocks the attack part (revealed only because this option was actually chosen).
+    let mut g = new_state(&[id::MINION, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::MINION, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
+    set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::MINION);
+    choose(&mut g, Choice::Mode(hand_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]), "Moat blocked the attack");
+    assert!(g.players[1].discard.is_empty());
+
+    // An illegal mode index is rejected.
+    let mut g = new_state(&[id::MINION], 2);
+    set_hand(&mut g, 0, &[id::MINION]);
+    play(&mut g, id::MINION);
+    assert!(g.apply(Choice::Mode(2), &mut NoEvents).is_err());
+}
+
+// ===========================================================================
+// Torturer — C++ TestTorturer (line 1376)
+// ===========================================================================
+
+#[test]
+fn torturer_victim_discards_or_gains_a_curse() {
+    let d = cards::def(id::TORTURER);
+    assert_eq!((d.cost, d.vp, d.cards), (5, 0, 3));
+    assert!(cards::is(id::TORTURER, cards::ATTACK));
+    assert_eq!(cards::def(id::TORTURER).on_play, cards::OnPlay::ChoiceFree, "only the victims choose");
+    let discard_i = mode_idx(id::TORTURER, |o| matches!(o, ModeOpt::DiscardFromHand(_)));
+    let curse_i = mode_idx(id::TORTURER, |o| matches!(o, ModeOpt::Gain(c, _) if *c == id::CURSE));
+
+    // Draw 3 cards; other player gains a curse.
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::TORTURER);
+    assert_eq!(g.players[0].hand, counts_of(&[id::COPPER, id::SILVER, id::GOLD]));
+    assert_eq!(g.players[0].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::VILLAGE]);
+    let dv = g.pending_decision().unwrap();
+    assert_eq!(dv.player, 1);
+    assert_eq!(dv.source, Some(id::TORTURER));
+    choose(&mut g, Choice::Mode(curse_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE, id::CURSE]));
+
+    // Other player tries to gain a curse, but none are left: no change.
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    empty_pile(&mut g, id::CURSE);
+    play(&mut g, id::TORTURER);
+    choose(&mut g, Choice::Mode(curse_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE, id::ESTATE, id::ESTATE]));
+
+    // Other player discards 2 cards.
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::TORTURER);
+    choose(&mut g, Choice::Mode(discard_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE]));
+    assert_eq!(g.players[1].discard, counts_of(&[id::ESTATE, id::ESTATE]));
+
+    // Other player discards 1 card (fewer than 2 in hand).
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    set_hand(&mut g, 1, &[id::ESTATE]);
+    play(&mut g, id::TORTURER);
+    choose(&mut g, Choice::Mode(discard_i));
+    assert!(g.players[1].hand.is_empty());
+    assert_eq!(g.players[1].discard, counts_of(&[id::ESTATE]));
+
+    // Other player discards no cards (empty hand): no change.
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    play(&mut g, id::TORTURER);
+    choose(&mut g, Choice::Mode(discard_i));
+    assert!(g.players[1].hand.is_empty());
+
+    // Only 2 cards to draw.
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER]);
+    set_hand(&mut g, 1, &[id::ESTATE]);
+    play(&mut g, id::TORTURER);
+    assert_eq!(g.players[0].hand, counts_of(&[id::COPPER, id::SILVER]));
+    assert!(g.players[0].deck_known.is_empty());
+    choose(&mut g, Choice::Mode(curse_i));
+    assert_eq!(g.players[1].hand, counts_of(&[id::ESTATE, id::CURSE]));
+
+    // 3 players: each victim decides independently, in turn order.
+    let mut g = new_state(&[id::TORTURER], 3);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE]);
+    set_hand(&mut g, 2, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::TORTURER);
+    let d1 = g.pending_decision().unwrap();
+    assert_eq!(d1.player, 1);
+    choose(&mut g, Choice::Mode(discard_i));
+    let d2 = g.pending_decision().unwrap();
+    assert_eq!(d2.player, 2);
+    choose(&mut g, Choice::Mode(curse_i));
+    assert!(g.players[1].hand.is_empty());
+    assert_eq!(g.players[1].discard, counts_of(&[id::ESTATE, id::ESTATE]));
+    assert_eq!(g.players[2].hand, counts_of(&[id::DUCHY, id::DUCHY, id::CURSE]));
+}
+
+// ===========================================================================
+// Courtier — new in 2nd edition, no C++ test
+// ===========================================================================
+
+#[test]
+fn courtier_reveals_and_chooses_per_type() {
+    let d = cards::def(id::COURTIER);
+    assert_eq!((d.cost, d.vp), (5, 0));
+    let actions_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Actions(_)));
+    let buys_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Buys(_)));
+    let coins_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Coins(_)));
+    let gold_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Gain(c, _) if *c == id::GOLD));
+
+    // A Curse (1 type): 1 pick. Two distinct cards in hand keep the reveal a real decision.
+    // Non-Treasure filler (Estate): with 0 actions left after Courtier, a Treasure would
+    // auto-play into the Buy phase once the stack empties, which isn't what this tests.
+    let mut g = new_state(&[id::COURTIER], 2);
+    set_hand(&mut g, 0, &[id::COURTIER, id::CURSE, id::ESTATE]);
+    play(&mut g, id::COURTIER);
+    let d0 = g.pending_decision().unwrap();
+    assert_eq!(d0.kind, DecisionKind::Select { from: Zone::Hand, act: Act::Reveal, filter: Filter::Any, min: 1, max: 1, ordered: false });
+    choose(&mut g, Choice::Card(id::CURSE));
+    assert_eq!(g.players[0].hand, counts_of(&[id::CURSE, id::ESTATE]), "revealing doesn't remove the card");
+    let dm = g.pending_decision().unwrap();
+    assert_eq!(dm.kind, DecisionKind::Mode { picks: 1, distinct: false });
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!(g.turn.coins, 3);
+
+    // Mill (Action-Victory, 2 types): 2 distinct picks.
+    let mut g = new_state(&[id::COURTIER, id::MILL], 2);
+    set_hand(&mut g, 0, &[id::COURTIER, id::MILL, id::ESTATE]);
+    play(&mut g, id::COURTIER);
+    choose(&mut g, Choice::Card(id::MILL));
+    assert_eq!(g.players[0].hand, counts_of(&[id::MILL, id::ESTATE]));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Mode { picks: 2, distinct: true });
+    choose(&mut g, Choice::Mode(buys_i));
+    choose(&mut g, Choice::Mode(gold_i));
+    assert_eq!(g.turn.buys, 2);
+    assert_eq!(g.players[0].discard, counts_of(&[id::GOLD]));
+
+    // Witch (Action-Attack, 2 types).
+    let mut g = new_state(&[id::COURTIER, id::WITCH], 2);
+    set_hand(&mut g, 0, &[id::COURTIER, id::WITCH, id::ESTATE]);
+    play(&mut g, id::COURTIER);
+    choose(&mut g, Choice::Card(id::WITCH));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Mode { picks: 2, distinct: true });
+    choose(&mut g, Choice::Mode(actions_i));
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!((g.turn.actions, g.turn.coins), (1, 3));
+
+    // No card in hand: nothing happens.
+    let mut g = new_state(&[id::COURTIER], 2);
+    set_hand(&mut g, 0, &[id::COURTIER]);
+    play(&mut g, id::COURTIER);
+    assert!(g.players[0].hand.is_empty());
+    assert!(g.stack.is_empty());
+}
+
+// ===========================================================================
+// Lurker — new in 2nd edition, no C++ test
+// ===========================================================================
+
+#[test]
+fn lurker_trashes_from_supply_or_gains_from_trash() {
+    let d = cards::def(id::LURKER);
+    assert_eq!((d.cost, d.vp, d.actions), (2, 0, 1));
+    let trash_i = mode_idx(id::LURKER, |o| matches!(o, ModeOpt::TrashFromSupply(_)));
+    let gain_i = mode_idx(id::LURKER, |o| matches!(o, ModeOpt::GainFromTrash(_)));
+
+    // Trash an Action card from the Supply.
+    let mut g = new_state(&[id::LURKER, id::VILLAGE, id::MARKET], 2);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    assert_eq!(g.turn.actions, 1, "+1 Action, net of the 1 spent to play Lurker itself");
+    choose(&mut g, Choice::Mode(trash_i));
+    let dv = g.pending_decision().unwrap();
+    assert_eq!(dv.kind, DecisionKind::Select { from: Zone::Supply, act: Act::Trash, filter: Filter::Action, min: 1, max: 1, ordered: false });
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    assert_eq!(g.trash, counts_of(&[id::VILLAGE]));
+    assert_eq!(g.supply.get(id::VILLAGE), 9);
+
+    // Gain an Action card from the trash. Two distinct Action cards in the trash (Village,
+    // Market) keep it a real decision.
+    let mut g = new_state(&[id::LURKER], 2);
+    g.trash = counts_of(&[id::VILLAGE, id::MARKET, id::ESTATE]);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(gain_i));
+    let dv = g.pending_decision().unwrap();
+    assert_eq!(dv.kind, DecisionKind::Select { from: Zone::Trash, act: Act::Gain, filter: Filter::Action, min: 1, max: 1, ordered: false });
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    assert_eq!(g.players[0].discard, counts_of(&[id::VILLAGE]));
+    assert_eq!(g.trash, counts_of(&[id::MARKET, id::ESTATE]));
+
+    // Nothing eligible to trash (no Action cards left in the Supply): skipped silently.
+    let mut g = new_state(&[id::LURKER], 2);
+    empty_pile(&mut g, id::LURKER);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert!(g.trash.is_empty());
+
+    // Nothing eligible to gain (the trash has no Action card): skipped silently.
+    let mut g = new_state(&[id::LURKER], 2);
+    g.trash = counts_of(&[id::ESTATE, id::COPPER]);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(gain_i));
+    assert!(g.players[0].discard.is_empty());
+}
+
+// ===========================================================================
+// Throne Room with Pawn / Steward / Nobles / Minion
+// ===========================================================================
+
+#[test]
+fn throne_room_with_mode_cards() {
+    // Pawn: two separate mode decisions, one per resolution.
+    let cards_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Cards(_)));
+    let coins_i = mode_idx(id::PAWN, |o| matches!(o, ModeOpt::Coins(_)));
+    let mut g = new_state(&[id::THRONE_ROOM, id::PAWN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::PAWN]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::PAWN));
+    choose(&mut g, Choice::Mode(cards_i));
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE]));
+    choose(&mut g, Choice::Mode(cards_i));
+    choose(&mut g, Choice::Mode(coins_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY]));
+    assert_eq!(g.turn.coins, 2);
+
+    // Steward twice: +$2 then trash 2.
+    let steward_coins_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::Coins(_)));
+    let steward_trash_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::TrashFromHand(_)));
+    let mut g = new_state(&[id::THRONE_ROOM, id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::STEWARD, id::COPPER, id::ESTATE]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::STEWARD));
+    choose(&mut g, Choice::Mode(steward_coins_i));
+    choose(&mut g, Choice::Mode(steward_trash_i));
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.trash, counts_of(&[id::COPPER, id::ESTATE]));
+    assert_eq!(g.turn.coins, 2);
+
+    // Nobles twice: +3 Cards then +2 Actions.
+    let nobles_cards_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Cards(_)));
+    let nobles_actions_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Actions(_)));
+    let mut g = new_state(&[id::THRONE_ROOM, id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::NOBLES]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::NOBLES));
+    choose(&mut g, Choice::Mode(nobles_cards_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::COPPER, id::COPPER, id::COPPER]));
+    choose(&mut g, Choice::Mode(nobles_actions_i));
+    assert_eq!(g.turn.actions, 2, "0 (Throne Room) + 2 (2nd Nobles resolution)");
+
+    // Minion twice: +$2 then discard hand/draw 4.
+    let minion_coins_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::Coins(_)));
+    let minion_hand_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::DiscardHandDraw { .. }));
+    let mut g = new_state(&[id::THRONE_ROOM, id::MINION], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MINION, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::MINION));
+    choose(&mut g, Choice::Mode(minion_coins_i));
+    assert_eq!(g.turn.coins, 2);
+    choose(&mut g, Choice::Mode(minion_hand_i));
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]));
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE, id::ESTATE]));
+    assert_eq!(g.turn.actions, 2, "0 (Throne Room) + 1 + 1, both Minion resolutions");
 }

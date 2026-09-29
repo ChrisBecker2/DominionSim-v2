@@ -122,19 +122,25 @@ impl Evaluator for GainListEvaluator<'_> {
     /// In playouts past the node budget, play actions in the strategy's rule order (no search).
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
-        Some(if is_play_decision(decision) {
-            self.strategy.rule_play(&view, decision, choices)
-        } else {
-            self.strategy.decide_by_rules(&view, decision, choices)
+        // `rule_play`/`rule_mode` (not `decide_by_rules`) for play/mode decisions: those would
+        // otherwise re-enter the strategy's own turn search (`search_play_choice`) from inside a
+        // playout of that same search, re-borrowing its thread-local searcher.
+        Some(match decision.kind {
+            DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
+            DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
+            _ => self.strategy.decide_by_rules(&view, decision, choices),
         })
     }
 
-    /// Below the root, follow the strategy's rules, except for choosing which action to play
-    /// (or what a Throne Room plays): those are searched with this same scoring, which is exactly
-    /// how the bot itself decides them.
+    /// Below the root, follow the strategy's rules, except for decisions that shape the turn
+    /// player's own turn (which action to play, what a Throne Room plays, which card to reveal,
+    /// and any Mode decision belonging to the turn player themselves — Pawn/Steward/Nobles/
+    /// Minion/Courtier/Lurker, never a reactive Mode decision during someone else's turn such as
+    /// Torturer's victim): those are searched with this same scoring, which is exactly how the
+    /// bot itself decides them.
     fn policy(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
-        if is_play_decision(decision) {
+        if is_play_decision(state.turn.player, decision) {
             // Play order is searched, unless it's no real choice (the bot plays the obvious order).
             if matches!(decision.kind, DecisionKind::PlayAction) && decision.player == me && self.strategy.search_play {
                 return crate::strategy::obvious_play(&view, choices).map(Choice::Card);
@@ -188,10 +194,13 @@ impl Evaluator for WinFinder<'_> {
     /// Past the budget a line can't be proven (playouts are inexact), so keep playouts cheap.
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
-        Some(if is_play_decision(decision) {
-            self.strategy.rule_play(&view, decision, choices)
-        } else {
-            self.strategy.decide_by_rules(&view, decision, choices)
+        // `rule_play`/`rule_mode` (not `decide_by_rules`) for play/mode decisions: those would
+        // otherwise re-enter the strategy's own turn search (`search_play_choice`) from inside a
+        // playout of that same search, re-borrowing its thread-local searcher.
+        Some(match decision.kind {
+            DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
+            DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
+            _ => self.strategy.decide_by_rules(&view, decision, choices),
         })
     }
 }
@@ -201,9 +210,16 @@ thread_local! {
     static PLAY_SEARCHER: RefCell<Option<Searcher>> = const { RefCell::new(None) };
 }
 
-/// Which action to play / what a Throne Room plays.
-pub fn is_play_decision(d: &Decision) -> bool {
-    matches!(d.kind, DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. })
+/// Whether `d` shapes the turn player's own turn the way an action-play choice does: which
+/// action to play, what a Throne Room plays, which card to reveal (Courtier), or any Mode
+/// decision belonging to the player whose turn it currently is (Pawn/Steward/Nobles/Minion/
+/// Courtier/Lurker). A Mode decision during someone else's turn (Torturer's victim) is a
+/// reactive decision, not a play choice, so it's excluded even though `d.kind` matches.
+pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
+    matches!(
+        d.kind,
+        DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
+    ) || (matches!(d.kind, DecisionKind::Mode { .. }) && d.player == turn_player)
 }
 
 const PLAY_TT_BITS: u32 = 16;

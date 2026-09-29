@@ -14,7 +14,7 @@
 //! special frames are pushed next, and the +cards Draw frame is pushed last so it resolves
 //! first ("+1 Card +1 Action, then ...").
 
-use crate::cards::{self, id, CardId, ACTION, TREASURE, VICTORY};
+use crate::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
 use crate::counts::Counts;
 use crate::engine::*;
 use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Then, Zone, MAX_PLAYERS};
@@ -39,6 +39,11 @@ fn gain_frame(p: u8, source: CardId, max_cost: u8, filter: Filter, dest: Dest) -
 
 fn draw_frame(p: u8, source: CardId, n: u8) -> Frame {
     Frame { max: n, ..Frame::new(K::Draw, p, source) }
+}
+
+/// Choose `picks` options from `cards::modes(source)` (see `state::FrameKind::Mode`).
+fn mode_frame(p: u8, source: CardId, picks: u8) -> Frame {
+    Frame { max: picks, ..Frame::new(K::Mode, p, source) }
 }
 
 const ALL: u8 = u8::MAX;
@@ -202,6 +207,18 @@ impl GameState {
                 p, card, Zone::Hand, Trash, Filter::Any, 1, 1,
                 Then::GainUpTo { plus: 2, filter: Filter::Any, dest: Dest::Discard, exact: false, dest_by_type: true },
             )),
+            // ---- Mode decisions ("choose one/many"): see `cards::modes` and `FrameKind::Mode`. ----
+            id::PAWN => self.stack.push(mode_frame(p, card, 2)),
+            id::STEWARD | id::NOBLES | id::MINION | id::LURKER => self.stack.push(mode_frame(p, card, 1)),
+            id::COURTIER => self.stack.push(select(p, card, Zone::Hand, Reveal, Filter::Any, 1, 1, Then::ModePerType)),
+            id::TORTURER => {
+                // Choice-free for the player: +3 Cards is vanilla (below); only the victims
+                // (Moat allowing) get a Mode decision, each over the same `modes(TORTURER)` table.
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(mode_frame(v, card, 1));
+                }
+            }
             _ => {} // Moat, Village, Smithy, Festival, Laboratory, Market: vanilla only.
         }
 
@@ -225,22 +242,36 @@ impl GameState {
     }
 
     fn zone(&self, p: u8, z: Zone) -> &Counts {
-        let ps = &self.players[p as usize];
         match z {
-            Zone::Hand => &ps.hand,
-            Zone::Discard => &ps.discard,
-            Zone::Revealed => &ps.set_aside,
-            Zone::InPlay => &ps.in_play,
+            Zone::Supply => &self.supply,
+            Zone::Trash => &self.trash,
+            _ => {
+                let ps = &self.players[p as usize];
+                match z {
+                    Zone::Hand => &ps.hand,
+                    Zone::Discard => &ps.discard,
+                    Zone::Revealed => &ps.set_aside,
+                    Zone::InPlay => &ps.in_play,
+                    Zone::Supply | Zone::Trash => unreachable!(),
+                }
+            }
         }
     }
 
     fn zone_mut(&mut self, p: u8, z: Zone) -> &mut Counts {
-        let ps = &mut self.players[p as usize];
         match z {
-            Zone::Hand => &mut ps.hand,
-            Zone::Discard => &mut ps.discard,
-            Zone::Revealed => &mut ps.set_aside,
-            Zone::InPlay => &mut ps.in_play,
+            Zone::Supply => &mut self.supply,
+            Zone::Trash => &mut self.trash,
+            _ => {
+                let ps = &mut self.players[p as usize];
+                match z {
+                    Zone::Hand => &mut ps.hand,
+                    Zone::Discard => &mut ps.discard,
+                    Zone::Revealed => &mut ps.set_aside,
+                    Zone::InPlay => &mut ps.in_play,
+                    Zone::Supply | Zone::Trash => unreachable!(),
+                }
+            }
         }
     }
 
@@ -364,6 +395,13 @@ impl GameState {
                 }
                 Run::Continue
             }
+            K::Mode => {
+                if f.count >= f.max {
+                    self.finish_mode(f, sink);
+                    return Run::Continue;
+                }
+                Run::Decide(DecisionKind::Mode { picks: f.max - f.count, distinct: f.max > 1 }, 0)
+            }
             K::Library => {
                 if f.count == 1 {
                     return Run::Decide(DecisionKind::YesNo { act: Act::SetAside }, f.subject);
@@ -427,6 +465,17 @@ impl GameState {
                 out.push(Choice::Yes);
                 out.push(Choice::No);
             }
+            K::Mode => {
+                // Every option is always legal to pick (a player may choose one they can't fully
+                // perform, e.g. Torturer with fewer than 2 cards in hand); only already-chosen
+                // indices (the `min` bitmask) are excluded, so a multi-pick decision offers each
+                // remaining index in increasing order.
+                for (i, _) in cards::modes(f.source).iter().enumerate() {
+                    if f.min & (1 << i) == 0 {
+                        out.push(Choice::Mode(i as u8));
+                    }
+                }
+            }
             K::Draw | K::RevealTop | K::PlayEffects | K::Vassal => {}
         }
     }
@@ -469,9 +518,11 @@ impl GameState {
                 }
             }
             (K::Select, Choice::Card(c)) => {
-                let removed = self.zone_mut(p, f.zone).remove(c);
-                debug_assert!(removed);
-                self.put(p, c, f.act, sink);
+                if f.act != Act::Reveal {
+                    let removed = self.zone_mut(p, f.zone).remove(c);
+                    debug_assert!(removed);
+                }
+                self.put(p, c, f.act, f.dest, sink);
                 f.count += 1;
                 f.last = c;
                 self.stack.set_top(f);
@@ -480,7 +531,7 @@ impl GameState {
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
                 self.zone_mut(p, f.zone).remove(f.subject);
-                self.put(p, f.subject, f.act, sink);
+                self.put(p, f.subject, f.act, f.dest, sink);
                 if f.act == Act::Play {
                     self.resolve_effects(f.subject, f.depth, sink);
                 }
@@ -492,6 +543,11 @@ impl GameState {
             (K::YesNo, _) => {
                 self.stack.pop();
                 self.yesno_decline(f, sink);
+            }
+            (K::Mode, Choice::Mode(i)) => {
+                f.min |= 1 << i;
+                f.count += 1;
+                self.stack.set_top(f);
             }
             (K::Library, Choice::Yes) => {
                 // Stays in set_aside; discarded when Library finishes.
@@ -511,8 +567,9 @@ impl GameState {
         }
     }
 
-    /// Move card `c` (already removed from its zone) according to `act`.
-    fn put<S: EventSink>(&mut self, p: u8, c: CardId, act: Act, sink: &mut S) {
+    /// Move card `c` (already removed from its zone, except `Reveal`) according to `act`.
+    /// `dest` only matters for `Act::Gain`.
+    fn put<S: EventSink>(&mut self, p: u8, c: CardId, act: Act, dest: Dest, sink: &mut S) {
         let ps = &mut self.players[p as usize];
         match act {
             Act::Discard => {
@@ -535,6 +592,15 @@ impl GameState {
                 ps.set_aside.add(c, 1);
                 sink.event(Event::SetAside { player: p, card: c });
             }
+            Act::Gain => {
+                match dest {
+                    Dest::Hand => ps.hand.add(c, 1),
+                    Dest::DeckTop => ps.deck_known.push_top(c),
+                    Dest::Discard => ps.discard.add(c, 1),
+                }
+                sink.event(Event::Gain { player: p, card: c, to: dest });
+            }
+            Act::Reveal => sink.event(Event::Reveal { player: p, card: c }),
         }
     }
 
@@ -585,12 +651,97 @@ impl GameState {
                     self.gain(p, card, dest, sink);
                 }
             }
+            Then::ModePerType => {
+                if f.count > 0 {
+                    let types = cards::def(f.last).types.count_ones();
+                    let picks = types.min(cards::modes(f.source).len() as u32) as u8;
+                    if picks > 0 {
+                        self.stack.push(mode_frame(p, f.source, picks));
+                    }
+                }
+            }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
             Then::GainedTypeStatBonus | Then::GainedTypeDestAttack | Then::YesCoinsElseGainSubject(_) | Then::MoveMatchingToHand(_) => {}
         }
         // Frames spawned by finishing a selection belong to the same card effect.
         for fr in &mut self.stack.frames[base..self.stack.len as usize] {
             fr.depth = f.depth;
+        }
+    }
+
+    /// A `Mode` frame with every pick made: resolve the chosen atoms (`f.min`'s bitmask) in
+    /// increasing table-index order. Atoms that need further input (`TrashFromHand`,
+    /// `DiscardFromHand`, `TrashFromSupply`, `GainFromTrash`, `Cards`) push the existing generic
+    /// frames, pushed highest-index-first so the lowest index ends up on top and resolves first
+    /// (matching the "choose all picks first, then resolve them in order" rule: e.g. Pawn's
+    /// +1 Card must not be drawn before its other pick is chosen, which is already guaranteed
+    /// since this only runs once every pick has been made). Atoms with no further input
+    /// (`Actions`/`Buys`/`Coins`/`Gain`/`DiscardHandDraw`) apply immediately; their relative
+    /// order never matters since each is independent of the others.
+    fn finish_mode<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
+        self.stack.pop();
+        let base = self.stack.len as usize;
+        let p = f.player;
+        let table = cards::modes(f.source);
+        for i in (0..table.len() as u8).rev() {
+            if f.min & (1 << i) == 0 {
+                continue;
+            }
+            match table[i as usize] {
+                ModeOpt::Cards(n) => self.stack.push(draw_frame(p, f.source, n)),
+                ModeOpt::TrashFromHand(n) => self.stack.push(select(p, f.source, Zone::Hand, Act::Trash, Filter::Any, n, n, Then::Nothing)),
+                ModeOpt::DiscardFromHand(n) => self.stack.push(select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, n, n, Then::Nothing)),
+                ModeOpt::TrashFromSupply(filt) => self.stack.push(select(p, f.source, Zone::Supply, Act::Trash, filt, 1, 1, Then::Nothing)),
+                ModeOpt::GainFromTrash(filt) => self.stack.push(select(p, f.source, Zone::Trash, Act::Gain, filt, 1, 1, Then::Nothing)),
+                ModeOpt::Actions(_) | ModeOpt::Buys(_) | ModeOpt::Coins(_) | ModeOpt::Gain(..) | ModeOpt::DiscardHandDraw { .. } => {}
+            }
+        }
+        for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+            fr.depth = f.depth;
+        }
+        for i in 0..table.len() as u8 {
+            if f.min & (1 << i) == 0 {
+                continue;
+            }
+            match table[i as usize] {
+                ModeOpt::Actions(n) => self.turn.actions += n,
+                ModeOpt::Buys(n) => self.turn.buys += n,
+                ModeOpt::Coins(n) => self.turn.coins += n as u16,
+                ModeOpt::Gain(c, dest) => {
+                    self.gain(p, c, dest, sink);
+                }
+                ModeOpt::DiscardHandDraw { draw, attack_min_hand } => {
+                    let base2 = self.stack.len as usize;
+                    let (vs, n) = self.victims(sink);
+                    for &v in vs[..n].iter().rev() {
+                        if self.players[v as usize].hand.total() >= attack_min_hand as u32 {
+                            self.discard_whole_hand(v, sink);
+                            self.stack.push(draw_frame(v, f.source, draw));
+                        }
+                    }
+                    // Pushed last so my own discard+draw resolves before any victim's.
+                    self.discard_whole_hand(p, sink);
+                    self.stack.push(draw_frame(p, f.source, draw));
+                    for fr in &mut self.stack.frames[base2..self.stack.len as usize] {
+                        fr.depth = f.depth;
+                    }
+                }
+                ModeOpt::Cards(_) | ModeOpt::TrashFromHand(_) | ModeOpt::DiscardFromHand(_) | ModeOpt::TrashFromSupply(_) | ModeOpt::GainFromTrash(_) => {}
+            }
+        }
+    }
+
+    /// Discard every card in `p`'s hand (Minion's "discard your hand" for the acting player and
+    /// each affected victim).
+    fn discard_whole_hand<S: EventSink>(&mut self, p: u8, sink: &mut S) {
+        let ps = &mut self.players[p as usize];
+        let hand = ps.hand;
+        ps.hand.clear();
+        ps.discard.add_all(&hand);
+        for (c, n) in hand.iter() {
+            for _ in 0..n {
+                sink.event(Event::Discard { player: p, card: c });
+            }
         }
     }
 

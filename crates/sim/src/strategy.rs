@@ -34,7 +34,7 @@
 use std::path::Path;
 
 use dominion_engine::agent::PlayerView;
-use dominion_engine::cards::{self, id, CardId, ACTION, NUM_CARDS, TREASURE, VICTORY};
+use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, CURSE_T, NUM_CARDS, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision, DecisionKind};
 use dominion_engine::Counts;
 use dominion_engine::state::{Act, Filter, Zone};
@@ -49,6 +49,15 @@ use crate::expr::Expr;
 #[derive(Deserialize)]
 struct BuyRuleRaw {
     card: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
+/// `[[mode]] card = "Steward" choose = "+2 Cards" if = "..."`.
+#[derive(Deserialize)]
+struct ModeRuleRaw {
+    card: String,
+    choose: String,
     #[serde(rename = "if")]
     cond: Option<String>,
 }
@@ -85,6 +94,12 @@ impl RulesOrNames {
 /// `keep_treasure` in hand).
 const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[("Curse", None), ("Estate", None), ("Copper", None)];
 
+/// Case/space-insensitive normalization for matching a `[[mode]] choose = "..."` string against
+/// `ModeOpt::label()`.
+fn norm_label(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect()
+}
+
 fn compile_rules(raw: &[BuyRuleRaw], what: &str) -> Result<Vec<(CardId, Option<Expr>)>, String> {
     raw.iter()
         .map(|r| {
@@ -112,6 +127,9 @@ struct StrategyFile {
     /// Trash priority for optional trashing (Chapel, Sentry, Moneylender...) and forced trashing.
     #[serde(default)]
     trash: Vec<BuyRuleRaw>,
+    /// Mode ("choose one/many") rules, in priority order.
+    #[serde(default)]
+    mode: Vec<ModeRuleRaw>,
     /// Older shorthand for `[[trash]]` without conditions.
     #[serde(default)]
     trash_priority: Option<Vec<String>>,
@@ -147,6 +165,8 @@ pub struct Strategy {
     play_rank: [i16; NUM_CARDS],
     /// `[[trash]]` rules followed by the defaults (`DEFAULT_TRASH`).
     trash: Vec<(CardId, Option<Expr>)>,
+    /// `[[mode]]` rules in priority order: (card, index into `cards::modes(card)`, condition).
+    mode: Vec<(CardId, u8, Option<Expr>)>,
     keep_treasure: u8,
     pub win_this_turn: bool,
     never_gain: Vec<CardId>,
@@ -202,6 +222,22 @@ impl Strategy {
             }
         }
 
+        let mut mode = Vec::with_capacity(raw.mode.len());
+        for rule in &raw.mode {
+            let card = cards::by_name(&rule.card).ok_or_else(|| format!("unknown card {:?} in mode list", rule.card))?;
+            let table = cards::modes(card);
+            if table.is_empty() {
+                return Err(format!("{:?} in mode list has no mode choices", rule.card));
+            }
+            let want = norm_label(&rule.choose);
+            let idx = table.iter().position(|o| norm_label(&o.label()) == want).ok_or_else(|| {
+                let valid: Vec<String> = table.iter().map(|o| o.label()).collect();
+                format!("unknown mode choice {:?} for {:?} (valid: {})", rule.choose, rule.card, valid.join(", "))
+            })?;
+            let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
+            mode.push((card, idx as u8, cond));
+        }
+
         Ok(Strategy {
             name: raw.name,
             description: raw.description,
@@ -209,6 +245,7 @@ impl Strategy {
             play,
             play_rank,
             trash,
+            mode,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
             win_this_turn: raw.win_this_turn,
             never_gain: raw
@@ -274,8 +311,11 @@ impl Strategy {
                     Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
                     Act::Play => self.play_decision(view, decision, choices, decision.play_times > 1),
                     Act::SetAside => Choice::Pass, // not used via Select in the base set
+                    Act::Gain => self.choose_gain_from_zone(view, choices),
+                    Act::Reveal => self.choose_reveal(choices),
                 }
             }
+            DecisionKind::Mode { .. } => self.choose_mode(view, decision, choices),
             DecisionKind::YesNo { act } => match act {
                 // A free extra play is (almost) always worth taking (Vassal).
                 Act::Play => Choice::Yes,
@@ -545,6 +585,16 @@ impl Strategy {
 
     #[allow(clippy::too_many_arguments)]
     fn choose_trash(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], from: Zone, filter: Filter, min: u8, max: u8, ordered: bool) -> Choice {
+        // Lurker's "trash an Action card from the Supply": the costliest one the gain list
+        // doesn't want, so we're not destroying a pile we're building toward.
+        if from == Zone::Supply {
+            return iter_cards(choices)
+                .filter(|&c| !self.lists(c))
+                .max_by_key(|&c| cards::cost(c))
+                .or_else(|| iter_cards(choices).max_by_key(|&c| cards::cost(c)))
+                .map(Choice::Card)
+                .unwrap_or(Choice::Pass);
+        }
         let forced = min > 0;
         // Upgrades (Remodel, Mine, ...): trash whichever card unlocks the best gain in the gain
         // list, strictly by list order; ties trash the cheaper card.
@@ -611,6 +661,156 @@ impl Strategy {
             }
         }
         pick_wanted(&wanted, choices, ordered, forced)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Gain-from-zone (Lurker: gain an Action from the trash) and Reveal (Courtier).
+    // -----------------------------------------------------------------------------------------
+
+    /// A forced-if-possible gain from a non-Supply zone (currently only Lurker's trash): the
+    /// best-ranked gain-list card offered, else the costliest (a bigger card is rarely wrong).
+    fn choose_gain_from_zone(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        if let Some(c) = self.match_gain_list(view, choices) {
+            return Choice::Card(c);
+        }
+        iter_cards(choices).max_by_key(|&c| cards::cost(c)).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// Which hand card to reveal (Courtier): the one with the most types, to unlock the most
+    /// mode picks.
+    fn choose_reveal(&self, choices: &[Choice]) -> Choice {
+        iter_cards(choices).max_by_key(|&c| cards::def(c).types.count_ones()).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Mode ("choose one/many": Pawn, Steward, Nobles, Minion, Courtier, Lurker, Torturer victim).
+    // -----------------------------------------------------------------------------------------
+
+    /// Which mode option to pick for one remaining choice of a Mode decision (the engine asks
+    /// this once per remaining pick, excluding indices already chosen, so a multi-pick card like
+    /// Pawn or Courtier is handled by repeated single calls).
+    fn choose_mode(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let card = decision.source.expect("Mode decision always has a source card");
+        // Stated `[[mode]]` rules always come first.
+        if let Some(c) = self.stated_mode_rule(view, card, choices) {
+            return c;
+        }
+        // The turn player's own modes shape the turn like a play decision: search it with the
+        // strategy's own scoring, exactly like `play_decision`. Never applies to a reactive mode
+        // decision during someone else's turn (Torturer's victim), which always uses the fast
+        // heuristic below regardless of `search_play`.
+        if self.search_play && decision.player == view.me() && view.is_my_turn() {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
+        self.default_mode(view, card, choices)
+    }
+
+    /// A matching stated `[[mode]]` rule, if any, in priority order.
+    fn stated_mode_rule(&self, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
+        self.mode.iter().find_map(|&(c, idx, ref cond)| {
+            (c == card && choices.contains(&Choice::Mode(idx)) && cond.as_ref().map_or(true, |e| e.eval_bool(view))).then_some(Choice::Mode(idx))
+        })
+    }
+
+    /// The mode choice by stated rules then defaults, without searching. Used in search
+    /// playouts: calling `choose_mode` there would re-enter `search_play_choice`'s own search on
+    /// the same thread-local searcher (it's already mid-call), which panics on the double borrow.
+    pub fn rule_mode(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let card = decision.source.expect("Mode decision always has a source card");
+        self.stated_mode_rule(view, card, choices).unwrap_or_else(|| self.default_mode(view, card, choices))
+    }
+
+    /// Fast rule-order defaults (`search_play = false`, or the Torturer victim, which is never
+    /// searched): one cheap heuristic per mode card.
+    fn default_mode(&self, view: &PlayerView, card: CardId, choices: &[Choice]) -> Choice {
+        match card {
+            id::PAWN => self.default_pawn(view, choices),
+            id::STEWARD => self.default_steward(view, choices),
+            id::NOBLES => self.default_nobles(view, choices),
+            id::MINION => self.default_minion(view, choices),
+            id::COURTIER => self.default_courtier(choices),
+            id::LURKER => self.default_lurker(view, choices),
+            id::TORTURER => self.default_torturer(view, choices),
+            _ => choices[0],
+        }
+    }
+
+    /// Pawn: +1 Card and +$1, unless the hand holds an action but there are no actions left to
+    /// play it with, then +1 Action first.
+    fn default_pawn(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let want_action = view.hand().any_type(ACTION) && view.turn().actions == 0;
+        let prefs: [fn(&ModeOpt) -> bool; 4] =
+            if want_action { [is_actions, is_cards, is_coins, is_buys] } else { [is_cards, is_coins, is_actions, is_buys] };
+        for pred in prefs {
+            if let Some(c) = find_mode(id::PAWN, choices, pred) {
+                return c;
+            }
+        }
+        choices[0]
+    }
+
+    /// Steward: trash 2 if the hand has 2+ cards the trash rules want gone, else +2 Cards.
+    fn default_steward(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let junk: u32 = view.hand().iter().filter(|&(c, _)| self.wants_trash(view, c)).map(|(_, n)| n as u32).sum();
+        let pred: fn(&ModeOpt) -> bool = if junk >= 2 { is_trash_hand } else { is_cards };
+        find_mode(id::STEWARD, choices, pred).unwrap_or(choices[0])
+    }
+
+    /// Nobles: +2 Actions if the hand holds 2+ Action cards, else +3 Cards.
+    fn default_nobles(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let pred: fn(&ModeOpt) -> bool = if view.hand().count_type(ACTION) >= 2 { is_actions } else { is_cards };
+        find_mode(id::NOBLES, choices, pred).unwrap_or(choices[0])
+    }
+
+    /// Minion: +$2, unless the current coins plus $2 can't reach anything in the gain list and
+    /// the hand is small (<= 3 cards); then the fresh hand.
+    fn default_minion(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let potential = view.turn().coins + 2;
+        let affords_something = self.buy.iter().any(|(c, _)| view.cost(*c) as u16 <= potential);
+        let small_hand = view.hand().total() <= 3;
+        let pred: fn(&ModeOpt) -> bool = if !affords_something && small_hand { is_discard_hand_draw } else { is_coins };
+        find_mode(id::MINION, choices, pred).unwrap_or(choices[0])
+    }
+
+    /// Courtier: +$3, then gain a Gold, then +1 Buy, then +1 Action (in that priority order,
+    /// across however many picks the revealed card unlocked).
+    fn default_courtier(&self, choices: &[Choice]) -> Choice {
+        let prefs: [fn(&ModeOpt) -> bool; 4] = [is_coins, is_gain, is_buys, is_actions];
+        for pred in prefs {
+            if let Some(c) = find_mode(id::COURTIER, choices, pred) {
+                return c;
+            }
+        }
+        choices[0]
+    }
+
+    /// Lurker: gain an Action from the trash if it holds one the gain list wants; otherwise
+    /// trash from the Supply the costliest Action the strategy doesn't want (the actual trash
+    /// target is then chosen by `choose_trash`'s `Zone::Supply` branch).
+    fn default_lurker(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let trash_has_wanted = view.trash().iter().any(|(c, _)| cards::is(c, ACTION) && self.gain_rank(view, c).is_some());
+        let pred: fn(&ModeOpt) -> bool = if trash_has_wanted { is_gain_trash } else { is_trash_supply };
+        find_mode(id::LURKER, choices, pred).unwrap_or(choices[0])
+    }
+
+    /// Torturer's victim: gain the Curse only if discarding 2 would throw away more value than a
+    /// Curse costs later. Heuristic: discard 2 if the hand has at least 2 cards that are
+    /// Victory/Curse/Copper or otherwise excess (unwanted per the trash rules); otherwise gain
+    /// the Curse to hand. Always used regardless of `search_play` (a reactive decision during
+    /// someone else's turn, not this player's own play to search).
+    fn default_torturer(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let expendable: u32 = view
+            .hand()
+            .iter()
+            .filter(|&(c, _)| c == id::COPPER || cards::is(c, VICTORY) || cards::is(c, CURSE_T) || self.wants_trash(view, c))
+            .map(|(_, n)| n as u32)
+            .sum();
+        let pred: fn(&ModeOpt) -> bool = if expendable >= 2 { is_discard_hand } else { is_gain };
+        find_mode(id::TORTURER, choices, pred).unwrap_or(choices[0])
     }
 
     // -----------------------------------------------------------------------------------------
@@ -700,6 +900,47 @@ fn iter_cards(choices: &[Choice]) -> impl Iterator<Item = CardId> + '_ {
     choices.iter().filter_map(|c| if let Choice::Card(x) = c { Some(*x) } else { None })
 }
 
+// Shape predicates over `ModeOpt`, used by the mode defaults to find a table index by what kind
+// of atom it is (rather than its exact values), so they read as "the +Actions option" etc.
+fn is_cards(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::Cards(_))
+}
+fn is_actions(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::Actions(_))
+}
+fn is_buys(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::Buys(_))
+}
+fn is_coins(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::Coins(_))
+}
+fn is_trash_hand(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::TrashFromHand(_))
+}
+fn is_discard_hand(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::DiscardFromHand(_))
+}
+fn is_gain(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::Gain(..))
+}
+fn is_discard_hand_draw(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::DiscardHandDraw { .. })
+}
+fn is_trash_supply(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::TrashFromSupply(_))
+}
+fn is_gain_trash(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::GainFromTrash(_))
+}
+
+/// The offered `Choice::Mode(i)` (if any) whose table entry for `card` matches `pred`.
+fn find_mode(card: CardId, choices: &[Choice], pred: impl Fn(&ModeOpt) -> bool) -> Option<Choice> {
+    cards::modes(card).iter().enumerate().find_map(|(i, o)| {
+        let ch = Choice::Mode(i as u8);
+        (pred(o) && choices.contains(&ch)).then_some(ch)
+    })
+}
+
 fn has_card(choices: &[Choice], c: CardId) -> bool {
     choices.contains(&Choice::Card(c))
 }
@@ -712,6 +953,14 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Discard => *view.discard(),
         Zone::Revealed => *view.revealed(),
         Zone::InPlay => *view.in_play(),
+        Zone::Trash => *view.trash(),
+        Zone::Supply => {
+            let mut c = Counts::EMPTY;
+            for card in view.supply_cards() {
+                c.set(card, view.supply(card));
+            }
+            c
+        }
     };
     for c in 0..NUM_CARDS as CardId {
         if !filter.matches(c) {

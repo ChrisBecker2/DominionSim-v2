@@ -35,6 +35,12 @@ pub enum DecisionKind {
     Select { from: Zone, act: Act, filter: Filter, min: u8, max: u8, ordered: bool },
     /// Apply `act` to `Decision::subject`? Choices: `Yes` / `No`.
     YesNo { act: Act },
+    /// Choose one option from `cards::modes(Decision.source)`. `picks` = options still to
+    /// choose (a multi-pick decision asks this repeatedly); `distinct` when `picks > 1` (every
+    /// pick must be a different table entry, offered in increasing index order). The chooser is
+    /// `Decision.player`, which may differ from the card's owner (Torturer's victim). Choices:
+    /// `Choice::Mode(index)`.
+    Mode { picks: u8, distinct: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,9 +77,11 @@ pub enum Choice {
     Card(CardId),
     Yes,
     No,
+    /// Index into `cards::modes(Decision.source)` (see `DecisionKind::Mode`).
+    Mode(u8),
 }
 
-pub const CHOICE_CAP: usize = 48;
+pub const CHOICE_CAP: usize = 64;
 
 #[derive(Clone, Copy)]
 pub struct ChoiceBuf {

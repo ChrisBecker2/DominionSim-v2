@@ -590,6 +590,8 @@ fn verb(act: Act) -> &'static str {
         Act::Topdeck => "Topdeck",
         Act::Play => "Play",
         Act::SetAside => "Set aside",
+        Act::Gain => "Gain",
+        Act::Reveal => "Reveal",
     }
 }
 
@@ -682,6 +684,11 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::Select { .. }, _) => "stop".to_string(),
         (DecisionKind::YesNo { act }, Choice::Yes) => format!("{} {}", verb(act), cards::name(d.subject)),
         (DecisionKind::YesNo { act }, _) => format!("don't {} {}", verb(act).to_lowercase(), cards::name(d.subject)),
+        (DecisionKind::Mode { .. }, Choice::Mode(i)) => match d.source {
+            Some(src) => cards::modes(src).get(i as usize).map(|o| o.label()).unwrap_or_else(|| "?".to_string()),
+            None => "?".to_string(),
+        },
+        (DecisionKind::Mode { .. }, _) => "?".to_string(),
     };
     let choice_card = match choice {
         Choice::Card(c) => Some(c),

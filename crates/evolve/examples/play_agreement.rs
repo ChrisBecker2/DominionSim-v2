@@ -40,7 +40,7 @@ impl Agent for Probe<'_> {
             v.dedup();
             v.len()
         };
-        if is_play_decision(d) && distinct >= 2 && d.player == view.me() {
+        if is_play_decision(view.turn().player, d) && distinct >= 2 && d.player == view.me() {
             self.st.multi += 1;
             let t = Instant::now();
             let rule = self.s.rule_play(view, d, choices);

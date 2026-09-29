@@ -9,7 +9,7 @@
 //! that looks worth doing (Bureaucrat/Bandit only ever offer mandatory or clearly-forced picks
 //! in the base set, so this mostly matters for the `min == 0` cases).
 
-use dominion_engine::cards::{self, id, CardId, VICTORY};
+use dominion_engine::cards::{self, id, CardId, ModeOpt, VICTORY};
 use dominion_engine::state::Act;
 use dominion_engine::{Choice, Decision, DecisionKind, GameState};
 
@@ -29,6 +29,19 @@ fn worst_first_rank(c: CardId) -> u32 {
 /// useful one — the cheapest — so the better ones stay in hand for scoring / reshuffle).
 fn cheapest_first_rank(c: CardId) -> (u8, CardId) {
     (cards::cost(c), c)
+}
+
+/// Lower = a mode option a fixed (unmodeled) opponent would rather pick, by the atom's shape
+/// rather than any specific card: gaining a Curse is the worst outcome, discarding/trashing
+/// costs more the more cards it takes, and everything else is neutral. Generic over any future
+/// mode card, not just Torturer.
+fn mode_avoid_rank(opt: Option<ModeOpt>) -> i32 {
+    match opt {
+        Some(ModeOpt::Gain(c, _)) if c == id::CURSE => 1_000,
+        Some(ModeOpt::TrashFromHand(n)) | Some(ModeOpt::DiscardFromHand(n)) => n as i32 * 10,
+        Some(ModeOpt::DiscardHandDraw { .. }) => 50,
+        _ => 0,
+    }
 }
 
 /// Pick a `Choice` for a decision belonging to a player other than the searcher. Never
@@ -54,6 +67,18 @@ pub fn default_policy(_state: &GameState, d: &Decision, choices: &[Choice]) -> C
                 _ => (u8::MAX, CardId::MAX),
             })
             .unwrap(),
+        // A reactive Mode decision (Torturer's victim, or any future mode card): pick the least
+        // damaging option by shape, e.g. discard rather than gain a Curse.
+        DecisionKind::Mode { .. } => {
+            let table = d.source.map(cards::modes).unwrap_or(&[]);
+            *choices
+                .iter()
+                .min_by_key(|c| match c {
+                    Choice::Mode(i) => mode_avoid_rank(table.get(*i as usize).copied()),
+                    _ => i32::MAX,
+                })
+                .unwrap()
+        }
         _ => choices[0],
     }
 }

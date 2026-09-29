@@ -1445,6 +1445,8 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::Discard => " from your discard",
         Zone::Revealed => " from the revealed cards",
         Zone::InPlay => " from play",
+        Zone::Supply => " from the Supply",
+        Zone::Trash => " from the trash",
     }
 }
 
@@ -1522,6 +1524,8 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Topdeck => ("put", " onto your deck".to_string()),
                 Act::Play => ("play", times_phrase(d.play_times)),
                 Act::SetAside => ("set aside", String::new()),
+                Act::Gain => ("gain", String::new()),
+                Act::Reveal => ("reveal", String::new()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -1549,7 +1553,19 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Topdeck => format!("Put {card} onto your deck?"),
                 Act::Play => format!("You may play {card}. Play it?"),
                 Act::SetAside => format!("You may set aside {card} (skip drawing it). Set it aside?"),
+                Act::Gain => format!("Gain {card}?"),
+                Act::Reveal => format!("Reveal {card}?"),
             }
+        }
+        DecisionKind::Mode { picks, distinct } => {
+            let what = if picks == 1 {
+                "one".to_string()
+            } else if distinct {
+                format!("{picks} different")
+            } else {
+                format!("{picks}")
+            };
+            format!("Choose {what}:")
         }
     };
     format!("{head}{body}")
@@ -1568,6 +1584,7 @@ fn choice_label(d: &Decision, c: Choice) -> String {
         Choice::Pass => "Done".to_string(),
         Choice::Yes => "Yes".to_string(),
         Choice::No => "No".to_string(),
+        Choice::Mode(i) => d.source.and_then(|src| cards::modes(src).get(i as usize)).map(|o| o.label()).unwrap_or_default(),
         Choice::Card(card) => {
             let name = cards::name(card);
             match d.kind {
@@ -1581,8 +1598,11 @@ fn choice_label(d: &Decision, c: Choice) -> String {
                     Act::Play if d.play_times > 1 => format!("Play {name} (x{})", d.play_times),
                     Act::Play => format!("Play {name}"),
                     Act::SetAside => format!("Set aside {name}"),
+                    Act::Gain => format!("Gain {name}"),
+                    Act::Reveal => format!("Reveal {name}"),
                 },
                 DecisionKind::YesNo { .. } => name.to_string(),
+                DecisionKind::Mode { .. } => name.to_string(),
             }
         }
     }

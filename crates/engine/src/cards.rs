@@ -1,5 +1,7 @@
 //! Card identities and static definitions: Base Set and Intrigue, both 2nd edition.
 
+use crate::state::{Dest, Filter};
+
 pub type CardId = u8;
 pub const NUM_CARDS: usize = 59;
 
@@ -190,11 +192,11 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     has_choice(c("Artisan", 6, ACTION, 0, 0, 0, 0, 0)), // what to gain and topdeck
     // ---- Intrigue (2nd edition). Stats are the vanilla part; the rest is in `effects.rs`. ----
     intrigue(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
-    intrigue_todo(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
-    intrigue_todo(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
+    intrigue(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
+    intrigue(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
     intrigue_todo(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
     intrigue(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
-    intrigue_todo(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
+    intrigue(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
     intrigue_todo(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
     intrigue_todo(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
     intrigue(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
@@ -205,16 +207,16 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     intrigue(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
     intrigue(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
     intrigue_todo(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
-    intrigue_todo(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
+    intrigue(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
     intrigue(c("Duke", 5, VICTORY, 0, 0, 0, 0, 0)), // 1 VP per Duchy (`state::vp_of_cards`)
-    intrigue_todo(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
+    intrigue(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
     intrigue(has_choice(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back
     intrigue(has_choice(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // what to trash and gain
-    intrigue_todo(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
+    intrigue(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
     intrigue(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
     intrigue(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
     intrigue(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0)),
-    intrigue_todo(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
+    intrigue(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -248,6 +250,106 @@ pub fn by_name(s: &str) -> Option<CardId> {
         return None;
     }
     (0..NUM_CARDS as CardId).find(|&c| norm(name(c)) == want)
+}
+
+// ---------------------------------------------------------------------------------------
+// Mode decisions ("choose one" / "choose N different"): a small set of generic effect
+// atoms, as data. A card's `modes()` table is the ordered list of options it offers;
+// `Choice::Mode(i)` picks table entry `i`. See `state::FrameKind::Mode` for resolution.
+// ---------------------------------------------------------------------------------------
+
+/// A generic "choose one/many" effect atom. Every Intrigue mode card (Pawn, Steward, Nobles,
+/// Minion, Courtier, Lurker, and Torturer's victim choice) is expressed as a table of these;
+/// nothing card-specific appears outside this module and `effects.rs`'s generic `Mode` frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ModeOpt {
+    Cards(u8),
+    Actions(u8),
+    Buys(u8),
+    Coins(u8),
+    /// Trash up to N cards from hand (as many as you can): forced up to what's available.
+    TrashFromHand(u8),
+    /// Discard N cards from hand (as many as you can): forced up to what's available.
+    DiscardFromHand(u8),
+    /// Gain a specific card from the Supply, if any is left (Courtier's Gold, Torturer's Curse).
+    Gain(CardId, Dest),
+    /// Minion's 2nd option: discard your hand, +`draw` Cards, and each other player (Moat
+    /// allowing) with at least `attack_min_hand` cards in hand does the same.
+    DiscardHandDraw { draw: u8, attack_min_hand: u8 },
+    /// Lurker: trash a card matching `Filter` from the Supply, if any.
+    TrashFromSupply(Filter),
+    /// Lurker: gain a card matching `Filter` from the trash, if any.
+    GainFromTrash(Filter),
+}
+
+/// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
+fn filter_words(f: Filter) -> (&'static str, &'static str) {
+    match f {
+        Filter::Any => ("a", "card"),
+        Filter::Action => ("an", "Action"),
+        Filter::Treasure => ("a", "Treasure"),
+        Filter::Victory => ("a", "Victory card"),
+        Filter::NonCopperTreasure => ("a", "Treasure other than Copper"),
+        Filter::Card(c) => (if starts_with_vowel_sound(name(c)) { "an" } else { "a" }, name(c)),
+        Filter::VictoryOrCurse => ("a", "Victory card or Curse"),
+    }
+}
+
+fn starts_with_vowel_sound(s: &str) -> bool {
+    matches!(s.chars().next(), Some('A' | 'E' | 'I' | 'O' | 'U' | 'a' | 'e' | 'i' | 'o' | 'u'))
+}
+
+impl ModeOpt {
+    /// A short human label for the option, used by the UI, logging, and strategy `[[mode]]`
+    /// rules' `choose = "..."` (matched case/space-insensitively; see `sim::strategy`).
+    pub fn label(self) -> String {
+        match self {
+            ModeOpt::Cards(1) => "+1 Card".to_string(),
+            ModeOpt::Cards(n) => format!("+{n} Cards"),
+            ModeOpt::Actions(1) => "+1 Action".to_string(),
+            ModeOpt::Actions(n) => format!("+{n} Actions"),
+            ModeOpt::Buys(1) => "+1 Buy".to_string(),
+            ModeOpt::Buys(n) => format!("+{n} Buys"),
+            ModeOpt::Coins(n) => format!("+${n}"),
+            ModeOpt::TrashFromHand(1) => "Trash a card".to_string(),
+            ModeOpt::TrashFromHand(n) => format!("Trash {n} cards"),
+            ModeOpt::DiscardFromHand(1) => "Discard a card".to_string(),
+            ModeOpt::DiscardFromHand(n) => format!("Discard {n} cards"),
+            ModeOpt::Gain(c, dest) => {
+                let (a, noun) = filter_words(Filter::Card(c));
+                let suffix = match dest {
+                    Dest::Hand => " to your hand",
+                    Dest::DeckTop => " onto your deck",
+                    Dest::Discard => "",
+                };
+                format!("Gain {a} {noun}{suffix}")
+            }
+            ModeOpt::DiscardHandDraw { draw, .. } => format!("Discard your hand, +{draw} Cards"),
+            ModeOpt::TrashFromSupply(f) => {
+                let (a, noun) = filter_words(f);
+                format!("Trash {a} {noun} from the Supply")
+            }
+            ModeOpt::GainFromTrash(f) => {
+                let (a, noun) = filter_words(f);
+                format!("Gain {a} {noun} from the trash")
+            }
+        }
+    }
+}
+
+/// The ordered "choose one/many" options `card` offers (empty if it isn't a mode card).
+/// A `match` on constant slices: what varies per card is only this data.
+pub fn modes(card: CardId) -> &'static [ModeOpt] {
+    match card {
+        id::PAWN => &[ModeOpt::Cards(1), ModeOpt::Actions(1), ModeOpt::Buys(1), ModeOpt::Coins(1)],
+        id::STEWARD => &[ModeOpt::Cards(2), ModeOpt::Coins(2), ModeOpt::TrashFromHand(2)],
+        id::NOBLES => &[ModeOpt::Cards(3), ModeOpt::Actions(2)],
+        id::MINION => &[ModeOpt::Coins(2), ModeOpt::DiscardHandDraw { draw: 4, attack_min_hand: 5 }],
+        id::COURTIER => &[ModeOpt::Actions(1), ModeOpt::Buys(1), ModeOpt::Coins(3), ModeOpt::Gain(id::GOLD, Dest::Discard)],
+        id::LURKER => &[ModeOpt::TrashFromSupply(Filter::Action), ModeOpt::GainFromTrash(Filter::Action)],
+        id::TORTURER => &[ModeOpt::DiscardFromHand(2), ModeOpt::Gain(id::CURSE, Dest::Hand)],
+        _ => &[],
+    }
 }
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;

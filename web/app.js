@@ -767,8 +767,8 @@
     renderTrash(view);
     renderDecision(view);
     renderLog(view);
-    // Nothing to analyze while the game waits at a turn boundary ("Start turn").
-    $("btn-analyze").disabled = !view.pending || !!view.pending.paused || view.gameOver;
+    // At a turn boundary ("Start turn") Analyze starts the turn and analyzes its first decision.
+    $("btn-analyze").disabled = !view.pending || view.gameOver;
     if (!stopRunGame) $("btn-run-bots").textContent = view.gameOver ? "New Game" : "Run Game";
     $("btn-undo").disabled = !api.canUndo();
     $("btn-redo").disabled = !api.canRedo();
@@ -1266,6 +1266,10 @@
     $("sim-table-toggle").addEventListener("change", () => renderSim());
     window.addEventListener("resize", () => renderSim());
     $("btn-analyze").addEventListener("click", () => {
+      if (lastView && lastView.pending && lastView.pending.paused) {
+        doAction(() => api.resume(), "Start turn");
+        if (crashed || !lastView.pending || lastView.pending.paused || lastView.gameOver) return;
+      }
       if (typeof Worker === "undefined" || !wasmModule) {
         try {
           renderAnalysis(api.analyze());

@@ -313,7 +313,7 @@ impl Strategy {
     /// most `max_cost`, matching `filter`, with its pile non-empty and its condition true.
     fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter) -> Option<usize> {
         self.buy.iter().position(|(card, cond)| {
-            cards::cost(*card) <= max_cost
+            view.cost(*card) <= max_cost
                 && filter.matches(*card)
                 && view.in_supply(*card)
                 && view.supply(*card) > 0
@@ -542,7 +542,7 @@ impl Strategy {
         if let Some(up) = decision.upgrade {
             let mut best: Option<(usize, u8, CardId)> = None;
             for c in iter_cards(choices) {
-                if let Some(rank) = self.best_gain_rank(view, cards::cost(c) + up.plus, up.filter) {
+                if let Some(rank) = self.best_gain_rank(view, view.cost(c) + up.plus, up.filter) {
                     let key = (rank, cards::cost(c), c);
                     if best.map_or(true, |b| key < b) {
                         best = Some(key);

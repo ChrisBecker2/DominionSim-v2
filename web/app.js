@@ -200,7 +200,17 @@
         : t.includes("reaction")
         ? "reaction"
         : "action";
-      cardClass.set(c.name, "card " + primary + (t.includes("attack") ? " attack" : ""));
+      // Dual-type cards (Harem: Treasure-Victory, Mill/Nobles: Action-Victory, Diplomat:
+      // Action-Reaction) get a split chip: the primary colour plus the second type's.
+      const has = (x) => t.includes(x);
+      const dual = has("treasure") && has("victory")
+        ? " dual-treasure-victory"
+        : has("action") && has("victory")
+        ? " dual-action-victory"
+        : has("action") && has("reaction")
+        ? " dual-action-reaction"
+        : "";
+      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : ""));
     }
     // Longest names first so "Throne Room" wins over any shorter overlap.
     const names = [...cardClass.keys()].sort((a, b) => b.length - a.length);

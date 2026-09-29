@@ -174,6 +174,9 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         if id < cards::FIRST_KINGDOM {
             return Err(format!("'{name}' is not a kingdom card"));
         }
+        if !cards::is_ready(id) {
+            return Err(format!("'{name}' is not implemented yet"));
+        }
         if out.contains(&id) {
             return Err(format!("duplicate kingdom card '{name}'"));
         }
@@ -217,11 +220,12 @@ struct TurnFields {
     actions: u8,
     buys: u8,
     coins: u16,
+    cost_reduction: u8,
 }
 
 impl Default for TurnFields {
     fn default() -> Self {
-        TurnFields { number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0 }
+        TurnFields { number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, cost_reduction: 0 }
     }
 }
 
@@ -252,6 +256,9 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "actions" => f.actions = val.parse().map_err(|_| format!("line {lineno}: invalid actions '{val}'"))?,
             "buys" => f.buys = val.parse().map_err(|_| format!("line {lineno}: invalid buys '{val}'"))?,
             "coins" => f.coins = val.parse().map_err(|_| format!("line {lineno}: invalid coins '{val}'"))?,
+            "cost_reduction" => {
+                f.cost_reduction = val.parse().map_err(|_| format!("line {lineno}: invalid cost_reduction '{val}'"))?
+            }
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -283,7 +290,7 @@ pub fn format_state(state: &GameState) -> String {
     out.push_str(&format!("trash: {}\n", format_counts(&state.trash)));
 
     out.push_str(&format!(
-        "turn: {}  player: {}  phase: {}  actions: {}  buys: {}  coins: {}\n",
+        "turn: {}  player: {}  phase: {}  actions: {}  buys: {}  coins: {}",
         state.turn.number,
         state.turn.player + 1,
         phase_str(state.turn.phase),
@@ -291,6 +298,11 @@ pub fn format_state(state: &GameState) -> String {
         state.turn.buys,
         state.turn.coins
     ));
+    // Only while something (Bridge) has reduced costs this turn.
+    if state.turn.cost_reduction > 0 {
+        out.push_str(&format!("  cost_reduction: {}", state.turn.cost_reduction));
+    }
+    out.push('\n');
 
     // See module docs: this is not the original construction seed, just a deterministic
     // number derived from the live RNG so the file has something loadable to seed from.
@@ -434,6 +446,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // A loaded position starts mid-turn from the reader's point of view; don't re-announce.
         announced: true,
         played: Counts::EMPTY,
+        cost_reduction: tf.cost_reduction,
     };
 
     // Player blocks.

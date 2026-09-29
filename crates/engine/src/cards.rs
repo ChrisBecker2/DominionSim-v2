@@ -1,7 +1,7 @@
-//! Card identities and static definitions (Base Set, 2nd edition).
+//! Card identities and static definitions: Base Set and Intrigue, both 2nd edition.
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 33;
+pub const NUM_CARDS: usize = 59;
 
 // Type flags.
 pub const ACTION: u8 = 1;
@@ -46,6 +46,42 @@ pub mod id {
     pub const SENTRY: CardId = 30;
     pub const WITCH: CardId = 31;
     pub const ARTISAN: CardId = 32;
+    // Intrigue (2nd edition)
+    pub const COURTYARD: CardId = 33;
+    pub const LURKER: CardId = 34;
+    pub const PAWN: CardId = 35;
+    pub const MASQUERADE: CardId = 36;
+    pub const SHANTY_TOWN: CardId = 37;
+    pub const STEWARD: CardId = 38;
+    pub const SWINDLER: CardId = 39;
+    pub const WISHING_WELL: CardId = 40;
+    pub const BARON: CardId = 41;
+    pub const BRIDGE: CardId = 42;
+    pub const CONSPIRATOR: CardId = 43;
+    pub const DIPLOMAT: CardId = 44;
+    pub const IRONWORKS: CardId = 45;
+    pub const MILL: CardId = 46;
+    pub const MINING_VILLAGE: CardId = 47;
+    pub const SECRET_PASSAGE: CardId = 48;
+    pub const COURTIER: CardId = 49;
+    pub const DUKE: CardId = 50;
+    pub const MINION: CardId = 51;
+    pub const PATROL: CardId = 52;
+    pub const REPLACE: CardId = 53;
+    pub const TORTURER: CardId = 54;
+    pub const TRADING_POST: CardId = 55;
+    pub const UPGRADE: CardId = 56;
+    pub const HAREM: CardId = 57;
+    pub const NOBLES: CardId = 58;
+}
+
+/// The expansion a card comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CardSet {
+    /// Base Set 2nd edition, including the basic Treasure/Victory/Curse cards.
+    Base,
+    /// Intrigue 2nd edition.
+    Intrigue,
 }
 
 /// Static card data. "Vanilla" bonuses (+cards/+actions/+buys/+coins) are applied
@@ -66,6 +102,10 @@ pub struct CardDef {
     /// Whether playing it involves a choice for its player (see [`OnPlay`]). Every Action card
     /// must be marked explicitly with `choice_free(..)` or `has_choice(..)`.
     pub on_play: OnPlay,
+    pub set: CardSet,
+    /// Whether the card's effects are implemented. Cards that aren't can't be put in a kingdom
+    /// (they would silently play as plain cards); see `intrigue_todo`.
+    pub ready: bool,
 }
 
 /// What playing an Action card means for its player's choice of play order.
@@ -87,7 +127,17 @@ pub enum OnPlay {
 }
 
 const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
-    CardDef { name, cost, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction }
+    CardDef { name, cost, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
+}
+
+/// An Intrigue card.
+const fn intrigue(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Intrigue, ..d }
+}
+
+/// An Intrigue card whose effects aren't implemented yet (not allowed in kingdoms).
+const fn intrigue_todo(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Intrigue, ready: false, ..d }
 }
 
 const fn plays(d: CardDef, times: u8) -> CardDef {
@@ -138,6 +188,33 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     has_choice(c("Sentry", 5, ACTION, 0, 0, 1, 1, 0)), // trash / discard / reorder the top 2
     choice_free(c("Witch", 5, ACTION | ATTACK, 0, 0, 2, 0, 0)),
     has_choice(c("Artisan", 6, ACTION, 0, 0, 0, 0, 0)), // what to gain and topdeck
+    // ---- Intrigue (2nd edition). Stats are the vanilla part; the rest is in `effects.rs`. ----
+    intrigue_todo(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
+    intrigue_todo(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
+    intrigue_todo(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
+    intrigue_todo(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
+    intrigue_todo(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
+    intrigue_todo(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
+    intrigue_todo(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
+    intrigue_todo(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
+    intrigue_todo(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
+    intrigue(choice_free(c("Bridge", 4, ACTION, 1, 0, 0, 0, 1))), // cost reduction only (no gains of its own)
+    intrigue_todo(has_choice(c("Conspirator", 4, ACTION, 2, 0, 0, 0, 0))), // depends on actions played: order matters
+    intrigue_todo(has_choice(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
+    intrigue_todo(has_choice(c("Ironworks", 4, ACTION, 0, 0, 0, 0, 0))), // what to gain
+    intrigue_todo(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
+    intrigue_todo(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
+    intrigue_todo(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
+    intrigue_todo(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
+    intrigue(c("Duke", 5, VICTORY, 0, 0, 0, 0, 0)), // 1 VP per Duchy (`state::vp_of_cards`)
+    intrigue_todo(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
+    intrigue_todo(has_choice(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back
+    intrigue_todo(has_choice(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // what to trash and gain
+    intrigue_todo(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
+    intrigue_todo(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
+    intrigue_todo(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
+    intrigue(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0)),
+    intrigue_todo(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -175,9 +252,25 @@ pub fn by_name(s: &str) -> Option<CardId> {
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
 
-/// All 26 kingdom cards.
+#[inline(always)]
+pub fn set_of(card: CardId) -> CardSet {
+    CARDS[card as usize].set
+}
+
+/// Whether the card's effects are implemented (only those can be in a kingdom).
+#[inline(always)]
+pub fn is_ready(card: CardId) -> bool {
+    CARDS[card as usize].ready
+}
+
+/// Every kingdom card of every set that can be played (implemented).
 pub fn kingdom_cards() -> impl Iterator<Item = CardId> {
-    FIRST_KINGDOM..NUM_CARDS as CardId
+    (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| is_ready(c))
+}
+
+/// The playable kingdom cards of one set.
+pub fn kingdom_cards_in(set: CardSet) -> impl Iterator<Item = CardId> {
+    kingdom_cards().filter(move |&c| set_of(c) == set)
 }
 
 /// The recommended "First Game" kingdom from the 2E rulebook.
@@ -202,8 +295,30 @@ mod tests {
         let free: Vec<&str> = CARDS.iter().filter(|d| d.on_play == OnPlay::ChoiceFree).map(|d| d.name).collect();
         assert_eq!(
             free,
-            ["Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch"],
+            ["Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch", "Bridge", "Torturer"],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );
+    }
+}
+
+#[cfg(test)]
+mod set_tests {
+    use super::*;
+
+    #[test]
+    fn ids_names_and_sets_line_up() {
+        assert_eq!(by_name("Nobles"), Some(id::NOBLES));
+        assert_eq!(by_name("shanty town"), Some(id::SHANTY_TOWN));
+        assert_eq!(by_name("WishingWell"), Some(id::WISHING_WELL));
+        let in_set = |set| (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| set_of(c) == set).count();
+        assert_eq!(in_set(CardSet::Base), 26);
+        assert_eq!(in_set(CardSet::Intrigue), 26);
+        // Every card name is unique.
+        for a in 0..NUM_CARDS as CardId {
+            assert_eq!(by_name(name(a)), Some(a), "{}", name(a));
+        }
+        assert!(is(id::HAREM, TREASURE) && is(id::HAREM, VICTORY));
+        assert!(is(id::MILL, ACTION) && is(id::MILL, VICTORY));
+        assert_eq!(kingdom_cards_in(CardSet::Base).count(), 26);
     }
 }

@@ -357,7 +357,7 @@ impl GameState {
             }
             DecisionKind::Buy => {
                 for c in 0..NUM_CARDS as CardId {
-                    if self.in_supply(c) && self.supply.get(c) > 0 && cards::cost(c) as u16 <= self.turn.coins {
+                    if self.in_supply(c) && self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -389,7 +389,7 @@ impl GameState {
             }
             (Phase::Action, _) => self.enter_buy(sink),
             (Phase::Buy, Choice::Card(c)) => {
-                self.turn.coins -= cards::cost(c) as u16;
+                self.turn.coins -= self.cost(c) as u16;
                 self.turn.buys -= 1;
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });

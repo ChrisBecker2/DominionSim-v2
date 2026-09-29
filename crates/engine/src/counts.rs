@@ -1,8 +1,14 @@
 use crate::cards::{CardId, NUM_CARDS};
 
-/// A multiset of cards stored as per-card counts. `Copy`, 33 bytes, never allocates.
+/// Slots in a `Counts`: one per card id, padded to 64 so a `Counts` is exactly one cache line
+/// and whole-set operations are fixed-width (vectorizable). Unused slots are always zero.
+pub const LANES: usize = 64;
+const _: () = assert!(NUM_CARDS <= LANES, "more cards than Counts lanes: widen LANES");
+
+/// A multiset of cards stored as per-card counts. `Copy`, 64 bytes, never allocates.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Counts(pub [u8; NUM_CARDS]);
+#[repr(align(64))]
+pub struct Counts(pub [u8; LANES]);
 
 impl Default for Counts {
     fn default() -> Self {
@@ -11,7 +17,7 @@ impl Default for Counts {
 }
 
 impl Counts {
-    pub const EMPTY: Counts = Counts([0; NUM_CARDS]);
+    pub const EMPTY: Counts = Counts([0; LANES]);
 
     #[inline(always)]
     pub fn get(&self, c: CardId) -> u8 {
@@ -49,13 +55,13 @@ impl Counts {
     }
     #[inline]
     pub fn add_all(&mut self, other: &Counts) {
-        for i in 0..NUM_CARDS {
+        for i in 0..LANES {
             self.0[i] += other.0[i];
         }
     }
     #[inline]
     pub fn clear(&mut self) {
-        self.0 = [0; NUM_CARDS];
+        self.0 = [0; LANES];
     }
     /// Count of cards matching a type flag (see `cards::ACTION` etc.).
     pub fn count_type(&self, flag: u8) -> u32 {

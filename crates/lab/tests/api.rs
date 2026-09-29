@@ -47,11 +47,14 @@ fn wait_until_not_running(state: &AppState, timeout: Duration) {
 }
 
 #[test]
-fn cards_has_26_kingdom_and_7_basic() {
+fn cards_lists_every_playable_kingdom_card_and_7_basic() {
     let state = AppState::new(strategies_fixture());
     let (status, resp) = call(&state, "GET", "/api/cards", b"");
     assert_eq!(status, 200);
-    assert_eq!(resp["kingdom"].as_array().unwrap().len(), 26);
+    let kingdom = resp["kingdom"].as_array().unwrap();
+    assert_eq!(kingdom.len(), dominion_engine::cards::kingdom_cards().count());
+    assert_eq!(kingdom.iter().filter(|c| c["set"] == "Base").count(), 26);
+    assert!(kingdom.iter().any(|c| c["name"] == "Bridge" && c["set"] == "Intrigue"));
     assert_eq!(resp["basic"].as_array().unwrap().len(), 7);
     assert!(resp["kingdom"].as_array().unwrap().iter().any(|c| c["name"] == "Witch"));
 }

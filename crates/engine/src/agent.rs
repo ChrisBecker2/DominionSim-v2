@@ -76,6 +76,10 @@ impl<'a> PlayerView<'a> {
     pub fn in_supply(&self, c: CardId) -> bool {
         self.state.in_supply(c)
     }
+    /// What `c` costs right now (printed cost less this turn's reductions, e.g. Bridge).
+    pub fn cost(&self, c: CardId) -> u8 {
+        self.state.cost(c)
+    }
     pub fn empty_piles(&self) -> u32 {
         self.state.empty_piles()
     }

@@ -99,12 +99,17 @@ impl PlayerState {
     }
 }
 
-/// Victory points of a whole collection of cards (Gardens counts the collection's size).
+/// Victory points of a whole collection of cards (Gardens counts the collection's size, Duke
+/// its Duchies).
 pub fn vp_of_cards(all: &Counts) -> i32 {
     let total = all.total() as i32;
     all.iter()
         .map(|(c, n)| {
-            let per = if c == id::GARDENS { total / 10 } else { cards::def(c).vp as i32 };
+            let per = match c {
+                id::GARDENS => total / 10,
+                id::DUKE => all.get(id::DUCHY) as i32,
+                _ => cards::def(c).vp as i32,
+            };
             per * n as i32
         })
         .sum()
@@ -146,11 +151,25 @@ pub struct TurnState {
     pub announced: bool,
     /// Every card played this turn, counting each resolution (Throne Room's target twice).
     pub played: Counts,
+    /// Cards cost this much less this turn, to a minimum of 0 (Bridge).
+    pub cost_reduction: u8,
 }
 
 impl TurnState {
     pub fn start(player: u8, number: u16) -> Self {
-        TurnState { player, phase: Phase::Action, actions: 1, buys: 1, coins: 0, merchants: 0, silvers_played: 0, number, announced: false, played: Counts::EMPTY }
+        TurnState {
+            player,
+            phase: Phase::Action,
+            actions: 1,
+            buys: 1,
+            coins: 0,
+            merchants: 0,
+            silvers_played: 0,
+            number,
+            announced: false,
+            played: Counts::EMPTY,
+            cost_reduction: 0,
+        }
     }
 }
 
@@ -422,6 +441,7 @@ impl GameState {
         put(id::CURSE, 10 * (n as u8 - 1));
         for &k in &cfg.kingdom {
             assert!(k >= cards::FIRST_KINGDOM, "{} is not a kingdom card", cards::name(k));
+            assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
             put(k, if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 });
         }
         let mut s = GameState {
@@ -448,6 +468,14 @@ impl GameState {
             s.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
         }
         s
+    }
+
+    /// What `c` costs right now: its printed cost less this turn's reductions (Bridge), min 0.
+    /// Everything that compares costs (buying, "gain a card costing up to", Remodel's +$2...)
+    /// goes through this, never through `cards::cost` directly.
+    #[inline(always)]
+    pub fn cost(&self, c: CardId) -> u8 {
+        cards::cost(c).saturating_sub(self.turn.cost_reduction)
     }
 
     #[inline]

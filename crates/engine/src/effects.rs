@@ -145,6 +145,7 @@ impl GameState {
                 self.stack.push(select(p, card, Zone::Hand, Topdeck, Filter::Any, 1, 1, Then::Nothing));
                 self.stack.push(gain_frame(p, card, 5, Filter::Any, Dest::Hand));
             }
+            id::BRIDGE => self.turn.cost_reduction += 1,
             _ => {} // Moat, Village, Smithy, Festival, Laboratory, Market: vanilla only.
         }
 
@@ -327,7 +328,7 @@ impl GameState {
         match f.kind {
             K::Gain => {
                 for c in 0..cards::NUM_CARDS as CardId {
-                    if self.in_supply(c) && self.supply.get(c) > 0 && cards::cost(c) <= f.max && f.filter.matches(c) {
+                    if self.in_supply(c) && self.supply.get(c) > 0 && self.cost(c) <= f.max && f.filter.matches(c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -445,7 +446,7 @@ impl GameState {
             Then::CoinsPerPick(n) => self.turn.coins += n as u16 * f.count as u16,
             Then::GainUpTo { plus, filter, dest } => {
                 if f.count > 0 {
-                    self.stack.push(gain_frame(p, f.source, cards::cost(f.last) + plus, filter, dest));
+                    self.stack.push(gain_frame(p, f.source, self.cost(f.last) + plus, filter, dest));
                 }
             }
             Then::PlayPicked { times } => {

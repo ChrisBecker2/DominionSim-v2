@@ -188,6 +188,8 @@ struct CardInfo {
     name: String,
     cost: u8,
     types: Vec<&'static str>,
+    /// "Base" or "Intrigue".
+    set: &'static str,
 }
 
 fn card_info(c: CardId) -> CardInfo {
@@ -197,7 +199,11 @@ fn card_info(c: CardId) -> CardInfo {
             types.push(label);
         }
     }
-    CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), types }
+    let set = match cards::set_of(c) {
+        cards::CardSet::Base => "Base",
+        cards::CardSet::Intrigue => "Intrigue",
+    };
+    CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), types, set }
 }
 
 fn cards_response() -> serde_json::Value {

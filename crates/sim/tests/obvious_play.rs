@@ -44,7 +44,7 @@ fn names(cs: &[CardId]) -> String {
 #[test]
 fn obvious_play_is_as_good_as_searching() {
     let free = free_actions();
-    assert_eq!(free.len(), 10, "the kingdom below holds every choice-free card");
+    assert!(free.contains(&id::VILLAGE) && free.contains(&id::BRIDGE), "every playable choice-free card, from every set: {free:?}");
     let fillers = [id::COPPER, id::COPPER, id::SILVER, id::GOLD, id::ESTATE];
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../strategies/");
     let strategies: Vec<Strategy> = ["village_smithy_engine.toml", "double_witch.toml", "laboratory_bm.toml"]

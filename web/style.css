@@ -457,3 +457,8 @@ section, .panel {
 
 /* Search stats beside the Analysis title: plain text, not heading caps */
 #analysis-meta { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; margin-left: 8px; }
+
+/* Dual-type cards: split chip, primary type first */
+.card.dual-treasure-victory { background: linear-gradient(135deg, var(--c-treasure) 50%, var(--c-victory) 50%); }
+.card.dual-action-victory { background: linear-gradient(135deg, var(--c-action) 50%, var(--c-victory) 50%); }
+.card.dual-action-reaction { background: linear-gradient(135deg, var(--c-action) 50%, var(--c-reaction) 50%); }

@@ -59,6 +59,10 @@ impl<'a> PlayerView<'a> {
     pub fn deck_known_top(&self) -> impl Iterator<Item = CardId> + '_ {
         self.state.players[self.me as usize].deck_known.iter_top_down()
     }
+    /// Known cards at the very bottom of my deck (Secret Passage), nearest-to-unknown first.
+    pub fn deck_known_bottom(&self) -> impl Iterator<Item = CardId> + '_ {
+        self.state.players[self.me as usize].deck_known_bottom.iter_front_to_back()
+    }
     pub fn deck_size(&self) -> u32 {
         self.state.players[self.me as usize].deck_size()
     }
@@ -175,7 +179,11 @@ impl<'a> PlayerView<'a> {
             let hand_size = ps.hand.total();
             let mut pool = ps.deck_known.counts();
             pool.add_all(&ps.deck_unknown);
+            pool.add_all(&ps.deck_known_bottom.counts());
             pool.add_all(&ps.hand);
+            // Masquerade: a card another player has already committed to pass is just as hidden
+            // from me as their hand or deck until it's delivered (see `state::PlayerState::passed`).
+            pool.add_all(&ps.passed);
             let mut hand = Counts::EMPTY;
             for _ in 0..hand_size {
                 let c = pool.nth(rng.below(pool.total()));
@@ -184,7 +192,9 @@ impl<'a> PlayerView<'a> {
             }
             ps.hand = hand;
             ps.deck_known = KnownStack::default();
+            ps.deck_known_bottom = KnownStack::default();
             ps.deck_unknown = pool;
+            ps.passed = Counts::EMPTY;
         }
         s
     }

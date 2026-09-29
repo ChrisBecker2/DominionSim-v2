@@ -317,6 +317,7 @@ pub fn format_state(state: &GameState) -> String {
         out.push_str(&format!("hand: {}\n", format_counts(&ps.hand)));
         out.push_str(&format!("deck top: {}\n", format_card_sequence(ps.deck_known.iter_top_down())));
         out.push_str(&format!("deck: {}\n", format_counts(&ps.deck_unknown)));
+        out.push_str(&format!("deck bottom: {}\n", format_card_sequence(ps.deck_known_bottom.iter_front_to_back())));
         out.push_str(&format!("discard: {}\n", format_counts(&ps.discard)));
         out.push_str(&format!("in play: {}\n", format_counts(&ps.in_play)));
         out.push_str(&format!("set aside: {}\n", format_counts(&ps.set_aside)));
@@ -503,6 +504,15 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                     }
                 }
                 "deck" => ps.deck_unknown = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
+                "deck bottom" => {
+                    let seq = parse_card_sequence(val).map_err(|e| format!("line {ln2}: {e}"))?;
+                    if seq.len() > KNOWN_CAP {
+                        return Err(format!("line {ln2}: too many known deck-bottom cards (max {KNOWN_CAP})"));
+                    }
+                    for &c in seq.iter() {
+                        ps.deck_known_bottom.push_top(c);
+                    }
+                }
                 "discard" => ps.discard = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "in play" => ps.in_play = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "set aside" => ps.set_aside = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,

@@ -137,11 +137,6 @@ const fn intrigue(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Intrigue, ..d }
 }
 
-/// An Intrigue card whose effects aren't implemented yet (not allowed in kingdoms).
-const fn intrigue_todo(d: CardDef) -> CardDef {
-    CardDef { set: CardSet::Intrigue, ready: false, ..d }
-}
-
 const fn plays(d: CardDef, times: u8) -> CardDef {
     CardDef { plays: times, ..d }
 }
@@ -194,19 +189,19 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     intrigue(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
     intrigue(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
     intrigue(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
-    intrigue_todo(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
+    intrigue(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
     intrigue(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
     intrigue(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
-    intrigue_todo(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
-    intrigue_todo(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
+    intrigue(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
+    intrigue(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
     intrigue(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
     intrigue(choice_free(c("Bridge", 4, ACTION, 1, 0, 0, 0, 1))), // cost reduction only (no gains of its own)
     intrigue(has_choice(c("Conspirator", 4, ACTION, 2, 0, 0, 0, 0))), // depends on actions played: order matters
-    intrigue_todo(has_choice(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
+    intrigue(has_choice(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
     intrigue(has_choice(c("Ironworks", 4, ACTION, 0, 0, 0, 0, 0))), // what to gain
     intrigue(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
     intrigue(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
-    intrigue_todo(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
+    intrigue(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
     intrigue(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
     intrigue(c("Duke", 5, VICTORY, 0, 0, 0, 0, 0)), // 1 VP per Duchy (`state::vp_of_cards`)
     intrigue(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
@@ -352,6 +347,12 @@ pub fn modes(card: CardId) -> &'static [ModeOpt] {
     }
 }
 
+/// Reaction cards that offer an optional effect (not a block) when another player plays an
+/// Attack: `(card, minimum hand size to reveal, cards drawn, cards then discarded)`. Moat's
+/// blocking reaction is handled separately (`GameState::immune`); this table is for reactions
+/// like Diplomat's that let the revealer act without stopping the attack.
+pub static REACTION_EFFECTS: &[(CardId, u8, u8, u8)] = &[(id::DIPLOMAT, 5, 2, 3)];
+
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
 
 #[inline(always)]
@@ -422,5 +423,6 @@ mod set_tests {
         assert!(is(id::HAREM, TREASURE) && is(id::HAREM, VICTORY));
         assert!(is(id::MILL, ACTION) && is(id::MILL, VICTORY));
         assert_eq!(kingdom_cards_in(CardSet::Base).count(), 26);
+        assert_eq!(kingdom_cards_in(CardSet::Intrigue).count(), 26);
     }
 }

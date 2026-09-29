@@ -303,6 +303,11 @@ impl Strategy {
         match decision.kind {
             DecisionKind::PlayAction => self.play_decision(view, decision, choices, false),
             DecisionKind::Buy => self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass),
+            DecisionKind::Gain { .. } if decision.for_player != decision.player => {
+                // Swindler: this gain is forced on `for_player` (the victim), not chosen for
+                // ourselves. Give them the worst option offered (all cost the same, by rule).
+                self.worst_gain_for_victim(choices)
+            }
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, max, ordered } => {
                 match act {
@@ -310,9 +315,10 @@ impl Strategy {
                     Act::Trash => self.choose_trash(view, decision, choices, from, filter, min, max, ordered),
                     Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
                     Act::Play => self.play_decision(view, decision, choices, decision.play_times > 1),
-                    Act::SetAside => Choice::Pass, // not used via Select in the base set
+                    Act::SetAside => self.choose_setaside(choices),
                     Act::Gain => self.choose_gain_from_zone(view, choices),
                     Act::Reveal => self.choose_reveal(choices),
+                    Act::Pass => self.choose_pass(view, choices),
                 }
             }
             DecisionKind::Mode { .. } => self.choose_mode(view, decision, choices),
@@ -331,8 +337,12 @@ impl Strategy {
                 }
                 // Discard-for-a-bonus (Baron: discard an Estate for +$4): worth it by default.
                 Act::Discard => Choice::Yes,
+                // Diplomat's reaction: only offered once the hand already has 5+ cards.
+                Act::Reveal => Choice::Yes,
                 _ => Choice::No,
             },
+            DecisionKind::Name => self.choose_name(view, choices),
+            DecisionKind::DeckPosition { .. } => self.choose_deck_position(view, decision, choices),
         }
     }
 
@@ -680,6 +690,91 @@ impl Strategy {
     /// mode picks.
     fn choose_reveal(&self, choices: &[Choice]) -> Choice {
         iter_cards(choices).max_by_key(|&c| cards::def(c).types.count_ones()).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// Swindler: every offered card costs the same (the trashed card's cost); give the victim
+    /// the worst one — a Curse if one is offered, else a Victory card, else the cheapest junk
+    /// (Copper over other Treasures, terminal Actions over useful ones).
+    fn worst_gain_for_victim(&self, choices: &[Choice]) -> Choice {
+        let rank = |c: CardId| -> i32 {
+            if c == id::CURSE {
+                0
+            } else if cards::is(c, VICTORY) {
+                1
+            } else if c == id::COPPER {
+                2
+            } else if cards::is(c, TREASURE) {
+                3
+            } else if cards::is(c, ACTION) && cards::def(c).actions == 0 && cards::def(c).cards == 0 {
+                4 // a dead terminal
+            } else {
+                5
+            }
+        };
+        iter_cards(choices).min_by_key(|&c| (rank(c), c)).map(Choice::Card).unwrap_or_else(|| choices[0])
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Hidden information (Wishing Well / Secret Passage / Masquerade).
+    // -----------------------------------------------------------------------------------------
+
+    /// Wishing Well: name the most likely card from the honest view (highest count in the deck,
+    /// or the discard if the deck is empty — the same source the engine offers from), ties broken
+    /// by whichever the strategy values most (its rank in the gain list, cheapest first as a
+    /// fallback so a tie still resolves the same way every time).
+    fn choose_name(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let source = if view.deck_size() > 0 { view.deck() } else { *view.discard() };
+        let value = |c: CardId| -> i32 {
+            match self.gain_rank(view, c) {
+                Some(rank) => (self.gain_list_len() - rank) as i32,
+                None => -(cards::cost(c) as i32),
+            }
+        };
+        iter_cards(choices).max_by_key(|&c| (source.get(c), value(c))).map(Choice::Card).unwrap_or_else(|| choices[0])
+    }
+
+    /// Secret Passage's card pick (`Select`, `Act::SetAside`): the single most valuable card in
+    /// hand (Gold, then any Action, then other Treasures), which `choose_deck_position` then puts
+    /// on top; if hand is all Victory/Curse, any of them will do (they get buried at the bottom).
+    fn choose_setaside(&self, choices: &[Choice]) -> Choice {
+        let value = |c: CardId| -> i32 {
+            if cards::is(c, VICTORY) || c == id::CURSE {
+                -1
+            } else if c == id::GOLD {
+                3
+            } else if cards::is(c, ACTION) {
+                2
+            } else {
+                1
+            }
+        };
+        iter_cards(choices).max_by_key(|&c| (value(c), cards::cost(c))).map(Choice::Card).unwrap_or_else(|| choices[0])
+    }
+
+    /// Secret Passage: keep a good card on top for next turn (a Gold, or an Action the strategy
+    /// wants to play); bury pure junk (Victory/Curse) at the bottom when that's offered; otherwise
+    /// top.
+    fn choose_deck_position(&self, _view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let card = decision.subject;
+        let junk = cards::is(card, VICTORY) || cards::is(card, CURSE_T);
+        if junk && choices.contains(&Choice::Position(255)) {
+            return Choice::Position(255);
+        }
+        Choice::Position(0)
+    }
+
+    /// Masquerade: pass the card the strategy values least (trash-rule order: Curse, then
+    /// Estate, then Copper, then the cheapest). Simplification: this doesn't special-case a
+    /// custom `[[trash]]` rule that only wants a specific *other* card gone this turn (the
+    /// built-in defaults already target the same junk cards this priority order does, so
+    /// deferring to Masquerade's own follow-up trash for them would be redundant, not better).
+    fn choose_pass(&self, _view: &PlayerView, choices: &[Choice]) -> Choice {
+        for &c in &[id::CURSE, id::ESTATE, id::COPPER] {
+            if has_card(choices, c) {
+                return Choice::Card(c);
+            }
+        }
+        iter_cards(choices).min_by_key(|&c| (cards::cost(c), c)).map(Choice::Card).unwrap_or_else(|| choices[0])
     }
 
     // -----------------------------------------------------------------------------------------

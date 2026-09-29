@@ -592,6 +592,7 @@ fn verb(act: Act) -> &'static str {
         Act::SetAside => "Set aside",
         Act::Gain => "Gain",
         Act::Reveal => "Reveal",
+        Act::Pass => "Pass",
     }
 }
 
@@ -689,6 +690,12 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
             None => "?".to_string(),
         },
         (DecisionKind::Mode { .. }, _) => "?".to_string(),
+        (DecisionKind::Name, Choice::Card(c)) => format!("Name {}", cards::name(c)),
+        (DecisionKind::Name, _) => "name nothing".to_string(),
+        (DecisionKind::DeckPosition { .. }, Choice::Position(255)) => "to the bottom".to_string(),
+        (DecisionKind::DeckPosition { .. }, Choice::Position(0)) => "on top".to_string(),
+        (DecisionKind::DeckPosition { .. }, Choice::Position(k)) => format!("below the {k}th known card"),
+        (DecisionKind::DeckPosition { .. }, _) => "?".to_string(),
     };
     let choice_card = match choice {
         Choice::Card(c) => Some(c),

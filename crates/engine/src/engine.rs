@@ -41,11 +41,23 @@ pub enum DecisionKind {
     /// `Decision.player`, which may differ from the card's owner (Torturer's victim). Choices:
     /// `Choice::Mode(index)`.
     Mode { picks: u8, distinct: bool },
+    /// Name a card that could be on top of `Decision.player`'s deck (or discard, if their deck
+    /// is empty) — Wishing Well. Choices: `Choice::Card(..)`.
+    Name,
+    /// Put the just-picked card (`Decision.subject`) into the deck: `0` = top, `1..=max_known` =
+    /// below the Nth known top card, `255` = the very bottom — Secret Passage. Choices:
+    /// `Choice::Position(..)`.
+    DeckPosition { max_known: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Decision {
+    /// Who must submit the choice.
     pub player: u8,
+    /// Whose zones/effects this decision concerns, if that differs from `player` (Swindler: the
+    /// attacker is `player`, but the gain is for the victim, `for_player`). Equal to `player` for
+    /// every other decision.
+    pub for_player: u8,
     pub kind: DecisionKind,
     /// The card whose effect caused this decision (`None` for PlayAction/Buy).
     pub source: Option<CardId>,
@@ -79,6 +91,9 @@ pub enum Choice {
     No,
     /// Index into `cards::modes(Decision.source)` (see `DecisionKind::Mode`).
     Mode(u8),
+    /// A deck position (see `DecisionKind::DeckPosition`): `0` = top, `1..=max_known` = below the
+    /// Nth known top card, `255` = the bottom.
+    Position(u8),
 }
 
 pub const CHOICE_CAP: usize = 64;
@@ -155,6 +170,8 @@ pub enum Event {
     Reveal { player: u8, card: CardId },
     SetAside { player: u8, card: CardId },
     Reaction { player: u8, card: CardId },
+    /// Masquerade: `player` passes `card` to `to`, once every passing player has chosen.
+    Pass { player: u8, card: CardId, to: u8 },
     GameOver,
 }
 
@@ -221,6 +238,7 @@ impl GameState {
                 Run::Decide(kind, subject) => {
                     let d = Decision {
                         player: self.decider(),
+                        for_player: self.decision_for_player(),
                         kind,
                         source: self.decision_source(),
                         subject,
@@ -526,8 +544,15 @@ impl GameState {
         self.pending = p;
     }
 
-    /// Who must decide right now: the top frame's player, else the current player.
+    /// Who must decide right now: the top frame's chooser, else the current player.
     fn decider(&self) -> u8 {
+        self.stack.top().map(|f| f.chooser).unwrap_or(self.turn.player)
+    }
+
+    /// Whose zones/effects the pending decision concerns: the top frame's player, else the
+    /// current player. Equal to `decider()` except when another player is choosing on this
+    /// player's behalf (Swindler).
+    fn decision_for_player(&self) -> u8 {
         self.stack.top().map(|f| f.player).unwrap_or(self.turn.player)
     }
 

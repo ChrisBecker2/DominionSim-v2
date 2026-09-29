@@ -93,12 +93,12 @@ impl GameState {
                 }
             }
             id::MILITIA => {
+                // `max` names the target hand size (3); the actual discard count is computed
+                // live when this frame is first run (see `Frame::down_to_target`), so a Diplomat
+                // reaction that draws/discards first (resolving before this frame) is picked up.
                 let (vs, n) = self.victims(sink);
                 for &v in vs[..n].iter().rev() {
-                    let excess = self.players[v as usize].hand.total().saturating_sub(3) as u8;
-                    if excess > 0 {
-                        self.stack.push(select(v, card, Zone::Hand, Discard, Filter::Any, excess, excess, Then::Nothing));
-                    }
+                    self.stack.push(Frame { down_to_target: true, ..select(v, card, Zone::Hand, Discard, Filter::Any, 0, 3, Then::Nothing) });
                 }
             }
             id::MONEYLENDER => self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Card(id::COPPER), 0, 1, Then::CoinsPerPick(3))),
@@ -219,12 +219,61 @@ impl GameState {
                     self.stack.push(mode_frame(v, card, 1));
                 }
             }
+            // ---- Hidden information (step 4) ----
+            id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
+            id::SWINDLER => {
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(Frame { chooser: p, ..Frame::new(K::TrashTopThenGain, v, card) });
+                }
+            }
+            // Deferred (see `FrameKind::PassLeftBegin`) so "who has cards to pass" is checked
+            // after this player's own +2 Cards (pushed below it) has resolved, not before.
+            id::MASQUERADE => self.stack.push(Frame::new(K::PassLeftBegin, p, card)),
+            id::SECRET_PASSAGE => {
+                self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::TakeToDeckPosition))
+            }
+            // ---- Reactions (step 5) ----
+            id::DIPLOMAT => self.stack.push(Frame {
+                min: 0, max: 0, then: Then::ActionsIfHandAtMost { max_hand: 5, actions: 2 },
+                ..select(p, card, Zone::Hand, Discard, Filter::Any, 0, 0, Then::Nothing)
+            }),
             _ => {} // Moat, Village, Smithy, Festival, Laboratory, Market: vanilla only.
         }
 
         if def.cards > 0 {
             self.stack.push(draw_frame(p, card, def.cards));
         }
+        // Any Attack, once played, opens a reaction window for every other player: today only
+        // Diplomat (Moat's auto-reveal immunity is handled separately by `immune`/`victims`).
+        // Pushed last so it resolves before this card's own per-victim frames (pushed above).
+        if cards::is(card, cards::ATTACK) {
+            self.push_reaction_window(card, sink);
+        }
+    }
+
+    /// Open a reaction window for an Attack just played: every other player holding a reaction
+    /// card whose table entry applies (today, just Diplomat) is offered a `YesNo` to reveal it.
+    /// Simplification: offered once per Attack play per player, even if they hold several copies
+    /// of the same reaction card (2nd-edition Diplomat allows re-revealing another copy if the
+    /// hand is still large enough; not modelled).
+    fn push_reaction_window<S: EventSink>(&mut self, attack: CardId, _sink: &mut S) {
+        let n = self.num_players;
+        let attacker = self.turn.player;
+        for i in (1..n).rev() {
+            let v = (attacker + i) % n;
+            for &(react_card, min_hand, draw, discard) in cards::REACTION_EFFECTS {
+                let hand = &self.players[v as usize].hand;
+                if hand.get(react_card) > 0 && hand.total() >= min_hand as u32 {
+                    self.stack.push(Frame {
+                        zone: Zone::Hand, act: Act::Reveal, subject: react_card,
+                        then: Then::ReactDrawDiscard { draw, discard },
+                        ..Frame::new(K::YesNo, v, react_card)
+                    });
+                }
+            }
+        }
+        let _ = attack;
     }
 
     /// Other players affected by an attack, in turn order starting to the left.
@@ -358,6 +407,18 @@ impl GameState {
                 }
             }
             K::Select => {
+                if f.down_to_target {
+                    // First touch: `max` was a target zone size (Militia's "discard down to 3");
+                    // any reaction that resolves first (Diplomat) already ran, so the zone's
+                    // current size is the right one to compute the mandatory count from.
+                    let z = self.zone(p, f.zone);
+                    let avail: u32 = z.iter().filter(|&(c, _)| f.filter.matches(c)).map(|(_, n)| n as u32).sum();
+                    let excess = avail.saturating_sub(f.max as u32) as u8;
+                    f.min = excess;
+                    f.max = excess;
+                    f.down_to_target = false;
+                    self.stack.set_top(f);
+                }
                 let (rem_min, rem_max, avail) = self.select_bounds(&f);
                 if rem_max == 0 || avail == 0 {
                     self.finish_select(f, sink);
@@ -428,6 +489,119 @@ impl GameState {
                 }
                 Run::Continue
             }
+            K::Name => {
+                if f.count == 0 {
+                    if self.name_offer(p).is_empty() {
+                        self.stack.pop();
+                        return Run::Continue;
+                    }
+                    return Run::Decide(DecisionKind::Name, 0);
+                }
+                // A card was named (held in `subject`); reveal the real top card and compare.
+                match take_top!(self, p, sink) {
+                    None => {
+                        self.stack.pop();
+                    }
+                    Some(c) => {
+                        self.stack.pop();
+                        sink.event(Event::Reveal { player: p, card: c });
+                        if c == f.subject {
+                            self.players[pi].hand.add(c, 1);
+                            sink.event(Event::Draw { player: p, card: c });
+                        } else {
+                            self.players[pi].deck_known.push_top(c);
+                        }
+                    }
+                }
+                Run::Continue
+            }
+            K::DeckPosition => {
+                let max_known = self.players[pi].deck_known.len;
+                Run::Decide(DecisionKind::DeckPosition { max_known }, f.subject)
+            }
+            K::TrashTopThenGain => {
+                match take_top!(self, p, sink) {
+                    None => {
+                        self.stack.pop();
+                    }
+                    Some(c) => {
+                        self.stack.pop();
+                        self.trash.add(c, 1);
+                        sink.event(Event::Trash { player: p, card: c });
+                        let cost = self.cost(c);
+                        self.stack.push(Frame { chooser: f.chooser, max: cost, exact: true, dest: Dest::Discard, depth: f.depth, ..Frame::new(K::Gain, p, f.source) });
+                    }
+                }
+                Run::Continue
+            }
+            K::PassLeftBegin => {
+                self.stack.pop();
+                // Every player currently holding cards passes one, in turn order starting here;
+                // once all have chosen, a `PassLeftDeliver` delivers them at once; then the
+                // current player may trash a card from hand.
+                self.stack.push(Frame { depth: f.depth, ..select(p, f.source, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing) });
+                self.stack.push(Frame { depth: f.depth, ..Frame::new(K::PassLeftDeliver, p, f.source) });
+                let n = self.num_players;
+                let mut with_cards = [0u8; MAX_PLAYERS];
+                let mut count = 0u8;
+                for i in 0..n {
+                    let pl = (p + i) % n;
+                    if !self.players[pl as usize].hand.is_empty() {
+                        with_cards[count as usize] = pl;
+                        count += 1;
+                    }
+                }
+                for idx in (0..count).rev() {
+                    let pl = with_cards[idx as usize];
+                    self.stack.push(Frame { depth: f.depth, ..select(pl, f.source, Zone::Hand, Act::Pass, Filter::Any, 1, 1, Then::Nothing) });
+                }
+                Run::Continue
+            }
+            K::PassLeftDeliver => {
+                self.stack.pop();
+                self.deliver_left_passes(sink);
+                Run::Continue
+            }
+        }
+    }
+
+    /// The distinct cards Wishing Well may name: the player's whole deck (known + unknown), or
+    /// their discard if the deck is empty (since drawing it would shuffle the discard in first).
+    fn name_offer(&self, p: u8) -> Counts {
+        let ps = &self.players[p as usize];
+        if ps.deck_size() > 0 { ps.deck_counts() } else { ps.discard }
+    }
+
+    /// "Each player with cards passes one to the next such player to their left, at once"
+    /// (Masquerade): once every passing player has chosen (their pick sits in their own
+    /// `passed` zone), deliver each held card to the next passing player to the left, all at
+    /// once.
+    fn deliver_left_passes<S: EventSink>(&mut self, sink: &mut S) {
+        let n = self.num_players;
+        let mut w = [0u8; MAX_PLAYERS];
+        let mut wn = 0usize;
+        for i in 0..n {
+            if !self.players[i as usize].passed.is_empty() {
+                w[wn] = i;
+                wn += 1;
+            }
+        }
+        if wn == 0 {
+            return;
+        }
+        let mut moved = [(0u8, 0 as CardId); MAX_PLAYERS];
+        for idx in 0..wn {
+            let giver = w[idx];
+            let ps = &mut self.players[giver as usize];
+            let card = ps.passed.iter().next().expect("passing player holds exactly one card").0;
+            ps.passed.remove(card);
+            moved[idx] = (w[(idx + 1) % wn], card);
+        }
+        for idx in 0..wn {
+            let giver = w[idx];
+            let (recipient, card) = moved[idx];
+            self.players[recipient as usize].hand.add(card, 1);
+            sink.event(Event::Pass { player: giver, card, to: recipient });
         }
     }
 
@@ -476,7 +650,24 @@ impl GameState {
                     }
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal => {}
+            K::Name => {
+                for (c, _) in self.name_offer(f.player).iter() {
+                    out.push(Choice::Card(c));
+                }
+            }
+            K::DeckPosition => {
+                let ps = &self.players[f.player as usize];
+                for k in 0..=ps.deck_known.len {
+                    out.push(Choice::Position(k));
+                }
+                // "Bottom" is only a distinct outcome when there's something beneath the known
+                // section for the new card to go under; otherwise it coincides with position
+                // `deck_known.len` (append at the very end) and isn't offered separately.
+                if !ps.deck_unknown.is_empty() || !ps.deck_known_bottom.is_empty() {
+                    out.push(Choice::Position(255));
+                }
+            }
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver => {}
         }
     }
 
@@ -530,13 +721,19 @@ impl GameState {
             (K::Select, _) => self.finish_select(f, sink),
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
-                self.zone_mut(p, f.zone).remove(f.subject);
+                if f.act != Act::Reveal {
+                    self.zone_mut(p, f.zone).remove(f.subject);
+                }
                 self.put(p, f.subject, f.act, f.dest, sink);
                 if f.act == Act::Play {
                     self.resolve_effects(f.subject, f.depth, sink);
                 }
                 match f.then {
                     Then::CoinsPerPick(n) | Then::YesCoinsElseGainSubject(n) => self.turn.coins += n as u16,
+                    Then::ReactDrawDiscard { draw, discard } => {
+                        self.stack.push(Frame { depth: f.depth, ..select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, discard, discard, Then::Nothing) });
+                        self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, draw) });
+                    }
                     _ => {}
                 }
             }
@@ -562,6 +759,21 @@ impl GameState {
                 sink.event(Event::Draw { player: p, card: f.subject });
                 f.count = 0;
                 self.stack.set_top(f);
+            }
+            (K::Name, Choice::Card(c)) => {
+                f.subject = c;
+                f.count = 1;
+                self.stack.set_top(f);
+            }
+            (K::DeckPosition, Choice::Position(k)) => {
+                self.stack.pop();
+                let ps = &mut self.players[pi];
+                ps.set_aside.remove(f.subject);
+                if k == 255 {
+                    ps.deck_known_bottom.push_top(f.subject);
+                } else {
+                    ps.deck_known.insert_from_top(k, f.subject);
+                }
             }
             (kind, ch) => unreachable!("choice {ch:?} not valid for frame {kind:?}"),
         }
@@ -601,6 +813,9 @@ impl GameState {
                 sink.event(Event::Gain { player: p, card: c, to: dest });
             }
             Act::Reveal => sink.event(Event::Reveal { player: p, card: c }),
+            // Held secretly until `deliver_left_passes` moves it; no event here, since what's
+            // passed isn't revealed until it's received (see `Event::Pass`).
+            Act::Pass => ps.passed.add(c, 1),
         }
     }
 
@@ -660,8 +875,22 @@ impl GameState {
                     }
                 }
             }
+            Then::TakeToDeckPosition => {
+                if f.count > 0 {
+                    self.stack.push(Frame { subject: f.last, ..Frame::new(K::DeckPosition, p, f.source) });
+                }
+            }
+            Then::ActionsIfHandAtMost { max_hand, actions } => {
+                if self.players[p as usize].hand.total() <= max_hand as u32 {
+                    self.turn.actions += actions;
+                }
+            }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
-            Then::GainedTypeStatBonus | Then::GainedTypeDestAttack | Then::YesCoinsElseGainSubject(_) | Then::MoveMatchingToHand(_) => {}
+            Then::GainedTypeStatBonus
+            | Then::GainedTypeDestAttack
+            | Then::YesCoinsElseGainSubject(_)
+            | Then::MoveMatchingToHand(_)
+            | Then::ReactDrawDiscard { .. } => {}
         }
         // Frames spawned by finishing a selection belong to the same card effect.
         for fr in &mut self.stack.frames[base..self.stack.len as usize] {

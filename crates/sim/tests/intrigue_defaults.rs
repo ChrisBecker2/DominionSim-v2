@@ -295,3 +295,116 @@ fn stated_mode_rule_overrides_the_torturer_default() {
     // The default heuristic would discard here (2 expendable cards); the stated rule overrides it.
     assert_eq!(decide_for(&strat, &g, 1, &d), Choice::Mode(curse_i));
 }
+
+// ===========================================================================
+// Step 4/5 defaults (hidden information / reactions), per docs/intrigue-plan.md.
+// ===========================================================================
+
+#[test]
+fn wishing_well_default_names_the_most_likely_card() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    // The unknown deck is 3 Silver + 1 Gold; whichever one the +1 Card draw happens to take,
+    // Silver is still the majority of what's left, so naming it is correct either way.
+    let text = "players: 2\nkingdom: Wishing Well\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Wishing Well\ndeck: 3 Silver, Gold\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::WISHING_WELL));
+    assert_eq!(d.kind, DecisionKind::Name);
+    assert_eq!(decide(&strat, &g, &d), Choice::Card(id::SILVER), "3 of the 4 remaining cards are Silver");
+}
+
+#[test]
+fn secret_passage_default_keeps_a_good_card_on_top() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Secret Passage\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Secret Passage, Estate, Gold\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::SECRET_PASSAGE));
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, .. }));
+    let c = decide(&strat, &g, &d);
+    assert_eq!(c, Choice::Card(id::GOLD), "the single best card in hand");
+    let d2 = apply_and_next(&mut g, c);
+    assert!(matches!(d2.kind, DecisionKind::DeckPosition { .. }));
+    assert_eq!(decide(&strat, &g, &d2), Choice::Position(0), "kept on top for next turn");
+}
+
+#[test]
+fn secret_passage_default_buries_pure_junk_at_the_bottom() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Secret Passage\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Secret Passage, Estate, Curse\ndeck: 5 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::SECRET_PASSAGE));
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, .. }));
+    let c = decide(&strat, &g, &d);
+    let d2 = apply_and_next(&mut g, c);
+    assert!(matches!(d2.kind, DecisionKind::DeckPosition { .. }));
+    assert_eq!(decide(&strat, &g, &d2), Choice::Position(255), "nothing but junk to place: bury it");
+}
+
+#[test]
+fn swindler_default_prefers_a_curse_over_a_copper_at_cost_zero() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Swindler\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Swindler\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck top: Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::SWINDLER));
+    assert_eq!(d.player, 0, "the attacker decides");
+    assert_eq!(d.for_player, 1, "for the victim");
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 0, exact: true, .. }));
+    assert_eq!(decide_for(&strat, &g, 0, &d), Choice::Card(id::CURSE), "the worst option at cost 0 is a Curse");
+}
+
+#[test]
+fn swindler_default_prefers_a_victory_card_over_an_action_at_the_same_cost() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Swindler, Courtyard\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Swindler\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck top: Estate\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::SWINDLER));
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 2, exact: true, .. }));
+    assert_eq!(
+        decide_for(&strat, &g, 0, &d),
+        Choice::Card(id::ESTATE),
+        "the worst option at cost 2 is the Victory card, not the Action"
+    );
+}
+
+#[test]
+fn masquerade_default_passes_the_least_valuable_card() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Masquerade\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Masquerade, Curse, Silver\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::MASQUERADE));
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Pass, .. }));
+    assert_eq!(decide(&strat, &g, &d), Choice::Card(id::CURSE), "the trash-priority order picks Curse first");
+}
+
+#[test]
+fn diplomat_default_reveals_when_offered() {
+    // The reaction is only ever offered once the hand already has 5+ cards, so the default is
+    // simply to always take it.
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let text = "players: 2\nkingdom: Militia, Diplomat\n\
+        turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+        [player 1]\nhand: Militia\ndeck: 5 Copper\n\n\
+        [player 2]\nhand: Diplomat, Copper, Copper, Copper, Estate\ndeck: 5 Copper\n";
+    let mut g = parse_state(text).unwrap();
+    assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
+    let d = apply_and_next(&mut g, Choice::Card(id::MILITIA));
+    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Reveal });
+    assert_eq!(decide_for(&strat, &g, 1, &d), Choice::Yes);
+}

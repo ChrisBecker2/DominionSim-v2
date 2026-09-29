@@ -51,6 +51,40 @@ impl KnownStack {
     pub fn iter_top_down(&self) -> impl Iterator<Item = CardId> + '_ {
         self.cards[..self.len as usize].iter().rev().copied()
     }
+    /// Push/pop-order: index 0 was pushed first. Used for `deck_known_bottom` (Secret Passage),
+    /// where `push_top` appends a newly-bottomed card beneath everything already bottomed, and
+    /// `pop_front` removes the one nearest the unknown pile (the next to be drawn).
+    pub fn iter_front_to_back(&self) -> impl Iterator<Item = CardId> + '_ {
+        self.cards[..self.len as usize].iter().copied()
+    }
+    /// Remove and return the earliest-pushed card (index 0), shifting the rest down. Used only for
+    /// `deck_known_bottom`, which is always short in practice (bounded by `KNOWN_CAP`).
+    pub fn pop_front(&mut self) -> Option<CardId> {
+        if self.len == 0 {
+            return None;
+        }
+        let c = self.cards[0];
+        for i in 1..self.len as usize {
+            self.cards[i - 1] = self.cards[i];
+        }
+        self.len -= 1;
+        Some(c)
+    }
+    /// Insert `c` at depth `k` from the top (0 = the new top; `k` = the current length puts it
+    /// just above whatever lies beneath the known section), shifting deeper cards down to make
+    /// room. Used for Secret Passage's "below the Nth known card" placement.
+    pub fn insert_from_top(&mut self, k: u8, c: CardId) {
+        assert!((self.len as usize) < KNOWN_CAP, "known deck stack overflow");
+        assert!(k <= self.len, "insert depth beyond the known section");
+        let idx = self.len - k;
+        let mut i = self.len;
+        while i > idx {
+            self.cards[i as usize] = self.cards[i as usize - 1];
+            i -= 1;
+        }
+        self.cards[idx as usize] = c;
+        self.len += 1;
+    }
     pub fn counts(&self) -> Counts {
         let mut c = Counts::EMPTY;
         for &x in &self.cards[..self.len as usize] {
@@ -68,21 +102,28 @@ pub struct PlayerState {
     pub hand: Counts,
     pub deck_known: KnownStack,
     pub deck_unknown: Counts,
+    /// Known cards under the unknown multiset, at the very bottom of the deck (Secret Passage).
+    /// Drawn only once `deck_known` and `deck_unknown` are both exhausted.
+    pub deck_known_bottom: KnownStack,
     pub discard: Counts,
     pub in_play: Counts,
     /// Library's set-aside cards (discarded when Library finishes).
     pub set_aside: Counts,
+    /// Masquerade's holding zone: the card this player has committed to pass, held until every
+    /// passing player has chosen and all the cards move at once. At most one card at a time.
+    pub passed: Counts,
     pub turns_taken: u16,
 }
 
 impl PlayerState {
     pub fn deck_size(&self) -> u32 {
-        self.deck_known.len as u32 + self.deck_unknown.total()
+        self.deck_known.len as u32 + self.deck_unknown.total() + self.deck_known_bottom.len as u32
     }
-    /// Deck contents as a multiset (known + unknown).
+    /// Deck contents as a multiset (known top + unknown + known bottom).
     pub fn deck_counts(&self) -> Counts {
         let mut c = self.deck_known.counts();
         c.add_all(&self.deck_unknown);
+        c.add_all(&self.deck_known_bottom.counts());
         c
     }
     /// Every card the player owns, wherever it is.
@@ -92,6 +133,7 @@ impl PlayerState {
         c.add_all(&self.discard);
         c.add_all(&self.in_play);
         c.add_all(&self.set_aside);
+        c.add_all(&self.passed);
         c
     }
     pub fn vp(&self) -> i32 {
@@ -204,6 +246,9 @@ pub enum Act {
     /// Reveal it and leave it where it is (Courtier: reveal a card from hand without removing
     /// it). Generic: any future "reveal a card from a zone" effect reuses this.
     Reveal,
+    /// Move it to the player's `passed` holding zone (Masquerade's simultaneous pass), to be
+    /// delivered to the next passing player once everyone has chosen.
+    Pass,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -287,6 +332,16 @@ pub enum Then {
     /// the table's length (Courtier: "for each type it has, choose a different one"). Generic
     /// over any future "modes per type of the picked card" card.
     ModePerType,
+    /// Select (a set-aside pick from hand): if a card was picked, push a `DeckPosition` frame to
+    /// place it back into the deck (Secret Passage).
+    TakeToDeckPosition,
+    /// Select (a 0-pick frame used purely to run code once whatever was pushed above it has
+    /// resolved): grant `actions` Actions if the player's hand then holds at most `max_hand`
+    /// cards (Diplomat's conditional +2 Actions, evaluated after its own +2 Cards draw).
+    ActionsIfHandAtMost { max_hand: u8, actions: u8 },
+    /// YesNo (`act: Reveal`): if revealed, draw `draw` cards then discard exactly `discard`
+    /// (Diplomat's reaction to an Attack being played).
+    ReactDrawDiscard { draw: u8, discard: u8 },
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -295,8 +350,12 @@ pub enum Then {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Frame {
     pub kind: FrameKind,
-    /// The player this frame acts on (the victim for attacks).
+    /// The player this frame acts on (the victim for attacks): whose zones are read/written.
     pub player: u8,
+    /// Who makes the decision, if any (defaults to `player`). Differs from `player` only when
+    /// another player decides on this player's behalf (Swindler: the attacker chooses what the
+    /// victim gains).
+    pub chooser: u8,
     /// The card whose effect created this frame (0 with `FrameKind::Draw` from cleanup).
     pub source: CardId,
     pub zone: Zone,
@@ -318,6 +377,13 @@ pub struct Frame {
     pub last: CardId,
     /// Select: picks are order-sensitive (topdecking several cards), so no canonical ordering.
     pub ordered: bool,
+    /// Select: before the first pick, `max` names a target zone size to reduce to rather than an
+    /// absolute pick count; the actual (mandatory) count is computed live, from the zone's size
+    /// the moment this frame is first run, and then baked in (`min = max = that count`, this flag
+    /// cleared). This makes a "discard down to N" attack (Militia) pick up a hand-size change
+    /// from a reaction that resolves first (Diplomat), instead of using a count computed when the
+    /// frame was pushed, before the reaction ran.
+    pub down_to_target: bool,
     pub then: Then,
     /// The card a YesNo decision is about / the card to PlayEffects.
     pub subject: CardId,
@@ -331,6 +397,7 @@ impl Frame {
         Frame {
             kind,
             player,
+            chooser: player,
             source,
             zone: Zone::Hand,
             act: Act::Discard,
@@ -342,6 +409,7 @@ impl Frame {
             count: 0,
             last: 0,
             ordered: false,
+            down_to_target: false,
             then: Then::Nothing,
             subject: 0,
             depth: 0,
@@ -372,6 +440,28 @@ pub enum FrameKind {
     /// `cards::modes(source)`, offered in increasing index order; `player` may be another
     /// player (Torturer's victim). Resolved in index order once every pick is made.
     Mode,
+    /// Name a card (Wishing Well): a `DecisionKind::Name` offering every card that could be on
+    /// top of `player`'s deck (or discard, if the deck is empty). `subject` holds the named card
+    /// once chosen; the next step reveals the real top card and compares.
+    Name,
+    /// Place `subject` (already removed from hand into `set_aside`) into `player`'s deck: a
+    /// `DecisionKind::DeckPosition` (Secret Passage).
+    DeckPosition,
+    /// Trash the top card of `player`'s deck, then push a `Gain` frame (for `player`, decided by
+    /// `chooser`) for a card costing exactly its cost. Swindler: `chooser` is the attacker.
+    TrashTopThenGain,
+    /// "Each player with cards in hand passes one to the next such player to their left, at
+    /// once" (Masquerade): once `player`'s own +2 Cards has resolved (this frame sits below it,
+    /// so it only runs afterward), push a `Select` (`Act::Pass`) frame for every player who
+    /// currently has cards in hand, then a `PassLeftDeliver`, then `player`'s optional trash. No
+    /// decision; deferred so who-has-cards reflects the post-draw hand, not the hand when
+    /// Masquerade was played.
+    PassLeftBegin,
+    /// Once every passing player has chosen (their pick sits in their own `passed` zone),
+    /// deliver each held card to the next passing player to the left, all at once. No decision.
+    /// Masquerade is the only card that uses `PassLeftBegin`/`PassLeftDeliver` today, but the
+    /// mechanism ("each player with X passes one to the next such player") isn't specific to it.
+    PassLeftDeliver,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

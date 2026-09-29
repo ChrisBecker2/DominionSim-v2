@@ -1416,6 +1416,7 @@ fn render_event(e: &Event) -> String {
         Event::Reveal { player, card } => format!("Player {} reveals {}", player + 1, cards::name(card)),
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
+        Event::Pass { player, card, to } => format!("Player {} passes {} to Player {}", player + 1, cards::name(card), to + 1),
         Event::GameOver => "--- Game over ---".to_string(),
         Event::PlayAgain { player, card, source, nth } => {
             let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };
@@ -1526,6 +1527,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::SetAside => ("set aside", String::new()),
                 Act::Gain => ("gain", String::new()),
                 Act::Reveal => ("reveal", String::new()),
+                Act::Pass => ("pass", " to the next player".to_string()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -1555,6 +1557,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::SetAside => format!("You may set aside {card} (skip drawing it). Set it aside?"),
                 Act::Gain => format!("Gain {card}?"),
                 Act::Reveal => format!("Reveal {card}?"),
+                Act::Pass => format!("Pass {card}?"),
             }
         }
         DecisionKind::Mode { picks, distinct } => {
@@ -1566,6 +1569,14 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 format!("{picks}")
             };
             format!("Choose {what}:")
+        }
+        DecisionKind::Name => "Name a card.".to_string(),
+        DecisionKind::DeckPosition { max_known } => {
+            if max_known == 0 {
+                "Put it into your deck.".to_string()
+            } else {
+                format!("Put it into your deck: on top, below one of the top {max_known} known card(s), or on the bottom.")
+            }
         }
     };
     format!("{head}{body}")
@@ -1600,10 +1611,24 @@ fn choice_label(d: &Decision, c: Choice) -> String {
                     Act::SetAside => format!("Set aside {name}"),
                     Act::Gain => format!("Gain {name}"),
                     Act::Reveal => format!("Reveal {name}"),
+                    Act::Pass => format!("Pass {name}"),
                 },
                 DecisionKind::YesNo { .. } => name.to_string(),
                 DecisionKind::Mode { .. } => name.to_string(),
+                DecisionKind::Name => format!("Name {name}"),
+                DecisionKind::DeckPosition { .. } => name.to_string(),
             }
+        }
+        Choice::Position(255) => "Bottom".to_string(),
+        Choice::Position(0) => "Top".to_string(),
+        Choice::Position(k) => {
+            let suffix = match (k % 10, k % 100) {
+                (1, x) if x != 11 => "st",
+                (2, x) if x != 12 => "nd",
+                (3, x) if x != 13 => "rd",
+                _ => "th",
+            };
+            format!("Below the {k}{suffix} known card")
         }
     }
 }
@@ -1671,7 +1696,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         concat!(
             "{{\"index\":{p},\"isCurrent\":{cur},",
             "\"hand\":{hand},\"handSize\":{hand_n},",
-            "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckSize\":{deck_n},",
+            "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},",
             "\"vp\":{vp},\"turnsTaken\":{turns}}}"
         ),
@@ -1681,6 +1706,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         hand_n = ps.hand.total(),
         deck_top = sequence_json(ps.deck_known.iter_top_down()),
         deck_unk = counts_json(&ps.deck_unknown),
+        deck_bottom = sequence_json(ps.deck_known_bottom.iter_front_to_back()),
         deck_n = ps.deck_size(),
         discard = counts_json(&ps.discard),
         in_play = counts_json(&ps.in_play),

@@ -133,10 +133,14 @@ impl Evaluator for GainListEvaluator<'_> {
     /// (or what a Throne Room plays): those are searched with this same scoring, which is exactly
     /// how the bot itself decides them.
     fn policy(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        let view = PlayerView::new(state, me);
         if is_play_decision(decision) {
+            // Play order is searched, unless it's no real choice (the bot plays the obvious order).
+            if matches!(decision.kind, DecisionKind::PlayAction) && decision.player == me && self.strategy.search_play {
+                return crate::strategy::obvious_play(&view, choices).map(Choice::Card);
+            }
             return None;
         }
-        let view = PlayerView::new(state, me);
         // When the game could end this turn, a `win_this_turn` strategy's decisions are maximized
         // here, as its win check does (buys/gains still restricted to listed cards by `allows`);
         // the win bonus in `leaf_value` finds the same wins without a search inside every node.

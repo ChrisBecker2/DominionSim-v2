@@ -446,6 +446,12 @@ impl Strategy {
     /// the best line; a single playable card is simply played. The rule order in `best_play` is
     /// only a fallback if the search can't run.
     fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
+        // No real choice (every action choice-free, all playable): the obvious order, no search.
+        if self.search_play && matches!(decision.kind, DecisionKind::PlayAction) && decision.player == view.me() {
+            if let Some(c) = obvious_play(view, choices) {
+                return Choice::Card(c);
+            }
+        }
         if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
@@ -646,6 +652,39 @@ impl Strategy {
             cost * 2 + 5 // actions
         }
     }
+}
+
+/// The action to play when the play order is not a real choice: every Action card in hand is
+/// [`OnPlay::ChoiceFree`](dominion_engine::cards::OnPlay) and all of them can be played with the
+/// actions available (playing the +Actions cards first). The order is then +Actions first (most
+/// first), then terminals that draw (most first), then the rest: that keeps the most actions
+/// for whatever gets drawn. `None` when there is a real choice (a card with a decision, or more
+/// terminals than actions), which the bot searches instead.
+pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    let mut terminals: i32 = 0;
+    // Actions left after playing every +Actions card in hand.
+    let mut spare = view.turn().actions as i32;
+    for (c, n) in view.hand().iter() {
+        if !cards::is(c, ACTION) {
+            continue;
+        }
+        if !cards::is_choice_free(c) {
+            return None;
+        }
+        let d = cards::def(c);
+        if d.actions == 0 {
+            terminals += n as i32;
+        } else {
+            spare += (d.actions as i32 - 1) * n as i32;
+        }
+    }
+    if terminals > spare {
+        return None;
+    }
+    iter_cards(choices).filter(|&c| cards::is_choice_free(c)).max_by_key(|&c| {
+        let d = cards::def(c);
+        (d.actions > 0, d.actions, d.cards, d.coins, d.buys, std::cmp::Reverse(c))
+    })
 }
 
 fn iter_cards(choices: &[Choice]) -> impl Iterator<Item = CardId> + '_ {

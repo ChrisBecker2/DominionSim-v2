@@ -180,6 +180,8 @@ pub enum Zone {
     Discard,
     /// Cards revealed / looked at / set aside (the player's `set_aside` zone).
     Revealed,
+    /// Cards currently in play (Mining Village trashing itself).
+    InPlay,
 }
 
 /// What happens to a picked card.
@@ -203,6 +205,8 @@ pub enum Filter {
     Victory,
     Card(CardId),
     NonCopperTreasure,
+    /// Victory cards and Curses (Patrol).
+    VictoryOrCurse,
 }
 
 impl Filter {
@@ -215,6 +219,7 @@ impl Filter {
             Filter::Victory => cards::is(c, cards::VICTORY),
             Filter::Card(x) => c == x,
             Filter::NonCopperTreasure => c != id::COPPER && cards::is(c, cards::TREASURE),
+            Filter::VictoryOrCurse => cards::is(c, cards::VICTORY) || cards::is(c, cards::CURSE_T),
         }
     }
 }
@@ -227,20 +232,46 @@ pub enum Dest {
     DeckTop,
 }
 
-/// Continuation run when a `Select` frame finishes. `count` = cards picked, `last` = last pick.
+/// Continuation run when a `Select`, `YesNo` or `RevealTop` frame finishes. `count` = cards
+/// picked, `last` = last pick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Then {
     Nothing,
     /// Draw one card per pick (Cellar).
     DrawPerPick,
-    /// +$n per pick (Moneylender).
+    /// +$n per pick (Moneylender); on a `YesNo`, +$n if Yes (Mining Village's self-trash).
     CoinsPerPick(u8),
-    /// If something was picked, gain a card costing up to cost(last) + plus (Remodel, Mine).
-    GainUpTo { plus: u8, filter: Filter, dest: Dest },
+    /// If something was picked, gain a card costing up to cost(last) + plus (Remodel, Mine,
+    /// Replace), or exactly that cost when `exact` (Upgrade). Normally to `dest`; when
+    /// `dest_by_type` is set, the spawned Gain frame ignores `dest` and instead resolves its
+    /// destination (and any attack) from the gained card's type (`GainedTypeDestAttack`, for
+    /// Replace: `dest` is unused).
+    GainUpTo { plus: u8, filter: Filter, dest: Dest, exact: bool, dest_by_type: bool },
     /// Resolve the picked card's effects `times` times (Throne Room).
     PlayPicked { times: u8 },
     /// Discard whatever is left in the Revealed zone (Bandit).
     DiscardRevealed,
+    /// Select: reward `coins` iff exactly `count` cards were picked, neither more nor fewer
+    /// (Mill: discard exactly 2 for +$2; discarding 0 or 1 gets nothing).
+    CoinsIfCount { count: u8, coins: u8 },
+    /// Select: gain a fixed card iff exactly `count` cards were picked (Trading Post: trash
+    /// exactly 2, gain a Silver to hand).
+    GainCardIfCount { count: u8, card: CardId, dest: Dest },
+    /// Gain: bonus based on the gained card's type, every bonus that applies for a dual type
+    /// (Ironworks: Action -> +1 Action, Treasure -> +$1, Victory -> +1 Card).
+    GainedTypeStatBonus,
+    /// Gain: an Action or Treasure gained card goes onto the deck instead of the frame's normal
+    /// destination; a Victory card instead makes each other player (Moat allowing) gain a Curse.
+    /// Both apply for a dual type (Replace + Harem: onto the deck AND curses).
+    GainedTypeDestAttack,
+    /// YesNo: +`coins` if Yes; if No (declined, or the subject wasn't there to act on), gain a
+    /// copy of the YesNo's subject to the discard instead (Baron: discard an Estate for +$4,
+    /// otherwise gain one).
+    YesCoinsElseGainSubject(u8),
+    /// RevealTop: once revealing finishes, move every revealed card matching `Filter` straight
+    /// to hand, before anything left in the Revealed zone is dealt with by a later frame
+    /// (Patrol: Victory cards and Curses go to hand, the rest get reordered back by a `Select`).
+    MoveMatchingToHand(Filter),
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -257,9 +288,13 @@ pub struct Frame {
     pub act: Act,
     pub filter: Filter,
     pub dest: Dest,
-    /// Select: minimum/maximum picks. Draw/RevealTop: cards remaining. Gain: max cost.
+    /// Select: minimum/maximum picks. Draw/RevealTop: cards remaining. Gain: max cost (or the
+    /// exact cost when `exact`).
     pub min: u8,
     pub max: u8,
+    /// Gain: match `max` exactly rather than up to it (Upgrade). Select: all or nothing: pick
+    /// none, or once a pick is made, `max` of them (clamped to what's available) (Mill).
+    pub exact: bool,
     /// Select: picks made so far. Library: 1 while `subject` awaits a decision.
     pub count: u8,
     /// Select: last picked card (also the lower bound for canonical ordering).
@@ -286,6 +321,7 @@ impl Frame {
             dest: Dest::Discard,
             min: 0,
             max: 0,
+            exact: false,
             count: 0,
             last: 0,
             ordered: false,

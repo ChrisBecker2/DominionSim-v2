@@ -103,6 +103,13 @@ pub fn choose_ev<S: EventSink>(g: &mut GameState, c: Choice, sink: &mut S) -> St
     g.advance(sink)
 }
 
+/// Same as `play`, but records events through `sink` instead of discarding them.
+pub fn play_ev<S: EventSink>(g: &mut GameState, card: CardId, sink: &mut S) -> Step {
+    let d = expect_decision(g);
+    assert_eq!(d.kind, DecisionKind::PlayAction, "expected PlayAction decision");
+    choose_ev(g, Choice::Card(card), sink)
+}
+
 pub fn choose_and_advance(g: &mut GameState, c: Choice) -> Step {
     choose(g, c)
 }

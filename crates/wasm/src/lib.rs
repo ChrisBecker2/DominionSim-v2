@@ -1444,6 +1444,7 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::Hand => " from your hand",
         Zone::Discard => " from your discard",
         Zone::Revealed => " from the revealed cards",
+        Zone::InPlay => " from play",
     }
 }
 
@@ -1484,6 +1485,7 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::Victory => ("a Victory card".into(), "Victory cards".into()),
         Filter::NonCopperTreasure => ("a Treasure other than Copper".into(), "Treasures other than Copper".into()),
         Filter::Card(c) => (format!("a {}", cards::name(c)), format!("{}s", cards::name(c))),
+        Filter::VictoryOrCurse => ("a Victory card or Curse".into(), "Victory cards and Curses".into()),
     }
 }
 
@@ -1498,9 +1500,10 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
     let body = match d.kind {
         DecisionKind::PlayAction => format!("You may play an Action card ({} action(s) left).", state.turn.actions),
         DecisionKind::Buy => format!("You may buy a card (${} available, {} buy(s) left).", state.turn.coins, state.turn.buys),
-        DecisionKind::Gain { max_cost, filter, dest } => {
+        DecisionKind::Gain { max_cost, filter, dest, exact } => {
             let (one, _) = filter_noun(filter);
-            format!("Gain {one} costing up to ${max_cost}{}.", dest_phrase(dest))
+            let cost = if exact { "exactly" } else { "up to" };
+            format!("Gain {one} costing {cost} ${max_cost}{}.", dest_phrase(dest))
         }
         DecisionKind::Select { from, act, filter, min, max, ordered } => {
             let (one, many) = filter_noun(filter);
@@ -1523,7 +1526,15 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
             let upgrade = match d.upgrade {
-                Some(u) => format!(" Then gain {} costing up to ${} more than it{}.", filter_noun(u.filter).0, u.plus, dest_phrase(u.dest)),
+                Some(u) if u.dest_by_type => format!(
+                    " Then gain {} costing up to ${} more than it: onto your deck if it's an Action or Treasure; if it's a Victory card, each other player gains a Curse.",
+                    filter_noun(u.filter).0,
+                    u.plus
+                ),
+                Some(u) => {
+                    let cost = if u.exact { "exactly" } else { "up to" };
+                    format!(" Then gain {} costing {cost} ${} more than it{}.", filter_noun(u.filter).0, u.plus, dest_phrase(u.dest))
+                }
                 None => String::new(),
             };
             let may = if min == 0 { "You may " } else { "" };

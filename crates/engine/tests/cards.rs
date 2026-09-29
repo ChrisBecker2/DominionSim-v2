@@ -481,7 +481,7 @@ fn remodel_gold_into_province() {
     play(&mut g, id::REMODEL);
     // Gold is the only card in hand; the trash is forced (single legal choice, auto-applied).
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: cards::cost(id::GOLD) + 2, filter: Filter::Any, dest: Dest::Discard });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: cards::cost(id::GOLD) + 2, filter: Filter::Any, dest: Dest::Discard, exact: false });
     assert!(choices(&g).contains(&Choice::Card(id::PROVINCE)));
     choose(&mut g, Choice::Card(id::PROVINCE));
     assert_eq!(g.trash, counts_of(&[id::GOLD]));

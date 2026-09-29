@@ -25,8 +25,9 @@ pub enum DecisionKind {
     PlayAction,
     /// Buy phase. Choices: `Card(affordable supply card)` or `Pass` (end turn).
     Buy,
-    /// Gain a card from the supply costing up to `max_cost`. Choices: `Card(..)`.
-    Gain { max_cost: u8, filter: Filter, dest: Dest },
+    /// Gain a card from the supply costing up to `max_cost` (or exactly `max_cost` when `exact`,
+    /// e.g. Upgrade). Choices: `Card(..)`.
+    Gain { max_cost: u8, filter: Filter, dest: Dest, exact: bool },
     /// Pick ONE card from `from` (matching `filter`) to `act` on. The selection repeats;
     /// `min`/`max` are the picks still required/allowed (including this one). `Pass` is legal
     /// when `min == 0` and ends the selection. When `ordered` is false, picks are offered in
@@ -57,6 +58,11 @@ pub struct Upgrade {
     pub plus: u8,
     pub filter: Filter,
     pub dest: Dest,
+    /// The gain must cost exactly `cost(trashed) + plus` (Upgrade), not merely up to it.
+    pub exact: bool,
+    /// The gain's destination (and a possible attack) depends on the gained card's type instead
+    /// of `dest` (Replace).
+    pub dest_by_type: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -519,7 +525,9 @@ impl GameState {
 
     fn decision_upgrade(&self) -> Option<Upgrade> {
         match self.stack.top() {
-            Some(Frame { kind: FrameKind::Select, then: Then::GainUpTo { plus, filter, dest }, .. }) => Some(Upgrade { plus, filter, dest }),
+            Some(Frame { kind: FrameKind::Select, then: Then::GainUpTo { plus, filter, dest, exact, dest_by_type }, .. }) => {
+                Some(Upgrade { plus, filter, dest, exact, dest_by_type })
+            }
             _ => None,
         }
     }

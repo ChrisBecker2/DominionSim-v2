@@ -284,6 +284,13 @@ impl Strategy {
                 Act::SetAside => {
                     if view.turn().actions == 0 { Choice::Yes } else { Choice::No }
                 }
+                // Trash-in-place-for-a-bonus (Mining Village): only when the trash rules name
+                // this specific card, same as any other optional trash.
+                Act::Trash => {
+                    if self.wants_trash(view, decision.subject) { Choice::Yes } else { Choice::No }
+                }
+                // Discard-for-a-bonus (Baron: discard an Estate for +$4): worth it by default.
+                Act::Discard => Choice::Yes,
                 _ => Choice::No,
             },
         }
@@ -310,10 +317,12 @@ impl Strategy {
     }
 
     /// Rank (index in the gain list) of the best entry that could be gained right now for at
-    /// most `max_cost`, matching `filter`, with its pile non-empty and its condition true.
-    fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter) -> Option<usize> {
+    /// most `max_cost` (or exactly `max_cost` when `exact`, for Upgrade), matching `filter`,
+    /// with its pile non-empty and its condition true.
+    fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter, exact: bool) -> Option<usize> {
         self.buy.iter().position(|(card, cond)| {
-            view.cost(*card) <= max_cost
+            let cost_ok = if exact { view.cost(*card) == max_cost } else { view.cost(*card) <= max_cost };
+            cost_ok
                 && filter.matches(*card)
                 && view.in_supply(*card)
                 && view.supply(*card) > 0
@@ -542,7 +551,7 @@ impl Strategy {
         if let Some(up) = decision.upgrade {
             let mut best: Option<(usize, u8, CardId)> = None;
             for c in iter_cards(choices) {
-                if let Some(rank) = self.best_gain_rank(view, view.cost(c) + up.plus, up.filter) {
+                if let Some(rank) = self.best_gain_rank(view, view.cost(c) + up.plus, up.filter, up.exact) {
                     let key = (rank, cards::cost(c), c);
                     if best.map_or(true, |b| key < b) {
                         best = Some(key);
@@ -702,6 +711,7 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Hand => *view.hand(),
         Zone::Discard => *view.discard(),
         Zone::Revealed => *view.revealed(),
+        Zone::InPlay => *view.in_play(),
     };
     for c in 0..NUM_CARDS as CardId {
         if !filter.matches(c) {

@@ -189,30 +189,30 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     choice_free(c("Witch", 5, ACTION | ATTACK, 0, 0, 2, 0, 0)),
     has_choice(c("Artisan", 6, ACTION, 0, 0, 0, 0, 0)), // what to gain and topdeck
     // ---- Intrigue (2nd edition). Stats are the vanilla part; the rest is in `effects.rs`. ----
-    intrigue_todo(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
+    intrigue(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
     intrigue_todo(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
     intrigue_todo(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
     intrigue_todo(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
-    intrigue_todo(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
+    intrigue(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
     intrigue_todo(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
     intrigue_todo(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
     intrigue_todo(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
-    intrigue_todo(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
+    intrigue(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
     intrigue(choice_free(c("Bridge", 4, ACTION, 1, 0, 0, 0, 1))), // cost reduction only (no gains of its own)
-    intrigue_todo(has_choice(c("Conspirator", 4, ACTION, 2, 0, 0, 0, 0))), // depends on actions played: order matters
+    intrigue(has_choice(c("Conspirator", 4, ACTION, 2, 0, 0, 0, 0))), // depends on actions played: order matters
     intrigue_todo(has_choice(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
-    intrigue_todo(has_choice(c("Ironworks", 4, ACTION, 0, 0, 0, 0, 0))), // what to gain
-    intrigue_todo(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
-    intrigue_todo(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
+    intrigue(has_choice(c("Ironworks", 4, ACTION, 0, 0, 0, 0, 0))), // what to gain
+    intrigue(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
+    intrigue(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
     intrigue_todo(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
     intrigue_todo(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
     intrigue(c("Duke", 5, VICTORY, 0, 0, 0, 0, 0)), // 1 VP per Duchy (`state::vp_of_cards`)
     intrigue_todo(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
-    intrigue_todo(has_choice(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back
-    intrigue_todo(has_choice(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // what to trash and gain
+    intrigue(has_choice(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back
+    intrigue(has_choice(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // what to trash and gain
     intrigue_todo(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
-    intrigue_todo(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
-    intrigue_todo(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
+    intrigue(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
+    intrigue(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
     intrigue(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0)),
     intrigue_todo(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
 ];

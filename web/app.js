@@ -769,6 +769,7 @@
     renderLog(view);
     // Nothing to analyze while the game waits at a turn boundary ("Start turn").
     $("btn-analyze").disabled = !view.pending || !!view.pending.paused || view.gameOver;
+    if (!stopRunGame) $("btn-run-bots").textContent = view.gameOver ? "New Game" : "Run Game";
     $("btn-undo").disabled = !api.canUndo();
     $("btn-redo").disabled = !api.canRedo();
     if ($("auto-sync").checked) syncTextFromGame();
@@ -792,7 +793,7 @@
       }
     } finally {
       stopRunGame = null;
-      btn.textContent = "Run Game";
+      btn.textContent = lastView && lastView.gameOver ? "New Game" : "Run Game";
     }
     if (!crashed && !stopped) showGameChart();
   }
@@ -1242,8 +1243,10 @@
     // Run Game: play the game out with every seat's controller, then chart that game.
     // Run Game plays one turn at a time and yields between turns, so the page stays responsive
     // (bots that search their turns can take a while) and the button turns into Stop.
+    // Once the game is over the button starts a new one (same as New game).
     $("btn-run-bots").addEventListener("click", () => {
       if (stopRunGame) stopRunGame();
+      else if (lastView && lastView.gameOver) $("btn-new-game").click();
       else runGame();
     });
     // The Simulate button turns into Cancel while a simulation runs.

@@ -1,5 +1,11 @@
 # Plan: Intrigue (2nd edition)
 
+> **Status (2026-09-29): implemented.** All 26 cards are playable and tested (ported
+> `IntrigueCardsTests.cpp` cases plus new tests). The Intrigue sample strategies are Torturer-BM,
+> Courtyard-BM, Masquerade-BM and Duke-Duchy. Card-set selection is in the game page, the Lab and
+> the CLI. Open: a pre-existing `stable_seed` hidden-information subtlety during multi-victim
+> attacks (Bureaucrat); MAP-Elites for search diversity.
+
 **Scope.** Intrigue 2nd edition only: 26 kingdom cards, playable alone (it ships its own base
 cards) or mixed with Base. The 1st-edition-only cards are **not** included: Coppersmith, Great Hall,
 Saboteur, Scout, Secret Chamber and Tribute.

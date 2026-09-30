@@ -113,6 +113,8 @@ pub struct PlayerState {
     /// passing player has chosen and all the cards move at once. At most one card at a time.
     pub passed: Counts,
     pub turns_taken: u16,
+    /// Victory point tokens (Monument, Bishop, ...), counted in the score.
+    pub vp_tokens: u16,
 }
 
 impl PlayerState {
@@ -137,7 +139,7 @@ impl PlayerState {
         c
     }
     pub fn vp(&self) -> i32 {
-        vp_of_cards(&self.all_cards())
+        vp_of_cards(&self.all_cards()) + self.vp_tokens as i32
     }
 }
 
@@ -511,6 +513,8 @@ impl FrameStack {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EndReason {
     ProvincesGone,
+    /// The Colony pile is empty (Prosperity games with Colonies).
+    ColoniesGone,
     /// 3 supply piles empty (4 with 5+ players); see `GameState::empty_piles`.
     PilesEmpty,
     /// The simulation turn cap (`max_turns`) was reached.
@@ -538,7 +542,7 @@ pub struct GameState {
     pub players: [PlayerState; MAX_PLAYERS],
     pub supply: Counts,
     /// Bitmask of card ids whose piles are part of this game's supply.
-    pub in_supply: u64,
+    pub in_supply: u128,
     pub trash: Counts,
     pub turn: TurnState,
     pub stack: FrameStack,
@@ -574,7 +578,7 @@ impl GameState {
         let n = cfg.num_players;
         assert!((2..=MAX_PLAYERS).contains(&n), "player count must be 2..={MAX_PLAYERS}");
         let mut supply = Counts::EMPTY;
-        let mut in_supply = 0u64;
+        let mut in_supply = 0u128;
         let mut put = |c: CardId, k: u8| {
             supply.set(c, k);
             in_supply |= 1 << c;
@@ -587,9 +591,16 @@ impl GameState {
         put(id::PROVINCE, province_pile_size(n));
         put(id::CURSE, 10 * (n as u8 - 1));
         for &k in &cfg.kingdom {
-            assert!(k >= cards::FIRST_KINGDOM, "{} is not a kingdom card", cards::name(k));
+            // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
+            assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
-            put(k, if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 });
+            let pile = match k {
+                id::PLATINUM => 12,
+                id::COLONY => province_pile_size(n),
+                _ if cards::is(k, cards::VICTORY) => victory_pile_size(n),
+                _ => 10,
+            };
+            put(k, pile);
         }
         let mut s = GameState {
             num_players: n as u8,
@@ -625,9 +636,19 @@ impl GameState {
         cards::cost(c).saturating_sub(self.turn.cost_reduction)
     }
 
+    /// Card-specific rules on whether `c` may be bought right now, beyond cost and pile (the one
+    /// place for them): Grand Market can't be bought with a Copper in play.
+    #[inline]
+    pub fn may_buy(&self, c: CardId) -> bool {
+        match c {
+            id::GRAND_MARKET => !self.players[self.turn.player as usize].in_play.has(id::COPPER),
+            _ => true,
+        }
+    }
+
     #[inline]
     pub fn in_supply(&self, c: CardId) -> bool {
-        self.in_supply & (1 << c) != 0
+        self.in_supply & (1u128 << c) != 0
     }
 
     /// The card ids of this game's supply piles, in id order (walks the `in_supply` bitmask, so
@@ -663,6 +684,8 @@ impl GameState {
         let pile_limit = if self.num_players >= 5 { 4 } else { 3 };
         if self.in_supply(id::PROVINCE) && self.supply.get(id::PROVINCE) == 0 {
             Some(EndReason::ProvincesGone)
+        } else if self.in_supply(id::COLONY) && self.supply.get(id::COLONY) == 0 {
+            Some(EndReason::ColoniesGone)
         } else if self.empty_piles() >= pile_limit {
             Some(EndReason::PilesEmpty)
         } else if self.turn.number >= self.max_turns {
@@ -705,7 +728,7 @@ impl GameState {
     /// the winners bitmask it would end with, counting the current player's turn as taken.
     pub fn result_if_turn_ends(&self) -> Option<u8> {
         match self.end_reason() {
-            Some(EndReason::ProvincesGone) | Some(EndReason::PilesEmpty) => {}
+            Some(EndReason::ProvincesGone) | Some(EndReason::ColoniesGone) | Some(EndReason::PilesEmpty) => {}
             _ => return None,
         }
         let n = self.num_players as usize;

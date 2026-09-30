@@ -199,10 +199,7 @@ fn card_info(c: CardId) -> CardInfo {
             types.push(label);
         }
     }
-    let set = match cards::set_of(c) {
-        cards::CardSet::Base => "Base",
-        cards::CardSet::Intrigue => "Intrigue",
-    };
+    let set = cards::set_of(c).name();
     CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), types, set }
 }
 

@@ -151,6 +151,31 @@ impl GameState {
                 self.stack.push(gain_frame(p, card, 5, Filter::Any, Dest::Hand));
             }
             id::BRIDGE => self.turn.cost_reduction += 1,
+            id::MONUMENT => self.players[p as usize].vp_tokens += 1,
+            id::CITY => {
+                // +1 Card +2 Actions (vanilla); with 1+ empty piles +1 Card more, with 2+ also +1 Buy +$1.
+                let empty = self.empty_piles();
+                if empty >= 1 {
+                    self.stack.push(draw_frame(p, card, 1));
+                }
+                if empty >= 2 {
+                    self.turn.buys += 1;
+                    self.turn.coins += 1;
+                }
+            }
+            id::MAGNATE => {
+                // Reveal your hand: +1 Card per Treasure in it.
+                let hand = self.players[p as usize].hand;
+                for (c, k) in hand.iter() {
+                    for _ in 0..k {
+                        sink.event(Event::Reveal { player: p, card: c });
+                    }
+                }
+                let treasures = hand.count_type(cards::TREASURE) as u8;
+                if treasures > 0 {
+                    self.stack.push(draw_frame(p, card, treasures));
+                }
+            }
             // ---- Intrigue (2nd edition) ----
             id::COURTYARD => self.stack.push(select(p, card, Zone::Hand, Topdeck, Filter::Any, 1, 1, Then::Nothing)),
             id::SHANTY_TOWN => {

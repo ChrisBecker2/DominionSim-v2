@@ -103,7 +103,7 @@ impl Var {
 
     fn text(self) -> String {
         match self {
-            Var::Count(c) => format!("count({})", cards::name(c).replace(' ', "")),
+            Var::Count(c) => format!("count({})", cards::name(c).replace([' ', '\''], "")),
             Var::CountActions => "count_type(action)".into(),
             Var::ProvincesLeft => "provinces_left".into(),
             Var::Money => "money".into(),

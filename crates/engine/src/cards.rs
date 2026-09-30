@@ -1,10 +1,11 @@
-//! Card identities and static definitions: Base Set and Intrigue, both 2nd edition.
+//! Card identities and static definitions: Base Set, Intrigue, Seaside and Prosperity, all 2nd
+//! edition.
 
 use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 59;
+pub const NUM_CARDS: usize = 113;
 
 // Type flags.
 pub const ACTION: u8 = 1;
@@ -13,6 +14,8 @@ pub const VICTORY: u8 = 4;
 pub const CURSE_T: u8 = 8;
 pub const ATTACK: u8 = 16;
 pub const REACTION: u8 = 32;
+/// Stays in play with effects on a later turn (Seaside).
+pub const DURATION: u8 = 64;
 
 pub mod id {
     use super::CardId;
@@ -76,6 +79,62 @@ pub mod id {
     pub const UPGRADE: CardId = 56;
     pub const HAREM: CardId = 57;
     pub const NOBLES: CardId = 58;
+    // Seaside (2nd edition)
+    pub const HAVEN: CardId = 59;
+    pub const LIGHTHOUSE: CardId = 60;
+    pub const NATIVE_VILLAGE: CardId = 61;
+    pub const ASTROLABE: CardId = 62;
+    pub const FISHING_VILLAGE: CardId = 63;
+    pub const LOOKOUT: CardId = 64;
+    pub const MONKEY: CardId = 65;
+    pub const SEA_CHART: CardId = 66;
+    pub const SMUGGLERS: CardId = 67;
+    pub const WAREHOUSE: CardId = 68;
+    pub const BLOCKADE: CardId = 69;
+    pub const CARAVAN: CardId = 70;
+    pub const CUTPURSE: CardId = 71;
+    pub const ISLAND: CardId = 72;
+    pub const SALVAGER: CardId = 73;
+    pub const SAILOR: CardId = 74;
+    pub const TIDE_POOLS: CardId = 75;
+    pub const TREASURE_MAP: CardId = 76;
+    pub const BAZAAR: CardId = 77;
+    pub const CORSAIR: CardId = 78;
+    pub const MERCHANT_SHIP: CardId = 79;
+    pub const OUTPOST: CardId = 80;
+    pub const PIRATE: CardId = 81;
+    pub const SEA_WITCH: CardId = 82;
+    pub const TACTICIAN: CardId = 83;
+    pub const TREASURY: CardId = 84;
+    pub const WHARF: CardId = 85;
+    // Prosperity (2nd edition); Platinum and Colony are basic cards, not kingdom cards
+    pub const ANVIL: CardId = 86;
+    pub const WATCHTOWER: CardId = 87;
+    pub const BISHOP: CardId = 88;
+    pub const CLERK: CardId = 89;
+    pub const INVESTMENT: CardId = 90;
+    pub const MONUMENT: CardId = 91;
+    pub const QUARRY: CardId = 92;
+    pub const TIARA: CardId = 93;
+    pub const WORKERS_VILLAGE: CardId = 94;
+    pub const CHARLATAN: CardId = 95;
+    pub const CITY: CardId = 96;
+    pub const COLLECTION: CardId = 97;
+    pub const CRYSTAL_BALL: CardId = 98;
+    pub const MAGNATE: CardId = 99;
+    pub const MINT: CardId = 100;
+    pub const RABBLE: CardId = 101;
+    pub const VAULT: CardId = 102;
+    pub const WAR_CHEST: CardId = 103;
+    pub const GRAND_MARKET: CardId = 104;
+    pub const HOARD: CardId = 105;
+    pub const BANK: CardId = 106;
+    pub const EXPAND: CardId = 107;
+    pub const FORGE: CardId = 108;
+    pub const KINGS_COURT: CardId = 109;
+    pub const PEDDLER: CardId = 110;
+    pub const PLATINUM: CardId = 111;
+    pub const COLONY: CardId = 112;
 }
 
 /// The expansion a card comes from.
@@ -85,6 +144,23 @@ pub enum CardSet {
     Base,
     /// Intrigue 2nd edition.
     Intrigue,
+    /// Seaside 2nd edition.
+    Seaside,
+    /// Prosperity 2nd edition (including Platinum and Colony).
+    Prosperity,
+}
+
+impl CardSet {
+    pub const ALL: [CardSet; 4] = [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CardSet::Base => "Base",
+            CardSet::Intrigue => "Intrigue",
+            CardSet::Seaside => "Seaside",
+            CardSet::Prosperity => "Prosperity",
+        }
+    }
 }
 
 /// Static card data. "Vanilla" bonuses (+cards/+actions/+buys/+coins) are applied
@@ -131,6 +207,21 @@ pub enum OnPlay {
 
 const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
     CardDef { name, cost, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
+}
+
+/// A Seaside card.
+const fn seaside(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Seaside, ..d }
+}
+
+/// A Prosperity card.
+const fn prosperity(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Prosperity, ..d }
+}
+
+/// A card of `set` whose effects aren't implemented yet (not allowed in kingdoms).
+const fn todo(set: CardSet, d: CardDef) -> CardDef {
+    CardDef { set, ready: false, ..d }
 }
 
 /// An Intrigue card.
@@ -213,6 +304,62 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     intrigue(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
     intrigue(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0)),
     intrigue(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
+    // ---- Seaside (2nd edition). D = Duration; the next-turn parts are in `effects.rs`. ----
+    todo(CardSet::Seaside, has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
+    todo(CardSet::Seaside, choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
+    todo(CardSet::Seaside, has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
+    todo(CardSet::Seaside, c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1)),
+    todo(CardSet::Seaside, choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
+    todo(CardSet::Seaside, has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
+    todo(CardSet::Seaside, choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
+    todo(CardSet::Seaside, has_choice(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // depends on what's in play: order matters
+    todo(CardSet::Seaside, has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
+    todo(CardSet::Seaside, has_choice(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard
+    todo(CardSet::Seaside, has_choice(c("Blockade", 4, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0))), // what to gain
+    todo(CardSet::Seaside, choice_free(c("Caravan", 4, ACTION | DURATION, 0, 0, 1, 1, 0))),
+    todo(CardSet::Seaside, choice_free(c("Cutpurse", 4, ACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
+    todo(CardSet::Seaside, has_choice(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat
+    todo(CardSet::Seaside, has_choice(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash
+    todo(CardSet::Seaside, choice_free(c("Sailor", 4, ACTION | DURATION, 0, 0, 0, 1, 0))), // choices only on gains / next turn
+    todo(CardSet::Seaside, choice_free(c("Tide Pools", 4, ACTION | DURATION, 0, 0, 3, 1, 0))), // the discard is next turn
+    todo(CardSet::Seaside, has_choice(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // trashes itself and another
+    seaside(choice_free(c("Bazaar", 5, ACTION, 1, 0, 1, 2, 0))),
+    todo(CardSet::Seaside, choice_free(c("Corsair", 5, ACTION | DURATION | ATTACK, 2, 0, 0, 0, 0))),
+    todo(CardSet::Seaside, choice_free(c("Merchant Ship", 5, ACTION | DURATION, 2, 0, 0, 0, 0))),
+    todo(CardSet::Seaside, choice_free(c("Outpost", 5, ACTION | DURATION, 0, 0, 0, 0, 0))),
+    todo(CardSet::Seaside, choice_free(c("Pirate", 5, ACTION | DURATION | REACTION, 0, 0, 0, 0, 0))),
+    todo(CardSet::Seaside, choice_free(c("Sea Witch", 5, ACTION | DURATION | ATTACK, 0, 0, 2, 0, 0))), // the discard is next turn
+    todo(CardSet::Seaside, has_choice(c("Tactician", 5, ACTION | DURATION, 0, 0, 0, 0, 0))), // discards the hand: order matters
+    todo(CardSet::Seaside, choice_free(c("Treasury", 5, ACTION, 1, 0, 1, 1, 0))),
+    todo(CardSet::Seaside, choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
+    // ---- Prosperity (2nd edition). ----
+    todo(CardSet::Prosperity, c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0)),
+    todo(CardSet::Prosperity, has_choice(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: order matters
+    todo(CardSet::Prosperity, has_choice(c("Bishop", 4, ACTION, 1, 0, 0, 0, 0))), // what to trash
+    todo(CardSet::Prosperity, choice_free(c("Clerk", 4, ACTION | REACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
+    todo(CardSet::Prosperity, c("Investment", 4, TREASURE, 0, 0, 0, 0, 0)),
+    prosperity(choice_free(c("Monument", 4, ACTION, 2, 0, 0, 0, 0))), // +1 VP token
+    todo(CardSet::Prosperity, c("Quarry", 4, TREASURE, 1, 0, 0, 0, 0)),
+    todo(CardSet::Prosperity, c("Tiara", 4, TREASURE, 0, 0, 0, 0, 1)),
+    prosperity(choice_free(c("Worker's Village", 4, ACTION, 0, 0, 1, 2, 1))),
+    todo(CardSet::Prosperity, choice_free(c("Charlatan", 5, ACTION | ATTACK, 3, 0, 0, 0, 0))),
+    prosperity(choice_free(c("City", 5, ACTION, 0, 0, 1, 2, 0))), // bonus from empty piles, which choice-free plays can't change
+    todo(CardSet::Prosperity, c("Collection", 5, TREASURE, 2, 0, 0, 0, 1)),
+    todo(CardSet::Prosperity, c("Crystal Ball", 5, TREASURE, 1, 0, 0, 0, 0)),
+    prosperity(has_choice(c("Magnate", 5, ACTION, 0, 0, 0, 0, 0))), // draws per treasure in hand: order matters
+    todo(CardSet::Prosperity, has_choice(c("Mint", 5, ACTION, 0, 0, 0, 0, 0))), // which treasure to copy
+    todo(CardSet::Prosperity, choice_free(c("Rabble", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only victims act
+    todo(CardSet::Prosperity, has_choice(c("Vault", 5, ACTION, 0, 0, 2, 0, 0))), // what to discard
+    todo(CardSet::Prosperity, c("War Chest", 5, TREASURE, 0, 0, 0, 0, 0)),
+    prosperity(choice_free(c("Grand Market", 6, ACTION, 2, 0, 1, 1, 1))), // can't be bought with a Copper in play
+    todo(CardSet::Prosperity, c("Hoard", 6, TREASURE, 2, 0, 0, 0, 0)),
+    todo(CardSet::Prosperity, c("Bank", 7, TREASURE, 0, 0, 0, 0, 0)),
+    todo(CardSet::Prosperity, has_choice(c("Expand", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
+    todo(CardSet::Prosperity, has_choice(c("Forge", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
+    todo(CardSet::Prosperity, has_choice(plays(c("King's Court", 7, ACTION, 0, 0, 0, 0, 0), 3))), // what to play three times
+    todo(CardSet::Prosperity, choice_free(c("Peddler", 8, ACTION, 1, 0, 1, 1, 0))),
+    prosperity(c("Platinum", 9, TREASURE, 5, 0, 0, 0, 0)),
+    prosperity(c("Colony", 11, VICTORY, 0, 10, 0, 0, 0)),
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -240,7 +387,10 @@ pub fn name(card: CardId) -> &'static str {
 
 /// Case-insensitive lookup; ignores spaces, so "throneroom" and "Throne Room" both work.
 pub fn by_name(s: &str) -> Option<CardId> {
-    let norm = |x: &str| -> String { x.chars().filter(|c| !c.is_whitespace() && *c != '_' && *c != '-').flat_map(|c| c.to_lowercase()).collect() };
+    // Ignores spaces, '_', '-' and apostrophes: "kingscourt", "King's Court", "workers_village".
+    let norm = |x: &str| -> String {
+        x.chars().filter(|c| !c.is_whitespace() && !matches!(c, '_' | '-' | '\'' | '\u{2019}')).flat_map(|c| c.to_lowercase()).collect()
+    };
     let want = norm(s);
     if want.is_empty() {
         return None;
@@ -367,9 +517,22 @@ pub fn is_ready(card: CardId) -> bool {
     CARDS[card as usize].ready
 }
 
+/// Whether `card` is a kingdom card (not a basic card: Copper..Curse, Platinum, Colony).
+#[inline(always)]
+pub fn is_kingdom(card: CardId) -> bool {
+    card >= FIRST_KINGDOM && card != id::PLATINUM && card != id::COLONY
+}
+
+/// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony). A kingdom
+/// list may name them to include them.
+#[inline(always)]
+pub fn is_optional_basic(card: CardId) -> bool {
+    card == id::PLATINUM || card == id::COLONY
+}
+
 /// Every kingdom card of every set that can be played (implemented).
 pub fn kingdom_cards() -> impl Iterator<Item = CardId> {
-    (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| is_ready(c))
+    (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| is_kingdom(c) && is_ready(c))
 }
 
 /// The playable kingdom cards of one set.
@@ -388,6 +551,8 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
     match s.trim().to_lowercase().as_str() {
         "base" => Some(CardSet::Base),
         "intrigue" => Some(CardSet::Intrigue),
+        "seaside" => Some(CardSet::Seaside),
+        "prosperity" => Some(CardSet::Prosperity),
         _ => None,
     }
 }
@@ -429,7 +594,13 @@ mod tests {
         let free: Vec<&str> = CARDS.iter().filter(|d| d.on_play == OnPlay::ChoiceFree).map(|d| d.name).collect();
         assert_eq!(
             free,
-            ["Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch", "Bridge", "Torturer"],
+            [
+                "Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch",
+                "Bridge", "Torturer",
+                "Lighthouse", "Fishing Village", "Monkey", "Caravan", "Cutpurse", "Sailor", "Tide Pools", "Bazaar", "Corsair",
+                "Merchant Ship", "Outpost", "Pirate", "Sea Witch", "Treasury", "Wharf",
+                "Clerk", "Monument", "Worker's Village", "Charlatan", "City", "Rabble", "Grand Market", "Peddler",
+            ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );
     }
@@ -444,9 +615,15 @@ mod set_tests {
         assert_eq!(by_name("Nobles"), Some(id::NOBLES));
         assert_eq!(by_name("shanty town"), Some(id::SHANTY_TOWN));
         assert_eq!(by_name("WishingWell"), Some(id::WISHING_WELL));
-        let in_set = |set| (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| set_of(c) == set).count();
+        let in_set = |set| (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| is_kingdom(c) && set_of(c) == set).count();
         assert_eq!(in_set(CardSet::Base), 26);
         assert_eq!(in_set(CardSet::Intrigue), 26);
+        assert_eq!(in_set(CardSet::Seaside), 27);
+        assert_eq!(in_set(CardSet::Prosperity), 25);
+        assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
+        assert_eq!(by_name("kings court"), Some(id::KINGS_COURT));
+        assert_eq!(by_name("Worker's Village"), Some(id::WORKERS_VILLAGE));
+        assert!(is(id::HAVEN, DURATION) && is(id::ASTROLABE, TREASURE) && is(id::ASTROLABE, DURATION));
         // Every card name is unique.
         for a in 0..NUM_CARDS as CardId {
             assert_eq!(by_name(name(a)), Some(a), "{}", name(a));
@@ -463,7 +640,9 @@ mod set_tests {
         assert_eq!(set_by_name("base"), Some(CardSet::Base));
         assert_eq!(set_by_name(" Intrigue "), Some(CardSet::Intrigue));
         assert_eq!(set_by_name("intrigue"), Some(CardSet::Intrigue));
-        assert_eq!(set_by_name("Seaside"), None);
+        assert_eq!(set_by_name("Seaside"), Some(CardSet::Seaside));
+        assert_eq!(set_by_name("prosperity"), Some(CardSet::Prosperity));
+        assert_eq!(set_by_name("Alchemy"), None);
     }
 
     #[test]

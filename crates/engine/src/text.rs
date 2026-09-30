@@ -171,7 +171,8 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         if n != 1 {
             return Err(format!("kingdom cards must be listed individually, found '{n} {name}'"));
         }
-        if id < cards::FIRST_KINGDOM {
+        // Platinum and Colony may be listed to include them (Prosperity games with Colonies).
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -322,6 +323,9 @@ pub fn format_state(state: &GameState) -> String {
         out.push_str(&format!("in play: {}\n", format_counts(&ps.in_play)));
         out.push_str(&format!("set aside: {}\n", format_counts(&ps.set_aside)));
         out.push_str(&format!("turns: {}\n", ps.turns_taken));
+        if ps.vp_tokens > 0 {
+            out.push_str(&format!("vp tokens: {}\n", ps.vp_tokens));
+        }
     }
 
     out
@@ -517,6 +521,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "in play" => ps.in_play = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "set aside" => ps.set_aside = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "turns" => ps.turns_taken = val.parse().map_err(|_| format!("line {ln2}: invalid turns '{val}'"))?,
+                "vp tokens" | "vp_tokens" => {
+                    ps.vp_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid vp tokens '{val}'"))?
+                }
                 other => return Err(format!("line {ln2}: unknown field '{other}' in player block")),
             }
             i += 1;

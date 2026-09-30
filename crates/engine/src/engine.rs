@@ -389,7 +389,7 @@ impl GameState {
             }
             DecisionKind::Buy => {
                 for c in self.supply_cards() {
-                    if self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins {
+                    if self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins && self.may_buy(c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -456,6 +456,7 @@ impl GameState {
                 sink.event(Event::Play { player: p, card: c });
             }
             self.turn.coins += cards::def(c).coins as u16 * n as u16;
+            self.turn.buys += cards::def(c).buys * n;
             if c == id::SILVER {
                 if self.turn.silvers_played == 0 {
                     self.turn.coins += self.turn.merchants as u16;

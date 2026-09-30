@@ -712,6 +712,7 @@ fn game_over_summary(state: &GameState) -> Vec<String> {
     let mut out = Vec::new();
     let reason = match state.end_reason() {
         Some(EndReason::ProvincesGone) => "the Province pile is empty".to_string(),
+        Some(EndReason::ColoniesGone) => "the Colony pile is empty".to_string(),
         Some(EndReason::PilesEmpty) => {
             let piles: Vec<&str> = (0..cards::NUM_CARDS as u8)
                 .filter(|&c| state.in_supply(c) && state.supply.get(c) == 0)

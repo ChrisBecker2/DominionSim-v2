@@ -85,7 +85,7 @@ fn random_track_draws_only_from_the_selected_sets() {
 #[test]
 fn unknown_set_name_is_a_config_error() {
     let mut c = cfg();
-    c.sets = vec!["Seaside".into()];
+    c.sets = vec!["Alchemy".into()];
     assert!(Setup::new(&c).is_err());
 }
 

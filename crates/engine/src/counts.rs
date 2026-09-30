@@ -2,10 +2,11 @@ use crate::cards::{CardId, NUM_CARDS};
 
 /// Slots in a `Counts`: one per card id, padded to 64 so a `Counts` is exactly one cache line
 /// and whole-set operations are fixed-width (vectorizable). Unused slots are always zero.
-pub const LANES: usize = 64;
+/// (128 lanes = two cache lines since Seaside and Prosperity took the id count past 64.)
+pub const LANES: usize = 128;
 const _: () = assert!(NUM_CARDS <= LANES, "more cards than Counts lanes: widen LANES");
 
-/// A multiset of cards stored as per-card counts. `Copy`, 64 bytes, never allocates.
+/// A multiset of cards stored as per-card counts. `Copy`, 128 bytes, never allocates.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(align(64))]
 pub struct Counts(pub [u8; LANES]);
@@ -71,10 +72,18 @@ impl Counts {
     pub fn any_type(&self, flag: u8) -> bool {
         self.iter().any(|(c, _)| crate::cards::is(c, flag))
     }
-    /// Iterate (card, count) for nonzero counts, in card-id order.
+    /// Iterate (card, count) for nonzero counts, in card-id order. Hands, decks and piles hold
+    /// few distinct cards, so this walks 8 lanes at a time and skips empty words.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
-        self.0[..NUM_CARDS].iter().enumerate().filter(|(_, &n)| n > 0).map(|(i, &n)| (i as CardId, n))
+    pub fn iter(&self) -> NonZero<'_> {
+        NonZero { counts: self, word: 0, bits: nonzero_bytes(self.word(0)) }
+    }
+
+    #[inline(always)]
+    fn word(&self, w: usize) -> u64 {
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&self.0[w * 8..w * 8 + 8]);
+        u64::from_le_bytes(b)
     }
     /// Each count raised to at least `floor(card)`.
     pub fn max_with(mut self, floor: impl Fn(CardId) -> u8) -> Counts {
@@ -88,13 +97,48 @@ impl Counts {
     /// Used to sample uniformly: `nth(rng.below(total))`.
     #[inline]
     pub fn nth(&self, mut idx: u32) -> CardId {
-        for (i, &n) in self.0[..NUM_CARDS].iter().enumerate() {
+        for (c, n) in self.iter() {
             if idx < n as u32 {
-                return i as CardId;
+                return c;
             }
             idx -= n as u32;
         }
         panic!("Counts::nth out of range")
+    }
+}
+
+/// The high bit of every nonzero byte of `w` (and no other bits).
+#[inline(always)]
+fn nonzero_bytes(w: u64) -> u64 {
+    const LOW7: u64 = 0x7f7f_7f7f_7f7f_7f7f;
+    (((w & LOW7) + LOW7) | w) & !LOW7
+}
+
+/// Iterator over a `Counts`' nonzero entries (see `Counts::iter`).
+pub struct NonZero<'a> {
+    counts: &'a Counts,
+    word: usize,
+    /// Pending nonzero-byte markers (high bits) of the current word.
+    bits: u64,
+}
+
+impl Iterator for NonZero<'_> {
+    type Item = (CardId, u8);
+
+    #[inline]
+    fn next(&mut self) -> Option<(CardId, u8)> {
+        loop {
+            if self.bits != 0 {
+                let i = self.word * 8 + self.bits.trailing_zeros() as usize / 8;
+                self.bits &= self.bits - 1;
+                return Some((i as CardId, self.counts.0[i]));
+            }
+            self.word += 1;
+            if self.word >= LANES / 8 {
+                return None;
+            }
+            self.bits = nonzero_bytes(self.counts.word(self.word));
+        }
     }
 }
 

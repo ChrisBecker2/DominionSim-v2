@@ -2,6 +2,9 @@
 
 Rust based Dominion simulator with web UI written with Claude.
 
+Cards: Base Set and Intrigue, both 2nd edition (52 kingdom cards). Pick the card sets for new games
+in the game page, the Strategy Lab, or the CLI (`--kingdom random:base+intrigue`).
+
 ![Base game position with Analyze decision and a simulation graph](docs/screenshot.png)
 
 ## Strategy Lab

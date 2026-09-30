@@ -29,6 +29,9 @@ fn one() -> f64 {
 #[serde(default)]
 pub struct EvolveConfig {
     pub track: Track,
+    /// Which expansions' kingdom cards are in play: "Base", "Intrigue", or both. Governs the
+    /// default (empty) fixed kingdom, the random track's draw pool, and so the search space.
+    pub sets: Vec<String>,
     pub opponents: Vec<OpponentSpec>,
     /// Cards candidates may never gain.
     pub forbidden: Vec<String>,
@@ -76,6 +79,7 @@ impl Default for EvolveConfig {
     fn default() -> Self {
         EvolveConfig {
             track: Track::Fixed { kingdom: Vec::new() },
+            sets: vec!["Base".into(), "Intrigue".into()],
             opponents: Vec::new(),
             forbidden: vec!["Witch".into()],
             seeds: Vec::new(),

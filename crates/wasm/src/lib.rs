@@ -1272,6 +1272,24 @@ pub extern "C" fn list_bots() -> i32 {
     result_of(Ok(names))
 }
 
+/// The kingdom cards seats `0..players`' strategies need (gain lists, play lists, conditions),
+/// in first-mentioned order, plus how many of those seats are strategies (vs. search/human).
+fn required_seat_cards(app: &App, n: usize) -> (u32, Vec<u8>) {
+    let mut cards: Vec<u8> = Vec::new();
+    let mut strategy_seats = 0;
+    for &seat in &app.seats[..n] {
+        if let Some(s) = seat.checked_sub(FIRST_STRATEGY_SEAT).and_then(|i| app.strategies.get(i as usize)) {
+            strategy_seats += 1;
+            for c in s.kingdom_refs() {
+                if !cards.contains(&c) {
+                    cards.push(c);
+                }
+            }
+        }
+    }
+    (strategy_seats, cards)
+}
+
 /// Kingdom implied by the seats' rules: the union of kingdom cards named by the strategies of
 /// seats `0..players` (gain lists, play lists, conditions), in first-mentioned order. Writes
 /// JSON {strategySeats, kingdom} where kingdom is a comma-separated list (possibly empty).
@@ -1280,19 +1298,43 @@ pub extern "C" fn seat_kingdom(players: u32) -> i32 {
     let r = APP.with(|cell| {
         let app = cell.borrow();
         let n = (players as usize).clamp(2, MAX_PLAYERS);
-        let mut cards: Vec<u8> = Vec::new();
-        let mut strategy_seats = 0;
-        for &seat in &app.seats[..n] {
-            if let Some(s) = seat.checked_sub(FIRST_STRATEGY_SEAT).and_then(|i| app.strategies.get(i as usize)) {
-                strategy_seats += 1;
-                for c in s.kingdom_refs() {
-                    if !cards.contains(&c) {
-                        cards.push(c);
-                    }
-                }
-            }
-        }
+        let (strategy_seats, cards) = required_seat_cards(&app, n);
         let names: Vec<&str> = cards.iter().map(|&c| cards::name(c)).collect();
+        format!("{{\"strategySeats\":{strategy_seats},\"kingdom\":{}}}", jstr(&names.join(", ")))
+    });
+    result_of(Ok(r))
+}
+
+/// A stream tag distinguishing New Game's kingdom-padding randomness from the game's own RNG
+/// (seeded from the same `seed` input, but a different derived stream).
+const KINGDOM_PAD_STREAM: u64 = 0x4B69_6E67_444F_4D;
+
+fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
+    let mut v = Vec::new();
+    if sets_mask & 1 != 0 {
+        v.push(cards::CardSet::Base);
+    }
+    if sets_mask & 2 != 0 {
+        v.push(cards::CardSet::Intrigue);
+    }
+    v
+}
+
+/// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
+/// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue), seeded from `seed` so
+/// the same seed and set selection reproduce the same kingdom. A required card outside the
+/// selected sets is kept anyway. Writes JSON {strategySeats, kingdom} (kingdom: 10 comma-separated
+/// names, or more if the seats alone need more than 10).
+#[no_mangle]
+pub extern "C" fn padded_kingdom(players: u32, sets_mask: u32, seed: u64) -> i32 {
+    let r = APP.with(|cell| {
+        let app = cell.borrow();
+        let n = (players as usize).clamp(2, MAX_PLAYERS);
+        let (strategy_seats, required) = required_seat_cards(&app, n);
+        let sets = card_sets_from_mask(sets_mask);
+        let mut rng = Rng::derive(seed, KINGDOM_PAD_STREAM);
+        let kingdom = cards::random_kingdom(&sets, &required, &mut rng);
+        let names: Vec<&str> = kingdom.iter().map(|&c| cards::name(c)).collect();
         format!("{{\"strategySeats\":{strategy_seats},\"kingdom\":{}}}", jstr(&names.join(", ")))
     });
     result_of(Ok(r))

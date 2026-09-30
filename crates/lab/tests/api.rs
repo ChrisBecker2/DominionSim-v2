@@ -84,6 +84,45 @@ fn defaults_round_trip_into_a_valid_start() {
 }
 
 #[test]
+fn defaults_include_sets() {
+    let state = AppState::new(strategies_fixture());
+    let (status, defaults) = call(&state, "GET", "/api/defaults", b"");
+    assert_eq!(status, 200);
+    let sets = defaults["config"]["sets"].as_array().expect("sets array");
+    let names: Vec<&str> = sets.iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(names, ["Base", "Intrigue"], "defaults to both sets: {defaults}");
+}
+
+#[test]
+fn tiny_run_with_intrigue_only_works() {
+    let state = AppState::new(strategies_fixture());
+    let req = serde_json::json!({
+        "config": {
+            "track": {"kind": "fixed", "kingdom": []},
+            "sets": ["Intrigue"],
+            "forbidden": [],
+            "islands": 1,
+            "island_size": 4,
+            "generations": 1,
+            "race_games": [50],
+            "validate_every": 1,
+            "validate_games": 100,
+            "polish_games": 50
+        },
+        "opponents": [{"file": "double_witch.toml", "weight": 1.0}],
+        "seed_files": ["big_money.toml"]
+    });
+    let (status, resp) = call(&state, "POST", "/api/start", req.to_string().as_bytes());
+    assert_eq!(status, 200, "{resp}");
+
+    wait_until_not_running(&state, Duration::from_secs(120));
+
+    let (_, st) = call(&state, "GET", "/api/status", b"");
+    assert!(st["error"].is_null(), "run errored: {st}");
+    assert!(st["progress"]["result"].is_object(), "expected a result: {st}");
+}
+
+#[test]
 fn tiny_run_produces_a_result() {
     let state = AppState::new(strategies_fixture());
     let req = serde_json::json!({

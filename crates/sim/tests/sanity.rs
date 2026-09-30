@@ -33,7 +33,7 @@ fn double_witch_beats_big_money_heavily() {
     let bm = load("big_money.toml");
     let dw = load("double_witch.toml");
     let refs = [&bm, &dw];
-    let kingdom = dominion_sim::kingdom::resolve("auto", &refs).unwrap();
+    let kingdom = dominion_sim::kingdom::resolve("auto", &refs, 42).unwrap();
     let cfg = MatchConfig { games: 4_000, kingdom, seed: 42, max_turns: 200 };
     let stats = run_match(&refs, &cfg);
     let win_rate = stats[1].win_rate();

@@ -138,6 +138,9 @@
     seatKingdom(players) {
       return JSON.parse(ok(wasm.seat_kingdom(players >>> 0)));
     },
+    paddedKingdom(players, setsMask, seed) {
+      return JSON.parse(ok(wasm.padded_kingdom(players >>> 0, setsMask >>> 0, BigInt(seed))));
+    },
     analyze() {
       return JSON.parse(ok(wasm.analyze()));
     },
@@ -689,18 +692,45 @@
 
   let shownAnalysis = null; // last analysis rendered (for Auto-step to follow)
 
-  // The kingdom is always the union of the kingdom cards the seats' rules name (no padding);
-  // Search seats name none. `gameKingdom` is the kingdom the current game was started with.
-  let gameKingdom = null;
+  // The kingdom the seats' rules require (no padding); search seats name none. New Game pads
+  // this out to 10 with random cards from the selected sets (see `paddedKingdom`), seeded from
+  // the Seed input. `gameRequiredKingdom` is the required kingdom the current game was started
+  // with, used only to detect when the seats now want different cards than the running game has.
+  let gameRequiredKingdom = null;
+
+  const SETS_KEY = "dominion.cardSets";
+  const SETS_MASK = { base: 1, intrigue: 2, both: 3 };
+
+  function cardSetsSelection() {
+    const el = $("ng-sets");
+    return el && SETS_MASK[el.value] ? el.value : "both";
+  }
+
+  function loadCardSetsSelection() {
+    try {
+      const v = localStorage.getItem(SETS_KEY);
+      if (v && SETS_MASK[v] && $("ng-sets")) $("ng-sets").value = v;
+    } catch (e) {
+      /* localStorage unavailable: default selection stands */
+    }
+  }
+
+  function persistCardSetsSelection() {
+    try {
+      localStorage.setItem(SETS_KEY, cardSetsSelection());
+    } catch (e) {
+      /* ignore: storage unavailable */
+    }
+  }
 
   function seatsKingdom() {
     const players = parseInt($("ng-players").value, 10) || 2;
     return api.seatKingdom(players).kingdom;
   }
 
-  // Whether the seats now imply a different kingdom than the current game's.
+  // Whether the seats now require different cards than the running game's kingdom was built for.
   function syncKingdomFromSeats() {
-    return gameKingdom !== null && seatsKingdom() !== gameKingdom;
+    return gameRequiredKingdom !== null && seatsKingdom() !== gameRequiredKingdom;
   }
 
   function startNewGame() {
@@ -708,8 +738,10 @@
     const players = parseInt($("ng-players").value, 10) || 2;
     const seed = parseInt($("ng-seed").value, 10) || 0;
     cancelAnalysis();
-    gameKingdom = seatsKingdom();
-    api.newGame(players, gameKingdom, seed, 0);
+    gameRequiredKingdom = seatsKingdom();
+    const setsMask = SETS_MASK[cardSetsSelection()];
+    const kingdom = api.paddedKingdom(players, setsMask, seed).kingdom;
+    api.newGame(players, kingdom, seed, 0);
     showNewGameError("");
     $("state-text").value = api.getStartText();
   }
@@ -1224,6 +1256,7 @@
 
   function wire() {
     wireStrategyLoader();
+    $("ng-sets").addEventListener("change", persistCardSetsSelection);
     $("btn-new-game").addEventListener("click", () => {
       try {
         startNewGame();
@@ -1355,6 +1388,7 @@
     persistStrategies();
     botNames = api.listBots();
     initCards();
+    loadCardSetsSelection();
     wire();
     // index.html#strategy=<base64 TOML> (e.g. from the Strategy Lab): load it and seat it as
     // Player 2, so it faces the default Player 1 (Double Witch).

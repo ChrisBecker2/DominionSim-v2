@@ -74,6 +74,8 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 .checkbox-row { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; }
 .checkbox-row input { width: auto; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.chip-set-heading { flex-basis: 100%; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 6px 0 -1px; }
+.chip-set-heading:first-child { margin-top: 0; }
 .chip {
   border: 1px solid var(--border); background: var(--chip-bg); color: var(--text);
   border-radius: 12px; padding: 3px 10px; font-size: 12px; cursor: pointer; user-select: none;
@@ -126,13 +128,20 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
       <section id="config-panel">
         <h2>Configuration</h2>
 
+        <h3>Card sets</h3>
+        <div class="row">
+          <label class="checkbox-row"><input type="checkbox" id="set-base" checked> Base</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-intrigue" checked> Intrigue</label>
+        </div>
+        <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
+
         <h3>Track</h3>
         <div class="row">
           <label class="checkbox-row"><input type="radio" name="track-kind" value="fixed" id="track-fixed" checked> Fixed kingdom</label>
           <label class="checkbox-row"><input type="radio" name="track-kind" value="random" id="track-random"> Random kingdoms</label>
         </div>
         <div id="track-fixed-panel">
-          <div class="hint">All 26 kingdom cards available by default. Toggle chips to restrict to specific cards.</div>
+          <div class="hint">Every kingdom card of the selected sets is available by default. Toggle chips to restrict to specific cards.</div>
           <div class="chips" id="fixed-kingdom-chips"></div>
         </div>
         <div id="track-random-panel" style="display:none">
@@ -285,9 +294,21 @@ function postJson(url, body) {
 // Chips (multi-toggle card pickers)
 // ---------------------------------------------------------------------------------------------
 
-function renderChips(container, cardNames, selected) {
+// `cardsList` is `state.cards.kingdom` (or a filtered copy): [{name, set, ...}, ...]. Cards are
+// grouped by `set` with a small heading; the list is already contiguous by set (one expansion's
+// cards, then the next), so a heading is inserted whenever `set` changes.
+function renderChips(container, cardsList, selected) {
   container.innerHTML = "";
-  cardNames.forEach(function (name) {
+  var lastSet = null;
+  cardsList.forEach(function (card) {
+    var name = card.name;
+    if (card.set !== lastSet) {
+      lastSet = card.set;
+      var heading = document.createElement("div");
+      heading.className = "chip-set-heading";
+      heading.textContent = lastSet;
+      container.appendChild(heading);
+    }
     var chip = document.createElement("span");
     chip.className = "chip" + (selected.has(name) ? " on" : "");
     chip.textContent = name;
@@ -306,6 +327,7 @@ function renderChips(container, cardNames, selected) {
 // ---------------------------------------------------------------------------------------------
 
 var form = {
+  sets: new Set(["Base", "Intrigue"]),
   trackKind: "fixed",
   fixedKingdom: new Set(),
   randomRequired: new Set(["Witch"]),
@@ -323,10 +345,9 @@ var form = {
   validate_full: false,
 };
 
-function kingdomNames() { return state.cards.kingdom.map(function (c) { return c.name; }); }
-
 function applyRequestToForm(req) {
   var cfg = req.config || {};
+  form.sets = new Set(cfg.sets && cfg.sets.length ? cfg.sets : ["Base", "Intrigue"]);
   var track = cfg.track || { kind: "fixed", kingdom: [] };
   form.trackKind = track.kind || "fixed";
   form.fixedKingdom = new Set(track.kind === "fixed" ? (track.kingdom || []) : []);
@@ -367,14 +388,16 @@ function applyRequestToForm(req) {
 }
 
 function renderForm() {
+  $("set-base").checked = form.sets.has("Base");
+  $("set-intrigue").checked = form.sets.has("Intrigue");
   $("track-fixed").checked = form.trackKind === "fixed";
   $("track-random").checked = form.trackKind === "random";
   $("track-fixed-panel").style.display = form.trackKind === "fixed" ? "" : "none";
   $("track-random-panel").style.display = form.trackKind === "random" ? "" : "none";
-  renderChips($("fixed-kingdom-chips"), kingdomNames(), form.fixedKingdom);
-  renderChips($("random-required-chips"), kingdomNames(), form.randomRequired);
+  renderChips($("fixed-kingdom-chips"), state.cards.kingdom, form.fixedKingdom);
+  renderChips($("random-required-chips"), state.cards.kingdom, form.randomRequired);
   $("kingdoms-per-generation").value = form.kingdomsPerGeneration;
-  renderChips($("forbidden-chips"), kingdomNames(), form.forbidden);
+  renderChips($("forbidden-chips"), state.cards.kingdom, form.forbidden);
 
   renderOpponentsList();
   renderSeedsList();
@@ -465,6 +488,7 @@ function buildRequest() {
 
   var config = {
     track: track,
+    sets: Array.from(form.sets).sort(),
     forbidden: Array.from(form.forbidden).sort(),
     islands: Math.max(1, Math.round(n.islands)),
     island_size: Math.max(4, Math.round(n.island_size)),
@@ -830,6 +854,14 @@ function runAssess() {
 // ---------------------------------------------------------------------------------------------
 
 function wireStaticEvents() {
+  $("set-base").addEventListener("change", function () {
+    if ($("set-base").checked) form.sets.add("Base"); else form.sets.delete("Base");
+    saveConfig();
+  });
+  $("set-intrigue").addEventListener("change", function () {
+    if ($("set-intrigue").checked) form.sets.add("Intrigue"); else form.sets.delete("Intrigue");
+    saveConfig();
+  });
   $("track-fixed").addEventListener("change", function () { form.trackKind = "fixed"; renderForm(); saveConfig(); });
   $("track-random").addEventListener("change", function () { form.trackKind = "random"; renderForm(); saveConfig(); });
   $("kingdoms-per-generation").addEventListener("change", function () { form.kingdomsPerGeneration = parseInt($("kingdoms-per-generation").value, 10) || 8; saveConfig(); });

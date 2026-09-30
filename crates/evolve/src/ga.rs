@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use dominion_engine::cards::{self, CardId};
+use dominion_engine::cards::{self, CardId, CardSet};
 use dominion_engine::rng::Rng;
 use dominion_sim::Strategy;
 use rayon::prelude::*;
@@ -34,6 +34,22 @@ fn card_list(names: &[String], what: &str) -> Result<Vec<CardId>, String> {
     names.iter().map(|n| cards::by_name(n).ok_or_else(|| format!("unknown card {n:?} in {what}"))).collect()
 }
 
+/// Resolve `cfg.sets` ("Base" / "Intrigue") into the [`CardSet`]s in play. Empty is a config
+/// error (nothing would be gainable); an unknown name is too.
+fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
+    if names.is_empty() {
+        return Err("choose at least one card set (\"Base\" and/or \"Intrigue\")".into());
+    }
+    let mut out = Vec::new();
+    for n in names {
+        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\" or \"Intrigue\")"))?;
+        if !out.contains(&set) {
+            out.push(set);
+        }
+    }
+    Ok(out)
+}
+
 /// Everything derived from a config: the arenas, the search space and the kingdom source.
 pub struct Setup {
     pub arena: Arena,
@@ -52,9 +68,11 @@ enum Kingdoms {
 impl Setup {
     pub fn new(cfg: &EvolveConfig) -> Result<Setup, String> {
         let forbidden = card_list(&cfg.forbidden, "forbidden cards")?;
+        let sets = resolve_sets(&cfg.sets)?;
+        let selected = || cards::kingdom_cards().filter(|&c| sets.contains(&cards::set_of(c)));
         let (kingdoms, pool) = match &cfg.track {
             Track::Fixed { kingdom } => {
-                let k = if kingdom.is_empty() { cards::kingdom_cards().collect() } else { card_list(kingdom, "kingdom")? };
+                let k = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
                 if let Some(&c) = k.iter().find(|&&c| c < cards::FIRST_KINGDOM) {
                     return Err(format!("{} is not a kingdom card", cards::name(c)));
                 }
@@ -65,8 +83,8 @@ impl Setup {
                 if required.len() > 10 {
                     return Err("at most 10 required cards".into());
                 }
-                let pool: Vec<CardId> = cards::kingdom_cards().filter(|c| !required.contains(c)).collect();
-                (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1) }, cards::kingdom_cards().collect())
+                let pool: Vec<CardId> = selected().filter(|c| !required.contains(c)).collect();
+                (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1) }, selected().collect())
             }
         };
         if cfg.opponents.is_empty() {

@@ -19,6 +19,13 @@
       <label>Seed
         <input id="ng-seed" type="number" value="1" step="1">
       </label>
+      <label>Cards
+        <select id="ng-sets">
+          <option value="both" selected>Base + Intrigue</option>
+          <option value="base">Base</option>
+          <option value="intrigue">Intrigue</option>
+        </select>
+      </label>
       <button id="btn-new-game" class="primary">New game</button>
       <button id="btn-load-strategy" title="Add a strategy file (.toml) as a bot you can seat">Load strategy&hellip;</button>
       <span id="newgame-error" class="error inline" hidden></span>

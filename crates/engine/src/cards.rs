@@ -1,5 +1,6 @@
 //! Card identities and static definitions: Base Set and Intrigue, both 2nd edition.
 
+use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
@@ -382,6 +383,36 @@ pub const FIRST_GAME: [CardId; 10] = [
     id::MOAT, id::REMODEL, id::SMITHY, id::VILLAGE, id::WORKSHOP,
 ];
 
+/// Case-insensitive lookup of a [`CardSet`] by its display name ("Base", "Intrigue").
+pub fn set_by_name(s: &str) -> Option<CardSet> {
+    match s.trim().to_lowercase().as_str() {
+        "base" => Some(CardSet::Base),
+        "intrigue" => Some(CardSet::Intrigue),
+        _ => None,
+    }
+}
+
+/// Ten kingdom cards: `required` is always included (deduplicated, in the order given), padded
+/// with cards drawn uniformly at random from `sets` (excluding anything already in `required`)
+/// using `rng`. If `required` already has 10 or more distinct cards, no padding happens and all
+/// of them are kept (the caller may end up with more than 10 piles). The result is sorted by
+/// card id, so the same `(sets, required, rng state)` always reproduces the same kingdom.
+pub fn random_kingdom(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> Vec<CardId> {
+    let mut out: Vec<CardId> = Vec::new();
+    for &c in required {
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    let mut pool: Vec<CardId> = kingdom_cards().filter(|c| sets.contains(&set_of(*c)) && !out.contains(c)).collect();
+    while out.len() < 10 && !pool.is_empty() {
+        let i = rng.below(pool.len() as u32) as usize;
+        out.push(pool.swap_remove(i));
+    }
+    out.sort_unstable();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,5 +455,55 @@ mod set_tests {
         assert!(is(id::MILL, ACTION) && is(id::MILL, VICTORY));
         assert_eq!(kingdom_cards_in(CardSet::Base).count(), 26);
         assert_eq!(kingdom_cards_in(CardSet::Intrigue).count(), 26);
+    }
+
+    #[test]
+    fn set_by_name_matches_common_spellings() {
+        assert_eq!(set_by_name("Base"), Some(CardSet::Base));
+        assert_eq!(set_by_name("base"), Some(CardSet::Base));
+        assert_eq!(set_by_name(" Intrigue "), Some(CardSet::Intrigue));
+        assert_eq!(set_by_name("intrigue"), Some(CardSet::Intrigue));
+        assert_eq!(set_by_name("Seaside"), None);
+    }
+
+    #[test]
+    fn random_kingdom_is_reproducible_respects_sets_and_has_no_duplicates() {
+        let mut rng1 = Rng::new(42);
+        let k1 = random_kingdom(&[CardSet::Base], &[], &mut rng1);
+        let mut rng2 = Rng::new(42);
+        let k2 = random_kingdom(&[CardSet::Base], &[], &mut rng2);
+        assert_eq!(k1, k2, "same seed must reproduce the same kingdom");
+        assert_eq!(k1.len(), 10);
+        for &c in &k1 {
+            assert_eq!(set_of(c), CardSet::Base, "{} is not from Base", name(c));
+        }
+        let mut dedup = k1.clone();
+        dedup.sort_unstable();
+        dedup.dedup();
+        assert_eq!(dedup.len(), k1.len(), "no duplicates: {k1:?}");
+
+        // A different seed usually gives a different kingdom.
+        let mut rng3 = Rng::new(43);
+        let k3 = random_kingdom(&[CardSet::Base], &[], &mut rng3);
+        assert_ne!(k1, k3);
+
+        // Required cards always stay in, even from another set.
+        let mut rng4 = Rng::new(1);
+        let k4 = random_kingdom(&[CardSet::Base], &[id::WITCH, id::TORTURER], &mut rng4);
+        assert_eq!(k4.len(), 10);
+        assert!(k4.contains(&id::WITCH));
+        assert!(k4.contains(&id::TORTURER));
+        // Everything else padded in is from Base.
+        for &c in &k4 {
+            if c != id::TORTURER {
+                assert!(c == id::WITCH || set_of(c) == CardSet::Base);
+            }
+        }
+
+        // Both sets: cards from either are allowed.
+        let mut rng5 = Rng::new(7);
+        let k5 = random_kingdom(&[CardSet::Base, CardSet::Intrigue], &[], &mut rng5);
+        assert_eq!(k5.len(), 10);
+        assert!(k5.iter().all(|&c| set_of(c) == CardSet::Base || set_of(c) == CardSet::Intrigue));
     }
 }

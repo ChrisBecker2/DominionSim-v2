@@ -35,8 +35,11 @@ enum Cmd {
         /// checked flag since it's easy to typo the strategy list).
         #[arg(long)]
         players: Option<usize>,
-        /// "first-game", "auto" (union of cards the strategies reference), or a comma-separated
-        /// list of exactly 10 kingdom card names.
+        /// "first-game"; "auto" (union of cards the strategies reference, padded to 10 by
+        /// ascending card id); "auto:<sets>" (same, padded at random from <sets>, seeded by
+        /// --seed); "random" or "random:<sets>" (10 random kingdom cards from <sets>, seeded by
+        /// --seed); or a comma-separated list of exactly 10 kingdom card names. <sets> is
+        /// "base", "intrigue", or "base+intrigue" (random/random:<sets> without a suffix use both).
         #[arg(long, default_value = "first-game")]
         kingdom: String,
         #[arg(long, default_value_t = 1)]
@@ -53,6 +56,7 @@ enum Cmd {
         /// Games per pairing.
         #[arg(long, default_value_t = 2_000)]
         games: u64,
+        /// See `match --kingdom`'s help for the accepted forms.
         #[arg(long, default_value = "first-game")]
         kingdom: String,
         #[arg(long, default_value_t = 1)]
@@ -93,7 +97,7 @@ fn cmd_match(paths: Vec<PathBuf>, games: u64, players: Option<usize>, kingdom_sp
     }
     let strategies = load_all(&paths)?;
     let refs: Vec<&Strategy> = strategies.iter().collect();
-    let k = kingdom::resolve(kingdom_spec, &refs)?;
+    let k = kingdom::resolve(kingdom_spec, &refs, seed)?;
     print_kingdom(&k);
     let cfg = MatchConfig { games, kingdom: k, seed, max_turns };
 
@@ -113,7 +117,7 @@ fn cmd_league(paths: Vec<PathBuf>, games: u64, kingdom_spec: &str, seed: u64, ma
         return Err("league needs at least 2 strategies".into());
     }
     let refs: Vec<&Strategy> = strategies.iter().collect();
-    let k = kingdom::resolve(kingdom_spec, &refs)?;
+    let k = kingdom::resolve(kingdom_spec, &refs, seed)?;
     print_kingdom(&k);
 
     let start = Instant::now();

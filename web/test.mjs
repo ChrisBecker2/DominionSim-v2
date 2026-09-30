@@ -89,6 +89,8 @@ async function main() {
     "redo",
     "can_undo",
     "can_redo",
+    "seat_kingdom",
+    "padded_kingdom",
   ]) {
     check(typeof wasm[name] === "function", `exports ${name}()`);
   }
@@ -119,6 +121,44 @@ async function main() {
       check(/player count/.test(e.message), `out-of-range player count rejected: ${e.message}`);
     }
     check(threw, "new_game(9, ...) throws");
+  }
+
+  section("padded_kingdom: New Game's card-set-aware kingdom padding");
+  {
+    // All 26 Intrigue (2nd edition) kingdom cards, transcribed independently of the engine's
+    // card table, so this section checks the padding actually lands in the right set.
+    const INTRIGUE = new Set([
+      "Courtyard", "Lurker", "Pawn", "Masquerade", "Shanty Town", "Steward", "Swindler",
+      "Wishing Well", "Baron", "Bridge", "Conspirator", "Diplomat", "Ironworks", "Mill",
+      "Mining Village", "Secret Passage", "Courtier", "Duke", "Minion", "Patrol", "Replace",
+      "Torturer", "Trading Post", "Upgrade", "Harem", "Nobles",
+    ]);
+    function paddedKingdom(players, setsMask, seed) {
+      const r = JSON.parse(ok(wasm.padded_kingdom(players, setsMask, BigInt(seed))));
+      return { strategySeats: r.strategySeats, kingdom: r.kingdom.split(",").map((s) => s.trim()).filter(Boolean) };
+    }
+    // Default seats: Player 1 = Double Witch (needs Witch, a Base card), others = Big Money
+    // Ultimate (no kingdom cards needed).
+    const required = JSON.parse(ok(wasm.seat_kingdom(2))).kingdom.split(",").map((s) => s.trim()).filter(Boolean);
+    check(required.includes("Witch"), `default Player 1 (Double Witch) requires Witch (got: ${required.join(", ")})`);
+
+    const both1 = paddedKingdom(2, 3, 99);
+    const both2 = paddedKingdom(2, 3, 99);
+    check(JSON.stringify(both1.kingdom) === JSON.stringify(both2.kingdom), "same seed + selection reproduces the same kingdom");
+    check(both1.kingdom.length === 10, `padded to 10 cards (got ${both1.kingdom.length})`);
+    check(new Set(both1.kingdom).size === 10, "no duplicates in the padded kingdom");
+
+    const otherSeed = paddedKingdom(2, 3, 100);
+    check(JSON.stringify(otherSeed.kingdom) !== JSON.stringify(both1.kingdom), "a different seed usually gives a different kingdom");
+
+    const intrigueOnly = paddedKingdom(2, 2, 99); // sets_mask 2 = Intrigue
+    check(intrigueOnly.kingdom.length === 10, "still 10 cards with Intrigue only");
+    check(intrigueOnly.kingdom.includes("Witch"), "the seats' required card (Witch) stays in even though it's a Base card");
+    const padding = intrigueOnly.kingdom.filter((c) => c !== "Witch");
+    check(padding.every((c) => INTRIGUE.has(c)), `every padded card besides the required Witch is Intrigue (got: ${padding.join(", ")})`);
+
+    const baseOnly = paddedKingdom(2, 1, 99); // sets_mask 1 = Base
+    check(baseOnly.kingdom.every((c) => !INTRIGUE.has(c)), `Base-only padding has no Intrigue cards (got: ${baseOnly.kingdom.join(", ")})`);
   }
 
   section("load_state + text round trip");

@@ -171,9 +171,14 @@ included:
 
 ## 5. Performance log
 
-Benchmark: `dominion-sim match big_money_ultimate double_witch --games 200000` on a Base-only
-kingdom (full bots), plus a fast-mode (rule-order, no win lookahead) Double Witch vs Big Money
-match at 1M games. 32 threads.
+Benchmarks (release build, 32 threads):
+
+- **Full bots:** `dominion-sim match strategies/big_money_ultimate.toml strategies/double_witch.toml
+  --games 200000 --kingdom "Sentry,Militia,Witch,Village,Smithy,Market,Cellar,Moat,Workshop,Remodel"`.
+- **Fast mode:** `dominion-sim match bench/strategies/fast_big_money.toml
+  bench/strategies/fast_double_witch.toml --games 1000000 --kingdom auto`. Both strategies have
+  `win_this_turn = false`, which is where most of full mode's cost goes (Big Money has no actions,
+  so `search_play` doesn't matter for it).
 
 | Point | Full bots | Fast mode |
 |---|---|---|
@@ -181,7 +186,23 @@ match at 1M games. 32 threads.
 | Step 1: 113 ids, 128-lane Counts, sparse iteration | 253k/s | 1.79M/s |
 | Step 2: treasure decisions, gain pipeline, Prosperity | 228k/s | 1.60M/s |
 | Step 3: Duration framework, Seaside Durations | 215k/s | 1.59M/s |
+| Step 4: the last 10 Seaside cards (all 27 ready) | 207k/s | 1.53M/s |
 
 Step 2's ~10% has no single hot spot (GameState grew only 7872 -> 8192 bytes, gain triggers are
 gated by one mask test); it needs a real profiler. The next structural option is per-game compact
 card ids (a game never uses more than ~30 distinct cards), which shrinks every `Counts`.
+
+Step 4 grew `GameState` from 8576 to 9408 bytes (+832): three new persistent per-player zones
+(the Native Village and Island mats, each a capped `SmallMultiset<20>`; Smugglers' per-player
+`last_turn_gains`, a `SmallMultiset<8>`) plus two `Frame` fields used by Smugglers/Treasure Map
+(`STACK_CAP` = 48, so 2 bytes/slot adds up) and a handful of `TurnState` bookkeeping bytes. Full
+bots dropped ~2-3% (215k/s -> ~208-211k/s over several runs), right at the edge of the ~2%
+budget; this is the unavoidable cost of three more always-present zones, not runtime work (they're
+gated to near-zero CPU cost when unused: one bitmask test in `GameState::gain`, one in
+`push_treasury_offers`). The fast-mode number was remeasured by the overseer with the
+benchmark files now in `bench/strategies/` (they previously lived outside the repo, which is why
+it couldn't be reproduced).
+
+**Totals since Base + Intrigue:** full bots 282k/s to 207k/s (-27%), fast mode 1.75M/s to 1.53M/s
+(-13%). A dedicated performance pass (profiler, then possibly per-game compact card ids) is the
+next item once the sets are integrated.

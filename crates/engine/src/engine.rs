@@ -372,10 +372,16 @@ impl GameState {
                 let has_choice_treasure = if self.turn.treasures_done { false } else { self.play_choice_free_treasures(sink) };
                 if has_choice_treasure {
                     Run::Decide(DecisionKind::PlayTreasure, 0)
-                } else if self.turn.buys > 0 {
+                } else if self.turn.buys > 0 && !self.turn.treasury_offered {
+                    // `!treasury_offered`: once the Buy phase has started ending (Treasury's
+                    // offer already begun, win or lose — see `end_buy_phase`), stay committed to
+                    // ending it even if buys remain unspent (a voluntary Pass while buys>0 is
+                    // legal and routes here too, via `apply_phase`'s Buy-decision catch-all);
+                    // otherwise, re-entering this branch while a pushed offer's YesNo resolves
+                    // would incorrectly re-offer a fresh Buy decision.
                     Run::Decide(DecisionKind::Buy, 0)
                 } else {
-                    self.cleanup(sink);
+                    self.end_buy_phase(sink);
                     Run::Continue
                 }
             }
@@ -482,7 +488,11 @@ impl GameState {
                 self.gain(p, c, Dest::Discard, true, sink);
                 self.on_buy_effects(p, c, sink);
             }
-            (Phase::Buy, _) => self.cleanup(sink),
+            // Ending the Buy phase (a plain Pass on the `Buy` decision, with or without buys
+            // still remaining — declining to spend them is legal): goes through the same
+            // end-of-phase hook as the "buys naturally hit 0" path in `run_phase`'s `Phase::Buy`
+            // arm, so Treasury's offer isn't skipped just because the player passed voluntarily.
+            (Phase::Buy, _) => self.end_buy_phase(sink),
             _ => unreachable!(),
         }
     }
@@ -554,9 +564,47 @@ impl GameState {
         has_choice_left
     }
 
+    /// Push Treasury's optional "put this onto your deck" `YesNo`, once per copy in play,
+    /// gated on not having gained a Victory card this Buy phase (`gained_victory_in_buy`; set by
+    /// `gain`). Cheaply gated: a Base-only (or Treasury-free) game skips this with one bitmask
+    /// test.
+    fn push_treasury_offers(&mut self) {
+        if !self.in_supply(id::TREASURY) || self.turn.gained_victory_in_buy {
+            return;
+        }
+        let p = self.turn.player;
+        let n = self.players[p as usize].in_play.get(id::TREASURY);
+        for _ in 0..n {
+            self.stack.push(Frame {
+                zone: Zone::InPlay, act: Act::Topdeck, subject: id::TREASURY,
+                ..Frame::new(FrameKind::YesNo, p, id::TREASURY)
+            });
+        }
+    }
+
+    /// End the Buy phase: Treasury's offer (once, guarded by `treasury_offered`), then cleanup
+    /// once nothing more is pending from it. Reached both when buys run out naturally
+    /// (`run_phase`'s `Phase::Buy` arm) and when the player passes with buys still available
+    /// (`apply_phase`'s Buy-decision catch-all), so the offer fires exactly once at the true end
+    /// of the Buy phase regardless of which path got there.
+    fn end_buy_phase<S: EventSink>(&mut self, sink: &mut S) {
+        if !self.turn.treasury_offered {
+            self.turn.treasury_offered = true;
+            self.push_treasury_offers();
+            if !self.stack.is_empty() {
+                return;
+            }
+        }
+        self.cleanup(sink);
+    }
+
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
         sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
+        // Smugglers' gain record: snapshot this turn's gains as "gained on their last turn" for
+        // the player whose turn just ended (see `gain`; empty when Smugglers isn't in play, so
+        // this is a cheap no-op copy for Base-only games).
+        self.players[p].last_turn_gains = self.turn.gained_this_turn;
         // Outpost: "take an extra turn after this one (not a 3rd turn in a row)". Checked
         // against the in-play snapshot before Duration cards are split out below (Outpost has no
         // start-of-turn effect of its own, so it's never in `pending_durations`; only presence in
@@ -620,8 +668,10 @@ impl GameState {
     /// purchase in the Buy phase (never for Workshop/Remodel/War Chest/... gains, even though
     /// some of those happen during a buy): it gates Hoard's "if you bought it" and Mint's on-buy
     /// trash (`on_buy_effects`). Runs every "when you gain" trigger (Watchtower, Hoard,
-    /// Collection, Tiara); a per-turn gain record for Smugglers is TODO (step 3/4; see
-    /// `state::PlayerState`). Returns whether it was gained.
+    /// Collection, Tiara). Also maintains two cheap, narrowly-gated per-turn records: `p`'s
+    /// gain record for Smugglers (only while Smugglers is in this game's supply) and the
+    /// "gained a Victory card this Buy phase" flag for Treasury (only while in the Buy phase).
+    /// Returns whether it was gained.
     pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) -> bool {
         if !self.supply.remove(c) {
             return false;
@@ -633,6 +683,17 @@ impl GameState {
             Dest::Discard => ps.discard.add(c, 1),
         }
         sink.event(Event::Gain { player: p, card: c, to });
+        // Smugglers' gain record: "a card the player to your right gained on their last turn"
+        // means gained during *their own* turn specifically, so this excludes a victim's forced
+        // gain during someone else's turn (Witch's Curse, Bandit's Gold...), which is `p !=
+        // self.turn.player` here. One bitmask test (plus the player check) skips this for the
+        // overwhelming majority of games (no Smugglers in the kingdom at all).
+        if self.in_supply(id::SMUGGLERS) && p == self.turn.player {
+            self.turn.gained_this_turn.add_or_drop(c, 1);
+        }
+        if self.turn.phase == Phase::Buy && cards::is(c, cards::VICTORY) {
+            self.turn.gained_victory_in_buy = true;
+        }
         self.run_gain_triggers(p, c, to, on_buy, sink);
         true
     }
@@ -740,7 +801,17 @@ impl GameState {
         }
         // Blockade: "while its gained card is set aside, when another player gains a copy on
         // their turn, they gain a Curse." Checked against every player's live Blockade holds.
-        if self.in_supply(id::BLOCKADE) && self.turn.player == g {
+        // Edge case: if the blockaded card is itself a Curse, the Curse this grants is *also* "a
+        // copy of the blockaded card", which by the letter of the rule keeps cursing the same
+        // player again — bounded only by the Curse pile (up to 50, at 6 players), each further
+        // gain of which can itself push more reaction frames (Watchtower...) before any of them
+        // are resolved. Un-guarded, that can recurse deep enough to overflow the fixed-size
+        // effect stack from an entirely ordinary action (simply buying a Curse). `blockading_curse`
+        // guards against the *recursive* re-trigger specifically (a Blockade-granted Curse never
+        // triggers another Blockade-granted Curse), capping this at one extra Curse per gain of
+        // the blockaded card: a deliberate, narrow simplification of this degenerate combo, not
+        // exercised by any ordinary game.
+        if self.in_supply(id::BLOCKADE) && self.turn.player == g && !self.turn.blockading_curse {
             for owner in 0..n {
                 if owner == g {
                     continue;
@@ -749,7 +820,9 @@ impl GameState {
                 for i in 0..ps.pending_durations_len as usize {
                     let e = ps.pending_durations[i];
                     if e.card == id::BLOCKADE && e.arg == c {
+                        self.turn.blockading_curse = true;
                         self.gain(g, id::CURSE, Dest::Discard, false, sink);
+                        self.turn.blockading_curse = false;
                         break;
                     }
                 }

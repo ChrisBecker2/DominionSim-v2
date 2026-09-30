@@ -28,7 +28,7 @@
 use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
-use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, TurnState, KNOWN_CAP, PENDING_DURATIONS_CAP};
+use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, KNOWN_CAP, PENDING_DURATIONS_CAP};
 use crate::state::Phase;
 
 // ---------------------------------------------------------------------------------------
@@ -156,6 +156,22 @@ fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
         i += words;
     }
     Ok(out)
+}
+
+/// Parse a `Counts` multiset into a capped `SmallMultiset<N>` (Native Village/Island mats,
+/// Smugglers' gain record), erroring instead of overflowing if the file names more distinct
+/// cards than the cap allows: `SmallMultiset::add` would otherwise abort the whole process
+/// (`panic = "abort"` in the release profile) on a malformed or hand-edited file.
+fn parse_small_multiset<const N: usize>(s: &str, field: &str) -> Result<SmallMultiset<N>, String> {
+    let counts = parse_counts(s)?;
+    if counts.iter().count() > N {
+        return Err(format!("too many distinct cards in '{field}' (max {N})"));
+    }
+    let mut m = SmallMultiset::EMPTY;
+    for (c, n) in counts.iter() {
+        m.add(c, n);
+    }
+    Ok(m)
 }
 
 /// Parse a plain comma-separated list of kingdom card names (no counts), e.g.
@@ -360,6 +376,17 @@ pub fn format_state(state: &GameState) -> String {
             let list = &ps.pending_durations[..ps.pending_durations_len as usize];
             out.push_str(&format!("durations: {}\n", format_pending_durations(list)));
         }
+        // Seaside step 4 mats/records: only while relevant, so Base-only (and most Seaside)
+        // saves are unaffected.
+        if !ps.native_village_mat.is_empty() {
+            out.push_str(&format!("native village: {}\n", format_counts(&ps.native_village_mat.counts())));
+        }
+        if !ps.island_mat.is_empty() {
+            out.push_str(&format!("island: {}\n", format_counts(&ps.island_mat.counts())));
+        }
+        if !ps.last_turn_gains.is_empty() {
+            out.push_str(&format!("last turn gains: {}\n", format_counts(&ps.last_turn_gains.counts())));
+        }
     }
 
     out
@@ -540,7 +567,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         played: Counts::EMPTY,
         cost_reduction: tf.cost_reduction,
         // Per-turn, within-turn bookkeeping: not part of the text format (see `format_state`'s
-        // module docs on `played`), reset fresh on load.
+        // module docs on `played`), reset fresh on load. Same gap as `treasures_done` for
+        // Treasury's two flags: a state saved mid-Buy-phase after already gaining a Victory card
+        // (or after Treasury's offer already ran) loses that fact on reload. Accepted for now,
+        // consistent with the existing gap.
         treasures_done: false,
         named_for_war_chest: Counts::EMPTY,
         duration_held: match &held_val {
@@ -561,6 +591,11 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         multiplier_card: 0,
         multiplier_expected: 0,
         multiplier_successes: 0,
+        // Per-turn bookkeeping, not part of the text format: see the comment on `treasures_done`.
+        gained_this_turn: SmallMultiset::EMPTY,
+        gained_victory_in_buy: false,
+        treasury_offered: false,
+        blockading_curse: false,
     };
 
     // Player blocks.
@@ -643,6 +678,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         ps.pending_durations[i] = e;
                     }
                 }
+                "native village" => ps.native_village_mat = parse_small_multiset(val, "native village").map_err(|e| format!("line {ln2}: {e}"))?,
+                "island" => ps.island_mat = parse_small_multiset(val, "island").map_err(|e| format!("line {ln2}: {e}"))?,
+                "last turn gains" => ps.last_turn_gains = parse_small_multiset(val, "last turn gains").map_err(|e| format!("line {ln2}: {e}"))?,
                 other => return Err(format!("line {ln2}: unknown field '{other}' in player block")),
             }
             i += 1;

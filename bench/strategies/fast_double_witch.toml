@@ -1,0 +1,17 @@
+name = "DW nowin"
+win_this_turn = false
+search_play = false
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Witch"
+if = "count(Witch) < 2"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Silver"
+[[play]]
+card = "Witch"

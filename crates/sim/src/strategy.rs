@@ -339,6 +339,9 @@ impl Strategy {
                 Act::Discard => Choice::Yes,
                 // Diplomat's reaction: only offered once the hand already has 5+ cards.
                 Act::Reveal => Choice::Yes,
+                // Treasury: always put it back unless the strategy says otherwise (there's no
+                // stated-rule override for this shape yet, so this is the whole policy for now).
+                Act::Topdeck => Choice::Yes,
                 _ => Choice::No,
             },
             DecisionKind::Name => self.choose_name(view, decision, choices),
@@ -880,8 +883,20 @@ impl Strategy {
             id::LURKER => self.default_lurker(view, choices),
             id::TORTURER => self.default_torturer(view, choices),
             id::INVESTMENT => self.default_investment(view, choices),
+            id::NATIVE_VILLAGE => self.default_native_village(view, choices),
             _ => choices[0],
         }
+    }
+
+    /// Native Village: take the mat once it holds 2+ cards, or once it holds any and this turn
+    /// could use them now (no actions left to keep chaining, or a thin hand); otherwise keep
+    /// adding to it.
+    fn default_native_village(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let mat_size = view.native_village_mat().total();
+        let needs_them_now = mat_size >= 1 && (view.turn().actions == 0 || view.hand().total() <= 1);
+        let take = mat_size >= 2 || needs_them_now;
+        let pred: fn(&ModeOpt) -> bool = if take { is_native_village_take } else { is_native_village_add };
+        find_mode(id::NATIVE_VILLAGE, choices, pred).unwrap_or(choices[0])
     }
 
     /// Investment: trash it for VP once the hand already holds decent Treasure diversity (3+
@@ -1096,6 +1111,12 @@ fn is_gain_trash(o: &ModeOpt) -> bool {
 }
 fn is_trash_self_investment(o: &ModeOpt) -> bool {
     matches!(o, ModeOpt::TrashSelfRevealVpPerTreasureType)
+}
+fn is_native_village_add(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::NativeVillageAdd)
+}
+fn is_native_village_take(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::NativeVillageTake)
 }
 
 /// The offered `Choice::Mode(i)` (if any) whose table entry for `card` matches `pred`.

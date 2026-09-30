@@ -1,0 +1,8 @@
+name = "BM nowin"
+win_this_turn = false
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Silver"

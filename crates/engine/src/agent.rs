@@ -72,6 +72,15 @@ impl<'a> PlayerView<'a> {
     pub fn my_vp(&self) -> i32 {
         self.state.players[self.me as usize].vp()
     }
+    /// My Native Village mat (Seaside): full contents, since it's private to its owner.
+    pub fn native_village_mat(&self) -> Counts {
+        self.state.players[self.me as usize].native_village_mat.counts()
+    }
+    /// Cards `p` gained on their own last completed turn (Seaside: Smugglers). Public
+    /// information (all gains are public).
+    pub fn last_turn_gains_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].last_turn_gains.counts()
+    }
 
     // --- Public information ---
     pub fn supply(&self, c: CardId) -> u8 {
@@ -119,6 +128,15 @@ impl<'a> PlayerView<'a> {
     }
     pub fn turns_taken_of(&self, p: u8) -> u16 {
         self.state.players[p as usize].turns_taken
+    }
+    /// How many cards are on `p`'s Native Village mat (public count; its exact contents are
+    /// private to `p` — see `native_village_mat`, which only exposes my own).
+    pub fn native_village_mat_size_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].native_village_mat.total()
+    }
+    /// `p`'s Island mat (Seaside): public, so every player can see its exact contents.
+    pub fn island_mat_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].island_mat.counts()
     }
 
     /// If gaining `card` now would end the game at the end of this turn (last Province, or the
@@ -200,6 +218,13 @@ impl<'a> PlayerView<'a> {
                     haven_slots[i] = true;
                 }
             }
+            // Native Village mat (Seaside): private to its owner, so as hidden from me as the
+            // hand/deck it's pooled with; only its *size* is public (unlike Blockade's set-aside
+            // card, already publicly gained, or Island's mat, public outright). Pool it in, then
+            // deal the same number of cards back out below, after the hand and Haven slots, so
+            // none of the three poolings sample from each other's cards.
+            let nv_mat_size = ps.native_village_mat.total();
+            pool.add_all(&ps.native_village_mat.counts());
             let mut hand = Counts::EMPTY;
             for _ in 0..hand_size {
                 let c = pool.nth(rng.below(pool.total()));
@@ -214,6 +239,12 @@ impl<'a> PlayerView<'a> {
                     ps.set_aside.add(c, 1);
                     ps.pending_durations[i].arg = c;
                 }
+            }
+            ps.native_village_mat.clear();
+            for _ in 0..nv_mat_size {
+                let c = pool.nth(rng.below(pool.total()));
+                pool.remove(c);
+                ps.native_village_mat.add(c, 1);
             }
             ps.deck_known = KnownStack::default();
             ps.deck_known_bottom = KnownStack::default();

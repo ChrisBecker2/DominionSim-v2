@@ -1765,12 +1765,16 @@ fn durations_json(state: &GameState, p: usize) -> String {
 
 fn player_json(state: &GameState, p: usize) -> String {
     let ps = &state.players[p];
+    // Native Village mat is normally private to its owner (opponents know only the count), but
+    // this JSON view is omniscient (the same page shows every player's hand), so it's shown for
+    // every player here too, same as `durations` already exposing Haven's set-aside card.
     format!(
         concat!(
             "{{\"index\":{p},\"isCurrent\":{cur},",
             "\"hand\":{hand},\"handSize\":{hand_n},",
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
+            "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
             "\"vp\":{vp},\"turnsTaken\":{turns}}}"
         ),
         p = p,
@@ -1785,6 +1789,8 @@ fn player_json(state: &GameState, p: usize) -> String {
         in_play = counts_json(&ps.in_play),
         set_aside = counts_json(&ps.set_aside),
         durations = durations_json(state, p),
+        nv_mat = counts_json(&ps.native_village_mat.counts()),
+        island_mat = counts_json(&ps.island_mat.counts()),
         vp = ps.vp(),
         turns = ps.turns_taken,
     )

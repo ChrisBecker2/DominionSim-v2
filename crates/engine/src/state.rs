@@ -92,6 +92,115 @@ impl DurationHeld {
     }
 }
 
+/// Max distinct card ids `SmallMultiset<MAT_CAP>` (the Native Village and Island mats) ever
+/// needs at once: bounded by the number of distinct card types this game's supply can ever
+/// contain (at most 7 basics + a kingdom + Platinum/Colony, comfortably under this for any
+/// realistic game — see `SmallMultiset`'s doc comment), with headroom.
+pub const MAT_CAP: usize = 20;
+/// Max distinct card ids `SmallMultiset<GAIN_RECORD_CAP>` (the per-player Smugglers gain
+/// record) ever needs at once: a handful of distinct cards gained in one turn, the same
+/// "realistic turn" reasoning as `DURATION_HELD_CAP`.
+pub const GAIN_RECORD_CAP: usize = 8;
+
+/// A compact, order-independent multiset of (card, count) pairs capped at `N` distinct card
+/// ids: the same trick as `DurationHeld` below (see its doc comment for the full rationale),
+/// generalized over the cap so one definition serves every use at its own size instead of
+/// paying for a full 128-lane, 128-byte `Counts` per instance. Total *copies* of one card are
+/// unbounded (`u8` count, saturating); only the number of distinct card ids is capped. Used for
+/// the Native Village and Island mats (`MAT_CAP`) and each player's per-turn gain record for
+/// Smugglers (`GAIN_RECORD_CAP`).
+#[derive(Clone, Copy, Debug)]
+pub struct SmallMultiset<const N: usize> {
+    entries: [(CardId, u8); N],
+    len: u8,
+}
+
+impl<const N: usize> Default for SmallMultiset<N> {
+    fn default() -> Self {
+        SmallMultiset::EMPTY
+    }
+}
+
+impl<const N: usize> PartialEq for SmallMultiset<N> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().all(|(c, n)| other.get(c) == n)
+    }
+}
+impl<const N: usize> Eq for SmallMultiset<N> {}
+impl<const N: usize> std::hash::Hash for SmallMultiset<N> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Order-independent: XOR each entry's own hash together, then hash the (order-free) sum.
+        let mut acc: u64 = 0;
+        for (c, n) in self.iter() {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (c, n).hash(&mut h);
+            acc ^= std::hash::Hasher::finish(&h);
+        }
+        acc.hash(state);
+    }
+}
+
+impl<const N: usize> SmallMultiset<N> {
+    pub const EMPTY: Self = SmallMultiset { entries: [(0, 0); N], len: 0 };
+
+    /// Add `n` more copies of `card` (merging into an existing entry for it, if any).
+    pub fn add(&mut self, card: CardId, n: u8) {
+        for i in 0..self.len as usize {
+            if self.entries[i].0 == card {
+                self.entries[i].1 = self.entries[i].1.saturating_add(n);
+                return;
+            }
+        }
+        let i = self.len as usize;
+        assert!(i < N, "SmallMultiset overflow: more than {N} distinct card ids");
+        self.entries[i] = (card, n);
+        self.len += 1;
+    }
+    /// Like `add`, but a full set drops the new card instead of aborting (release builds abort on
+    /// panic). For records where losing an entry is harmless (the Smugglers gain record: a turn
+    /// that gains more distinct cards than the cap only narrows Smugglers' later choices).
+    pub fn add_or_drop(&mut self, card: CardId, n: u8) {
+        if (self.len as usize) < N || self.has(card) {
+            self.add(card, n);
+        }
+    }
+    pub fn get(&self, card: CardId) -> u8 {
+        self.entries[..self.len as usize].iter().find(|e| e.0 == card).map_or(0, |e| e.1)
+    }
+    #[inline]
+    pub fn has(&self, card: CardId) -> bool {
+        self.get(card) > 0
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
+        self.entries[..self.len as usize].iter().copied()
+    }
+    pub fn total(&self) -> u32 {
+        self.iter().map(|(_, n)| n as u32).sum()
+    }
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+    /// Sum into a `Counts` (for `all_cards`/VP: the mats' cards count as owned).
+    pub fn counts(&self) -> Counts {
+        let mut c = Counts::EMPTY;
+        for (card, n) in self.iter() {
+            c.add(card, n);
+        }
+        c
+    }
+    /// Take (and clear) every entry at once (Native Village: "put all the cards from your mat
+    /// into your hand").
+    pub fn take_all(&mut self) -> Self {
+        let out = *self;
+        self.clear();
+        out
+    }
+}
+
 /// Cards on top of the deck whose identity is known, top = last element.
 /// Beneath them sits `PlayerState::deck_unknown`, a multiset in unknown order.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -223,17 +332,21 @@ pub struct PlayerState {
     /// Pending start-of-my-next-turn Duration effects (Seaside): see `PendingDuration`.
     pub pending_durations: [PendingDuration; PENDING_DURATIONS_CAP],
     pub pending_durations_len: u8,
-    // TODO(step 3/4): a per-player, per-turn record of cards gained (Smugglers: "a card the
-    // player to your right gained on their last turn") isn't tracked yet. Adding it as `Counts`
-    // fields here (as originally drafted) cost ~1.5KB per player (4 more 128-byte multisets in a
-    // fixed [PlayerState; MAX_PLAYERS] array) and measurably regressed the hot loop (~20%,
-    // exceeding the ~5% budget) even for games with none of these cards, apparently from worse
-    // cache locality on this frequently-touched struct rather than any single hot computation.
-    // Reintroduce with a cheaper representation when Smugglers is implemented (e.g. only on
-    // `TurnState`, which doesn't multiply by `MAX_PLAYERS`, or a small fixed-capacity list of
-    // (card, count) pairs instead of a full 128-lane `Counts`, sized to how many distinct cards a
-    // turn realistically gains). Mint/Hoard/Collection/Watchtower/Tiara (built this step) don't
-    // need this: they react to each gain immediately via `on_buy` and in-play/hand presence.
+    /// Native Village's private mat (Seaside step 4): "put the top card of your deck face down
+    /// on your Native Village mat" / "put all the cards from your mat into your hand". Private
+    /// to its owner (`determinize` pools it for opponents, who only know its size); its cards
+    /// count as owned (`all_cards`/VP).
+    pub native_village_mat: SmallMultiset<MAT_CAP>,
+    /// Island's public mat (Seaside step 4): "put this and a card from your hand onto your
+    /// Island mat". Public (every player can see its exact contents); its cards count as owned
+    /// (`all_cards`/VP). Island itself moves here straight from `in_play` and never returns.
+    pub island_mat: SmallMultiset<MAT_CAP>,
+    /// Cards this player gained on their own last completed turn (Seaside step 4: Smugglers,
+    /// "a card the player to your right gained on their last turn"). Snapshotted from
+    /// `TurnState::gained_this_turn` at cleanup; only maintained (see `GameState::gain`) while
+    /// Smugglers is in this game's supply. Public information (all gains are public), so
+    /// `determinize` doesn't touch it.
+    pub last_turn_gains: SmallMultiset<GAIN_RECORD_CAP>,
 }
 
 impl PlayerState {
@@ -255,6 +368,8 @@ impl PlayerState {
         c.add_all(&self.in_play);
         c.add_all(&self.set_aside);
         c.add_all(&self.passed);
+        c.add_all(&self.native_village_mat.counts());
+        c.add_all(&self.island_mat.counts());
         c
     }
     pub fn vp(&self) -> i32 {
@@ -364,6 +479,27 @@ pub struct TurnState {
     pub multiplier_card: CardId,
     pub multiplier_expected: u8,
     pub multiplier_successes: u8,
+    /// Distinct cards gained so far this turn (Seaside step 4: Smugglers), only maintained
+    /// while Smugglers is in this game's supply (see `GameState::gain`). Snapshotted into the
+    /// gaining player's `PlayerState::last_turn_gains` at cleanup, then reset for the next turn.
+    /// Per-turn, within-turn bookkeeping like `treasures_done`/`named_for_war_chest`: not part
+    /// of the text format, reset fresh on load (see `text.rs`'s module docs).
+    pub gained_this_turn: SmallMultiset<GAIN_RECORD_CAP>,
+    /// Whether this player has gained a Victory card during this Buy phase (Seaside step 4:
+    /// Treasury's "if you didn't gain a Victory card in it"), set by `GameState::gain`. Per-turn
+    /// bookkeeping, not part of the text format (same gap as `treasures_done`).
+    pub gained_victory_in_buy: bool,
+    /// Whether Treasury's end-of-Buy-phase "put this onto your deck?" offer has already been
+    /// pushed this turn (guards `GameState::push_treasury_offers` against re-offering to a
+    /// still-in-play, already-declined copy every time the effect stack empties out again before
+    /// cleanup runs). Per-turn bookkeeping, not part of the text format.
+    pub treasury_offered: bool,
+    /// Reentrancy guard for Blockade's "gain a copy of the blockaded card -> gain a Curse"
+    /// cross-trigger (`GameState::run_seaside_gain_triggers`): true only while processing a
+    /// Curse just granted by that trigger, so a Blockaded Curse can't recursively re-trigger
+    /// itself. Transient mid-resolution bookkeeping (never a text-format rest state, like
+    /// `multiplier_card`): always false at any point the text format could observe.
+    pub blockading_curse: bool,
 }
 
 impl TurnState {
@@ -390,6 +526,10 @@ impl TurnState {
             multiplier_card: 0,
             multiplier_expected: 0,
             multiplier_successes: 0,
+            gained_this_turn: SmallMultiset::EMPTY,
+            gained_victory_in_buy: false,
+            treasury_offered: false,
+            blockading_curse: false,
         }
     }
 }
@@ -556,6 +696,21 @@ pub enum Then {
     /// distinct arguments, not one entry with `times > 1`), with the picked/gained card as `arg`.
     /// No-op if nothing was picked/gained. See `GameState::push_duration_pending`.
     ScheduleDuration { times: u8 },
+    /// Select (`Act::SetAside`, Island): once the pick resolves, move the picked card from
+    /// `set_aside` onto the player's Island mat, alongside the Island card itself (already
+    /// moved there directly when Island was played). No-op if nothing was picked (empty hand).
+    MoveToIslandMat,
+    /// Select: +$ equal to the summed current cost of everything picked (Salvager: the pick is
+    /// always 0 or 1 card, so this is just that card's cost, computed at the moment of picking,
+    /// same as `GainExactCostSum`/Forge).
+    CoinsEqualToCostSum,
+    /// Select (`Act::Trash`, Treasure Map's optional 2nd-copy trash): if a card was picked *and*
+    /// the Treasure Map physically in play ("this") was also trashed by this same resolution
+    /// (`Frame::self_trashed`), gain 4 Golds onto the deck.
+    TreasureMapGold,
+    /// RevealTop (Sea Chart, max 1): if a card was revealed, put it into hand when its owner
+    /// already has a copy of it in play, else leave it on top of the deck (now known).
+    SeaChartCheck,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -607,8 +762,16 @@ pub struct Frame {
     /// Gain: also exclude cards named for War Chest this turn (`GameState::turn.named_for_war_chest`).
     pub excl_named: bool,
     /// Select: running sum of the current cost of every card picked so far, used by
-    /// `Then::GainExactCostSum` (Forge).
+    /// `Then::GainExactCostSum` (Forge) and `Then::CoinsEqualToCostSum` (Salvager).
     pub cost_sum: u16,
+    /// Gain (Smugglers): restrict legal choices to cards in the frame's player's right-hand
+    /// neighbor's `last_turn_gains` (in addition to the ordinary cost/filter check), mirroring
+    /// `excl_named`'s shape for a different per-card restriction.
+    pub gain_from_record: bool,
+    /// Select (Treasure Map, `Act::Trash`, Zone::Hand): whether the Treasure Map physically in
+    /// play ("this") was already trashed before this frame was pushed, carried through so
+    /// `Then::TreasureMapGold` can tell whether both copies ended up trashed by this resolution.
+    pub self_trashed: bool,
 }
 
 impl Frame {
@@ -634,6 +797,8 @@ impl Frame {
             depth: 0,
             excl_named: false,
             cost_sum: 0,
+            gain_from_record: false,
+            self_trashed: false,
         }
     }
 }
@@ -699,6 +864,10 @@ pub enum FrameKind {
     /// whether all `times` actually scheduled a next-turn effect (`TurnState::multiplier_*`) and,
     /// if so, keeps the multiplier itself (`source`) in play too. See `Then::PlayPicked`.
     MultiplierFinalize,
+    /// Native Village's "put the top card of your deck face down on your mat" mode option:
+    /// chance-aware like `Draw` (may need a `Step::Chance` sample), but the card goes to the
+    /// player's `native_village_mat` instead of their hand.
+    NativeVillageAdd,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -972,6 +1141,15 @@ impl GameState {
     pub fn others(&self, p: u8) -> impl Iterator<Item = u8> {
         let n = self.num_players;
         (1..n).map(move |i| (p + i) % n)
+    }
+
+    /// "The player to `p`'s right": turns pass to the left (0 -> 1 -> ... -> 0), so this is
+    /// whoever acted just before `p` (Smugglers, Monkey's owner). In a 2-player game, `p`'s only
+    /// opponent.
+    #[inline]
+    pub(crate) fn right_of(&self, p: u8) -> u8 {
+        let n = self.num_players;
+        (p + n - 1) % n
     }
 
     pub fn scores(&self) -> [i32; MAX_PLAYERS] {

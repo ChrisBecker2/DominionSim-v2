@@ -219,11 +219,6 @@ const fn prosperity(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Prosperity, ..d }
 }
 
-/// A card of `set` whose effects aren't implemented yet (not allowed in kingdoms).
-const fn todo(set: CardSet, d: CardDef) -> CardDef {
-    CardDef { set, ready: false, ..d }
-}
-
 /// An Intrigue card.
 const fn intrigue(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Intrigue, ..d }
@@ -309,22 +304,22 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     // ---- Seaside (2nd edition). D = Duration; the next-turn parts are in `effects.rs`. ----
     seaside(has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
     seaside(choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
-    todo(CardSet::Seaside, has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
+    seaside(has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
     seaside(choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
     seaside(choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
-    todo(CardSet::Seaside, has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
+    seaside(has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
     seaside(choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
-    todo(CardSet::Seaside, has_choice(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // depends on what's in play: order matters
-    todo(CardSet::Seaside, has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
-    todo(CardSet::Seaside, has_choice(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard
+    seaside(has_choice(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // depends on what's in play: order matters
+    seaside(has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
+    seaside(has_choice(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard
     seaside(has_choice(c("Blockade", 4, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0))), // what to gain
     seaside(choice_free(c("Caravan", 4, ACTION | DURATION, 0, 0, 1, 1, 0))),
-    todo(CardSet::Seaside, choice_free(c("Cutpurse", 4, ACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
-    todo(CardSet::Seaside, has_choice(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat
-    todo(CardSet::Seaside, has_choice(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash
+    seaside(choice_free(c("Cutpurse", 4, ACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
+    seaside(has_choice(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat
+    seaside(has_choice(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash
     seaside(choice_free(c("Sailor", 4, ACTION | DURATION, 0, 0, 0, 1, 0))), // choices only on gains / next turn
     seaside(choice_free(c("Tide Pools", 4, ACTION | DURATION, 0, 0, 3, 1, 0))), // the discard is next turn
-    todo(CardSet::Seaside, has_choice(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // trashes itself and another
+    seaside(has_choice(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // trashes itself and another
     seaside(choice_free(c("Bazaar", 5, ACTION, 1, 0, 1, 2, 0))),
     seaside(choice_free(c("Corsair", 5, ACTION | DURATION | ATTACK, 2, 0, 0, 0, 0))),
     seaside(choice_free(c("Merchant Ship", 5, ACTION | DURATION, 2, 0, 0, 0, 0))),
@@ -332,7 +327,7 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     seaside(choice_free(c("Pirate", 5, ACTION | DURATION | REACTION, 0, 0, 0, 0, 0))),
     seaside(choice_free(c("Sea Witch", 5, ACTION | DURATION | ATTACK, 0, 0, 2, 0, 0))), // the discard is next turn
     seaside(has_choice(c("Tactician", 5, ACTION | DURATION, 0, 0, 0, 0, 0))), // discards the hand: order matters
-    todo(CardSet::Seaside, choice_free(c("Treasury", 5, ACTION, 1, 0, 1, 1, 0))),
+    seaside(choice_free(c("Treasury", 5, ACTION, 1, 0, 1, 1, 0))),
     seaside(choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
     // ---- Prosperity (2nd edition). ----
     prosperity(has_choice(c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0))), // discard a Treasure to gain up to $4?
@@ -431,6 +426,11 @@ pub enum ModeOpt {
     /// Investment's 2nd option: trash the card that offered this choice (already in play), then
     /// reveal the hand for +1 VP token per differently-named Treasure in it.
     TrashSelfRevealVpPerTreasureType,
+    /// Native Village's 1st option: put the top card of the deck face down on the private mat
+    /// (chance-aware: pushes `state::FrameKind::NativeVillageAdd`, unlike every other atom here).
+    NativeVillageAdd,
+    /// Native Village's 2nd option: put every card from the mat into hand (immediate).
+    NativeVillageTake,
 }
 
 /// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
@@ -487,6 +487,8 @@ impl ModeOpt {
                 format!("Gain {a} {noun} from the trash")
             }
             ModeOpt::TrashSelfRevealVpPerTreasureType => "Trash this for +1 VP per Treasure type in hand".to_string(),
+            ModeOpt::NativeVillageAdd => "Put the top card of your deck on your Native Village mat".to_string(),
+            ModeOpt::NativeVillageTake => "Put the cards on your Native Village mat into your hand".to_string(),
         }
     }
 }
@@ -503,6 +505,7 @@ pub fn modes(card: CardId) -> &'static [ModeOpt] {
         id::LURKER => &[ModeOpt::TrashFromSupply(Filter::Action), ModeOpt::GainFromTrash(Filter::Action)],
         id::TORTURER => &[ModeOpt::DiscardFromHand(2), ModeOpt::Gain(id::CURSE, Dest::Hand)],
         id::INVESTMENT => &[ModeOpt::Coins(1), ModeOpt::TrashSelfRevealVpPerTreasureType],
+        id::NATIVE_VILLAGE => &[ModeOpt::NativeVillageAdd, ModeOpt::NativeVillageTake],
         _ => &[],
     }
 }
@@ -724,6 +727,9 @@ mod set_tests {
         assert!(is(id::MILL, ACTION) && is(id::MILL, VICTORY));
         assert_eq!(kingdom_cards_in(CardSet::Base).count(), 26);
         assert_eq!(kingdom_cards_in(CardSet::Intrigue).count(), 26);
+        // All 27 Seaside and 25 Prosperity kingdom cards are implemented (`ready`) as of step 4.
+        assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
+        assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
     }
 
     #[test]

@@ -375,6 +375,73 @@ impl GameState {
             // Sailor, Tide Pools, Corsair, Merchant Ship, Outpost, Pirate, Wharf) has no "now"
             // specifics beyond `CardDef`, so it falls through to `_ => {}` and is scheduled by
             // the generic tail below. ----
+            // ---- Seaside (2nd edition), step 4: the last 10 cards (none are Durations). ----
+            id::NATIVE_VILLAGE => self.stack.push(mode_frame(p, card, 1)),
+            id::LOOKOUT => {
+                // Look at the top 3: trash exactly one (mandatory if any), discard exactly one
+                // of what's left (mandatory if any), put whatever remains (0 or 1 card, no real
+                // reordering choice) back on top — reuses Sentry's RevealTop + Select stack.
+                self.stack.push(Frame { ordered: true, ..select(p, card, Zone::Revealed, Topdeck, Filter::Any, ALL, ALL, Then::Nothing) });
+                self.stack.push(select(p, card, Zone::Revealed, Discard, Filter::Any, 1, 1, Then::Nothing));
+                self.stack.push(select(p, card, Zone::Revealed, Trash, Filter::Any, 1, 1, Then::Nothing));
+                self.stack.push(Frame { max: 3, ..Frame::new(K::RevealTop, p, card) });
+            }
+            id::SEA_CHART => self.stack.push(Frame { max: 1, then: Then::SeaChartCheck, ..Frame::new(K::RevealTop, p, card) }),
+            id::SMUGGLERS => {
+                // "Gain a copy of a card costing up to $6 that the player to your right gained
+                // on their last turn": candidates are further restricted to that player's
+                // `last_turn_gains` by `gain_from_record` (checked in `frame_choices`/Gain).
+                self.stack.push(Frame { gain_from_record: true, ..gain_frame(p, card, 6, Filter::Any, Dest::Discard) });
+            }
+            id::WAREHOUSE => self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 3, 3, Then::Nothing)),
+            id::CUTPURSE => {
+                // +$2 is vanilla (below). Each other player (Moat allowing) discards a Copper,
+                // or reveals a hand with none — mirrors Bureaucrat's Victory-card check.
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    let hand = self.players[v as usize].hand;
+                    if hand.has(id::COPPER) {
+                        self.stack.push(select(v, card, Zone::Hand, Discard, Filter::Card(id::COPPER), 1, 1, Then::Nothing));
+                    } else {
+                        for (c, k) in hand.iter() {
+                            for _ in 0..k {
+                                sink.event(Event::Reveal { player: v, card: c });
+                            }
+                        }
+                    }
+                }
+            }
+            id::ISLAND => {
+                // Move Island itself off `in_play` onto the mat immediately (it never reaches
+                // cleanup: this is a permanent move, not a Duration hold). Idempotent under
+                // Throne Room/King's Court: a later resolution finds it already gone and just
+                // skips this part, matching the ruling ("the second play can't move Island
+                // again, but still moves another card").
+                let ps = &mut self.players[p as usize];
+                if ps.in_play.remove(id::ISLAND) {
+                    ps.island_mat.add(id::ISLAND, 1);
+                    sink.event(Event::SetAside { player: p, card: id::ISLAND });
+                }
+                self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::MoveToIslandMat));
+            }
+            id::SALVAGER => self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 1, 1, Then::CoinsEqualToCostSum)),
+            id::TREASURE_MAP => {
+                // 2nd edition: "this" (the physical copy in play) is trashed only if it's still
+                // in play — a 2nd Throne Room/King's Court resolution finds it already gone.
+                let ps = &mut self.players[p as usize];
+                let self_trashed = ps.in_play.remove(id::TREASURE_MAP);
+                if self_trashed {
+                    self.trash.add(id::TREASURE_MAP, 1);
+                    sink.event(Event::Trash { player: p, card: id::TREASURE_MAP });
+                }
+                self.stack.push(Frame {
+                    self_trashed,
+                    ..select(p, card, Zone::Hand, Trash, Filter::Card(id::TREASURE_MAP), 0, 1, Then::TreasureMapGold)
+                });
+            }
+            // Treasury: vanilla-only on play (+1 Card +1 Action +$1); its end-of-Buy-phase "you
+            // may put this onto your deck" offer is a turn-boundary hook, not a play-time effect
+            // — see `GameState::push_treasury_offers`, called from `engine::run_phase`.
             id::HAVEN => self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::ScheduleDuration { times: 1 })),
             id::BLOCKADE => self.stack.push(Frame { then: Then::ScheduleDuration { times: 1 }, ..gain_frame(p, card, 4, Filter::Any, Dest::Discard) }),
             id::SEA_WITCH => {
@@ -550,6 +617,19 @@ impl GameState {
                         sink.event(Event::Draw { player: p, card: c });
                         f.max -= 1;
                         if f.max == 0 { self.stack.pop(); } else { self.stack.set_top(f); }
+                    }
+                }
+                Run::Continue
+            }
+            K::NativeVillageAdd => {
+                match take_top!(self, p, sink) {
+                    None => {
+                        self.stack.pop();
+                    }
+                    Some(c) => {
+                        self.stack.pop();
+                        self.players[pi].native_village_mat.add(c, 1);
+                        sink.event(Event::SetAside { player: p, card: c });
                     }
                 }
                 Run::Continue
@@ -823,7 +903,10 @@ impl GameState {
                 for c in self.supply_cards() {
                     let cost_ok = if f.exact { self.cost(c) == f.max } else { self.cost(c) <= f.max };
                     let named_ok = !f.excl_named || !self.turn.named_for_war_chest.has(c);
-                    if self.supply.get(c) > 0 && cost_ok && named_ok && f.filter.matches(c) {
+                    // Smugglers: further restricted to cards the player to `f.player`'s right
+                    // gained on their last turn.
+                    let record_ok = !f.gain_from_record || self.players[self.right_of(f.player) as usize].last_turn_gains.has(c);
+                    if self.supply.get(c) > 0 && cost_ok && named_ok && record_ok && f.filter.matches(c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -888,7 +971,7 @@ impl GameState {
                     out.push(Choice::Position(255));
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::DurationStart | K::MultiplierFinalize => {}
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::DurationStart | K::MultiplierFinalize | K::NativeVillageAdd => {}
         }
     }
 
@@ -1177,13 +1260,33 @@ impl GameState {
                     self.push_duration_pending(p, f.source, times, f.last);
                 }
             }
+            Then::MoveToIslandMat => {
+                // Island: the hand card just moved to `set_aside` by the pick itself
+                // (`Act::SetAside`) joins the Island card already on the mat. No-op if nothing
+                // was picked (an empty hand at the time of the 2nd Throne Room resolution, say).
+                if f.count > 0 {
+                    let ps = &mut self.players[p as usize];
+                    if ps.set_aside.remove(f.last) {
+                        ps.island_mat.add(f.last, 1);
+                    }
+                }
+            }
+            Then::CoinsEqualToCostSum => self.turn.coins += f.cost_sum,
+            Then::TreasureMapGold => {
+                if f.count > 0 && f.self_trashed {
+                    for _ in 0..4 {
+                        self.gain(p, id::GOLD, Dest::DeckTop, false, sink);
+                    }
+                }
+            }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
             Then::GainedTypeStatBonus
             | Then::GainedTypeDestAttack
             | Then::YesCoinsElseGainSubject(_)
             | Then::MoveMatchingToHand(_)
             | Then::MoveMatchingToDiscard(_)
-            | Then::ReactDrawDiscard { .. } => {}
+            | Then::ReactDrawDiscard { .. }
+            | Then::SeaChartCheck => {}
         }
         // Frames spawned by finishing a selection belong to the same card effect.
         for fr in &mut self.stack.frames[base..self.stack.len as usize] {
@@ -1215,12 +1318,14 @@ impl GameState {
                 ModeOpt::DiscardFromHand(n) => self.stack.push(select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, n, n, Then::Nothing)),
                 ModeOpt::TrashFromSupply(filt) => self.stack.push(select(p, f.source, Zone::Supply, Act::Trash, filt, 1, 1, Then::Nothing)),
                 ModeOpt::GainFromTrash(filt) => self.stack.push(select(p, f.source, Zone::Trash, Act::Gain, filt, 1, 1, Then::Nothing)),
+                ModeOpt::NativeVillageAdd => self.stack.push(Frame::new(K::NativeVillageAdd, p, f.source)),
                 ModeOpt::Actions(_)
                 | ModeOpt::Buys(_)
                 | ModeOpt::Coins(_)
                 | ModeOpt::Gain(..)
                 | ModeOpt::DiscardHandDraw { .. }
-                | ModeOpt::TrashSelfRevealVpPerTreasureType => {}
+                | ModeOpt::TrashSelfRevealVpPerTreasureType
+                | ModeOpt::NativeVillageTake => {}
             }
         }
         for fr in &mut self.stack.frames[base..self.stack.len as usize] {
@@ -1274,7 +1379,24 @@ impl GameState {
                     }
                     self.players[p as usize].vp_tokens += distinct;
                 }
-                ModeOpt::Cards(_) | ModeOpt::TrashFromHand(_) | ModeOpt::DiscardFromHand(_) | ModeOpt::TrashFromSupply(_) | ModeOpt::GainFromTrash(_) => {}
+                ModeOpt::NativeVillageTake => {
+                    // "Put all the cards from your mat into your hand" (no decision: order among
+                    // identical private cards never matters once they're all in hand).
+                    let ps = &mut self.players[p as usize];
+                    let mat = ps.native_village_mat.take_all();
+                    for (c, n) in mat.iter() {
+                        ps.hand.add(c, n);
+                        for _ in 0..n {
+                            sink.event(Event::Draw { player: p, card: c });
+                        }
+                    }
+                }
+                ModeOpt::Cards(_)
+                | ModeOpt::TrashFromHand(_)
+                | ModeOpt::DiscardFromHand(_)
+                | ModeOpt::TrashFromSupply(_)
+                | ModeOpt::GainFromTrash(_)
+                | ModeOpt::NativeVillageAdd => {}
             }
         }
     }
@@ -1422,6 +1544,22 @@ impl GameState {
     fn finish_reveal_top<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
         self.stack.pop();
         match f.then {
+            Then::SeaChartCheck => {
+                // Sea Chart: reveal the top card (0 or 1, already in `set_aside`). If its owner
+                // already has a copy of it in play, put it into hand; otherwise leave it on top
+                // of the deck, now known.
+                let p = f.player as usize;
+                if let Some((c, _)) = self.players[p].set_aside.iter().next() {
+                    self.players[p].set_aside.remove(c);
+                    if self.players[p].in_play.has(c) {
+                        self.players[p].hand.add(c, 1);
+                        sink.event(Event::Draw { player: f.player, card: c });
+                    } else {
+                        self.players[p].deck_known.push_top(c);
+                        sink.event(Event::Topdeck { player: f.player, card: c });
+                    }
+                }
+            }
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

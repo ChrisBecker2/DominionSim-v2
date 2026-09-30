@@ -180,6 +180,7 @@ match at 1M games. 32 threads.
 | Before Seaside/Prosperity (59 ids) | 282k/s | 1.75M/s |
 | Step 1: 113 ids, 128-lane Counts, sparse iteration | 253k/s | 1.79M/s |
 | Step 2: treasure decisions, gain pipeline, Prosperity | 228k/s | 1.60M/s |
+| Step 3: Duration framework, Seaside Durations | 215k/s | 1.59M/s |
 
 Step 2's ~10% has no single hot spot (GameState grew only 7872 -> 8192 bytes, gain triggers are
 gated by one mask test); it needs a real profiler. The next structural option is per-game compact

@@ -13,6 +13,31 @@
 //! Convention: vanilla bonuses (+actions/+buys/+$) apply immediately on play; the card's
 //! special frames are pushed next, and the +cards Draw frame is pushed last so it resolves
 //! first ("+1 Card +1 Action, then ...").
+//!
+//! ## The Duration framework (Seaside step 3)
+//!
+//! A Duration card's "now" part plays exactly like any other card (vanilla bonuses via
+//! `CardDef`, plus a match arm here for anything else: Blockade's gain, Sea Witch's attack,
+//! Tactician's conditional discard). Its "next turn" part is scheduled as a
+//! `state::PendingDuration` entry in the player's `PlayerState::pending_durations` (pushed by
+//! `push_duration_pending`, called generically at the tail of `resolve_effects_inner` for every
+//! Duration card except Haven/Blockade/Tactician, which schedule themselves once their own
+//! argument — the set-aside/gained card, or whether the discard condition held — is known) and
+//! resolved by `GameState::resolve_duration_start` as a `FrameKind::DurationStart` frame, pushed
+//! for every pending entry at the very start of the owner's next turn
+//! (`GameState::push_turn_start_frames`, called from `engine::run_phase`'s `Phase::Action` arm).
+//!
+//! The card stays in play (not discarded at cleanup) via a *separate* mechanism,
+//! `TurnState::duration_held`: a running count, incremented wherever a card is actually placed
+//! into `in_play` by being played (`put`'s `Act::Play` arm; the two direct plays in
+//! `engine::apply_phase`; `GameState::play_choice_free_treasures` for Astrolabe), plus once more
+//! for a Throne Room/King's Court that multiplies a Duration target (`finish_select`'s
+//! `Then::PlayPicked`) — per the plan, the multiplier itself stays in play too. This is tracked
+//! separately from `pending_durations` because the two don't always correspond 1:1: a Throne-
+//! Roomed Duration card is ONE physical copy in play but may end up with TWO entries in
+//! `pending_durations` (Haven set aside two different cards, one per resolution) or have its one
+//! argless entry's `times` incremented to 2 (Fishing Village) — either way, only one physical
+//! copy needs to survive cleanup, which `duration_held`, not the entry count, tracks correctly.
 
 use crate::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
 use crate::counts::Counts;
@@ -49,19 +74,23 @@ fn mode_frame(p: u8, source: CardId, picks: u8) -> Frame {
 const ALL: u8 = u8::MAX;
 
 impl GameState {
-    /// Resolve the on-play effects of `card` for the current player (card already in play).
-    /// `depth` is the nesting depth of the play itself; its effects are one level below it.
-    pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, depth: u8, sink: &mut S) {
+    /// Resolve the on-play effects of `card` for `player` (card already in play). `depth` is the
+    /// nesting depth of the play itself; its effects are one level below it. `player` is almost
+    /// always `self.turn.player` (every ordinary play, Vassal, Throne Room/King's Court are all
+    /// the current turn's own cards) but isn't for a card played reactively by another player
+    /// out of turn (Pirate's "when any player gains a Treasure, you may play this from your
+    /// hand"): every caller passes the frame's own `player`, never assumes the current turn.
+    pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, player: u8, depth: u8, sink: &mut S) {
         sink.depth(depth + 1);
         let base = self.stack.len as usize;
-        self.resolve_effects_inner(card, sink);
+        self.resolve_effects_inner(card, player, sink);
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
             f.depth = depth + 1;
         }
     }
 
-    fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, sink: &mut S) {
-        let p = self.turn.player;
+    fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
+        let p = player;
         let def = cards::def(card);
         self.turn.played.add(card, 1);
         self.turn.actions += def.actions;
@@ -340,6 +369,32 @@ impl GameState {
             // already placed in `in_play` by the time this runs): no static `coins` in its
             // `CardDef` (that generic bonus applied above is 0), computed fresh here instead.
             id::BANK => self.turn.coins += self.treasures_in_play(p) as u16,
+            // ---- Seaside (2nd edition), step 3: Durations. "Now" parts beyond vanilla
+            // CardDef bonuses; "next turn" parts are in `resolve_duration_start`. Every other
+            // Duration card here (Lighthouse, Astrolabe, Fishing Village, Monkey, Caravan,
+            // Sailor, Tide Pools, Corsair, Merchant Ship, Outpost, Pirate, Wharf) has no "now"
+            // specifics beyond `CardDef`, so it falls through to `_ => {}` and is scheduled by
+            // the generic tail below. ----
+            id::HAVEN => self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::ScheduleDuration { times: 1 })),
+            id::BLOCKADE => self.stack.push(Frame { then: Then::ScheduleDuration { times: 1 }, ..gain_frame(p, card, 4, Filter::Any, Dest::Discard) }),
+            id::SEA_WITCH => {
+                // +2 Cards is vanilla (below). Forward order: same leftmost-priority reasoning
+                // as Witch (a limited Curse pile must go to the first opponent in turn order).
+                let (vs, n) = self.victims(sink);
+                for &v in &vs[..n] {
+                    self.gain(v, id::CURSE, Dest::Discard, false, sink);
+                }
+            }
+            id::TACTICIAN => {
+                // "If you have a card in hand" gates the *entire* effect, including staying in
+                // play as a Duration: an empty hand means Tactician does nothing further and
+                // discards normally at cleanup (excluded from the generic tail below; this arm
+                // is the only place that schedules it).
+                if !self.players[p as usize].hand.is_empty() {
+                    self.discard_whole_hand(p, sink);
+                    self.push_duration_pending(p, card, 1, 0);
+                }
+            }
             // ---- Hidden information (step 4) ----
             id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
             id::SWINDLER => {
@@ -360,6 +415,14 @@ impl GameState {
                 ..select(p, card, Zone::Hand, Discard, Filter::Any, 0, 0, Then::Nothing)
             }),
             _ => {} // Moat, Village, Smithy, Festival, Laboratory, Market: vanilla only.
+        }
+
+        // Generic Duration scheduling: every Duration card gets a pending start-of-next-turn
+        // entry, except the three that schedule themselves above once their own argument (the
+        // set-aside/gained card, or whether the "if you have a card in hand" condition held) is
+        // known (Haven, Blockade: after a Select/Gain resolves; Tactician: only conditionally).
+        if cards::is(card, cards::DURATION) && !matches!(card, id::HAVEN | id::BLOCKADE | id::TACTICIAN) {
+            self.push_duration_pending(p, card, 1, 0);
         }
 
         if def.cards > 0 {
@@ -514,7 +577,7 @@ impl GameState {
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
-                self.resolve_effects(f.subject, f.depth, sink);
+                self.resolve_effects(f.subject, p, f.depth, sink);
                 Run::Continue
             }
             K::Gain => {
@@ -697,6 +760,20 @@ impl GameState {
                 self.deliver_left_passes(sink);
                 Run::Continue
             }
+            K::DurationStart => {
+                self.stack.pop();
+                let entry = crate::state::PendingDuration { card: f.source, times: f.count, arg: f.subject, used: false };
+                self.resolve_duration_start(p, entry, sink);
+                Run::Continue
+            }
+            K::MultiplierFinalize => {
+                self.stack.pop();
+                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes == self.turn.multiplier_expected {
+                    self.turn.duration_held.add(f.source, 1);
+                }
+                self.turn.multiplier_card = 0;
+                Run::Continue
+            }
         }
     }
 
@@ -811,7 +888,7 @@ impl GameState {
                     out.push(Choice::Position(255));
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver => {}
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::DurationStart | K::MultiplierFinalize => {}
         }
     }
 
@@ -849,6 +926,23 @@ impl GameState {
                                 self.gain(v, id::CURSE, Dest::Discard, false, sink);
                             }
                         }
+                        Then::ScheduleDuration { times } => {
+                            // Blockade: move the just-gained card (landed in `dest`, above) into
+                            // `set_aside` and schedule its return to hand. If a reaction already
+                            // moved it elsewhere (Watchtower trashing/topdecking it), there's
+                            // nothing to set aside or schedule.
+                            let ps = &mut self.players[p as usize];
+                            let moved = match dest {
+                                Dest::Discard => ps.discard.remove(c),
+                                Dest::Hand => ps.hand.remove(c),
+                                Dest::DeckTop => false, // no known-top zone to pull back out of
+                            };
+                            if moved {
+                                ps.set_aside.add(c, 1);
+                                sink.event(Event::SetAside { player: p, card: c });
+                                self.push_duration_pending(p, f.source, times, c);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -875,7 +969,7 @@ impl GameState {
                 }
                 self.put(p, f.subject, f.act, f.dest, sink);
                 if f.act == Act::Play {
-                    self.resolve_effects(f.subject, f.depth, sink);
+                    self.resolve_effects(f.subject, p, f.depth, sink);
                 }
                 match f.then {
                     Then::CoinsPerPick(n) | Then::YesCoinsElseGainSubject(n) => self.turn.coins += n as u16,
@@ -948,6 +1042,10 @@ impl GameState {
             Act::Play => {
                 ps.in_play.add(c, 1);
                 sink.event(Event::Play { player: p, card: c });
+                // Note: unlike Merchant Ship-style Durations, this does *not* mark the card
+                // held for cleanup — that only happens once a next-turn effect is actually
+                // scheduled (`push_duration_pending`), so a conditional Duration (Haven,
+                // Blockade) that finds nothing to do still discards normally.
             }
             Act::SetAside => {
                 ps.set_aside.add(c, 1);
@@ -988,6 +1086,19 @@ impl GameState {
             }
             Then::PlayPicked { times } => {
                 if f.count > 0 {
+                    // Throne Room / King's Court on a Duration card: the multiplier itself also
+                    // stays in play, but only if *every* resolution actually schedules a
+                    // next-turn effect (a conditional Duration, e.g. Haven/Tactician with too
+                    // few cards, can fail some resolutions and still keep the target itself,
+                    // tracked separately by `duration_held` from the original play/pick — but not
+                    // the multiplier). `MultiplierFinalize` sits below all `times` resolutions
+                    // (and everything they push) and checks the tally once they've all unwound.
+                    if cards::is(f.last, cards::DURATION) {
+                        self.turn.multiplier_card = f.source;
+                        self.turn.multiplier_expected = times;
+                        self.turn.multiplier_successes = 0;
+                        self.stack.push(Frame { depth: f.depth, ..Frame::new(K::MultiplierFinalize, p, f.source) });
+                    }
                     // Pushed last-first so the 1st resolution is on top; `count` = which play.
                     for nth in (1..=times).rev() {
                         self.stack.push(Frame { subject: f.last, count: nth, ..Frame::new(K::PlayEffects, p, f.source) });
@@ -1057,6 +1168,13 @@ impl GameState {
             Then::DrawIfCount { count, draw } => {
                 if f.count == count {
                     self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, draw) });
+                }
+            }
+            Then::ScheduleDuration { times } => {
+                // Haven: the card set aside (already moved to `set_aside` by the pick itself,
+                // `Act::SetAside`); nothing scheduled if the player had no card to set aside.
+                if f.count > 0 {
+                    self.push_duration_pending(p, f.source, times, f.last);
                 }
             }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
@@ -1193,6 +1311,109 @@ impl GameState {
     fn yesno_decline<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
         if let Then::YesCoinsElseGainSubject(_) = f.then {
             self.gain(f.player, f.subject, Dest::Discard, false, sink);
+        }
+    }
+
+    /// Schedule a pending start-of-`p`'s-next-turn Duration effect: `card` resolves `times`
+    /// more times (added to an existing argless entry for the same card, so several plays or a
+    /// Throne Room/King's Court multiply into one entry, rather than one new entry; an entry
+    /// with a real `arg` (Haven/Blockade) never merges, since each carries its own card). See
+    /// the Duration framework doc comment at the top of this file.
+    pub(crate) fn push_duration_pending(&mut self, p: u8, card: CardId, times: u8, arg: CardId) {
+        // Tally against an in-progress Throne Room/King's Court multiplier group, if any (see
+        // `Then::PlayPicked` / `FrameKind::MultiplierFinalize`): nothing else can call this while
+        // a group's resolutions (and everything they push) are still unwinding, so any call seen
+        // here belongs to the active group.
+        if self.turn.multiplier_card != 0 {
+            self.turn.multiplier_successes += 1;
+        }
+        // A next-turn effect was actually scheduled: keep this physical card in play past
+        // cleanup (see `put`'s `Act::Play` for why this isn't done unconditionally at play
+        // time). Over-counting when Throne Room/King's Court multiplies a single physical card
+        // (one call per resolution) is harmless: `cleanup` clamps to the real `in_play` count.
+        self.turn.duration_held.add(card, 1);
+        let ps = &mut self.players[p as usize];
+        if arg == 0 {
+            for i in 0..ps.pending_durations_len as usize {
+                let e = &mut ps.pending_durations[i];
+                if e.card == card && e.arg == 0 {
+                    e.times = e.times.saturating_add(times);
+                    return;
+                }
+            }
+        }
+        let i = ps.pending_durations_len as usize;
+        assert!(i < crate::state::PENDING_DURATIONS_CAP, "pending duration list overflow");
+        ps.pending_durations[i] = crate::state::PendingDuration { card, times, arg, used: false };
+        ps.pending_durations_len += 1;
+    }
+
+    /// Push a `FrameKind::DurationStart` frame (and, for Clerk, a start-of-turn reaction YesNo
+    /// per copy in hand) for `self.turn.player`'s turn, which has just begun. Called once, from
+    /// `engine::run_phase`'s `Phase::Action` arm, before any `PlayAction` decision. Cheaply
+    /// gated: Base-only games (no Clerk, no pending Duration entries) do nothing here beyond two
+    /// field reads.
+    pub(crate) fn push_turn_start_frames<S: EventSink>(&mut self, sink: &mut S) {
+        let p = self.turn.player;
+        let pi = p as usize;
+        // Duration effects resolve first, in the order their cards were played (pushed
+        // last-first so entry 0 ends up on top and resolves first); Clerk's own reaction is
+        // pushed on top of those (documented choice: Clerk is offered before durations resolve).
+        let len = self.players[pi].pending_durations_len;
+        if len > 0 {
+            let entries = self.players[pi].pending_durations;
+            self.players[pi].pending_durations_len = 0;
+            for i in (0..len as usize).rev() {
+                let e = entries[i];
+                self.stack.push(Frame { count: e.times, subject: e.arg, ..Frame::new(K::DurationStart, p, e.card) });
+            }
+        }
+        if self.in_supply(id::CLERK) {
+            let n = self.players[pi].hand.get(id::CLERK);
+            for _ in 0..n {
+                self.stack.push(Frame {
+                    zone: Zone::Hand, act: Act::Play, subject: id::CLERK,
+                    ..Frame::new(K::YesNo, p, id::CLERK)
+                });
+            }
+        }
+        let _ = sink;
+    }
+
+    /// Resolve one pending Duration effect at the start of its owner's turn: the generic
+    /// (cards, actions, buys, coins) bonus (`cards::duration_bonus`), `times` times, then any
+    /// card-specific extra (pushed so it resolves before the generic draw, matching
+    /// `resolve_effects_inner`'s "special frames first, +cards draw last" convention).
+    pub(crate) fn resolve_duration_start<S: EventSink>(&mut self, p: u8, e: crate::state::PendingDuration, sink: &mut S) {
+        let times = e.times;
+        match e.card {
+            id::HAVEN | id::BLOCKADE => {
+                // Put the set-aside/gained card (arg) back into hand, if there was one.
+                if e.arg != 0 {
+                    let ps = &mut self.players[p as usize];
+                    if ps.set_aside.remove(e.arg) {
+                        ps.hand.add(e.arg, 1);
+                        sink.event(Event::Draw { player: p, card: e.arg });
+                    }
+                }
+            }
+            id::TIDE_POOLS | id::SEA_WITCH => {
+                self.stack.push(select(p, e.card, Zone::Hand, Act::Discard, Filter::Any, 2, 2, Then::Nothing));
+            }
+            id::SAILOR => {
+                self.stack.push(select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing));
+            }
+            id::PIRATE => {
+                self.stack.push(gain_frame(p, e.card, 6, self.treasure_filter(), Dest::Hand));
+            }
+            _ => {} // Outpost: no start-of-turn effect (handled at cleanup/turn transition).
+        }
+        let (cards_n, actions_n, buys_n, coins_n) = cards::duration_bonus(e.card);
+        self.turn.actions += actions_n * times;
+        self.turn.buys += buys_n * times;
+        self.turn.coins += coins_n as u16 * times as u16;
+        if cards_n > 0 && times > 0 {
+            self.stack.push(draw_frame(p, e.card, cards_n * times));
         }
     }
 

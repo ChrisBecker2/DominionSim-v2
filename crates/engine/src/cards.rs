@@ -307,33 +307,33 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     intrigue(choice_free(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0))),
     intrigue(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
     // ---- Seaside (2nd edition). D = Duration; the next-turn parts are in `effects.rs`. ----
-    todo(CardSet::Seaside, has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
-    todo(CardSet::Seaside, choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
+    seaside(has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
+    seaside(choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
     todo(CardSet::Seaside, has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
-    todo(CardSet::Seaside, choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
-    todo(CardSet::Seaside, choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
+    seaside(choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
+    seaside(choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
     todo(CardSet::Seaside, has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
-    todo(CardSet::Seaside, choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
+    seaside(choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
     todo(CardSet::Seaside, has_choice(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // depends on what's in play: order matters
     todo(CardSet::Seaside, has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
     todo(CardSet::Seaside, has_choice(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard
-    todo(CardSet::Seaside, has_choice(c("Blockade", 4, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0))), // what to gain
-    todo(CardSet::Seaside, choice_free(c("Caravan", 4, ACTION | DURATION, 0, 0, 1, 1, 0))),
+    seaside(has_choice(c("Blockade", 4, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0))), // what to gain
+    seaside(choice_free(c("Caravan", 4, ACTION | DURATION, 0, 0, 1, 1, 0))),
     todo(CardSet::Seaside, choice_free(c("Cutpurse", 4, ACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
     todo(CardSet::Seaside, has_choice(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat
     todo(CardSet::Seaside, has_choice(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash
-    todo(CardSet::Seaside, choice_free(c("Sailor", 4, ACTION | DURATION, 0, 0, 0, 1, 0))), // choices only on gains / next turn
-    todo(CardSet::Seaside, choice_free(c("Tide Pools", 4, ACTION | DURATION, 0, 0, 3, 1, 0))), // the discard is next turn
+    seaside(choice_free(c("Sailor", 4, ACTION | DURATION, 0, 0, 0, 1, 0))), // choices only on gains / next turn
+    seaside(choice_free(c("Tide Pools", 4, ACTION | DURATION, 0, 0, 3, 1, 0))), // the discard is next turn
     todo(CardSet::Seaside, has_choice(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // trashes itself and another
     seaside(choice_free(c("Bazaar", 5, ACTION, 1, 0, 1, 2, 0))),
-    todo(CardSet::Seaside, choice_free(c("Corsair", 5, ACTION | DURATION | ATTACK, 2, 0, 0, 0, 0))),
-    todo(CardSet::Seaside, choice_free(c("Merchant Ship", 5, ACTION | DURATION, 2, 0, 0, 0, 0))),
-    todo(CardSet::Seaside, choice_free(c("Outpost", 5, ACTION | DURATION, 0, 0, 0, 0, 0))),
-    todo(CardSet::Seaside, choice_free(c("Pirate", 5, ACTION | DURATION | REACTION, 0, 0, 0, 0, 0))),
-    todo(CardSet::Seaside, choice_free(c("Sea Witch", 5, ACTION | DURATION | ATTACK, 0, 0, 2, 0, 0))), // the discard is next turn
-    todo(CardSet::Seaside, has_choice(c("Tactician", 5, ACTION | DURATION, 0, 0, 0, 0, 0))), // discards the hand: order matters
+    seaside(choice_free(c("Corsair", 5, ACTION | DURATION | ATTACK, 2, 0, 0, 0, 0))),
+    seaside(choice_free(c("Merchant Ship", 5, ACTION | DURATION, 2, 0, 0, 0, 0))),
+    seaside(choice_free(c("Outpost", 5, ACTION | DURATION, 0, 0, 0, 0, 0))),
+    seaside(choice_free(c("Pirate", 5, ACTION | DURATION | REACTION, 0, 0, 0, 0, 0))),
+    seaside(choice_free(c("Sea Witch", 5, ACTION | DURATION | ATTACK, 0, 0, 2, 0, 0))), // the discard is next turn
+    seaside(has_choice(c("Tactician", 5, ACTION | DURATION, 0, 0, 0, 0, 0))), // discards the hand: order matters
     todo(CardSet::Seaside, choice_free(c("Treasury", 5, ACTION, 1, 0, 1, 1, 0))),
-    todo(CardSet::Seaside, choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
+    seaside(choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
     // ---- Prosperity (2nd edition). ----
     prosperity(has_choice(c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0))), // discard a Treasure to gain up to $4?
     prosperity(has_choice(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: order matters
@@ -556,6 +556,42 @@ pub const GAIN_TRIGGER_CARDS_MASK: u128 =
 /// blocking reaction is handled separately (`GameState::immune`); this table is for reactions
 /// like Diplomat's that let the revealer act without stopping the attack.
 pub static REACTION_EFFECTS: &[(CardId, u8, u8, u8)] = &[(id::DIPLOMAT, 5, 2, 3)];
+
+// ---------------------------------------------------------------------------------------
+// Duration cards (Seaside step 3): the vanilla start-of-next-turn bonus each Duration card
+// grants, applied `times` times (Throne Room / King's Court) by `GameState::resolve_duration_start`.
+// Card-specific extras beyond these vanilla numbers (Haven/Blockade's returned card, Sailor's
+// optional trash, Tide Pools'/Sea Witch's forced discard, Pirate's Treasure gain) live in that
+// function, parallel to how `resolve_effects_inner`'s match arms hold the "now" specifics beyond
+// `CardDef`'s vanilla `cards`/`actions`/`buys`/`coins`.
+// ---------------------------------------------------------------------------------------
+
+/// (cards, actions, buys, coins) granted at the start of the owner's next turn, once per
+/// `PendingDuration::times`. All-zero for cards whose next-turn part is card-specific only
+/// (Haven, Blockade, Pirate) or nonexistent (Outpost: entirely a cleanup/turn-order effect).
+pub fn duration_bonus(card: CardId) -> (u8, u8, u8, u8) {
+    match card {
+        id::LIGHTHOUSE => (0, 0, 0, 1),
+        id::ASTROLABE => (0, 0, 1, 1),
+        id::FISHING_VILLAGE => (0, 1, 0, 1),
+        id::MONKEY => (1, 0, 0, 0),
+        id::CARAVAN => (1, 0, 0, 0),
+        id::SAILOR => (0, 0, 0, 2),
+        id::CORSAIR => (1, 0, 0, 0),
+        id::MERCHANT_SHIP => (0, 0, 0, 2),
+        id::SEA_WITCH => (2, 0, 0, 0),
+        id::TACTICIAN => (5, 1, 1, 0),
+        id::WHARF => (2, 0, 1, 0),
+        _ => (0, 0, 0, 0),
+    }
+}
+
+/// Duration cards (and Seaside cards generally) that need `GameState::run_gain_triggers`'s
+/// cross-player checks (Monkey, Blockade, Pirate, Sailor): the analogue of
+/// `GAIN_TRIGGER_CARDS_MASK`, gating `GameState::run_seaside_gain_triggers`'s whole body behind
+/// one cheap bitmask test for the overwhelming majority of games with none of these.
+pub const SEASIDE_GAIN_TRIGGER_MASK: u128 =
+    (1u128 << id::MONKEY) | (1u128 << id::BLOCKADE) | (1u128 << id::PIRATE) | (1u128 << id::SAILOR);
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
 

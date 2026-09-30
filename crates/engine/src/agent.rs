@@ -188,6 +188,18 @@ impl<'a> PlayerView<'a> {
             // Masquerade: a card another player has already committed to pass is just as hidden
             // from me as their hand or deck until it's delivered (see `state::PlayerState::passed`).
             pool.add_all(&ps.passed);
+            // Haven (Seaside): the card set aside from hand is exactly as hidden as the hand it
+            // came from, unlike Blockade's set-aside card (already publicly gained). Pool every
+            // live Haven's card in, then deal each a fresh (still-hidden) one back below, after
+            // dealing the hand — so the two poolings don't sample from each other's cards.
+            let mut haven_slots = [false; crate::state::PENDING_DURATIONS_CAP];
+            for i in 0..ps.pending_durations_len as usize {
+                let e = ps.pending_durations[i];
+                if e.card == crate::cards::id::HAVEN && e.arg != 0 && ps.set_aside.remove(e.arg) {
+                    pool.add(e.arg, 1);
+                    haven_slots[i] = true;
+                }
+            }
             let mut hand = Counts::EMPTY;
             for _ in 0..hand_size {
                 let c = pool.nth(rng.below(pool.total()));
@@ -195,6 +207,14 @@ impl<'a> PlayerView<'a> {
                 hand.add(c, 1);
             }
             ps.hand = hand;
+            for i in 0..ps.pending_durations_len as usize {
+                if haven_slots[i] {
+                    let c = pool.nth(rng.below(pool.total()));
+                    pool.remove(c);
+                    ps.set_aside.add(c, 1);
+                    ps.pending_durations[i].arg = c;
+                }
+            }
             ps.deck_known = KnownStack::default();
             ps.deck_known_bottom = KnownStack::default();
             ps.deck_unknown = pool;

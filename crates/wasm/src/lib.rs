@@ -1742,6 +1742,27 @@ fn supply_json(state: &GameState) -> String {
     format!("[{}]", items.join(","))
 }
 
+/// `[{"card":"Fishing Village","times":2,"arg":null},...]`, the pending start-of-next-turn
+/// Duration effects (Seaside): `arg` is the set-aside/gained card name (Haven/Blockade) or
+/// `"used"` (Sailor's spent reaction), else `null`.
+fn durations_json(state: &GameState, p: usize) -> String {
+    let ps = &state.players[p];
+    let items: Vec<String> = ps.pending_durations[..ps.pending_durations_len as usize]
+        .iter()
+        .map(|e| {
+            let arg = if e.arg != 0 {
+                jstr(cards::name(e.arg))
+            } else if e.used {
+                jstr("used")
+            } else {
+                "null".to_string()
+            };
+            format!("{{\"card\":{},\"times\":{},\"arg\":{arg}}}", jstr(cards::name(e.card)), e.times)
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
 fn player_json(state: &GameState, p: usize) -> String {
     let ps = &state.players[p];
     format!(
@@ -1749,7 +1770,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "{{\"index\":{p},\"isCurrent\":{cur},",
             "\"hand\":{hand},\"handSize\":{hand_n},",
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
-            "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},",
+            "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"vp\":{vp},\"turnsTaken\":{turns}}}"
         ),
         p = p,
@@ -1763,6 +1784,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         discard = counts_json(&ps.discard),
         in_play = counts_json(&ps.in_play),
         set_aside = counts_json(&ps.set_aside),
+        durations = durations_json(state, p),
         vp = ps.vp(),
         turns = ps.turns_taken,
     )

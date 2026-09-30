@@ -346,6 +346,15 @@ impl GameState {
                     sink.event(Event::TurnStart { player: self.turn.player, turn: self.turn.number });
                     sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Action });
                 }
+                // Separate from `announced` (see `TurnState::turn_start_resolved`'s doc comment):
+                // a text-loaded state is always `announced: true` but still needs this to run.
+                if !self.turn.turn_start_resolved {
+                    self.turn.turn_start_resolved = true;
+                    self.push_turn_start_frames(sink);
+                    if !self.stack.is_empty() {
+                        return Run::Continue;
+                    }
+                }
                 if self.turn.actions > 0 && self.players[p].hand.any_type(ACTION) {
                     Run::Decide(DecisionKind::PlayAction, 0)
                 } else {
@@ -376,8 +385,13 @@ impl GameState {
                     self.turn.phase = Phase::GameOver;
                     sink.event(Event::GameOver);
                 } else {
-                    let next = ((p + 1) % self.num_players as usize) as u8;
+                    // Outpost: an extra turn keeps the same player instead of advancing; the new
+                    // turn's own `is_extra_turn` is set so a 2nd Outpost played during it can't
+                    // grant a 3rd turn in a row (see `cleanup`, which computed this).
+                    let extra = self.turn.outpost_grants_extra;
+                    let next = if extra { p as u8 } else { ((p + 1) % self.num_players as usize) as u8 };
                     self.turn = TurnState::start(next, self.turn.number + 1);
+                    self.turn.is_extra_turn = extra;
                     if self.pause_at_turn_start {
                         return Run::Pause;
                     }
@@ -438,9 +452,10 @@ impl GameState {
                 let ps = &mut self.players[p as usize];
                 ps.hand.remove(c);
                 ps.in_play.add(c, 1);
+                // Not marked held-for-cleanup here: see `push_duration_pending`.
                 sink.depth(0);
                 sink.event(Event::Play { player: p, card: c });
-                self.resolve_effects(c, 0, sink);
+                self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure => {
@@ -449,7 +464,7 @@ impl GameState {
                 ps.in_play.add(c, 1);
                 sink.depth(0);
                 sink.event(Event::Play { player: p, card: c });
-                self.resolve_effects(c, 0, sink);
+                self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Buy, Choice::Pass) if kind == DecisionKind::PlayTreasure => {
                 // Done playing Treasures for the rest of this Buy phase (durably: the next
@@ -511,6 +526,30 @@ impl GameState {
                 }
                 self.turn.silvers_played += n;
             }
+            // Astrolabe (choice-free Duration Treasure): "now" is the vanilla +$1 +1 Buy above;
+            // each copy independently schedules its own next-turn +$1 +1 Buy and stays in play
+            // (looped so each physical copy is marked held; see `push_duration_pending`).
+            if cards::is(c, cards::DURATION) {
+                for _ in 0..n {
+                    self.push_duration_pending(p, c, 1, 0);
+                }
+            }
+            // Corsair (owned by anyone else): the first Silver or Gold played each turn is
+            // trashed instead of staying in play. Card ids are fixed in ascending order
+            // (Copper < Silver < Gold), so this loop's iteration order already gives Silver
+            // priority over Gold when both are in hand, matching "the first ... they play".
+            if (c == id::SILVER || c == id::GOLD) && !self.turn.corsair_trashed_first && self.in_supply(id::CORSAIR) {
+                let n_players = self.num_players;
+                let has_other_corsair =
+                    (0..n_players).any(|v| v != p && self.players[v as usize].in_play.has(id::CORSAIR));
+                if has_other_corsair {
+                    self.turn.corsair_trashed_first = true;
+                    let ps = &mut self.players[p as usize];
+                    ps.in_play.remove(c);
+                    self.trash.add(c, 1);
+                    sink.event(Event::Trash { player: p, card: c });
+                }
+            }
         }
         has_choice_left
     }
@@ -518,15 +557,34 @@ impl GameState {
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
         sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
+        // Outpost: "take an extra turn after this one (not a 3rd turn in a row)". Checked
+        // against the in-play snapshot before Duration cards are split out below (Outpost has no
+        // start-of-turn effect of its own, so it's never in `pending_durations`; only presence in
+        // `in_play` marks it played this turn).
+        let ps = &self.players[p];
+        let grant_extra = ps.in_play.has(id::OUTPOST) && !self.turn.is_extra_turn;
+        self.turn.outpost_grants_extra = grant_extra;
+        let draw_n = if grant_extra { 3 } else { 5 };
+
         let ps = &mut self.players[p];
         let hand = ps.hand;
         let play = ps.in_play;
+        // Duration cards (and any Throne Room/King's Court that multiplied one) held for next
+        // turn stay in play; everything else in play, plus the whole hand, discards as usual.
+        let mut kept = Counts::EMPTY;
+        for (c, n) in self.turn.duration_held.iter() {
+            kept.set(c, n.min(play.get(c)));
+        }
+        let mut discard_part = play;
+        for (c, _) in kept.iter() {
+            discard_part.set(c, play.get(c) - kept.get(c));
+        }
         ps.discard.add_all(&hand);
-        ps.discard.add_all(&play);
+        ps.discard.add_all(&discard_part);
         ps.hand.clear();
-        ps.in_play.clear();
+        ps.in_play = kept;
         self.turn.phase = Phase::CleanupDraw;
-        self.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
+        self.stack.push(Frame { max: draw_n, ..Frame::new(FrameKind::Draw, p as u8, 0) });
     }
 
     // ------------------------------------------------------------------
@@ -602,9 +660,15 @@ impl GameState {
     /// trash, then its topdeck, then Tiara's topdeck; a bonus gain a trigger causes (Hoard's
     /// Gold) runs its own triggers first, so this gain's own reactions are asked first.
     fn run_gain_triggers<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
-        // Cheap fast path for the overwhelmingly common case (no Prosperity gain-watcher card in
-        // this game at all): one bitwise AND against the supply mask, instead of walking the
-        // trigger table and probing hand/in-play for every gain of every game.
+        // Cheap fast path for the overwhelmingly common case (no Prosperity/Seaside gain-watcher
+        // card in this game at all): one bitwise AND against the supply mask, instead of walking
+        // the trigger table and probing hand/in-play for every gain of every game.
+        if self.in_supply & (cards::GAIN_TRIGGER_CARDS_MASK | cards::SEASIDE_GAIN_TRIGGER_MASK) == 0 {
+            return;
+        }
+        if self.in_supply & cards::SEASIDE_GAIN_TRIGGER_MASK != 0 {
+            self.run_seaside_gain_triggers(p, c, to, sink);
+        }
         if self.in_supply & cards::GAIN_TRIGGER_CARDS_MASK == 0 {
             return;
         }
@@ -656,6 +720,71 @@ impl GameState {
         }
     }
 
+    /// Cross-player "when [someone] gains a card" reactions from Seaside Durations, which don't
+    /// fit `cards::GAIN_TRIGGERS`' shape (a watcher reacting to *its own owner's* gain): Monkey
+    /// reacts to the player to its owner's right; Blockade reacts to any other player gaining its
+    /// held card; Pirate reacts to any player's Treasure gain; Sailor is the one card here that
+    /// *does* react to its own owner's gain, but "once this turn" is tracked per Sailor instance
+    /// via its own `PendingDuration::used`, not the generic per-gain table. Gated by the caller on
+    /// `cards::SEASIDE_GAIN_TRIGGER_MASK`.
+    fn run_seaside_gain_triggers<S: EventSink>(&mut self, g: u8, c: CardId, to: Dest, sink: &mut S) {
+        let n = self.num_players;
+        // Monkey: "until your next turn, when the player to your right gains a card, +1 Card."
+        // The owner is the player to whose right `g` sits, i.e. the next seat after `g` in turn
+        // order (turns pass to the left, so "your right" is the player who acted just before you).
+        if self.in_supply(id::MONKEY) {
+            let owner = (g + 1) % n;
+            if self.players[owner as usize].in_play.has(id::MONKEY) {
+                self.stack.push(Frame { max: 1, ..Frame::new(FrameKind::Draw, owner, id::MONKEY) });
+            }
+        }
+        // Blockade: "while its gained card is set aside, when another player gains a copy on
+        // their turn, they gain a Curse." Checked against every player's live Blockade holds.
+        if self.in_supply(id::BLOCKADE) && self.turn.player == g {
+            for owner in 0..n {
+                if owner == g {
+                    continue;
+                }
+                let ps = &self.players[owner as usize];
+                for i in 0..ps.pending_durations_len as usize {
+                    let e = ps.pending_durations[i];
+                    if e.card == id::BLOCKADE && e.arg == c {
+                        self.gain(g, id::CURSE, Dest::Discard, false, sink);
+                        break;
+                    }
+                }
+            }
+        }
+        // Pirate: "When any player gains a Treasure, you may play this from your hand."
+        if self.in_supply(id::PIRATE) && self.is_treasure(c) {
+            for owner in 0..n {
+                if self.players[owner as usize].hand.has(id::PIRATE) {
+                    self.stack.push(Frame {
+                        zone: Zone::Hand, act: Act::Play, subject: id::PIRATE,
+                        ..Frame::new(FrameKind::YesNo, owner, id::PIRATE)
+                    });
+                }
+            }
+        }
+        // Sailor: "once this turn, when you gain a Duration card, you may play it." Only the
+        // gainer's own live, not-yet-used Sailor reacts; needs the gain's zone (Hand/Discard) to
+        // offer a `Play` there (a `Dest::DeckTop` gain has no zone to play from: same documented
+        // gap as Watchtower/Tiara in `gain_dest_zone`).
+        if self.in_supply(id::SAILOR) && cards::is(c, cards::DURATION) {
+            if let Some(zone) = Self::gain_dest_zone(to) {
+                let ps = &mut self.players[g as usize];
+                for i in 0..ps.pending_durations_len as usize {
+                    let e = &mut ps.pending_durations[i];
+                    if e.card == id::SAILOR && !e.used {
+                        e.used = true;
+                        self.stack.push(Frame { zone, act: Act::Play, subject: c, ..Frame::new(FrameKind::YesNo, g, id::SAILOR) });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     /// Card-specific effects that happen specifically because a card was *bought* (not gained
     /// any other way): the one place for them, parallel to `may_buy`. Runs after the bought
     /// card's own gain (and its triggers) have resolved.
@@ -675,13 +804,15 @@ impl GameState {
         }
     }
 
-    /// Moat check (auto-revealed; revealing is never worse in the base set).
+    /// Moat / Lighthouse check: Moat is auto-revealed from hand; Lighthouse is a lingering
+    /// static while in play ("other players' Attacks don't affect you"), so it's just an
+    /// `in_play` check, no reaction event (nothing is revealed).
     pub(crate) fn immune<S: EventSink>(&self, victim: u8, sink: &mut S) -> bool {
         if self.players[victim as usize].hand.has(id::MOAT) {
             sink.event(Event::Reaction { player: victim, card: id::MOAT });
             true
         } else {
-            false
+            self.players[victim as usize].in_play.has(id::LIGHTHOUSE)
         }
     }
 

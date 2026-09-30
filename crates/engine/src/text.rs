@@ -28,7 +28,7 @@
 use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
-use crate::state::{FrameStack, GameConfig, GameState, PlayerState, TurnState, KNOWN_CAP};
+use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, TurnState, KNOWN_CAP, PENDING_DURATIONS_CAP};
 use crate::state::Phase;
 
 // ---------------------------------------------------------------------------------------
@@ -222,11 +222,19 @@ struct TurnFields {
     buys: u8,
     coins: u16,
     cost_reduction: u8,
+    /// This turn was granted as an extra turn by an Outpost played last turn (Seaside).
+    extra_turn: bool,
+    /// A Silver or Gold played by this turn's player has already been trashed by someone else's
+    /// Corsair this turn (Seaside).
+    corsair_trashed: bool,
 }
 
 impl Default for TurnFields {
     fn default() -> Self {
-        TurnFields { number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, cost_reduction: 0 }
+        TurnFields {
+            number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, cost_reduction: 0,
+            extra_turn: false, corsair_trashed: false,
+        }
     }
 }
 
@@ -259,6 +267,12 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "coins" => f.coins = val.parse().map_err(|_| format!("line {lineno}: invalid coins '{val}'"))?,
             "cost_reduction" => {
                 f.cost_reduction = val.parse().map_err(|_| format!("line {lineno}: invalid cost_reduction '{val}'"))?
+            }
+            "extra_turn" => {
+                f.extra_turn = val.parse().map_err(|_| format!("line {lineno}: invalid extra_turn '{val}'"))?
+            }
+            "corsair_trashed" => {
+                f.corsair_trashed = val.parse().map_err(|_| format!("line {lineno}: invalid corsair_trashed '{val}'"))?
             }
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
@@ -303,6 +317,13 @@ pub fn format_state(state: &GameState) -> String {
     if state.turn.cost_reduction > 0 {
         out.push_str(&format!("  cost_reduction: {}", state.turn.cost_reduction));
     }
+    // Seaside: only while relevant, so Base-only saves are unaffected.
+    if state.turn.is_extra_turn {
+        out.push_str("  extra_turn: true");
+    }
+    if state.turn.corsair_trashed_first {
+        out.push_str("  corsair_trashed: true");
+    }
     out.push('\n');
 
     // See module docs: this is not the original construction seed, just a deterministic
@@ -310,6 +331,15 @@ pub fn format_state(state: &GameState) -> String {
     let mut r = state.rng;
     out.push_str(&format!("seed: {}\n", r.next_u64()));
     out.push_str(&format!("max_turns: {}\n", state.max_turns));
+    // Duration cards (and Throne Room/King's Court multipliers) held in play this turn, not
+    // discarded at cleanup (Seaside); only while relevant.
+    if !state.turn.duration_held.is_empty() {
+        let mut held = Counts::EMPTY;
+        for (c, n) in state.turn.duration_held.iter() {
+            held.set(c, n);
+        }
+        out.push_str(&format!("held: {}\n", format_counts(&held)));
+    }
 
     for p in 0..n {
         out.push('\n');
@@ -326,9 +356,61 @@ pub fn format_state(state: &GameState) -> String {
         if ps.vp_tokens > 0 {
             out.push_str(&format!("vp tokens: {}\n", ps.vp_tokens));
         }
+        if ps.pending_durations_len > 0 {
+            let list = &ps.pending_durations[..ps.pending_durations_len as usize];
+            out.push_str(&format!("durations: {}\n", format_pending_durations(list)));
+        }
     }
 
     out
+}
+
+/// Format the pending Duration effects list: `"Fishing Village x2, Haven (Silver), Sailor (used)"`.
+fn format_pending_durations(list: &[PendingDuration]) -> String {
+    list.iter()
+        .map(|e| {
+            let mut s = cards::name(e.card).to_string();
+            if e.times != 1 {
+                s.push_str(&format!(" x{}", e.times));
+            }
+            if e.arg != 0 {
+                s.push_str(&format!(" ({})", cards::name(e.arg)));
+            } else if e.used {
+                s.push_str(" (used)");
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Parse the `durations:` line (see `format_pending_durations`).
+fn parse_pending_durations(s: &str) -> Result<Vec<PendingDuration>, String> {
+    let mut out = Vec::new();
+    for part in split_parts(s) {
+        let mut rest = part;
+        let mut arg = 0;
+        let mut used = false;
+        if let Some(open) = rest.find('(') {
+            let inner = rest[open + 1..].trim_end().trim_end_matches(')').trim();
+            if inner.eq_ignore_ascii_case("used") {
+                used = true;
+            } else {
+                arg = cards::by_name(inner).ok_or_else(|| format!("unknown card '{inner}' in durations"))?;
+            }
+            rest = rest[..open].trim();
+        }
+        let mut times = 1u8;
+        if let Some(xpos) = rest.rfind(" x") {
+            if let Ok(n) = rest[xpos + 2..].trim().parse::<u32>() {
+                times = n.min(u8::MAX as u32) as u8;
+                rest = rest[..xpos].trim();
+            }
+        }
+        let card = cards::by_name(rest).ok_or_else(|| format!("unknown card '{rest}' in durations"))?;
+        out.push(PendingDuration { card, times, arg, used });
+    }
+    Ok(out)
 }
 
 /// Parse a full `GameState` from text produced by (or compatible with) `format_state`.
@@ -340,6 +422,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut kingdom_val: Option<(usize, String)> = None;
     let mut supply_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
+    let mut held_val: Option<(usize, String)> = None;
     let mut seed_val: Option<(usize, String)> = None;
     let mut max_turns_val: Option<(usize, String)> = None;
     let mut turn_fields: Option<(usize, TurnFields)> = None;
@@ -368,6 +451,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "kingdom" => kingdom_val = Some((lineno, rest.to_string())),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
+            "held" => held_val = Some((lineno, rest.to_string())),
             "seed" => seed_val = Some((lineno, rest.to_string())),
             "max_turns" | "max turns" => max_turns_val = Some((lineno, rest.to_string())),
             "turn" => turn_fields = Some((lineno, parse_turn_line(line, lineno)?)),
@@ -450,12 +534,33 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         number: tf.number,
         // A loaded position starts mid-turn from the reader's point of view; don't re-announce.
         announced: true,
+        // But do (re)attempt the start-of-turn resolution (Clerk, pending Durations): see
+        // `TurnState::turn_start_resolved`'s doc comment.
+        turn_start_resolved: false,
         played: Counts::EMPTY,
         cost_reduction: tf.cost_reduction,
         // Per-turn, within-turn bookkeeping: not part of the text format (see `format_state`'s
         // module docs on `played`), reset fresh on load.
         treasures_done: false,
         named_for_war_chest: Counts::EMPTY,
+        duration_held: match &held_val {
+            Some((ln, s)) => {
+                let counts = parse_counts(s).map_err(|e| format!("line {ln}: {e}"))?;
+                let mut held = DurationHeld::EMPTY;
+                for (c, n) in counts.iter() {
+                    held.add(c, n);
+                }
+                held
+            }
+            None => DurationHeld::EMPTY,
+        },
+        is_extra_turn: tf.extra_turn,
+        outpost_grants_extra: false,
+        corsair_trashed_first: tf.corsair_trashed,
+        // Transient mid-resolution bookkeeping (never a text-format rest state): fresh on load.
+        multiplier_card: 0,
+        multiplier_expected: 0,
+        multiplier_successes: 0,
     };
 
     // Player blocks.
@@ -527,6 +632,16 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "turns" => ps.turns_taken = val.parse().map_err(|_| format!("line {ln2}: invalid turns '{val}'"))?,
                 "vp tokens" | "vp_tokens" => {
                     ps.vp_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid vp tokens '{val}'"))?
+                }
+                "durations" => {
+                    let list = parse_pending_durations(val).map_err(|e| format!("line {ln2}: {e}"))?;
+                    if list.len() > PENDING_DURATIONS_CAP {
+                        return Err(format!("line {ln2}: too many pending durations (max {PENDING_DURATIONS_CAP})"));
+                    }
+                    ps.pending_durations_len = list.len() as u8;
+                    for (i, e) in list.into_iter().enumerate() {
+                        ps.pending_durations[i] = e;
+                    }
                 }
                 other => return Err(format!("line {ln2}: unknown field '{other}' in player block")),
             }
@@ -631,11 +746,14 @@ mod tests {
         assert!(a.supply == b.supply);
         assert_eq!(a.in_supply, b.in_supply);
         assert!(a.trash == b.trash);
-        assert_eq!(a.turn, b.turn);
+        assert_eq!(TurnState { turn_start_resolved: false, ..a.turn }, TurnState { turn_start_resolved: false, ..b.turn });
         // `stack`/`pending` are deliberately not compared: parsing always resets them (see
         // module docs), so they're only meaningful to compare between two *parsed* states
         // (where both are trivially empty/None), not between a live mid-decision state and
-        // its text round trip.
+        // its text round trip. `turn.turn_start_resolved` is excluded for the same reason: a
+        // parsed state always attempts its start-of-turn resolution again on the next `advance`
+        // (see `TurnState::turn_start_resolved`'s doc comment), even if the live state it came
+        // from had already done so.
         assert_eq!(a.max_turns, b.max_turns);
         assert_eq!(a.chance_mode, b.chance_mode);
         assert_eq!(a.auto_single, b.auto_single);

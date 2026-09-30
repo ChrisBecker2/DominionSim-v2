@@ -1230,6 +1230,11 @@ fn clerk_gives_two_coins_and_attacks_full_handed_opponents() {
     let mut g = new_state(&[id::CLERK], 2);
     set_hand(&mut g, 0, &[id::CLERK]);
     set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::DUCHY]);
+    // `new_state`/`reset_turn` puts us at the very start of the turn, so Clerk's own
+    // start-of-turn reaction (step 3) is offered first; decline it to test the normal
+    // Action-phase play instead.
+    expect_decision(&mut g);
+    choose(&mut g, Choice::No);
     play(&mut g, id::CLERK);
     assert_eq!(g.turn.coins, 2);
     let d = expect_decision(&mut g);
@@ -1244,6 +1249,8 @@ fn clerk_does_not_attack_a_player_with_fewer_than_five_cards() {
     let mut g = new_state(&[id::CLERK], 2);
     set_hand(&mut g, 0, &[id::CLERK]);
     set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE]);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::No); // decline Clerk's own start-of-turn reaction offer first
     play(&mut g, id::CLERK);
     assert_eq!(g.players[1].hand.total(), 2); // untouched
 }
@@ -1253,6 +1260,8 @@ fn clerk_is_blocked_by_moat() {
     let mut g = new_state(&[id::CLERK], 2);
     set_hand(&mut g, 0, &[id::CLERK]);
     set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::No); // decline Clerk's own start-of-turn reaction offer first
     play(&mut g, id::CLERK);
     assert_eq!(g.players[1].hand.total(), 6);
 }
@@ -1367,3 +1376,26 @@ fn treasures_done_and_named_for_war_chest_are_not_persisted_and_reset_on_load() 
     assert!(!back.turn.treasures_done);
     assert!(back.turn.named_for_war_chest.is_empty());
 }
+
+// ===========================================================================
+// King's Court on a Duration — PropserityCardsTests.cpp TestKingsCourtDuration (2027).
+// Only the King's Court + Merchant Ship cases are ported (both Seaside/Prosperity, implemented
+// here); the Hireling case is skipped (Adventures, a permanent Duration, out of scope for our
+// four sets).
+// ===========================================================================
+
+#[test]
+fn kings_court_stays_in_play_with_a_duration_it_multiplies() {
+    // "KingsCourt stays with Duration": KC x3 on Merchant Ship ("Now and next turn: +$2") gives
+    // +$6 now, and both King's Court and Merchant Ship stay in play for next turn.
+    let mut g = new_state(&[id::KINGS_COURT, id::MERCHANT_SHIP], 2);
+    set_hand(&mut g, 0, &[id::KINGS_COURT, id::MERCHANT_SHIP]);
+    play(&mut g, id::KINGS_COURT);
+    choose(&mut g, Choice::Card(id::MERCHANT_SHIP));
+    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (0, 1, 6));
+    assert!(g.turn.duration_held.has(id::KINGS_COURT) && g.turn.duration_held.has(id::MERCHANT_SHIP));
+    assert_eq!(g.players[0].pending_durations_len, 1);
+    let e = g.players[0].pending_durations[0];
+    assert_eq!((e.card, e.times), (id::MERCHANT_SHIP, 3));
+}
+

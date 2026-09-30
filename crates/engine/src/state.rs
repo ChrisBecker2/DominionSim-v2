@@ -9,6 +9,88 @@ use crate::rng::Rng;
 pub const MAX_PLAYERS: usize = 6;
 pub const KNOWN_CAP: usize = 120;
 pub const STACK_CAP: usize = 48;
+/// Max simultaneous pending start-of-next-turn Duration effects for one player. Each play of a
+/// Duration card (or a Throne Room/King's Court resolution of one) needs at most one slot; same-
+/// card argless plays merge into one entry (see `GameState::push_duration_pending`), so this is
+/// generous for realistic turns (a handful of distinct Duration cards, plus Haven/Blockade/Sailor
+/// copies, which don't merge since each carries its own argument).
+pub const PENDING_DURATIONS_CAP: usize = 12;
+/// Max distinct cards `DurationHeld` tracks in one turn (see its doc comment): generous for a
+/// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
+/// multiplied one).
+pub const DURATION_HELD_CAP: usize = 8;
+
+/// A compact multiset of (card, count) pairs for `TurnState::duration_held`: a plain `Counts`
+/// would work (and is what the very first version of this used) but costs 128 bytes on `TurnState`
+/// — cheap in isolation (`TurnState` is one copy, not one per player), but `GameState` is copied
+/// constantly in the hot loop and search, so every byte on it is felt. At most a handful of
+/// distinct cards are ever held in one turn, so a small fixed list is both correct and far
+/// cheaper (16 bytes of data). `PartialEq`/`Eq`/`Hash` are hand-written (not derived) to treat
+/// this as an order-independent multiset, like `Counts`: entries can land in a different array
+/// order depending on how they were built (e.g. insertion order during play vs. card-id order
+/// after a text-format round trip), even when the held cards are the same.
+#[derive(Clone, Copy, Debug)]
+pub struct DurationHeld {
+    entries: [(CardId, u8); DURATION_HELD_CAP],
+    len: u8,
+}
+
+impl PartialEq for DurationHeld {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().all(|(c, n)| other.get(c) == n)
+    }
+}
+impl Eq for DurationHeld {}
+impl std::hash::Hash for DurationHeld {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Order-independent: XOR each entry's own hash together, then hash the (order-free) sum.
+        let mut acc: u64 = 0;
+        for (c, n) in self.iter() {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (c, n).hash(&mut h);
+            acc ^= std::hash::Hasher::finish(&h);
+        }
+        acc.hash(state);
+    }
+}
+
+impl Default for DurationHeld {
+    fn default() -> Self {
+        DurationHeld { entries: [(0, 0); DURATION_HELD_CAP], len: 0 }
+    }
+}
+
+impl DurationHeld {
+    pub const EMPTY: DurationHeld = DurationHeld { entries: [(0, 0); DURATION_HELD_CAP], len: 0 };
+
+    /// Add `n` more held copies of `card` (merging into an existing entry for it, if any).
+    pub fn add(&mut self, card: CardId, n: u8) {
+        for i in 0..self.len as usize {
+            if self.entries[i].0 == card {
+                self.entries[i].1 = self.entries[i].1.saturating_add(n);
+                return;
+            }
+        }
+        let i = self.len as usize;
+        assert!(i < DURATION_HELD_CAP, "DurationHeld overflow: more than {DURATION_HELD_CAP} distinct cards held in one turn");
+        self.entries[i] = (card, n);
+        self.len += 1;
+    }
+    pub fn get(&self, card: CardId) -> u8 {
+        self.entries[..self.len as usize].iter().find(|e| e.0 == card).map_or(0, |e| e.1)
+    }
+    #[inline]
+    pub fn has(&self, card: CardId) -> bool {
+        self.get(card) > 0
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
+        self.entries[..self.len as usize].iter().copied()
+    }
+}
 
 /// Cards on top of the deck whose identity is known, top = last element.
 /// Beneath them sits `PlayerState::deck_unknown`, a multiset in unknown order.
@@ -97,6 +179,29 @@ impl KnownStack {
     }
 }
 
+/// One pending start-of-owner's-next-turn Duration effect (Seaside): see
+/// `crates/engine/src/effects.rs`'s "Duration framework" section header comment for the full
+/// scheduling/resolution design.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct PendingDuration {
+    /// The Duration card whose effect this is (or, for Haven/Blockade, the card that pushed
+    /// this entry). 0 = unused slot.
+    pub card: CardId,
+    /// How many times to resolve the effect at the start of the owner's next turn (Throne Room
+    /// x2 / King's Court x3; same-card argless entries merge by summing this rather than adding
+    /// new slots). 0 for a card with no next-turn effect of its own that's only in this list to
+    /// stay in play (Outpost; a Throne Room/King's Court that multiplied a Duration play).
+    pub times: u8,
+    /// Haven: the card set aside from hand (in `set_aside`) to return to hand. Blockade: the
+    /// card gained and set aside, whose copies curse other players who gain one on their turn.
+    /// 0 = no argument.
+    pub arg: CardId,
+    /// Sailor only: whether its "once this turn, when you gain a Duration card, you may play
+    /// it" reaction has already been used by this copy. Unused (always false) for every other
+    /// card.
+    pub used: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PlayerState {
     pub hand: Counts,
@@ -115,6 +220,9 @@ pub struct PlayerState {
     pub turns_taken: u16,
     /// Victory point tokens (Monument, Bishop, ...), counted in the score.
     pub vp_tokens: u16,
+    /// Pending start-of-my-next-turn Duration effects (Seaside): see `PendingDuration`.
+    pub pending_durations: [PendingDuration; PENDING_DURATIONS_CAP],
+    pub pending_durations_len: u8,
     // TODO(step 3/4): a per-player, per-turn record of cards gained (Smugglers: "a card the
     // player to your right gained on their last turn") isn't tracked yet. Adding it as `Counts`
     // fields here (as originally drafted) cost ~1.5KB per player (4 more 128-byte multisets in a
@@ -204,6 +312,15 @@ pub struct TurnState {
     /// Whether the turn's start has been announced (TurnStart/PhaseStart events). Deferred to
     /// the first step of the turn so a turn-boundary pause logs nothing of the next turn.
     pub announced: bool,
+    /// Whether `GameState::push_turn_start_frames` (Clerk's reaction, pending Duration effects)
+    /// has been attempted this turn. Deliberately separate from `announced`: a state loaded from
+    /// text always starts with `announced: true` (no re-announcing turn-start events for a
+    /// position the reader is resuming mid-turn), but still needs its start-of-turn resolution to
+    /// run if it hasn't yet (the common case: a freshly saved turn-start position). Idempotent-safe
+    /// to attempt again on load even when already resolved (an empty `pending_durations` and no
+    /// Clerk in hand make it a no-op); the one gap is a state saved after explicitly declining
+    /// Clerk's reaction offering it again on reload, a narrow edge case accepted for now.
+    pub turn_start_resolved: bool,
     /// Every card played this turn, counting each resolution (Throne Room's target twice).
     pub played: Counts,
     /// Cards cost this much less this turn, to a minimum of 0 (Bridge).
@@ -215,6 +332,38 @@ pub struct TurnState {
     /// Cards named for War Chest this turn (by any War Chest play): a War Chest's own gain may
     /// not be any of these.
     pub named_for_war_chest: Counts,
+    /// Duration cards (and any Throne Room/King's Court that multiplied one) currently held in
+    /// play for this turn's player: exempted from cleanup's discard. A running counter
+    /// incremented wherever a card enters play by being played (see `effects::put`,
+    /// `GameState::play_choice_free_treasures`, the two direct plays in `apply_phase`, and
+    /// `Then::PlayPicked`'s multiplier hold), so it also covers a mid-turn save/reload. `TurnState`
+    /// is per-turn, not per-player, but only the turn's own player ever plays cards into their own
+    /// `in_play`, so this is unambiguous.
+    pub duration_held: DurationHeld,
+    /// True if this turn itself was granted as an extra turn by an Outpost played on the
+    /// previous turn (so a second Outpost played now must not grant a further extra turn: no 3rd
+    /// turn in a row). Also true when the game is between such turns, used by `pass`.
+    pub is_extra_turn: bool,
+    /// Set during this turn's cleanup when an Outpost in play grants an extra turn; read when
+    /// `Phase::CleanupDraw` picks the next player and builds their `TurnState`. Purely transient
+    /// (cleanup is never a text-format rest state), reset fresh every turn.
+    pub outpost_grants_extra: bool,
+    /// Corsair (owned by anyone else): whether the current player has already had a Silver or
+    /// Gold trashed by it this turn (only the first each turn).
+    pub corsair_trashed_first: bool,
+    /// Throne Room / King's Court multiplier bookkeeping, live only while its target's `times`
+    /// `PlayEffects` resolutions (and everything they push, e.g. Haven's set-aside pick) are
+    /// still unwinding: 0 when no multiplier group is in progress. See `Then::PlayPicked` and
+    /// `FrameKind::MultiplierFinalize`. Ported test `TestHavenThroneRoom`/`TestTactitianThroneRoom`
+    /// (1st edition, adapted): the multiplier itself stays in play only if *every* resolution
+    /// actually scheduled a next-turn effect — for a conditional Duration (Haven with too few
+    /// cards, Tactician with an empty hand), a resolution that finds nothing to do does not count,
+    /// so the multiplier discards normally even though the target itself may still stay (its
+    /// physical copy is tracked separately by `duration_held`, from the original play/pick, not
+    /// per resolution).
+    pub multiplier_card: CardId,
+    pub multiplier_expected: u8,
+    pub multiplier_successes: u8,
 }
 
 impl TurnState {
@@ -229,10 +378,18 @@ impl TurnState {
             silvers_played: 0,
             number,
             announced: false,
+            turn_start_resolved: false,
             played: Counts::EMPTY,
             cost_reduction: 0,
             treasures_done: false,
             named_for_war_chest: Counts::EMPTY,
+            duration_held: DurationHeld::EMPTY,
+            is_extra_turn: false,
+            outpost_grants_extra: false,
+            corsair_trashed_first: false,
+            multiplier_card: 0,
+            multiplier_expected: 0,
+            multiplier_successes: 0,
         }
     }
 }
@@ -392,6 +549,13 @@ pub enum Then {
     /// RevealTop: move every revealed card matching `Filter` straight to discard (Rabble),
     /// mirroring `MoveMatchingToHand` for Patrol.
     MoveMatchingToDiscard(Filter),
+    /// Select (`Act::SetAside`, Haven) or Gain (Blockade): once the pick/gain resolves, schedule
+    /// a pending start-of-next-turn Duration effect for the frame's own `source` card, resolved
+    /// `times` times (always 1 in practice: each Throne Room/King's Court resolution independently
+    /// asks its own set-aside/gain question, so multiplying shows up as separate entries with
+    /// distinct arguments, not one entry with `times > 1`), with the picked/gained card as `arg`.
+    /// No-op if nothing was picked/gained. See `GameState::push_duration_pending`.
+    ScheduleDuration { times: u8 },
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -524,6 +688,17 @@ pub enum FrameKind {
     /// Masquerade is the only card that uses `PassLeftBegin`/`PassLeftDeliver` today, but the
     /// mechanism ("each player with X passes one to the next such player") isn't specific to it.
     PassLeftDeliver,
+    /// Resolve one pending start-of-turn Duration effect (Seaside): `source` = the card, `count`
+    /// = how many times, `subject` = its argument (Haven/Blockade). Pushed for every entry in
+    /// `PlayerState::pending_durations` at the start of the owner's turn (see
+    /// `GameState::push_turn_start_frames`), which clears the list up front since every entry's
+    /// data is already captured in the pushed frames. See `GameState::resolve_duration_start`.
+    DurationStart,
+    /// Sits below a Throne Room/King's Court's `times` `PlayEffects` resolutions of a Duration
+    /// target (and everything they push): once every one of them has fully unwound, checks
+    /// whether all `times` actually scheduled a next-turn effect (`TurnState::multiplier_*`) and,
+    /// if so, keeps the multiplier itself (`source`) in play too. See `Then::PlayPicked`.
+    MultiplierFinalize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

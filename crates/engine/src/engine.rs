@@ -786,8 +786,9 @@ impl GameState {
             self.stack.push(react(id::TIARA, Act::Topdeck));
         }
         for _ in 0..self.players[pi].hand.get(id::WATCHTOWER) {
-            self.stack.push(react(id::WATCHTOWER, Act::Topdeck));
-            self.stack.push(react(id::WATCHTOWER, Act::Trash));
+            // Revealed from hand when used: the pick logs a Reaction event (`reveal_source`).
+            self.stack.push(Frame { reveal_source: true, ..react(id::WATCHTOWER, Act::Topdeck) });
+            self.stack.push(Frame { reveal_source: true, ..react(id::WATCHTOWER, Act::Trash) });
         }
     }
 

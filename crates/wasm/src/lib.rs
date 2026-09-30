@@ -1554,8 +1554,22 @@ fn filter_noun(f: Filter) -> (String, String) {
 
 /// Card-text style description, generic over the decision's shape:
 /// "Player 1 - Throne Room: You may play an Action card from your hand twice."
+/// A reaction revealed from hand to act on a card just gained (Watchtower): a Select whose source
+/// is a Reaction card, acting on a card outside the hand. Returns (reaction, gained card, act).
+fn gain_reaction(d: &Decision) -> Option<(cards::CardId, cards::CardId, Act)> {
+    let src = d.source?;
+    match d.kind {
+        DecisionKind::Select { from, act, filter: Filter::Card(c), .. } if from != Zone::Hand && cards::is(src, cards::REACTION) => Some((src, c, act)),
+        _ => None,
+    }
+}
+
 fn decision_description(state: &GameState, d: &Decision) -> String {
     let who = format!("Player {}", d.player + 1);
+    if let Some((src, c, act)) = gain_reaction(d) {
+        let what = if act == Act::Trash { "trash" } else { "put onto your deck" };
+        return format!("{who}: You may reveal {} from your hand to {what} the {} you just gained.", cards::name(src), cards::name(c));
+    }
     let head = match d.source {
         Some(c) => format!("{who} \u{2014} {}: ", cards::name(c)),
         None => format!("{who}: "),
@@ -1652,6 +1666,13 @@ fn capitalize(s: &str) -> String {
 }
 
 fn choice_label(d: &Decision, c: Choice) -> String {
+    if let Some((src, card, act)) = gain_reaction(d) {
+        return match c {
+            Choice::Card(_) if act == Act::Trash => format!("Reveal {}: trash {}", cards::name(src), cards::name(card)),
+            Choice::Card(_) => format!("Reveal {}: put {} on deck", cards::name(src), cards::name(card)),
+            _ => "Don't reveal".to_string(),
+        };
+    }
     match c {
         Choice::Pass => match d.kind {
             DecisionKind::PlayTreasure => "Done playing treasures".to_string(),

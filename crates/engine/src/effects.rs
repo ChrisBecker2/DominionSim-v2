@@ -170,14 +170,10 @@ impl GameState {
                 self.stack.push(Frame { max: 2, ..Frame::new(K::RevealTop, p, card) });
             }
             id::WITCH => {
-                // Forward order (not reversed like the frame-pushing per-victim loops): with a
-                // limited Curse pile, the leftmost (first in turn order) opponent must get
-                // priority, which a direct, immediate call resolves in the order it's made in
-                // (unlike a pushed frame, whose LIFO order needs the reversed push to match).
+                // "+2 Cards. Each other player gains a Curse": the Curses are gain frames under
+                // the +2 Cards draw, so they come after it (see `push_gain_to_each`).
                 let (vs, n) = self.victims(sink);
-                for &v in &vs[..n] {
-                    self.gain(v, id::CURSE, Dest::Discard, false, sink);
-                }
+                self.push_gain_to_each(&vs[..n], id::CURSE, card);
             }
             id::ARTISAN => {
                 self.stack.push(select(p, card, Zone::Hand, Topdeck, Filter::Any, 1, 1, Then::Nothing));
@@ -322,11 +318,8 @@ impl GameState {
             id::TIARA => self.stack.push(select(p, card, Zone::Hand, Play, self.treasure_filter(), 0, 1, Then::PlayPicked { times: 2 })),
             id::CHARLATAN => {
                 // +$3 is vanilla (above); Curse becomes a Treasure this game via `is_treasure`.
-                // Forward order: same leftmost-priority reasoning as Witch.
                 let (vs, n) = self.victims(sink);
-                for &v in &vs[..n] {
-                    self.gain(v, id::CURSE, Dest::Discard, false, sink);
-                }
+                self.push_gain_to_each(&vs[..n], id::CURSE, card);
             }
             id::CRYSTAL_BALL => {
                 // Look at the top card: may trash it, discard it, or (if Action/Treasure) play
@@ -445,12 +438,9 @@ impl GameState {
             id::HAVEN => self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::ScheduleDuration { times: 1 })),
             id::BLOCKADE => self.stack.push(Frame { then: Then::ScheduleDuration { times: 1 }, ..gain_frame(p, card, 4, Filter::Any, Dest::Discard) }),
             id::SEA_WITCH => {
-                // +2 Cards is vanilla (below). Forward order: same leftmost-priority reasoning
-                // as Witch (a limited Curse pile must go to the first opponent in turn order).
+                // "+2 Cards. Each other player gains a Curse": after the draw, like Witch.
                 let (vs, n) = self.victims(sink);
-                for &v in &vs[..n] {
-                    self.gain(v, id::CURSE, Dest::Discard, false, sink);
-                }
+                self.push_gain_to_each(&vs[..n], id::CURSE, card);
             }
             id::TACTICIAN => {
                 // "If you have a card in hand" gates the *entire* effect, including staying in
@@ -539,6 +529,18 @@ impl GameState {
             }
         }
         (out, n)
+    }
+
+    /// "Each other player gains a `card`": one mandatory gain frame per victim, pushed now so it
+    /// resolves after anything the attack pushes later (its +Cards draw is pushed last, so it
+    /// resolves first, as the card text orders it). Pushed in reverse so the first victim in
+    /// turn order resolves first: with a short pile, the leftmost opponent gets the card. Each
+    /// gain goes through the normal gain path, so reactions like Watchtower resolve right after
+    /// that player's gain.
+    fn push_gain_to_each(&mut self, victims: &[u8], card: CardId, source: CardId) {
+        for &v in victims.iter().rev() {
+            self.stack.push(Frame { filter: Filter::Card(card), ..gain_frame(v, source, u8::MAX, Filter::Card(card), Dest::Discard) });
+        }
     }
 
     fn zone(&self, p: u8, z: Zone) -> &Counts {
@@ -989,7 +991,14 @@ impl GameState {
                 } else {
                     f.dest
                 };
-                if self.gain(p, c, dest, false, sink) {
+                // Reactions the gain triggers (Watchtower) belong to this card effect: log them
+                // at its depth.
+                let base = self.stack.len as usize;
+                let gained = self.gain(p, c, dest, false, sink);
+                for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+                    fr.depth = f.depth;
+                }
+                if gained {
                     match f.then {
                         Then::GainedTypeStatBonus => {
                             if cards::is(c, ACTION) {
@@ -1031,6 +1040,9 @@ impl GameState {
                 }
             }
             (K::Select, Choice::Card(c)) => {
+                if f.reveal_source && f.count == 0 {
+                    sink.event(Event::Reaction { player: p, card: f.source });
+                }
                 // Tracked unconditionally (cheap: one add); only `Then::GainExactCostSum`
                 // (Forge) reads it. Cost is taken at the moment of picking, per the plan's
                 // ruling: Bridge/Quarry-style reductions active now apply on both sides.

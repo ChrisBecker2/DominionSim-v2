@@ -1399,3 +1399,35 @@ fn kings_court_stays_in_play_with_a_duration_it_multiplies() {
     assert_eq!((e.card, e.times), (id::MERCHANT_SHIP, 3));
 }
 
+
+#[test]
+fn witch_draws_before_giving_curses_and_watchtower_is_revealed_to_trash_it() {
+    // "+2 Cards. Each other player gains a Curse": the draw comes first. The victim reveals
+    // Watchtower from hand to trash the Curse, and the reveal is logged.
+    let mut g = new_state(&[id::WITCH, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
+    set_hand(&mut g, 1, &[id::WATCHTOWER]);
+    let mut ev: Vec<Event> = Vec::new();
+    let step = play_ev(&mut g, id::WITCH, &mut ev);
+    let Step::Decision(d) = step else { panic!("{step:?}") };
+    assert_eq!(d.player, 1, "the victim decides the Watchtower reaction");
+    let draw = ev.iter().position(|e| matches!(e, Event::Draw { player: 0, .. })).expect("draw");
+    let curse = ev.iter().position(|e| matches!(e, Event::Gain { player: 1, card: id::CURSE, .. })).expect("curse");
+    assert!(draw < curse, "Witch's +2 Cards comes before the Curse: {ev:?}");
+    choose_ev(&mut g, Choice::Card(id::CURSE), &mut ev);
+    assert!(ev.iter().any(|e| matches!(e, Event::Reaction { player: 1, card: id::WATCHTOWER })), "reveal logged: {ev:?}");
+    assert_eq!(g.trash.get(id::CURSE), 1);
+    assert_eq!(g.players[1].all_cards().get(id::CURSE), 0);
+    assert!(g.players[1].hand.has(id::WATCHTOWER), "revealing keeps it in hand");
+}
+
+#[test]
+fn witch_curses_go_to_the_first_player_in_turn_order_when_the_pile_is_short() {
+    let mut g = new_state(&[id::WITCH], 3);
+    set_supply(&mut g, id::CURSE, 1);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    play(&mut g, id::WITCH);
+    assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "the player to the left gets the last Curse");
+    assert_eq!(g.players[2].all_cards().get(id::CURSE), 0);
+}

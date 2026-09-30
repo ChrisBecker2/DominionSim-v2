@@ -772,6 +772,9 @@ pub struct Frame {
     /// play ("this") was already trashed before this frame was pushed, carried through so
     /// `Then::TreasureMapGold` can tell whether both copies ended up trashed by this resolution.
     pub self_trashed: bool,
+    /// Select: using this pick reveals `source` from the player's hand (a Reaction such as
+    /// Watchtower), so the first pick logs a Reaction event.
+    pub reveal_source: bool,
 }
 
 impl Frame {
@@ -799,6 +802,7 @@ impl Frame {
             cost_sum: 0,
             gain_from_record: false,
             self_trashed: false,
+            reveal_source: false,
         }
     }
 }

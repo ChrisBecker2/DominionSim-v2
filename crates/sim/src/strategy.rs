@@ -861,13 +861,22 @@ impl Strategy {
         find_mode(id::NOBLES, choices, pred).unwrap_or(choices[0])
     }
 
-    /// Minion: +$2, unless the current coins plus $2 can't reach anything in the gain list and
-    /// the hand is small (<= 3 cards); then the fresh hand.
+    /// Minion: +$2, unless a fresh 4-card hand is worth more: keep the hand when the treasure
+    /// in hand plus $2 (and any other Minions in hand, each good for at least $2 more) beats 4
+    /// cards drawn at the deck's average money per card.
     fn default_minion(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let potential = view.turn().coins + 2;
-        let affords_something = self.buy.iter().any(|(c, _)| view.cost(*c) as u16 <= potential);
-        let small_hand = view.hand().total() <= 3;
-        let pred: fn(&ModeOpt) -> bool = if !affords_something && small_hand { is_discard_hand_draw } else { is_coins };
+        let money = |c: &Counts| -> u32 {
+            c.iter().filter(|&(x, _)| cards::is(x, TREASURE)).map(|(x, n)| cards::def(x).coins as u32 * n as u32).sum()
+        };
+        let hand = view.hand();
+        let keep = money(hand) + 2 + 2 * hand.get(id::MINION) as u32;
+        // What a new hand draws from: the deck, reshuffling the discard in if the deck is short.
+        let mut pool = view.deck();
+        if pool.total() < 4 {
+            pool.add_all(view.discard());
+        }
+        let redraw = if pool.total() == 0 { 0.0 } else { 4.0 * money(&pool) as f64 / pool.total() as f64 };
+        let pred: fn(&ModeOpt) -> bool = if redraw > keep as f64 { is_discard_hand_draw } else { is_coins };
         find_mode(id::MINION, choices, pred).unwrap_or(choices[0])
     }
 

@@ -52,10 +52,11 @@ const result = (inst) => dec.decode(new Uint8Array(inst.memory.buffer, inst.resu
 const evolved = readFileSync(new URL("../strategies/evolved/sentry_merchant_vs_double_witch.toml", import.meta.url), "utf8");
 check("add_strategy accepts a file", main.add_strategy(...put(main, evolved)) === 1);
 const added = JSON.parse(result(main));
-check("add_strategy returns the next seat id", added.id === 12 && !added.replaced);
-check("adding the same name replaces it", main.add_strategy(...put(main, evolved)) === 1 && JSON.parse(result(main)).id === 12);
+main.list_bots(); const lastId = JSON.parse(result(main)).length - 1; // ids: 0 = search, then shipped bots, then loaded ones
+check("add_strategy returns the next seat id", added.id === lastId && !added.replaced);
+check("adding the same name replaces it", main.add_strategy(...put(main, evolved)) === 1 && JSON.parse(result(main)).id === added.id);
 check("add_strategy rejects a bad file", main.add_strategy(...put(main, "name = 1")) === 0);
-check("the loaded strategy can be seated", main.set_seat(1, 12) === 1);
+check("the loaded strategy can be seated", main.set_seat(1, added.id) === 1);
 const k2 = put(main, "Witch, Sentry, Merchant, Militia");
 main.new_game(2, k2[0], k2[1], 7n, 0);
 main.state_bytes_current(); const state2 = new Uint8Array(main.memory.buffer, main.result_ptr(), main.result_len()).slice();
@@ -64,7 +65,7 @@ const initReady = new Promise((res) => viaInit.once("message", (m) => m.type ===
 viaInit.postMessage({ type: "init", module: mod, custom: [evolved] });
 await initReady;
 pool[0].w.postMessage({ type: "add", toml: evolved });
-const sims2 = await Promise.all([{ w: viaInit }, pool[0]].map((p, i) => ask(p, { type: "sim", id: i, state: state2, seats: [4, 12], games: 8, seed: 50 + i })));
+const sims2 = await Promise.all([{ w: viaInit }, pool[0]].map((p, i) => ask(p, { type: "sim", id: i, state: state2, seats: [4, added.id], games: 8, seed: 50 + i })));
 check("workers simulate a loaded strategy", sims2.every((m) => m.type === "sim" && m.ok));
 const r2 = sims2.filter((m) => m.ok).map((m) => JSON.parse(m.out));
 const g2 = r2.reduce((s, x) => s + x.games, 0), w2 = r2.reduce((s, x) => s + x.players[1].wins, 0);

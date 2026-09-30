@@ -1,0 +1,32 @@
+# Duke/Duchy (Intrigue) — Duke is worth 1 VP per Duchy you own, so Dukes and Duchies feed each
+# other: a money deck that switches to Duchies and Dukes early and keeps taking them, aiming to
+# win on points before the Provinces run out. Strong in slower games; weak in fast ones.
+
+name = "Duke-Duchy"
+description = "Money, then Duchies and Dukes from mid-game; Provinces when affordable."
+
+[[gain]]
+card = "Province"
+if = "count(Gold) >= 1"
+
+[[gain]]
+card = "Duchy"
+if = "my_turn >= 10"
+
+[[gain]]
+card = "Duke"
+if = "count(Duchy) >= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 5"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

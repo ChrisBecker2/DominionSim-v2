@@ -182,24 +182,23 @@ fn nobles_default_actions_with_two_or_more_actions_in_hand() {
 }
 
 #[test]
-fn minion_default_prefers_coins_unless_hand_is_small_and_broke() {
-    let broke = Strategy::parse("name = \"T\"\nsearch_play = false\n[[gain]]\ncard = \"Province\"\n").unwrap();
-    let rich = Strategy::parse("name = \"T\"\nsearch_play = false\n[[gain]]\ncard = \"Copper\"\n").unwrap();
+fn minion_default_redraws_only_when_four_new_cards_beat_the_hand_plus_two() {
+    let strat = Strategy::parse("name = \"T\"\nsearch_play = false\n[[gain]]\ncard = \"Province\"\n").unwrap();
     let coins_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::Coins(_)));
     let hand_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::DiscardHandDraw { .. }));
 
-    // Small hand (<= 3 after playing Minion) and $0 + $2 can't reach anything listed (Province,
-    // $8): take the fresh hand.
+    // A hand of Estates ($0 + $2) vs 4 Coppers from the deck ($4): redraw.
     let (g, d) = decide_after_play("Minion", "Minion, Estate, Estate", "5 Copper", id::MINION);
-    assert_eq!(decide(&broke, &g, &d), Choice::Mode(hand_i));
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(hand_i));
 
-    // Something listed is affordable (Copper, $0): keep the coins instead.
-    let (g, d) = decide_after_play("Minion", "Minion, Estate, Estate", "5 Copper", id::MINION);
-    assert_eq!(decide(&rich, &g, &d), Choice::Mode(coins_i));
+    // Treasure in hand counts even though it isn't played until the buy phase: Gold + Silver
+    // ($5 + $2 = $7) beats 4 Coppers ($4).
+    let (g, d) = decide_after_play("Minion", "Minion, Gold, Silver, Estate", "5 Copper", id::MINION);
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(coins_i));
 
-    // A bigger hand keeps the coins even when broke.
-    let (g, d) = decide_after_play("Minion", "Minion, Estate, Estate, Estate, Estate", "5 Copper", id::MINION);
-    assert_eq!(decide(&broke, &g, &d), Choice::Mode(coins_i));
+    // Nothing worth drawing: keep the +$2.
+    let (g, d) = decide_after_play("Minion", "Minion, Estate, Estate, Estate, Estate", "5 Estate", id::MINION);
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(coins_i));
 }
 
 #[test]

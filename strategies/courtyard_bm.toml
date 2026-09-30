@@ -1,0 +1,30 @@
+# Courtyard Big Money (Intrigue) — Courtyard is a $2 Smithy that sets up next turn: draw 3,
+# then put one card back on your deck (a Gold or Silver you can't use this turn, making the
+# next hand stronger). One or two copies on top of Big Money is a classic strong opening.
+
+name = "Courtyard-BM"
+description = "Big Money plus two Courtyards (draw 3, put one back for next turn)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Courtyard"
+if = "count(Courtyard) < 2"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Courtyard"

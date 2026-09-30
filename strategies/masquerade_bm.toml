@@ -1,0 +1,42 @@
+# Masquerade Big Money (Intrigue) — Masquerade draws 2, everyone passes a card to the left
+# (you pass your worst: a Curse, Estate or Copper), then you may trash a card. One copy
+# steadily thins junk and hands it to your opponent.
+
+name = "Masquerade-BM"
+description = "Big Money plus one Masquerade (draw 2, pass your worst card, trash one)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Masquerade"
+if = "count(Masquerade) < 1"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Masquerade"
+
+# Trash Curses and Estates freely; Coppers only while there's still money left to spend.
+[[trash]]
+card = "Curse"
+
+[[trash]]
+card = "Estate"
+if = "provinces_left >= 4"
+
+[[trash]]
+card = "Copper"
+if = "money >= 8"

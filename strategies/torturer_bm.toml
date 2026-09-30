@@ -1,0 +1,30 @@
+# Torturer Big Money (Intrigue) — Torturer draws 3 and makes every opponent choose between
+# discarding 2 cards and taking a Curse into hand. Two Torturers keep the pressure on while
+# the deck stays money-dense; a Duchy/Estate endgame like Big Money Ultimate.
+
+name = "Torturer-BM"
+description = "Big Money plus two Torturers (discard 2 or take a Curse)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Torturer"
+if = "count(Torturer) < 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Torturer"

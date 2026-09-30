@@ -127,6 +127,11 @@ const STRATEGY_SOURCES: &[&str] = &[
     include_str!("../../../strategies/village_smithy_engine.toml"),
     include_str!("../../../strategies/chapel_witch.toml"),
     include_str!("../../../strategies/gardens_workshop.toml"),
+    // Intrigue
+    include_str!("../../../strategies/torturer_bm.toml"),
+    include_str!("../../../strategies/courtyard_bm.toml"),
+    include_str!("../../../strategies/masquerade_bm.toml"),
+    include_str!("../../../strategies/duke_duchy.toml"),
 ];
 
 /// Seat controller ids: 0 = search, 1.. = STRATEGY_SOURCES[i - 1].

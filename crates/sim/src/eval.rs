@@ -122,12 +122,14 @@ impl Evaluator for GainListEvaluator<'_> {
     /// In playouts past the node budget, play actions in the strategy's rule order (no search).
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
-        // `rule_play`/`rule_mode` (not `decide_by_rules`) for play/mode decisions: those would
-        // otherwise re-enter the strategy's own turn search (`search_play_choice`) from inside a
-        // playout of that same search, re-borrowing its thread-local searcher.
+        // `rule_play`/`rule_mode`/`rule_play_treasure` (not `decide_by_rules`) for play/mode/
+        // treasure decisions: those would otherwise re-enter the strategy's own turn search
+        // (`search_play_choice`) from inside a playout of that same search, re-borrowing its
+        // thread-local searcher.
         Some(match decision.kind {
             DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
             DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
+            DecisionKind::PlayTreasure => self.strategy.rule_play_treasure(choices),
             _ => self.strategy.decide_by_rules(&view, decision, choices),
         })
     }
@@ -194,12 +196,14 @@ impl Evaluator for WinFinder<'_> {
     /// Past the budget a line can't be proven (playouts are inexact), so keep playouts cheap.
     fn playout_choice(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
-        // `rule_play`/`rule_mode` (not `decide_by_rules`) for play/mode decisions: those would
-        // otherwise re-enter the strategy's own turn search (`search_play_choice`) from inside a
-        // playout of that same search, re-borrowing its thread-local searcher.
+        // `rule_play`/`rule_mode`/`rule_play_treasure` (not `decide_by_rules`) for play/mode/
+        // treasure decisions: those would otherwise re-enter the strategy's own turn search
+        // (`search_play_choice`) from inside a playout of that same search, re-borrowing its
+        // thread-local searcher.
         Some(match decision.kind {
             DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
             DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
+            DecisionKind::PlayTreasure => self.strategy.rule_play_treasure(choices),
             _ => self.strategy.decide_by_rules(&view, decision, choices),
         })
     }
@@ -211,14 +215,18 @@ thread_local! {
 }
 
 /// Whether `d` shapes the turn player's own turn the way an action-play choice does: which
-/// action to play, what a Throne Room plays, which card to reveal (Courtier), or any Mode
-/// decision belonging to the player whose turn it currently is (Pawn/Steward/Nobles/Minion/
-/// Courtier/Lurker). A Mode decision during someone else's turn (Torturer's victim) is a
-/// reactive decision, not a play choice, so it's excluded even though `d.kind` matches.
+/// action to play, which Treasure to play (`PlayTreasure`: Anvil, Bank, ...), what a Throne
+/// Room/King's Court/Tiara plays, which card to reveal (Courtier), or any Mode decision
+/// belonging to the player whose turn it currently is (Pawn/Steward/Nobles/Minion/Courtier/
+/// Lurker). A Mode decision during someone else's turn (Torturer's victim) is a reactive
+/// decision, not a play choice, so it's excluded even though `d.kind` matches.
 pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
     matches!(
         d.kind,
-        DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
+        DecisionKind::PlayAction
+            | DecisionKind::PlayTreasure
+            | DecisionKind::Select { act: dominion_engine::Act::Play, .. }
+            | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
     ) || (matches!(d.kind, DecisionKind::Mode { .. }) && d.player == turn_player)
 }
 

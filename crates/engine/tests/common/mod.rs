@@ -144,6 +144,14 @@ pub fn buy(g: &mut GameState, card: CardId) -> Step {
     choose_and_advance(g, Choice::Card(card))
 }
 
+/// From the Buy-phase `PlayTreasure` decision, play `card` (a has-choice Treasure: Anvil,
+/// Investment, Crystal Ball, Tiara, War Chest, Bank).
+pub fn play_treasure(g: &mut GameState, card: CardId) -> Step {
+    let d = expect_decision(g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure, "expected PlayTreasure decision");
+    choose_and_advance(g, Choice::Card(card))
+}
+
 /// Pass on whatever decision is currently pending.
 pub fn pass(g: &mut GameState) -> Step {
     choose_and_advance(g, Choice::Pass)

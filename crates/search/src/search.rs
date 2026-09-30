@@ -679,6 +679,8 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
         (DecisionKind::Buy, _) => "End buys".to_string(),
+        (DecisionKind::PlayTreasure, Choice::Card(c)) => format!("Play {}", cards::name(c)),
+        (DecisionKind::PlayTreasure, _) => "End treasures".to_string(),
         (DecisionKind::Gain { .. }, Choice::Card(c)) => format!("Gain {}", cards::name(c)),
         (DecisionKind::Gain { .. }, _) => "Gain nothing".to_string(),
         (DecisionKind::Select { act, .. }, Choice::Card(c)) => format!("{} {}", verb(act), cards::name(c)),

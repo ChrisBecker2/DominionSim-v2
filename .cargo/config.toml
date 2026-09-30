@@ -1,0 +1,8 @@
+# wasm32 builds default to a 1MiB call stack (wasm-ld's default), which the Lab's deep
+# recursive turn search (crates/search) can exceed for a search-heavy strategy on a small
+# kingdom -- observed as a `memory access out of bounds` trap from a worker (not a Rust panic,
+# since it's a raw stack overflow), even though the exact same search runs fine natively (a
+# native thread's stack is megabytes larger by default). Give the wasm module more headroom;
+# native targets are unaffected (this only applies under `[target.wasm32-unknown-unknown]`).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-args=-zstack-size=4194304"]

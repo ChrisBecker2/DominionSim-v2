@@ -452,6 +452,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         announced: true,
         played: Counts::EMPTY,
         cost_reduction: tf.cost_reduction,
+        // Per-turn, within-turn bookkeeping: not part of the text format (see `format_state`'s
+        // module docs on `played`), reset fresh on load.
+        treasures_done: false,
+        named_for_war_chest: Counts::EMPTY,
     };
 
     // Player blocks.

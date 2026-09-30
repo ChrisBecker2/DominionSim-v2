@@ -88,6 +88,10 @@ impl<'a> PlayerView<'a> {
     pub fn cost(&self, c: CardId) -> u8 {
         self.state.cost(c)
     }
+    /// Whether `c` is a Treasure right now (Curse counts too, under Charlatan).
+    pub fn is_treasure(&self, c: CardId) -> bool {
+        self.state.is_treasure(c)
+    }
     pub fn empty_piles(&self) -> u32 {
         self.state.empty_piles()
     }

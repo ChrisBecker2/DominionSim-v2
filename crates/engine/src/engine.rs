@@ -13,7 +13,7 @@
 //! The engine never calls out to players; it stops and returns whenever input is needed.
 //! Because `GameState` is `Copy`, any point can be snapshotted, forked, or searched.
 
-use crate::cards::{self, id, CardId, ACTION, NUM_CARDS, TREASURE};
+use crate::cards::{self, id, CardId, ACTION, NUM_CARDS};
 use crate::counts::Counts;
 use crate::state::{Act, Dest, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
 
@@ -25,6 +25,13 @@ pub enum DecisionKind {
     PlayAction,
     /// Buy phase. Choices: `Card(affordable supply card)` or `Pass` (end turn).
     Buy,
+    /// Buy phase, before any card has been bought this turn: a Treasure whose play involves a
+    /// choice (Anvil, Investment, Crystal Ball, Tiara, War Chest, Bank). Choice-free Treasures
+    /// (Copper, Silver, Gold, ...) are always auto-played first; this decision is only offered
+    /// when at least one has-choice Treasure remains in hand. Choices: `Card(treasure in hand)`
+    /// or `Pass` (done playing Treasures; move on to `Buy`). 2nd edition: once any card has been
+    /// bought this turn, no more Treasures may be played.
+    PlayTreasure,
     /// Gain a card from the supply costing up to `max_cost` (or exactly `max_cost` when `exact`,
     /// e.g. Upgrade). Choices: `Card(..)`.
     Gain { max_cost: u8, filter: Filter, dest: Dest, exact: bool },
@@ -252,7 +259,7 @@ impl GameState {
                         debug_assert!(!buf.is_empty(), "decision {:?} with no legal choices", d);
                         if buf.len() == 1 {
                             self.set_pending(Pending::None);
-                            self.apply_unchecked(buf.as_slice()[0], sink);
+                            self.apply_unchecked(kind, buf.as_slice()[0], sink);
                             continue;
                         }
                     }
@@ -277,16 +284,16 @@ impl GameState {
 
     /// Apply a choice to the pending decision. Rejects illegal choices without changing state.
     pub fn apply<S: EventSink>(&mut self, choice: Choice, sink: &mut S) -> Result<(), &'static str> {
-        if !matches!(self.pending(), Pending::Decision(_)) {
+        let Pending::Decision(d) = self.pending() else {
             return Err("no decision pending");
-        }
+        };
         let mut buf = ChoiceBuf::default();
         self.legal_choices(&mut buf);
         if !buf.contains(choice) {
             return Err("illegal choice");
         }
         self.set_pending(Pending::None);
-        self.apply_unchecked(choice, sink);
+        self.apply_unchecked(d.kind, choice, sink);
         Ok(())
     }
 
@@ -347,11 +354,16 @@ impl GameState {
                 }
             }
             Phase::Buy => {
-                // States edited or loaded mid-buy-phase may hold unplayed treasures.
-                if self.players[p].hand.any_type(TREASURE) {
-                    self.play_treasures(sink);
-                }
-                if self.turn.buys > 0 {
+                // States edited or loaded mid-buy-phase, or a card effect (Crystal Ball, Mine)
+                // that puts a fresh choice-free Treasure into hand, may hold unplayed treasures;
+                // auto-play them every time we get here. One hand scan decides both what to
+                // auto-play and whether a has-choice Treasure remains, so this `Run::Decide`'s
+                // `DecisionKind` is authoritative; `apply_phase` reuses it (via `apply_unchecked`)
+                // instead of re-deriving the same thing from another hand scan.
+                let has_choice_treasure = if self.turn.treasures_done { false } else { self.play_choice_free_treasures(sink) };
+                if has_choice_treasure {
+                    Run::Decide(DecisionKind::PlayTreasure, 0)
+                } else if self.turn.buys > 0 {
                     Run::Decide(DecisionKind::Buy, 0)
                 } else {
                     self.cleanup(sink);
@@ -395,18 +407,29 @@ impl GameState {
                 }
                 out.push(Choice::Pass);
             }
+            DecisionKind::PlayTreasure => {
+                for (c, _) in self.players[p].hand.iter() {
+                    if self.is_treasure(c) && !cards::is_choice_free(c) {
+                        out.push(Choice::Card(c));
+                    }
+                }
+                out.push(Choice::Pass);
+            }
             _ => unreachable!(),
         }
     }
 
-    fn apply_unchecked<S: EventSink>(&mut self, choice: Choice, sink: &mut S) {
+    fn apply_unchecked<S: EventSink>(&mut self, kind: DecisionKind, choice: Choice, sink: &mut S) {
         match self.stack.top() {
             Some(f) => self.apply_frame(f, choice, sink),
-            None => self.apply_phase(choice, sink),
+            None => self.apply_phase(kind, choice, sink),
         }
     }
 
-    fn apply_phase<S: EventSink>(&mut self, choice: Choice, sink: &mut S) {
+    /// `kind` is the `DecisionKind` already computed for the pending decision (by `advance`, just
+    /// before this was called): reused here, rather than re-deriving "Buy phase: Treasure or
+    /// Buy?" from a fresh hand scan, since callers always have it on hand already.
+    fn apply_phase<S: EventSink>(&mut self, kind: DecisionKind, choice: Choice, sink: &mut S) {
         sink.depth(0);
         let p = self.turn.player;
         match (self.turn.phase, choice) {
@@ -420,32 +443,57 @@ impl GameState {
                 self.resolve_effects(c, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
+            (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure => {
+                let ps = &mut self.players[p as usize];
+                ps.hand.remove(c);
+                ps.in_play.add(c, 1);
+                sink.depth(0);
+                sink.event(Event::Play { player: p, card: c });
+                self.resolve_effects(c, 0, sink);
+            }
+            (Phase::Buy, Choice::Pass) if kind == DecisionKind::PlayTreasure => {
+                // Done playing Treasures for the rest of this Buy phase (durably: the next
+                // `run_phase` call offers Buy, even if another has-choice Treasure remains
+                // unplayed in hand, e.g. from a card that puts one there afterward).
+                self.turn.treasures_done = true;
+            }
             (Phase::Buy, Choice::Card(c)) => {
                 self.turn.coins -= self.cost(c) as u16;
                 self.turn.buys -= 1;
+                self.turn.treasures_done = true;
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
                 sink.depth(1);
-                self.gain(p, c, Dest::Discard, sink);
+                self.gain(p, c, Dest::Discard, true, sink);
+                self.on_buy_effects(p, c, sink);
             }
             (Phase::Buy, _) => self.cleanup(sink),
             _ => unreachable!(),
         }
     }
 
-    /// Enter the buy phase: all treasures in hand are played automatically.
+    /// Enter the buy phase; treasures are auto-played by the first `run_phase` call for it.
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
         sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
-        self.play_treasures(sink);
     }
 
-    /// Play every treasure in the current player's hand.
-    fn play_treasures<S: EventSink>(&mut self, sink: &mut S) {
+    /// Play every choice-free Treasure (Copper, Silver, Gold, ...; see `cards::is_choice_free`)
+    /// in the current player's hand. Has-choice Treasures (Anvil, Bank, ...) are played one at a
+    /// time through the `PlayTreasure` decision instead.
+    /// Returns whether a has-choice Treasure remains in hand afterward (found for free during
+    /// the same hand scan, so `run_phase`'s Buy arm doesn't need a second one to decide whether
+    /// to offer `PlayTreasure`).
+    fn play_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) -> bool {
         let p = self.turn.player;
         let hand = self.players[p as usize].hand;
+        let mut has_choice_left = false;
         for (c, n) in hand.iter() {
-            if !cards::is(c, TREASURE) {
+            if !self.is_treasure(c) {
+                continue;
+            }
+            if !cards::is_choice_free(c) {
+                has_choice_left = true;
                 continue;
             }
             let ps = &mut self.players[p as usize];
@@ -464,6 +512,7 @@ impl GameState {
                 self.turn.silvers_played += n;
             }
         }
+        has_choice_left
     }
 
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
@@ -509,8 +558,13 @@ impl GameState {
         Ok(Some(c))
     }
 
-    /// Gain `c` from the supply if available. Returns whether it was gained.
-    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, sink: &mut S) -> bool {
+    /// Gain `c` from the supply if available, to `to`. `on_buy` is true only for the literal
+    /// purchase in the Buy phase (never for Workshop/Remodel/War Chest/... gains, even though
+    /// some of those happen during a buy): it gates Hoard's "if you bought it" and Mint's on-buy
+    /// trash (`on_buy_effects`). Runs every "when you gain" trigger (Watchtower, Hoard,
+    /// Collection, Tiara); a per-turn gain record for Smugglers is TODO (step 3/4; see
+    /// `state::PlayerState`). Returns whether it was gained.
+    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) -> bool {
         if !self.supply.remove(c) {
             return false;
         }
@@ -521,7 +575,104 @@ impl GameState {
             Dest::Discard => ps.discard.add(c, 1),
         }
         sink.event(Event::Gain { player: p, card: c, to });
+        self.run_gain_triggers(p, c, to, on_buy, sink);
         true
+    }
+
+    /// The zone a gain destination corresponds to, for triggers that need to find the gained
+    /// card again afterward (Watchtower, Tiara). `None` for `Dest::DeckTop`: there is no zone in
+    /// this engine's Select vocabulary for "the known top of the deck" (decks are the
+    /// known-stack/unknown-multiset split, not a `Counts` zone), so a card gained straight onto
+    /// the deck (e.g. Bureaucrat's Silver) is a documented gap: Watchtower/Tiara can't currently
+    /// react to it. Rare in practice.
+    fn gain_dest_zone(to: Dest) -> Option<Zone> {
+        match to {
+            Dest::Discard => Some(Zone::Discard),
+            Dest::Hand => Some(Zone::Hand),
+            Dest::DeckTop => None,
+        }
+    }
+
+    /// Run every "when you gain" trigger for `p` gaining `c` (already moved to `to`): the
+    /// generic table (`cards::GAIN_TRIGGERS`) for the immediate, decision-free bonuses (Hoard,
+    /// Collection), then, if the card landed in a zone we can revisit, optional reactions
+    /// (Watchtower, Tiara) as chained optional `Select` frames over the single gained card —
+    /// each is skipped automatically once an earlier one has already moved it (`avail == 0`), so
+    /// "trash OR topdeck" falls out of the generic Select machinery for free. Order: Watchtower's
+    /// trash, then its topdeck, then Tiara's topdeck; a bonus gain a trigger causes (Hoard's
+    /// Gold) runs its own triggers first, so this gain's own reactions are asked first.
+    fn run_gain_triggers<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
+        // Cheap fast path for the overwhelmingly common case (no Prosperity gain-watcher card in
+        // this game at all): one bitwise AND against the supply mask, instead of walking the
+        // trigger table and probing hand/in-play for every gain of every game.
+        if self.in_supply & cards::GAIN_TRIGGER_CARDS_MASK == 0 {
+            return;
+        }
+        let pi = p as usize;
+        for &(watcher, zone, trigger) in cards::GAIN_TRIGGERS {
+            // Every copy present triggers independently (two Hoards on one bought Victory card
+            // gain two Golds).
+            let count = match zone {
+                cards::GainTriggerZone::Hand => self.players[pi].hand.get(watcher),
+                cards::GainTriggerZone::InPlay => self.players[pi].in_play.get(watcher),
+            };
+            if count == 0 {
+                continue;
+            }
+            match trigger {
+                cards::GainTrigger::HoardBoughtVictory => {
+                    if on_buy && cards::is(c, cards::VICTORY) {
+                        for _ in 0..count {
+                            self.gain(p, id::GOLD, Dest::Discard, false, sink);
+                        }
+                    }
+                }
+                cards::GainTrigger::CollectionAction => {
+                    if cards::is(c, cards::ACTION) {
+                        self.players[pi].vp_tokens += count as u16;
+                    }
+                }
+                // Decision-based: handled below (a frame per copy, not an immediate effect).
+                cards::GainTrigger::WatchtowerReact | cards::GainTrigger::TiaraTopdeck => {}
+            }
+        }
+        let Some(zone) = Self::gain_dest_zone(to) else { return };
+        let react = |source: CardId, act: Act| Frame {
+            zone,
+            act,
+            filter: Filter::Card(c),
+            max: 1,
+            ..Frame::new(FrameKind::Select, p, source)
+        };
+        // A 2nd (or later) copy's reaction naturally finds nothing left to act on once an
+        // earlier one has already moved the card (`avail == 0`, auto-skipped), so pushing one
+        // frame per copy is both correct and cheap (copy counts are always small).
+        for _ in 0..self.players[pi].in_play.get(id::TIARA) {
+            self.stack.push(react(id::TIARA, Act::Topdeck));
+        }
+        for _ in 0..self.players[pi].hand.get(id::WATCHTOWER) {
+            self.stack.push(react(id::WATCHTOWER, Act::Topdeck));
+            self.stack.push(react(id::WATCHTOWER, Act::Trash));
+        }
+    }
+
+    /// Card-specific effects that happen specifically because a card was *bought* (not gained
+    /// any other way): the one place for them, parallel to `may_buy`. Runs after the bought
+    /// card's own gain (and its triggers) have resolved.
+    fn on_buy_effects<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
+        if c == id::MINT {
+            // 2nd edition: trash only non-Duration Treasures (1st edition trashed all Treasures).
+            let treasures = self.players[p as usize].in_play;
+            for (tc, n) in treasures.iter() {
+                if self.is_treasure(tc) && !cards::is(tc, cards::DURATION) {
+                    for _ in 0..n {
+                        self.players[p as usize].in_play.remove(tc);
+                        self.trash.add(tc, 1);
+                        sink.event(Event::Trash { player: p, card: tc });
+                    }
+                }
+            }
+        }
     }
 
     /// Moat check (auto-revealed; revealing is never worse in the base set).

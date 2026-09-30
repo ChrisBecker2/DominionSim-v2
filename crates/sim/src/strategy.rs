@@ -341,8 +341,9 @@ impl Strategy {
                 Act::Reveal => Choice::Yes,
                 _ => Choice::No,
             },
-            DecisionKind::Name => self.choose_name(view, choices),
+            DecisionKind::Name => self.choose_name(view, decision, choices),
             DecisionKind::DeckPosition { .. } => self.choose_deck_position(view, decision, choices),
+            DecisionKind::PlayTreasure => self.play_treasure_decision(view, decision, choices),
         }
     }
 
@@ -718,11 +719,17 @@ impl Strategy {
     // Hidden information (Wishing Well / Secret Passage / Masquerade).
     // -----------------------------------------------------------------------------------------
 
-    /// Wishing Well: name the most likely card from the honest view (highest count in the deck,
-    /// or the discard if the deck is empty — the same source the engine offers from), ties broken
-    /// by whichever the strategy values most (its rank in the gain list, cheapest first as a
-    /// fallback so a tie still resolves the same way every time).
-    fn choose_name(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+    /// Name a card: Wishing Well (guessing our own deck top) and War Chest (as the player to the
+    /// War Chest owner's left, naming a card to deny them) are opposite in spirit, so they're
+    /// told apart by `decision.source`, the same way `choose_mode` dispatches per-card.
+    fn choose_name(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if decision.source == Some(id::WAR_CHEST) {
+            return self.choose_war_chest_name(view, choices);
+        }
+        // Wishing Well: name the most likely card from the honest view (highest count in the
+        // deck, or the discard if the deck is empty — the same source the engine offers from),
+        // ties broken by whichever the strategy values most (its rank in the gain list, cheapest
+        // first as a fallback so a tie still resolves the same way every time).
         let source = if view.deck_size() > 0 { view.deck() } else { *view.discard() };
         let value = |c: CardId| -> i32 {
             match self.gain_rank(view, c) {
@@ -731,6 +738,48 @@ impl Strategy {
             }
         };
         iter_cards(choices).max_by_key(|&c| (source.get(c), value(c))).map(Choice::Card).unwrap_or_else(|| choices[0])
+    }
+
+    /// War Chest, as the namer: deny the most expensive card up to $5 (a card costing more is
+    /// never reachable by War Chest's own gain anyway, so naming it denies nothing), guessing
+    /// it's the biggest prize the owner was after. A simple heuristic, not adversarially optimal
+    /// (we don't model the owner's own strategy).
+    fn choose_war_chest_name(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        iter_cards(choices)
+            .filter(|&c| view.cost(c) <= 5)
+            .max_by_key(|&c| view.cost(c))
+            .or_else(|| iter_cards(choices).min_by_key(|&c| view.cost(c)))
+            .map(Choice::Card)
+            .unwrap_or_else(|| choices[0])
+    }
+
+    /// `PlayTreasure`: with `search_play`, searched with the strategy's own scoring exactly like
+    /// `play_decision` does for `PlayAction` (`is_play_decision` in `eval.rs` treats it the same
+    /// way); `rule_play_treasure` is the fast/default fallback otherwise.
+    fn play_treasure_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if self.search_play && decision.player == view.me() {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
+        self.rule_play_treasure(choices)
+    }
+
+    /// The `PlayTreasure` choice by rule order alone, without searching: play every has-choice
+    /// Treasure that helps except Bank, then Bank last (its value grows with every other
+    /// Treasure already played this Buy phase), then Done. Used both as the `search_play = false`
+    /// default and inside search playouts (avoiding re-entering `search_play_choice` from within
+    /// its own playout, which would panic on the thread-local searcher's double borrow).
+    pub fn rule_play_treasure(&self, choices: &[Choice]) -> Choice {
+        if let Some(c) = iter_cards(choices).find(|&c| c != id::BANK) {
+            return Choice::Card(c);
+        }
+        if has_card(choices, id::BANK) {
+            return Choice::Card(id::BANK);
+        }
+        Choice::Pass
     }
 
     /// Secret Passage's card pick (`Select`, `Act::SetAside`): the single most valuable card in
@@ -830,8 +879,17 @@ impl Strategy {
             id::COURTIER => self.default_courtier(choices),
             id::LURKER => self.default_lurker(view, choices),
             id::TORTURER => self.default_torturer(view, choices),
+            id::INVESTMENT => self.default_investment(view, choices),
             _ => choices[0],
         }
+    }
+
+    /// Investment: trash it for VP once the hand already holds decent Treasure diversity (3+
+    /// differently-named Treasures), otherwise the safe +$1.
+    fn default_investment(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let distinct = view.hand().iter().filter(|&(c, _)| view.is_treasure(c)).count();
+        let pred: fn(&ModeOpt) -> bool = if distinct >= 3 { is_trash_self_investment } else { is_coins };
+        find_mode(id::INVESTMENT, choices, pred).unwrap_or(choices[0])
     }
 
     /// Pawn: +1 Card and +$1, unless the hand holds an action but there are no actions left to
@@ -1035,6 +1093,9 @@ fn is_trash_supply(o: &ModeOpt) -> bool {
 }
 fn is_gain_trash(o: &ModeOpt) -> bool {
     matches!(o, ModeOpt::GainFromTrash(_))
+}
+fn is_trash_self_investment(o: &ModeOpt) -> bool {
+    matches!(o, ModeOpt::TrashSelfRevealVpPerTreasureType)
 }
 
 /// The offered `Choice::Mode(i)` (if any) whose table entry for `card` matches `pred`.

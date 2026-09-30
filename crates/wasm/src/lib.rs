@@ -1537,6 +1537,8 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::NonCopperTreasure => ("a Treasure other than Copper".into(), "Treasures other than Copper".into()),
         Filter::Card(c) => (format!("a {}", cards::name(c)), format!("{}s", cards::name(c))),
         Filter::VictoryOrCurse => ("a Victory card or Curse".into(), "Victory cards and Curses".into()),
+        Filter::ActionOrTreasure => ("an Action or Treasure card".into(), "Action or Treasure cards".into()),
+        Filter::TreasureOrCurse => ("a Treasure".into(), "Treasures".into()),
     }
 }
 
@@ -1551,6 +1553,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
     let body = match d.kind {
         DecisionKind::PlayAction => format!("You may play an Action card ({} action(s) left).", state.turn.actions),
         DecisionKind::Buy => format!("You may buy a card (${} available, {} buy(s) left).", state.turn.coins, state.turn.buys),
+        DecisionKind::PlayTreasure => format!("You may play a Treasure card (${} so far).", state.turn.coins),
         DecisionKind::Gain { max_cost, filter, dest, exact } => {
             let (one, _) = filter_noun(filter);
             let cost = if exact { "exactly" } else { "up to" };
@@ -1649,6 +1652,7 @@ fn choice_label(d: &Decision, c: Choice) -> String {
             match d.kind {
                 DecisionKind::PlayAction => format!("Play {name}"),
                 DecisionKind::Buy => format!("Buy {name}"),
+                DecisionKind::PlayTreasure => format!("Play {name}"),
                 DecisionKind::Gain { .. } => format!("Gain {name}"),
                 DecisionKind::Select { act, .. } => match act {
                     Act::Discard => format!("Discard {name}"),

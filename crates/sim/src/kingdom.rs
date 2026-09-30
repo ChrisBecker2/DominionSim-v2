@@ -165,7 +165,17 @@ mod tests {
 
     #[test]
     fn random_rejects_unknown_set() {
-        assert!(resolve("random:seaside", &[], 1).is_err());
+        // Seaside and Prosperity are recognized sets now (step 1/2); use a genuinely unknown one.
+        assert!(resolve("random:alchemy", &[], 1).is_err());
+    }
+
+    #[test]
+    fn random_accepts_seaside_and_prosperity_by_name() {
+        let k = resolve("random:prosperity", &[], 1).unwrap();
+        assert!(!k.is_empty());
+        for &c in &k {
+            assert_eq!(cards::set_of(c), CardSet::Prosperity);
+        }
     }
 
     #[test]

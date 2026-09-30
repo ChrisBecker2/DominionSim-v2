@@ -168,3 +168,19 @@ included:
   Corsair, Pirate, Sea Witch, Astrolabe, Anvil, Clerk, Investment, Tiara, Charlatan, Collection,
   Crystal Ball, Magnate and War Chest.
 - Test files: `crates/engine/tests/seaside_port.rs` and `prosperity_port.rs`.
+
+## 5. Performance log
+
+Benchmark: `dominion-sim match big_money_ultimate double_witch --games 200000` on a Base-only
+kingdom (full bots), plus a fast-mode (rule-order, no win lookahead) Double Witch vs Big Money
+match at 1M games. 32 threads.
+
+| Point | Full bots | Fast mode |
+|---|---|---|
+| Before Seaside/Prosperity (59 ids) | 282k/s | 1.75M/s |
+| Step 1: 113 ids, 128-lane Counts, sparse iteration | 253k/s | 1.79M/s |
+| Step 2: treasure decisions, gain pipeline, Prosperity | 228k/s | 1.60M/s |
+
+Step 2's ~10% has no single hot spot (GameState grew only 7872 -> 8192 bytes, gain triggers are
+gated by one mask test); it needs a real profiler. The next structural option is per-game compact
+card ids (a game never uses more than ~30 distinct cards), which shrinks every `Counts`.

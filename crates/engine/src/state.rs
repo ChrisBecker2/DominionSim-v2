@@ -115,6 +115,17 @@ pub struct PlayerState {
     pub turns_taken: u16,
     /// Victory point tokens (Monument, Bishop, ...), counted in the score.
     pub vp_tokens: u16,
+    // TODO(step 3/4): a per-player, per-turn record of cards gained (Smugglers: "a card the
+    // player to your right gained on their last turn") isn't tracked yet. Adding it as `Counts`
+    // fields here (as originally drafted) cost ~1.5KB per player (4 more 128-byte multisets in a
+    // fixed [PlayerState; MAX_PLAYERS] array) and measurably regressed the hot loop (~20%,
+    // exceeding the ~5% budget) even for games with none of these cards, apparently from worse
+    // cache locality on this frequently-touched struct rather than any single hot computation.
+    // Reintroduce with a cheaper representation when Smugglers is implemented (e.g. only on
+    // `TurnState`, which doesn't multiply by `MAX_PLAYERS`, or a small fixed-capacity list of
+    // (card, count) pairs instead of a full 128-lane `Counts`, sized to how many distinct cards a
+    // turn realistically gains). Mint/Hoard/Collection/Watchtower/Tiara (built this step) don't
+    // need this: they react to each gain immediately via `on_buy` and in-play/hand presence.
 }
 
 impl PlayerState {
@@ -197,6 +208,13 @@ pub struct TurnState {
     pub played: Counts,
     /// Cards cost this much less this turn, to a minimum of 0 (Bridge).
     pub cost_reduction: u8,
+    /// Once a card has been bought this turn (2nd-edition rule), or once the player has passed
+    /// on the `PlayTreasure` decision (declining durably, not just skipping one offer), no more
+    /// Treasures may be played: gates both the choice-free auto-play and `PlayTreasure`.
+    pub treasures_done: bool,
+    /// Cards named for War Chest this turn (by any War Chest play): a War Chest's own gain may
+    /// not be any of these.
+    pub named_for_war_chest: Counts,
 }
 
 impl TurnState {
@@ -213,6 +231,8 @@ impl TurnState {
             announced: false,
             played: Counts::EMPTY,
             cost_reduction: 0,
+            treasures_done: false,
+            named_for_war_chest: Counts::EMPTY,
         }
     }
 }
@@ -264,6 +284,12 @@ pub enum Filter {
     NonCopperTreasure,
     /// Victory cards and Curses (Patrol).
     VictoryOrCurse,
+    /// Action or Treasure cards (Crystal Ball's "play it" option, Rabble's discard).
+    ActionOrTreasure,
+    /// Treasure cards, plus Curse (statically, regardless of Charlatan). Chosen dynamically at
+    /// frame-construction time by `GameState::treasure_filter` when Charlatan is in the game, so
+    /// Anvil/Tiara/Mint's Treasure selections include Curse-as-Treasure; see `is_treasure`.
+    TreasureOrCurse,
 }
 
 impl Filter {
@@ -277,6 +303,8 @@ impl Filter {
             Filter::Card(x) => c == x,
             Filter::NonCopperTreasure => c != id::COPPER && cards::is(c, cards::TREASURE),
             Filter::VictoryOrCurse => cards::is(c, cards::VICTORY) || cards::is(c, cards::CURSE_T),
+            Filter::ActionOrTreasure => cards::is(c, cards::ACTION) || cards::is(c, cards::TREASURE),
+            Filter::TreasureOrCurse => cards::is(c, cards::TREASURE) || c == id::CURSE,
         }
     }
 }
@@ -344,6 +372,26 @@ pub enum Then {
     /// YesNo (`act: Reveal`): if revealed, draw `draw` cards then discard exactly `discard`
     /// (Diplomat's reaction to an Attack being played).
     ReactDrawDiscard { draw: u8, discard: u8 },
+    /// Select: if something was picked, gain a card costing up to a *fixed* amount, regardless
+    /// of what was picked (Anvil: discard a Treasure to gain a card up to $4).
+    GainFixedUpTo { max_cost: u8, filter: Filter, dest: Dest },
+    /// Select (a reveal-from-hand pick, kept in the zone): if a Treasure was revealed, gain a
+    /// copy of it (Mint).
+    GainCopyOfRevealed { dest: Dest },
+    /// Select: +1 VP token per `per` $ of the trashed card's cost, rounded down (Bishop: +1 VP
+    /// per $2).
+    VpPerCost { per: u8 },
+    /// Select (trash any number from hand): gain a card costing *exactly* the summed current
+    /// cost of everything trashed (each valued at its cost at the moment it was trashed, so
+    /// Bridge/Quarry-style reductions already active apply on both sides) — Forge. Always runs,
+    /// even if nothing was trashed (total $0: a Copper or Curse).
+    GainExactCostSum { dest: Dest },
+    /// Select: draw `draw` cards iff exactly `count` were picked; picking fewer (e.g. a hand
+    /// with only 1 card, Vault's "discard 2 to draw 1") draws nothing.
+    DrawIfCount { count: u8, draw: u8 },
+    /// RevealTop: move every revealed card matching `Filter` straight to discard (Rabble),
+    /// mirroring `MoveMatchingToHand` for Patrol.
+    MoveMatchingToDiscard(Filter),
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -392,6 +440,11 @@ pub struct Frame {
     /// Nesting depth of the card effect this frame belongs to (0 = top level), for logging
     /// effects indented under the card that caused them.
     pub depth: u8,
+    /// Gain: also exclude cards named for War Chest this turn (`GameState::turn.named_for_war_chest`).
+    pub excl_named: bool,
+    /// Select: running sum of the current cost of every card picked so far, used by
+    /// `Then::GainExactCostSum` (Forge).
+    pub cost_sum: u16,
 }
 
 impl Frame {
@@ -415,6 +468,8 @@ impl Frame {
             then: Then::Nothing,
             subject: 0,
             depth: 0,
+            excl_named: false,
+            cost_sum: 0,
         }
     }
 }
@@ -442,9 +497,14 @@ pub enum FrameKind {
     /// `cards::modes(source)`, offered in increasing index order; `player` may be another
     /// player (Torturer's victim). Resolved in index order once every pick is made.
     Mode,
-    /// Name a card (Wishing Well): a `DecisionKind::Name` offering every card that could be on
-    /// top of `player`'s deck (or discard, if the deck is empty). `subject` holds the named card
-    /// once chosen; the next step reveals the real top card and compares.
+    /// Name a card: a `DecisionKind::Name`. Two variants, told apart by `zone`:
+    /// - Wishing Well (any other `zone`): offers every card that could be on top of `player`'s
+    ///   deck (or discard, if the deck is empty); `chooser` is `player`. `subject` holds the
+    ///   named card once chosen; the next step reveals the real top card and compares.
+    /// - War Chest (`zone: Zone::Supply`): offers every card in this game's supply; `chooser` is
+    ///   the player to `player`'s left. Once named, it's recorded in
+    ///   `TurnState::named_for_war_chest` and a `Gain` frame (up to $5, excluding every name so
+    ///   far this turn) follows — no reveal-and-compare step.
     Name,
     /// Place `subject` (already removed from hand into `set_aside`) into `player`'s deck: a
     /// `DecisionKind::DeckPosition` (Secret Passage).
@@ -628,12 +688,46 @@ impl GameState {
         s
     }
 
-    /// What `c` costs right now: its printed cost less this turn's reductions (Bridge), min 0.
-    /// Everything that compares costs (buying, "gain a card costing up to", Remodel's +$2...)
-    /// goes through this, never through `cards::cost` directly.
+    /// What `c` costs right now: its printed cost less this turn's reductions, min 0. Bridge is a
+    /// flat turn-wide reduction; Quarry reduces Action cards while it's in play (stacking per
+    /// copy); Peddler reduces only itself, and only during its owner's Buy phase, by $2 per
+    /// Action card they have in play. Everything that compares costs (buying, "gain a card
+    /// costing up to", Remodel's +$2...) goes through this, never through `cards::cost` directly.
     #[inline(always)]
     pub fn cost(&self, c: CardId) -> u8 {
-        cards::cost(c).saturating_sub(self.turn.cost_reduction)
+        let pi = self.turn.player as usize;
+        let mut reduction: u32 = self.turn.cost_reduction as u32;
+        // `in_supply` check first: a single cheap bitmask test that skips the (still cheap, but
+        // not free) `in_play` lookup entirely for the overwhelming majority of games, which have
+        // no Quarry in the kingdom at all.
+        if self.in_supply(id::QUARRY) && cards::is(c, cards::ACTION) {
+            reduction += 2 * self.players[pi].in_play.get(id::QUARRY) as u32;
+        }
+        if c == id::PEDDLER && self.turn.phase == Phase::Buy {
+            reduction += 2 * self.players[pi].in_play.count_type(cards::ACTION);
+        }
+        (cards::cost(c) as u32).saturating_sub(reduction) as u8
+    }
+
+    /// Whether `c` is a Treasure right now: statically Treasure-typed, or Curse when Charlatan is
+    /// in this game's supply ("Curse is also a Treasure worth $1"). Use this (never
+    /// `cards::is(c, TREASURE)`) wherever the engine asks "is this a Treasure" at game time.
+    #[inline(always)]
+    pub fn is_treasure(&self, c: CardId) -> bool {
+        cards::is(c, cards::TREASURE) || (c == id::CURSE && self.in_supply(id::CHARLATAN))
+    }
+
+    /// The `Filter` to use for a Select/Gain that should match Treasures, extended to Curse when
+    /// Charlatan makes it one this game (Anvil, Tiara, Mint). Chosen once, at frame-construction
+    /// time (`Filter::matches` itself stays a pure, stateless function).
+    #[inline]
+    pub fn treasure_filter(&self) -> Filter {
+        if self.in_supply(id::CHARLATAN) { Filter::TreasureOrCurse } else { Filter::Treasure }
+    }
+
+    /// Treasures `p` has in play right now, counting Curse when Charlatan makes it one (Bank).
+    pub fn treasures_in_play(&self, p: u8) -> u32 {
+        self.players[p as usize].in_play.iter().filter(|&(c, _)| self.is_treasure(c)).map(|(_, n)| n as u32).sum()
     }
 
     /// Card-specific rules on whether `c` may be bought right now, beyond cost and pile (the one

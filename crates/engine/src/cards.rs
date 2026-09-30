@@ -244,13 +244,15 @@ const fn has_choice(d: CardDef) -> CardDef {
 }
 
 pub static CARDS: [CardDef; NUM_CARDS] = [
-    c("Copper", 0, TREASURE, 1, 0, 0, 0, 0),
-    c("Silver", 3, TREASURE, 2, 0, 0, 0, 0),
-    c("Gold", 6, TREASURE, 3, 0, 0, 0, 0),
+    choice_free(c("Copper", 0, TREASURE, 1, 0, 0, 0, 0)),
+    choice_free(c("Silver", 3, TREASURE, 2, 0, 0, 0, 0)),
+    choice_free(c("Gold", 6, TREASURE, 3, 0, 0, 0, 0)),
     c("Estate", 2, VICTORY, 0, 1, 0, 0, 0),
     c("Duchy", 5, VICTORY, 0, 3, 0, 0, 0),
     c("Province", 8, VICTORY, 0, 6, 0, 0, 0),
-    c("Curse", 0, CURSE_T, 0, -1, 0, 0, 0),
+    // Coins=1: only relevant when Curse is also a Treasure this game (Charlatan; see
+    // `GameState::is_treasure`). Choice-free: playing it (when it's a Treasure) is just +$1.
+    choice_free(c("Curse", 0, CURSE_T, 1, -1, 0, 0, 0)),
     has_choice(c("Cellar", 2, ACTION, 0, 0, 0, 1, 0)), // what to discard
     has_choice(c("Chapel", 2, ACTION, 0, 0, 0, 0, 0)), // what to trash
     choice_free(c("Moat", 2, ACTION | REACTION, 0, 0, 2, 0, 0)),
@@ -302,13 +304,13 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     intrigue(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
     intrigue(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
     intrigue(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
-    intrigue(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0)),
+    intrigue(choice_free(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0))),
     intrigue(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
     // ---- Seaside (2nd edition). D = Duration; the next-turn parts are in `effects.rs`. ----
     todo(CardSet::Seaside, has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
     todo(CardSet::Seaside, choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
     todo(CardSet::Seaside, has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
-    todo(CardSet::Seaside, c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1)),
+    todo(CardSet::Seaside, choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
     todo(CardSet::Seaside, choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
     todo(CardSet::Seaside, has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
     todo(CardSet::Seaside, choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
@@ -333,32 +335,32 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     todo(CardSet::Seaside, choice_free(c("Treasury", 5, ACTION, 1, 0, 1, 1, 0))),
     todo(CardSet::Seaside, choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
     // ---- Prosperity (2nd edition). ----
-    todo(CardSet::Prosperity, c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0)),
-    todo(CardSet::Prosperity, has_choice(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: order matters
-    todo(CardSet::Prosperity, has_choice(c("Bishop", 4, ACTION, 1, 0, 0, 0, 0))), // what to trash
-    todo(CardSet::Prosperity, choice_free(c("Clerk", 4, ACTION | REACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
-    todo(CardSet::Prosperity, c("Investment", 4, TREASURE, 0, 0, 0, 0, 0)),
+    prosperity(has_choice(c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0))), // discard a Treasure to gain up to $4?
+    prosperity(has_choice(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: order matters
+    prosperity(has_choice(c("Bishop", 4, ACTION, 1, 0, 0, 0, 0))), // what to trash
+    prosperity(choice_free(c("Clerk", 4, ACTION | REACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
+    prosperity(has_choice(c("Investment", 4, TREASURE, 0, 0, 0, 0, 0))), // trash a card, then +$1 or trash this for VP
     prosperity(choice_free(c("Monument", 4, ACTION, 2, 0, 0, 0, 0))), // +1 VP token
-    todo(CardSet::Prosperity, c("Quarry", 4, TREASURE, 1, 0, 0, 0, 0)),
-    todo(CardSet::Prosperity, c("Tiara", 4, TREASURE, 0, 0, 0, 0, 1)),
+    prosperity(choice_free(c("Quarry", 4, TREASURE, 1, 0, 0, 0, 0))), // flat $1; the cost reduction is passive
+    prosperity(has_choice(c("Tiara", 4, TREASURE, 0, 0, 0, 0, 1))), // which Treasure (if any) to play twice
     prosperity(choice_free(c("Worker's Village", 4, ACTION, 0, 0, 1, 2, 1))),
-    todo(CardSet::Prosperity, choice_free(c("Charlatan", 5, ACTION | ATTACK, 3, 0, 0, 0, 0))),
+    prosperity(choice_free(c("Charlatan", 5, ACTION | ATTACK, 3, 0, 0, 0, 0))),
     prosperity(choice_free(c("City", 5, ACTION, 0, 0, 1, 2, 0))), // bonus from empty piles, which choice-free plays can't change
-    todo(CardSet::Prosperity, c("Collection", 5, TREASURE, 2, 0, 0, 0, 1)),
-    todo(CardSet::Prosperity, c("Crystal Ball", 5, TREASURE, 1, 0, 0, 0, 0)),
+    prosperity(choice_free(c("Collection", 5, TREASURE, 2, 0, 0, 0, 1))), // passive +1 VP on gain while in play
+    prosperity(has_choice(c("Crystal Ball", 5, TREASURE, 1, 0, 0, 0, 0))), // trash / discard / play the top card
     prosperity(has_choice(c("Magnate", 5, ACTION, 0, 0, 0, 0, 0))), // draws per treasure in hand: order matters
-    todo(CardSet::Prosperity, has_choice(c("Mint", 5, ACTION, 0, 0, 0, 0, 0))), // which treasure to copy
-    todo(CardSet::Prosperity, choice_free(c("Rabble", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only victims act
-    todo(CardSet::Prosperity, has_choice(c("Vault", 5, ACTION, 0, 0, 2, 0, 0))), // what to discard
-    todo(CardSet::Prosperity, c("War Chest", 5, TREASURE, 0, 0, 0, 0, 0)),
+    prosperity(has_choice(c("Mint", 5, ACTION, 0, 0, 0, 0, 0))), // which treasure to copy
+    prosperity(choice_free(c("Rabble", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only victims act
+    prosperity(has_choice(c("Vault", 5, ACTION, 0, 0, 2, 0, 0))), // what to discard
+    prosperity(has_choice(c("War Chest", 5, TREASURE, 0, 0, 0, 0, 0))), // gain up to $5, not named
     prosperity(choice_free(c("Grand Market", 6, ACTION, 2, 0, 1, 1, 1))), // can't be bought with a Copper in play
-    todo(CardSet::Prosperity, c("Hoard", 6, TREASURE, 2, 0, 0, 0, 0)),
-    todo(CardSet::Prosperity, c("Bank", 7, TREASURE, 0, 0, 0, 0, 0)),
-    todo(CardSet::Prosperity, has_choice(c("Expand", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
-    todo(CardSet::Prosperity, has_choice(c("Forge", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
-    todo(CardSet::Prosperity, has_choice(plays(c("King's Court", 7, ACTION, 0, 0, 0, 0, 0), 3))), // what to play three times
-    todo(CardSet::Prosperity, choice_free(c("Peddler", 8, ACTION, 1, 0, 1, 1, 0))),
-    prosperity(c("Platinum", 9, TREASURE, 5, 0, 0, 0, 0)),
+    prosperity(choice_free(c("Hoard", 6, TREASURE, 2, 0, 0, 0, 0))), // passive bonus Gold on bought Victory gains
+    prosperity(has_choice(c("Bank", 7, TREASURE, 0, 0, 0, 0, 0))), // value depends on play order: play it last
+    prosperity(has_choice(c("Expand", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
+    prosperity(has_choice(c("Forge", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
+    prosperity(has_choice(plays(c("King's Court", 7, ACTION, 0, 0, 0, 0, 0), 3))), // what to play three times
+    prosperity(choice_free(c("Peddler", 8, ACTION, 1, 0, 1, 1, 0))),
+    prosperity(choice_free(c("Platinum", 9, TREASURE, 5, 0, 0, 0, 0))),
     prosperity(c("Colony", 11, VICTORY, 0, 10, 0, 0, 0)),
 ];
 
@@ -426,6 +428,9 @@ pub enum ModeOpt {
     TrashFromSupply(Filter),
     /// Lurker: gain a card matching `Filter` from the trash, if any.
     GainFromTrash(Filter),
+    /// Investment's 2nd option: trash the card that offered this choice (already in play), then
+    /// reveal the hand for +1 VP token per differently-named Treasure in it.
+    TrashSelfRevealVpPerTreasureType,
 }
 
 /// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
@@ -438,6 +443,8 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::NonCopperTreasure => ("a", "Treasure other than Copper"),
         Filter::Card(c) => (if starts_with_vowel_sound(name(c)) { "an" } else { "a" }, name(c)),
         Filter::VictoryOrCurse => ("a", "Victory card or Curse"),
+        Filter::ActionOrTreasure => ("an", "Action or Treasure card"),
+        Filter::TreasureOrCurse => ("a", "Treasure"),
     }
 }
 
@@ -479,6 +486,7 @@ impl ModeOpt {
                 let (a, noun) = filter_words(f);
                 format!("Gain {a} {noun} from the trash")
             }
+            ModeOpt::TrashSelfRevealVpPerTreasureType => "Trash this for +1 VP per Treasure type in hand".to_string(),
         }
     }
 }
@@ -494,9 +502,54 @@ pub fn modes(card: CardId) -> &'static [ModeOpt] {
         id::COURTIER => &[ModeOpt::Actions(1), ModeOpt::Buys(1), ModeOpt::Coins(3), ModeOpt::Gain(id::GOLD, Dest::Discard)],
         id::LURKER => &[ModeOpt::TrashFromSupply(Filter::Action), ModeOpt::GainFromTrash(Filter::Action)],
         id::TORTURER => &[ModeOpt::DiscardFromHand(2), ModeOpt::Gain(id::CURSE, Dest::Hand)],
+        id::INVESTMENT => &[ModeOpt::Coins(1), ModeOpt::TrashSelfRevealVpPerTreasureType],
         _ => &[],
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// "When you gain a card" triggers (Prosperity step 2; see `GameState::gain`). A small
+// per-card table, like `REACTION_EFFECTS` and `modes`: nothing card-specific appears outside
+// this data and the single generic resolution point in `state.rs`/`engine.rs`.
+// ---------------------------------------------------------------------------------------
+
+/// Where a "when you gain" watcher card must be for its trigger to be live.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GainTriggerZone {
+    /// A reaction in the gainer's hand (Watchtower).
+    Hand,
+    /// A static card in the gainer's play area (Hoard, Collection, Tiara).
+    InPlay,
+}
+
+/// A "when you gain a card" behaviour a watcher card contributes for its owner, once it's
+/// found in the right zone (see `GainTriggerZone`). Resolution lives in `GameState::gain`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GainTrigger {
+    /// May reveal to trash the gained card or put it onto the deck instead (Watchtower).
+    WatchtowerReact,
+    /// Gaining a Victory card you bought also gains a Gold (Hoard).
+    HoardBoughtVictory,
+    /// Gaining an Action card gives +1 VP token (Collection).
+    CollectionAction,
+    /// May put the gained card onto the deck instead of its normal destination (Tiara).
+    TiaraTopdeck,
+}
+
+/// (watcher card, zone it must be found in, trigger). See `GameState::gain`.
+pub static GAIN_TRIGGERS: &[(CardId, GainTriggerZone, GainTrigger)] = &[
+    (id::WATCHTOWER, GainTriggerZone::Hand, GainTrigger::WatchtowerReact),
+    (id::HOARD, GainTriggerZone::InPlay, GainTrigger::HoardBoughtVictory),
+    (id::COLLECTION, GainTriggerZone::InPlay, GainTrigger::CollectionAction),
+    (id::TIARA, GainTriggerZone::InPlay, GainTrigger::TiaraTopdeck),
+];
+
+/// Bitmask (over card ids, same encoding as `GameState::in_supply`) of every card named in
+/// `GAIN_TRIGGERS`, so `GameState::gain`'s hot path can skip the whole table with one cheap
+/// `u128` AND when this game's kingdom has none of them, instead of probing hand/in-play on
+/// every single gain.
+pub const GAIN_TRIGGER_CARDS_MASK: u128 =
+    (1u128 << id::WATCHTOWER) | (1u128 << id::HOARD) | (1u128 << id::COLLECTION) | (1u128 << id::TIARA);
 
 /// Reaction cards that offer an optional effect (not a block) when another player plays an
 /// Attack: `(card, minimum hand size to reveal, cards drawn, cards then discarded)`. Moat's
@@ -582,24 +635,27 @@ pub fn random_kingdom(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> V
 mod tests {
     use super::*;
 
-    /// Every Action card must say whether playing it is choice-free (`choice_free(..)` or
-    /// `has_choice(..)` in `CARDS`); bots skip the play-order search only for choice-free hands.
-    /// When adding cards, mark each one and update the list below deliberately.
+    /// Every Action or Treasure card (plus Curse, which is a Treasure when Charlatan is in the
+    /// game) must say whether playing it is choice-free (`choice_free(..)` or `has_choice(..)`
+    /// in `CARDS`); bots skip the play-order search only for choice-free hands. When adding
+    /// cards, mark each one and update the list below deliberately.
     #[test]
     fn every_action_is_marked_choice_free_or_not() {
         for (i, d) in CARDS.iter().enumerate() {
-            let is_action = d.types & ACTION != 0;
-            assert_eq!(d.on_play != OnPlay::NotAction, is_action, "{} (card {i}) must be marked with choice_free/has_choice iff it is an Action", d.name);
+            let marked = d.types & (ACTION | TREASURE) != 0 || i as CardId == id::CURSE;
+            assert_eq!(d.on_play != OnPlay::NotAction, marked, "{} (card {i}) must be marked with choice_free/has_choice iff it is an Action or Treasure", d.name);
         }
         let free: Vec<&str> = CARDS.iter().filter(|d| d.on_play == OnPlay::ChoiceFree).map(|d| d.name).collect();
         assert_eq!(
             free,
             [
+                "Copper", "Silver", "Gold", "Curse",
                 "Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch",
-                "Bridge", "Torturer",
-                "Lighthouse", "Fishing Village", "Monkey", "Caravan", "Cutpurse", "Sailor", "Tide Pools", "Bazaar", "Corsair",
+                "Bridge", "Torturer", "Harem",
+                "Lighthouse", "Astrolabe", "Fishing Village", "Monkey", "Caravan", "Cutpurse", "Sailor", "Tide Pools", "Bazaar", "Corsair",
                 "Merchant Ship", "Outpost", "Pirate", "Sea Witch", "Treasury", "Wharf",
-                "Clerk", "Monument", "Worker's Village", "Charlatan", "City", "Rabble", "Grand Market", "Peddler",
+                "Clerk", "Monument", "Quarry", "Worker's Village", "Charlatan", "City", "Collection", "Rabble", "Grand Market",
+                "Hoard", "Peddler", "Platinum",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );

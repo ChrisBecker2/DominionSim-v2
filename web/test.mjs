@@ -159,6 +159,84 @@ async function main() {
 
     const baseOnly = paddedKingdom(2, 1, 99); // sets_mask 1 = Base
     check(baseOnly.kingdom.every((c) => !INTRIGUE.has(c)), `Base-only padding has no Intrigue cards (got: ${baseOnly.kingdom.join(", ")})`);
+
+    // All 25 Prosperity (2nd edition) kingdom cards, transcribed independently of the engine's
+    // card table (Platinum/Colony are basic cards added by the Colony rule, not kingdom cards).
+    const PROSPERITY = new Set([
+      "Anvil", "Watchtower", "Bishop", "Clerk", "Investment", "Monument", "Quarry", "Tiara",
+      "Worker's Village", "Charlatan", "City", "Collection", "Crystal Ball", "Magnate", "Mint",
+      "Rabble", "Vault", "War Chest", "Grand Market", "Hoard", "Bank", "Expand", "Forge",
+      "King's Court", "Peddler",
+    ]);
+    const seasideOnly = paddedKingdom(2, 4, 99); // sets_mask 4 = Seaside
+    check(seasideOnly.kingdom.length >= 10, `Seaside-only padding produced a kingdom (got ${seasideOnly.kingdom.length})`);
+    check(!seasideOnly.kingdom.includes("Platinum") && !seasideOnly.kingdom.includes("Colony"), "no Colonies without Prosperity");
+
+    const prosperityOnly = paddedKingdom(2, 8, 99); // sets_mask 8 = Prosperity
+    const prosperityPadding = prosperityOnly.kingdom.filter((c) => c !== "Witch" && c !== "Platinum" && c !== "Colony");
+    check(prosperityPadding.every((c) => PROSPERITY.has(c)), `Prosperity-only padding is all Prosperity (got: ${prosperityPadding.join(", ")})`);
+    // Official rule: a Prosperity-only draw always includes Platinum and Colony.
+    check(prosperityOnly.kingdom.includes("Platinum") && prosperityOnly.kingdom.includes("Colony"), `Prosperity kingdom brings Platinum and Colony (got: ${prosperityOnly.kingdom.join(", ")})`);
+
+    const allFour = paddedKingdom(3, 15, 42); // sets_mask 15 = Base+Intrigue+Seaside+Prosperity
+    check(allFour.kingdom.length >= 10, `all-four-sets padding produced a kingdom (got ${allFour.kingdom.length})`);
+    const allFourAgain = paddedKingdom(3, 15, 42);
+    check(JSON.stringify(allFour.kingdom) === JSON.stringify(allFourAgain.kingdom), "all-four-sets padding is reproducible by seed");
+  }
+
+  section("a Colony game's supply, VP tokens, durations and mats (Seaside + Prosperity view)");
+  {
+    const text = [
+      "players: 2",
+      "kingdom: Bishop, City, Colony, Island, Native Village, Platinum, Wharf",
+      "supply: Copper=46, Silver=40, Gold=30, Estate=8, Duchy=8, Province=8, Curse=10, Native Village=10, Island=8, Wharf=10, Bishop=10, City=10, Platinum=12, Colony=8",
+      "trash: ",
+      // Player 2 is up; player 1's Wharf is still pending from their last turn (kept unresolved
+      // by loading mid-turn for a different player, so nothing re-triggers its start-of-turn bonus).
+      "turn: 1  player: 2  phase: action  actions: 1  buys: 1  coins: 0",
+      "seed: 1",
+      "",
+      "[player 1]",
+      "hand: Copper, Silver, Estate",
+      "deck top: Gold, Duchy",
+      "deck: ",
+      "deck bottom: ",
+      "discard: Copper",
+      "in play: ",
+      "set aside: ",
+      "turns: 0",
+      "vp tokens: 5",
+      "durations: Wharf",
+      "native village: Gold, Estate",
+      "island: Duchy, Island",
+      "",
+      "[player 2]",
+      "hand: 3 Copper, 2 Estate",
+      "deck top: Silver",
+      "deck: ",
+      "deck bottom: ",
+      "discard: ",
+      "in play: ",
+      "set aside: ",
+      "turns: 0",
+      "",
+    ].join("\n");
+    loadState(text);
+    const v = view();
+    const byName = Object.fromEntries(v.supply.map((c) => [c.name, c]));
+    check(!!byName["Platinum"] && byName["Platinum"].count === 12, `Platinum is in the supply (${JSON.stringify(byName["Platinum"])})`);
+    check(!!byName["Colony"] && byName["Colony"].count === 8, `Colony is in the supply (${JSON.stringify(byName["Colony"])})`);
+    // Platinum/Colony show among the basics, highest-value first: Colony before Province,
+    // Platinum before Gold.
+    const names = v.supply.map((c) => c.name);
+    check(names.indexOf("Colony") === names.indexOf("Province") - 1, `Colony sits right before Province (got: ${names.join(", ")})`);
+    check(names.indexOf("Platinum") === names.indexOf("Gold") - 1, `Platinum sits right before Gold (got: ${names.join(", ")})`);
+
+    const p1 = v.players[0];
+    check(p1.vpTokens === 5, `player 1 has 5 VP tokens (got ${p1.vpTokens})`);
+    check(p1.durations.length === 1 && p1.durations[0].card === "Wharf", `player 1 has a pending Wharf duration (got ${JSON.stringify(p1.durations)})`);
+    check(p1.nativeVillageMat.length > 0, "player 1's Native Village mat is non-empty");
+    check(p1.islandMat.length > 0, "player 1's Island mat is non-empty");
   }
 
   section("load_state + text round trip");

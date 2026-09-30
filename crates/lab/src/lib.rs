@@ -188,7 +188,7 @@ struct CardInfo {
     name: String,
     cost: u8,
     types: Vec<&'static str>,
-    /// "Base" or "Intrigue".
+    /// "Base", "Intrigue", "Seaside" or "Prosperity".
     set: &'static str,
 }
 

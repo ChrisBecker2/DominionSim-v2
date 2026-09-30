@@ -19,13 +19,15 @@
       <label>Seed
         <input id="ng-seed" type="number" value="1" step="1">
       </label>
-      <label>Cards
-        <select id="ng-sets">
-          <option value="both" selected>Base + Intrigue</option>
-          <option value="base">Base</option>
-          <option value="intrigue">Intrigue</option>
-        </select>
-      </label>
+      <div class="newgame-field">
+        <span class="field-caption">Cards</span>
+        <span class="checkbox-group" id="ng-sets">
+          <label class="checkbox"><input type="checkbox" class="ng-set" value="base" checked>Base</label>
+          <label class="checkbox"><input type="checkbox" class="ng-set" value="intrigue" checked>Intrigue</label>
+          <label class="checkbox"><input type="checkbox" class="ng-set" value="seaside" checked>Seaside</label>
+          <label class="checkbox"><input type="checkbox" class="ng-set" value="prosperity" checked>Prosperity</label>
+        </span>
+      </div>
       <button id="btn-new-game" class="primary">New game</button>
       <button id="btn-load-strategy" title="Add a strategy file (.toml) as a bot you can seat">Load strategy&hellip;</button>
       <span id="newgame-error" class="error inline" hidden></span>

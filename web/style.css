@@ -16,6 +16,7 @@
   --c-action: #e4e2dc;
   --c-reaction: #bcd6f2;
   --c-attack-edge: #b54a3c;
+  --c-duration-edge: #b8792a;
   --c-text: #23221d;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -39,6 +40,7 @@
     --c-action: #3d3b35;
     --c-reaction: #243f5e;
     --c-attack-edge: #d9705f;
+    --c-duration-edge: #e0a458;
     --c-text: #f1ede2;
   }
 }
@@ -101,6 +103,9 @@ header {
   gap: 2px;
 }
 .newgame-bar input[type="number"] { width: 64px; }
+.newgame-field { display: flex; flex-direction: column; font-size: 11px; color: var(--text-dim); gap: 2px; }
+.newgame-field .checkbox-group { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.newgame-field .checkbox-group .checkbox { gap: 3px; }
 
 input, textarea, button, select {
   font-family: inherit;
@@ -322,6 +327,8 @@ section, .panel {
 .card.curse { background: var(--c-curse); }
 .card.reaction { background: var(--c-reaction); }
 .card.attack { box-shadow: inset 3px 0 0 var(--c-attack-edge); padding-left: 7px; }
+.card.duration { box-shadow: inset -3px 0 0 var(--c-duration-edge); padding-right: 7px; }
+.card.attack.duration { box-shadow: inset 3px 0 0 var(--c-attack-edge), inset -3px 0 0 var(--c-duration-edge); padding-left: 7px; padding-right: 7px; }
 #log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }
 
 #log-list .phase-marker { color: var(--text-dim); font-style: italic; padding-left: 8px; }

@@ -25,7 +25,7 @@ pub mod progress;
 pub mod space;
 
 pub use arena::{Arena, Scenario, Score};
-pub use config::{EvolveConfig, OpponentSpec, Track};
+pub use config::{Colonies, EvolveConfig, OpponentSpec, Track};
 pub use ga::{assess, run, Control};
 pub use genome::{Atom, Genome, Op, Rule, Var};
 pub use progress::{Entry, Progress};

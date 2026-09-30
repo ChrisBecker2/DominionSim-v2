@@ -90,7 +90,8 @@ fn defaults_include_sets() {
     assert_eq!(status, 200);
     let sets = defaults["config"]["sets"].as_array().expect("sets array");
     let names: Vec<&str> = sets.iter().map(|v| v.as_str().unwrap()).collect();
-    assert_eq!(names, ["Base", "Intrigue"], "defaults to both sets: {defaults}");
+    assert_eq!(names, ["Base", "Intrigue", "Seaside", "Prosperity"], "defaults to all four sets: {defaults}");
+    assert_eq!(defaults["config"]["colonies"], "auto", "colonies default to auto: {defaults}");
 }
 
 #[test]

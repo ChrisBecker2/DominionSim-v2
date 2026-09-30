@@ -11,7 +11,7 @@ use dominion_sim::Strategy;
 use rayon::prelude::*;
 
 use crate::arena::{set_fast, Arena, Opponent, Scenario, Score};
-use crate::config::{EvolveConfig, Track};
+use crate::config::{Colonies, EvolveConfig, Track};
 use crate::genome::{Genome, TomlMeta};
 use crate::ops;
 use crate::polish::polish;
@@ -34,6 +34,18 @@ fn card_list(names: &[String], what: &str) -> Result<Vec<CardId>, String> {
     names.iter().map(|n| cards::by_name(n).ok_or_else(|| format!("unknown card {n:?} in {what}"))).collect()
 }
 
+/// Appends Platinum and Colony to a kingdom list (deduplicated, re-sorted): the official rule
+/// applied once a Prosperity card is confirmed to be in play.
+fn add_colonies(k: &mut Vec<CardId>) {
+    if !k.contains(&cards::id::PLATINUM) {
+        k.push(cards::id::PLATINUM);
+    }
+    if !k.contains(&cards::id::COLONY) {
+        k.push(cards::id::COLONY);
+    }
+    k.sort_unstable();
+}
+
 /// Resolve `cfg.sets` ("Base" / "Intrigue") into the [`CardSet`]s in play. Empty is a config
 /// error (nothing would be gainable); an unknown name is too.
 fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
@@ -42,7 +54,7 @@ fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
     }
     let mut out = Vec::new();
     for n in names {
-        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\" or \"Intrigue\")"))?;
+        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\" or \"Prosperity\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
@@ -72,9 +84,17 @@ impl Setup {
         let selected = || cards::kingdom_cards().filter(|&c| sets.contains(&cards::set_of(c)));
         let (kingdoms, pool) = match &cfg.track {
             Track::Fixed { kingdom } => {
-                let k = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
+                let mut k = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
                 if let Some(&c) = k.iter().find(|&&c| c < cards::FIRST_KINGDOM) {
                     return Err(format!("{} is not a kingdom card", cards::name(c)));
+                }
+                let colonies_on = match cfg.colonies {
+                    Colonies::Yes => true,
+                    Colonies::No => false,
+                    Colonies::Auto => k.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity),
+                };
+                if colonies_on {
+                    add_colonies(&mut k);
                 }
                 (Kingdoms::Fixed(k.clone()), k)
             }
@@ -84,7 +104,14 @@ impl Setup {
                     return Err("at most 10 required cards".into());
                 }
                 let pool: Vec<CardId> = selected().filter(|c| !required.contains(c)).collect();
-                (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1) }, selected().collect())
+                // The search space's gainable basics include Platinum/Colony whenever a
+                // Prosperity card can appear in a drawn kingdom (some generated scenarios will
+                // then follow the official Colony rule; see `scenarios()`).
+                let mut space_pool: Vec<CardId> = selected().collect();
+                if space_pool.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity) {
+                    add_colonies(&mut space_pool);
+                }
+                (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1) }, space_pool)
             }
         };
         if cfg.opponents.is_empty() {
@@ -123,6 +150,10 @@ impl Setup {
                         k.push(rest.swap_remove(rng.below(rest.len() as u32) as usize));
                     }
                     k.sort_unstable();
+                    // Official rule: a Prosperity card in the drawn kingdom brings Platinum/Colony.
+                    if k.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity) {
+                        add_colonies(&mut k);
+                    }
                     Scenario { kingdom: k }
                 })
                 .collect(),

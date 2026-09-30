@@ -103,31 +103,41 @@ pub enum Choice {
     Position(u8),
 }
 
-pub const CHOICE_CAP: usize = 64;
+/// Must cover the largest possible choice list: one entry per supply pile (up to `NUM_CARDS`,
+/// currently 113) plus a little headroom, since decisions like Buy or War Chest can offer every
+/// affordable/eligible pile at once.
+pub const CHOICE_CAP: usize = 128;
 
+/// A fixed-capacity list of choices. Slots past `len` are never read, so they're left
+/// uninitialized: a buffer is created for every decision, and filling all `CHOICE_CAP` slots each
+/// time was measurable in the game loop.
 #[derive(Clone, Copy)]
 pub struct ChoiceBuf {
-    items: [Choice; CHOICE_CAP],
+    items: [std::mem::MaybeUninit<Choice>; CHOICE_CAP],
     len: u8,
 }
 
 impl Default for ChoiceBuf {
+    #[inline]
     fn default() -> Self {
-        ChoiceBuf { items: [Choice::Pass; CHOICE_CAP], len: 0 }
+        ChoiceBuf { items: [std::mem::MaybeUninit::uninit(); CHOICE_CAP], len: 0 }
     }
 }
 
 impl ChoiceBuf {
     #[inline]
     pub fn push(&mut self, c: Choice) {
-        self.items[self.len as usize] = c;
+        self.items[self.len as usize] = std::mem::MaybeUninit::new(c);
         self.len += 1;
     }
     pub fn clear(&mut self) {
         self.len = 0;
     }
+    #[inline]
     pub fn as_slice(&self) -> &[Choice] {
-        &self.items[..self.len as usize]
+        // SAFETY: the first `len` slots were written by `push` (`len` only grows there and
+        // `clear` resets it to 0), and `MaybeUninit<Choice>` has the same layout as `Choice`.
+        unsafe { std::slice::from_raw_parts(self.items.as_ptr() as *const Choice, self.len as usize) }
     }
     pub fn len(&self) -> usize {
         self.len as usize

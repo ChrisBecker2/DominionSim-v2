@@ -43,6 +43,8 @@ pub enum Var {
     TotalCards,
     /// Provinces remaining in the supply.
     ProvincesLeft,
+    /// Colonies remaining in the supply (0 in games without Colony).
+    ColoniesLeft,
     /// Number of empty supply piles.
     EmptyPiles,
     /// This player's current VP.
@@ -62,6 +64,7 @@ impl Var {
             Var::Money => money_value(&view.my_cards()),
             Var::TotalCards => view.my_cards().total() as i64,
             Var::ProvincesLeft => view.supply(id::PROVINCE) as i64,
+            Var::ColoniesLeft => view.supply(id::COLONY) as i64,
             Var::EmptyPiles => view.empty_piles() as i64,
             Var::MyVp => view.my_vp() as i64,
             Var::VpLead => {
@@ -82,6 +85,7 @@ impl Var {
             "money" => Var::Money,
             "total_cards" | "totalcards" => Var::TotalCards,
             "provinces_left" | "provincesleft" => Var::ProvincesLeft,
+            "colonies_left" | "coloniesleft" => Var::ColoniesLeft,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
             "my_vp" | "myvp" => Var::MyVp,
             "vp_lead" | "vplead" => Var::VpLead,
@@ -447,9 +451,21 @@ mod tests {
         assert_eq!(Expr::parse("count(Copper) >= 7").unwrap().eval(&view), 1);
         assert_eq!(Expr::parse("count(Gold) >= 1").unwrap().eval(&view), 0);
         assert_eq!(Expr::parse("provinces_left <= 4 and buys > 0").unwrap().eval(&view), 0);
+        assert_eq!(Expr::parse("colonies_left").unwrap().eval(&view), 0, "no Colony in this game");
         assert_eq!(Expr::parse("not (count(Gold) >= 1)").unwrap().eval(&view), 1);
         assert_eq!(Expr::parse("supply(Province) == 8").unwrap().eval(&view), 1);
         assert_eq!(Expr::parse("count_type(treasure) >= 7").unwrap().eval(&view), 1);
+    }
+
+    #[test]
+    fn colonies_left_reflects_the_colony_pile() {
+        let mut kingdom = cards::FIRST_GAME.to_vec();
+        kingdom.push(id::COLONY);
+        let cfg = GameConfig { kingdom, ..GameConfig::default() };
+        let g = GameState::new(&cfg);
+        let view = PlayerView::new(&g, 0);
+        assert_eq!(Expr::parse("colonies_left").unwrap().eval(&view), view.supply(id::COLONY) as i64);
+        assert!(Expr::parse("colonies_left > 0").unwrap().eval(&view) == 1);
     }
 
     #[test]

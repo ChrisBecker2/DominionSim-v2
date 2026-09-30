@@ -12,6 +12,22 @@ pub enum Track {
     Random { required: Vec<String>, kingdoms_per_generation: usize },
 }
 
+/// Whether a fixed kingdom's games use Platinum and Colony.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Colonies {
+    /// Colonies are in play iff the fixed kingdom contains a Prosperity card (the official rule).
+    Auto,
+    Yes,
+    No,
+}
+
+impl Default for Colonies {
+    fn default() -> Self {
+        Colonies::Auto
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OpponentSpec {
     pub name: String,
@@ -29,9 +45,13 @@ fn one() -> f64 {
 #[serde(default)]
 pub struct EvolveConfig {
     pub track: Track,
-    /// Which expansions' kingdom cards are in play: "Base", "Intrigue", or both. Governs the
-    /// default (empty) fixed kingdom, the random track's draw pool, and so the search space.
+    /// Which expansions' kingdom cards are in play: any of "Base", "Intrigue", "Seaside",
+    /// "Prosperity". Governs the default (empty) fixed kingdom, the random track's draw pool,
+    /// and so the search space.
     pub sets: Vec<String>,
+    /// Fixed track only: whether its games use Platinum and Colony (default: auto-detect from
+    /// the fixed kingdom). The random track always follows the official per-kingdom rule.
+    pub colonies: Colonies,
     pub opponents: Vec<OpponentSpec>,
     /// Cards candidates may never gain.
     pub forbidden: Vec<String>,
@@ -79,7 +99,8 @@ impl Default for EvolveConfig {
     fn default() -> Self {
         EvolveConfig {
             track: Track::Fixed { kingdom: Vec::new() },
-            sets: vec!["Base".into(), "Intrigue".into()],
+            sets: vec!["Base".into(), "Intrigue".into(), "Seaside".into(), "Prosperity".into()],
+            colonies: Colonies::default(),
             opponents: Vec::new(),
             forbidden: vec!["Witch".into()],
             seeds: Vec::new(),

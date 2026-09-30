@@ -392,6 +392,10 @@ impl Strategy {
         if (view.supply(id::PROVINCE) as u32) <= MAX_ENDING_GAINS {
             return true;
         }
+        // Colony games end when the Colony pile empties too (0 when Colony isn't in play).
+        if view.in_supply(id::COLONY) && (view.supply(id::COLONY) as u32) <= MAX_ENDING_GAINS {
+            return true;
+        }
         let pile_limit: u32 = if view.num_players() >= 5 { 4 } else { 3 };
         let need = pile_limit.saturating_sub(view.empty_piles()).min(4);
         // Sum of the `need` smallest non-empty piles, via a small fixed-size selection.
@@ -437,7 +441,9 @@ impl Strategy {
         // below everything we listed). Never gain Curse if there's an alternative, and avoid
         // dead Victory cards unless the game is ending; otherwise take the most expensive legal
         // option, since a bigger card is rarely a mistake to gain.
-        let endgame = view.supply(id::PROVINCE) <= 3 || view.empty_piles() >= 2;
+        let endgame = view.supply(id::PROVINCE) <= 3
+            || (view.in_supply(id::COLONY) && view.supply(id::COLONY) <= 3)
+            || view.empty_piles() >= 2;
         let key = |c: CardId| (c != id::CURSE, endgame || !cards::is(c, cards::VICTORY), cards::cost(c));
         let mut best: Option<CardId> = None;
         for c in iter_cards(choices).filter(|c| !self.never_gain.contains(c)) {

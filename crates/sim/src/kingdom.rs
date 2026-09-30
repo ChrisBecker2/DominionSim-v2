@@ -31,12 +31,12 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
     }
     if spec.eq_ignore_ascii_case("random") {
         let mut rng = Rng::derive(seed, KINGDOM_STREAM);
-        return Ok(cards::random_kingdom(&[CardSet::Base, CardSet::Intrigue], &[], &mut rng));
+        return Ok(cards::random_kingdom_with_colonies(&[CardSet::Base, CardSet::Intrigue], &[], &mut rng));
     }
     if let Some(rest) = strip_ci_prefix(spec, "random:") {
         let sets = parse_sets(rest)?;
         let mut rng = Rng::derive(seed, KINGDOM_STREAM);
-        return Ok(cards::random_kingdom(&sets, &[], &mut rng));
+        return Ok(cards::random_kingdom_with_colonies(&sets, &[], &mut rng));
     }
     let mut out = Vec::new();
     for part in spec.split(',') {
@@ -79,13 +79,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\" and/or \"intrigue\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\" and/or \"prosperity\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\" and/or \"intrigue\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\" and/or \"prosperity\")".into());
     }
     Ok(out)
 }
@@ -195,5 +195,25 @@ mod tests {
         let a = resolve("auto", &[], 1).unwrap();
         let b = resolve("auto", &[], 2).unwrap();
         assert_eq!(a, b, "plain auto ignores the seed, as before");
+    }
+
+    #[test]
+    fn random_accepts_multiple_new_sets_and_colony_rule_is_reproducible() {
+        let k = resolve("random:seaside+prosperity", &[], 3).unwrap();
+        assert!(k.iter().all(|&c| cards::set_of(c) == CardSet::Seaside || cards::set_of(c) == CardSet::Prosperity));
+
+        // A Prosperity-only draw always includes Platinum and Colony (the official rule).
+        let mut found_prosperity_game = false;
+        for seed in 0..10u64 {
+            let k = resolve("random:prosperity", &[], seed).unwrap();
+            assert!(k.contains(&cards::id::PLATINUM) && k.contains(&cards::id::COLONY));
+            found_prosperity_game = true;
+        }
+        assert!(found_prosperity_game);
+
+        // Reproducible by seed.
+        let a = resolve("random:seaside+prosperity", &[], 11).unwrap();
+        let b = resolve("random:seaside+prosperity", &[], 11).unwrap();
+        assert_eq!(a, b);
     }
 }

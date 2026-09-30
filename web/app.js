@@ -213,7 +213,8 @@
         : has("action") && has("reaction")
         ? " dual-action-reaction"
         : "";
-      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : ""));
+      const durationMod = has("duration") ? " duration" : "";
+      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : "") + durationMod);
     }
     // Longest names first so "Throne Room" wins over any shorter overlap.
     const names = [...cardClass.keys()].sort((a, b) => b.length - a.length);
@@ -362,6 +363,47 @@
     return row;
   }
 
+  // What each Duration card does at the start of its owner's next turn (see
+  // docs/seaside-prosperity-plan.md §1), shown as a chip tooltip in the Durations zone.
+  const DURATION_TEXT = {
+    Haven: "Next turn: the set-aside card goes into your hand.",
+    Lighthouse: "Next turn: +$1. (Also blocks Attacks while in play.)",
+    Astrolabe: "Next turn: +$1, +1 Buy.",
+    "Fishing Village": "Next turn: +1 Action, +$1.",
+    Monkey: "Next turn: +1 Card. (Also: +1 Card when the player to your right gains, until then.)",
+    Caravan: "Next turn: +1 Card.",
+    Blockade: "Next turn: the set-aside card goes into your hand. (Gaining a copy elsewhere gives that player a Curse until then.)",
+    Sailor: "Next turn: +$2; you may trash a card from your hand.",
+    Corsair: "Next turn: +1 Card. (Also: other players trash the first Silver/Gold they play, until then.)",
+    "Merchant Ship": "Next turn: +$2.",
+    Outpost: "Take an extra turn after this one (3-card hand; not two in a row).",
+    Pirate: "Next turn: gain a Treasure costing up to $6 to your hand.",
+    "Sea Witch": "Next turn: +2 Cards, then discard 2 cards.",
+    Tactician: "Next turn: +5 Cards, +1 Action, +1 Buy.",
+    Wharf: "Next turn: +2 Cards, +1 Buy.",
+  };
+
+  function durationTitle(d) {
+    let text = DURATION_TEXT[d.card] || "";
+    if (d.arg && d.arg !== "used") text += ` Set aside: ${d.arg}.`;
+    else if (d.arg === "used") text += " (Already used this turn.)";
+    return text;
+  }
+
+  function durationsZone(durations) {
+    const row = el("div", "zone");
+    row.appendChild(el("span", "zone-label", "Durations:"));
+    row.appendChild(document.createTextNode(" "));
+    durations.forEach((d, i) => {
+      if (i) row.appendChild(document.createTextNode(" "));
+      const label = d.card + (d.times > 1 ? ` (x${d.times})` : "");
+      const chip = cardChip(d.card, label);
+      chip.title = durationTitle(d);
+      row.appendChild(chip);
+    });
+    return row;
+  }
+
   function renderPlayers(view) {
     const row = $("players-row");
     row.innerHTML = "";
@@ -369,7 +411,7 @@
       const panel = el("div", "player-panel" + (p.isCurrent ? " current" : ""));
       const h = el("h3");
       const nameSpan = el("span", null, `Player ${p.index + 1}` + (p.isCurrent ? " (current)" : ""));
-      const vpSpan = el("span", "vp", `${p.vp} VP`);
+      const vpSpan = el("span", "vp", `${p.vp} VP` + (p.vpTokens ? ` (${p.vpTokens} token${p.vpTokens === 1 ? "" : "s"})` : ""));
       h.appendChild(nameSpan);
       const sel = el("select", "seat-select");
       botNames.forEach((name, i) => {
@@ -410,6 +452,9 @@
       panel.appendChild(zoneRow("Discard", p.discard));
       panel.appendChild(zoneRow("In play", p.inPlay));
       if (p.setAside.length) panel.appendChild(zoneRow("Revealed / set aside", p.setAside));
+      if (p.durations.length) panel.appendChild(durationsZone(p.durations));
+      if (p.nativeVillageMat.length) panel.appendChild(zoneRow("Native Village mat", p.nativeVillageMat));
+      if (p.islandMat.length) panel.appendChild(zoneRow("Island mat", p.islandMat));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 
       row.appendChild(panel);
@@ -699,28 +744,49 @@
   let gameRequiredKingdom = null;
 
   const SETS_KEY = "dominion.cardSets";
-  const SETS_MASK = { base: 1, intrigue: 2, both: 3 };
+  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8 };
 
-  function cardSetsSelection() {
-    const el = $("ng-sets");
-    return el && SETS_MASK[el.value] ? el.value : "both";
+  function setCheckboxes() {
+    return Array.from(document.querySelectorAll("#ng-sets .ng-set"));
+  }
+
+  // The selected sets as a bitmask; 0 if every box is somehow unchecked (callers should treat
+  // that as "nothing to draw from" -- `onSetsChanged` below prevents it from happening via the UI).
+  function cardSetsMask() {
+    let mask = 0;
+    for (const b of setCheckboxes()) if (b.checked) mask |= SET_BITS[b.value] || 0;
+    return mask;
   }
 
   function loadCardSetsSelection() {
     try {
       const v = localStorage.getItem(SETS_KEY);
-      if (v && SETS_MASK[v] && $("ng-sets")) $("ng-sets").value = v;
+      const mask = v == null ? NaN : parseInt(v, 10);
+      if (Number.isFinite(mask) && mask > 0) {
+        for (const b of setCheckboxes()) b.checked = (mask & (SET_BITS[b.value] || 0)) !== 0;
+      }
     } catch (e) {
-      /* localStorage unavailable: default selection stands */
+      /* localStorage unavailable: default selection (all four sets) stands */
     }
   }
 
   function persistCardSetsSelection() {
     try {
-      localStorage.setItem(SETS_KEY, cardSetsSelection());
+      localStorage.setItem(SETS_KEY, String(cardSetsMask()));
     } catch (e) {
       /* ignore: storage unavailable */
     }
+  }
+
+  // Never allow every set to end up unchecked (New Game would have no cards to draw from): a
+  // box that would zero out the selection snaps back to checked.
+  function onSetsChanged(e) {
+    if (cardSetsMask() === 0) {
+      e.target.checked = true;
+      return;
+    }
+    persistCardSetsSelection();
   }
 
   function seatsKingdom() {
@@ -739,7 +805,7 @@
     const seed = parseInt($("ng-seed").value, 10) || 0;
     cancelAnalysis();
     gameRequiredKingdom = seatsKingdom();
-    const setsMask = SETS_MASK[cardSetsSelection()];
+    const setsMask = cardSetsMask() || (SET_BITS.base | SET_BITS.intrigue | SET_BITS.seaside | SET_BITS.prosperity);
     const kingdom = api.paddedKingdom(players, setsMask, seed).kingdom;
     api.newGame(players, kingdom, seed, 0);
     showNewGameError("");
@@ -1256,7 +1322,7 @@
 
   function wire() {
     wireStrategyLoader();
-    $("ng-sets").addEventListener("change", persistCardSetsSelection);
+    setCheckboxes().forEach((b) => b.addEventListener("change", onSetsChanged));
     $("btn-new-game").addEventListener("click", () => {
       try {
         startNewGame();

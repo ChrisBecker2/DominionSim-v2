@@ -132,8 +132,22 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
         <div class="row">
           <label class="checkbox-row"><input type="checkbox" id="set-base" checked> Base</label>
           <label class="checkbox-row"><input type="checkbox" id="set-intrigue" checked> Intrigue</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-seaside" checked> Seaside</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-prosperity" checked> Prosperity</label>
         </div>
         <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
+
+        <h3>Colonies <span class="hint">(Platinum/Colony)</span></h3>
+        <div class="row">
+          <label>
+            <select id="cfg-colonies" style="max-width:100%">
+              <option value="auto">Auto (on iff the fixed kingdom has a Prosperity card)</option>
+              <option value="yes">Always on</option>
+              <option value="no">Always off</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint">Fixed track only. The random track always follows the official rule: a drawn Prosperity card brings Platinum and Colony into that kingdom.</div>
 
         <h3>Track</h3>
         <div class="row">
@@ -326,8 +340,11 @@ function renderChips(container, cardsList, selected) {
 // Form state
 // ---------------------------------------------------------------------------------------------
 
+var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity"];
+
 var form = {
-  sets: new Set(["Base", "Intrigue"]),
+  sets: new Set(ALL_SETS),
+  colonies: "auto",
   trackKind: "fixed",
   fixedKingdom: new Set(),
   randomRequired: new Set(["Witch"]),
@@ -347,7 +364,8 @@ var form = {
 
 function applyRequestToForm(req) {
   var cfg = req.config || {};
-  form.sets = new Set(cfg.sets && cfg.sets.length ? cfg.sets : ["Base", "Intrigue"]);
+  form.sets = new Set(cfg.sets && cfg.sets.length ? cfg.sets : ALL_SETS);
+  form.colonies = cfg.colonies || "auto";
   var track = cfg.track || { kind: "fixed", kingdom: [] };
   form.trackKind = track.kind || "fixed";
   form.fixedKingdom = new Set(track.kind === "fixed" ? (track.kingdom || []) : []);
@@ -388,8 +406,8 @@ function applyRequestToForm(req) {
 }
 
 function renderForm() {
-  $("set-base").checked = form.sets.has("Base");
-  $("set-intrigue").checked = form.sets.has("Intrigue");
+  ALL_SETS.forEach(function (s) { $("set-" + s.toLowerCase()).checked = form.sets.has(s); });
+  $("cfg-colonies").value = form.colonies;
   $("track-fixed").checked = form.trackKind === "fixed";
   $("track-random").checked = form.trackKind === "random";
   $("track-fixed-panel").style.display = form.trackKind === "fixed" ? "" : "none";
@@ -489,6 +507,7 @@ function buildRequest() {
   var config = {
     track: track,
     sets: Array.from(form.sets).sort(),
+    colonies: form.colonies,
     forbidden: Array.from(form.forbidden).sort(),
     islands: Math.max(1, Math.round(n.islands)),
     island_size: Math.max(4, Math.round(n.island_size)),
@@ -854,14 +873,14 @@ function runAssess() {
 // ---------------------------------------------------------------------------------------------
 
 function wireStaticEvents() {
-  $("set-base").addEventListener("change", function () {
-    if ($("set-base").checked) form.sets.add("Base"); else form.sets.delete("Base");
-    saveConfig();
+  ALL_SETS.forEach(function (s) {
+    var cb = $("set-" + s.toLowerCase());
+    cb.addEventListener("change", function () {
+      if (cb.checked) form.sets.add(s); else form.sets.delete(s);
+      saveConfig();
+    });
   });
-  $("set-intrigue").addEventListener("change", function () {
-    if ($("set-intrigue").checked) form.sets.add("Intrigue"); else form.sets.delete("Intrigue");
-    saveConfig();
-  });
+  $("cfg-colonies").addEventListener("change", function () { form.colonies = $("cfg-colonies").value; saveConfig(); });
   $("track-fixed").addEventListener("change", function () { form.trackKind = "fixed"; renderForm(); saveConfig(); });
   $("track-random").addEventListener("change", function () { form.trackKind = "random"; renderForm(); saveConfig(); });
   $("kingdoms-per-generation").addEventListener("change", function () { form.kingdomsPerGeneration = parseInt($("kingdoms-per-generation").value, 10) || 8; saveConfig(); });

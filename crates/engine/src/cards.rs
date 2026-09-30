@@ -670,6 +670,26 @@ pub fn random_kingdom(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> V
     out
 }
 
+/// `random_kingdom`, plus the official Prosperity rule: reveal one of the kingdom's cards at
+/// random; if it's from Prosperity, Platinum and Colony join the game (appended to the returned
+/// list). The chance of Colonies therefore grows with how many Prosperity cards the kingdom has.
+/// Used wherever a kingdom is randomized rather than named explicitly, so the rule stays
+/// reproducible by seed alongside the kingdom draw itself.
+pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> Vec<CardId> {
+    let mut out = random_kingdom(sets, required, rng);
+    let revealed = out[rng.below(out.len() as u32) as usize];
+    if set_of(revealed) == CardSet::Prosperity {
+        if !out.contains(&id::PLATINUM) {
+            out.push(id::PLATINUM);
+        }
+        if !out.contains(&id::COLONY) {
+            out.push(id::COLONY);
+        }
+        out.sort_unstable();
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -782,5 +802,40 @@ mod set_tests {
         let k5 = random_kingdom(&[CardSet::Base, CardSet::Intrigue], &[], &mut rng5);
         assert_eq!(k5.len(), 10);
         assert!(k5.iter().all(|&c| set_of(c) == CardSet::Base || set_of(c) == CardSet::Intrigue));
+    }
+
+    #[test]
+    fn colonies_join_only_when_prosperity_is_drawn() {
+        // Base/Intrigue only: never Prosperity, so never Platinum/Colony.
+        for seed in 0..20u64 {
+            let mut rng = Rng::new(seed);
+            let k = random_kingdom_with_colonies(&[CardSet::Base, CardSet::Intrigue], &[], &mut rng);
+            assert!(!k.contains(&id::PLATINUM) && !k.contains(&id::COLONY));
+        }
+        // Prosperity-only: always drawn, so always Platinum/Colony, appended and sorted in.
+        let mut rng = Rng::new(1);
+        let k = random_kingdom_with_colonies(&[CardSet::Prosperity], &[], &mut rng);
+        assert!(k.contains(&id::PLATINUM) && k.contains(&id::COLONY));
+        assert_eq!(k.len(), 12);
+        let mut sorted = k.clone();
+        sorted.sort_unstable();
+        assert_eq!(k, sorted);
+
+        // One Prosperity card among ten: Colonies only when that card is the one revealed, so
+        // about 10% of games.
+        let with = (0..2000)
+            .filter(|&s| {
+                let mut r = Rng::new(s);
+                random_kingdom_with_colonies(&[CardSet::Base], &[id::CITY], &mut r).contains(&id::COLONY)
+            })
+            .count();
+        assert!((120..=280).contains(&with), "Colonies in {with} of 2000 games; expected ~200");
+
+        // Reproducible by seed.
+        let mut rng3a = Rng::new(9);
+        let mut rng3b = Rng::new(9);
+        let ka = random_kingdom_with_colonies(&[CardSet::Prosperity, CardSet::Seaside], &[], &mut rng3a);
+        let kb = random_kingdom_with_colonies(&[CardSet::Prosperity, CardSet::Seaside], &[], &mut rng3b);
+        assert_eq!(ka, kb);
     }
 }

@@ -2,7 +2,7 @@
 //! the forbidden list; `assess` measures files; stopping works.
 use dominion_engine::cards::{self, CardSet};
 use dominion_evolve::ga::Setup;
-use dominion_evolve::{assess, run, Control, EvolveConfig, OpponentSpec, Track};
+use dominion_evolve::{assess, run, Colonies, Control, EvolveConfig, OpponentSpec, Track};
 use std::sync::atomic::Ordering;
 
 fn cfg() -> EvolveConfig {
@@ -83,6 +83,66 @@ fn random_track_draws_only_from_the_selected_sets() {
 }
 
 #[test]
+fn default_sets_are_all_four_expansions() {
+    assert_eq!(EvolveConfig::default().sets, vec!["Base", "Intrigue", "Seaside", "Prosperity"]);
+}
+
+#[test]
+fn fixed_track_colonies_auto_adds_platinum_and_colony_when_prosperity_is_in_the_kingdom() {
+    let mut c = cfg();
+    c.track = Track::Fixed { kingdom: vec!["Witch".into(), "City".into()] }; // City is Prosperity
+    let setup = Setup::new(&c).unwrap();
+    assert!(setup.space.gainable.contains(&cards::id::PLATINUM));
+    assert!(setup.space.gainable.contains(&cards::id::COLONY));
+    let mut rng = dominion_engine::rng::Rng::new(1);
+    let scenarios = setup.scenarios(&mut rng, 1);
+    assert_eq!(scenarios.len(), 1);
+    assert!(scenarios[0].kingdom.contains(&cards::id::PLATINUM));
+    assert!(scenarios[0].kingdom.contains(&cards::id::COLONY));
+}
+
+#[test]
+fn fixed_track_colonies_no_overrides_auto_detection() {
+    let mut c = cfg();
+    c.track = Track::Fixed { kingdom: vec!["Witch".into(), "City".into()] };
+    c.colonies = Colonies::No;
+    let setup = Setup::new(&c).unwrap();
+    assert!(!setup.space.gainable.contains(&cards::id::PLATINUM));
+    let mut rng = dominion_engine::rng::Rng::new(1);
+    let scenarios = setup.scenarios(&mut rng, 1);
+    assert!(!scenarios[0].kingdom.contains(&cards::id::COLONY));
+}
+
+#[test]
+fn fixed_track_without_prosperity_has_no_colonies() {
+    let mut c = cfg();
+    c.track = Track::Fixed { kingdom: vec!["Witch".into(), "Village".into()] };
+    let setup = Setup::new(&c).unwrap();
+    assert!(!setup.space.gainable.contains(&cards::id::PLATINUM));
+    assert!(!setup.space.gainable.contains(&cards::id::COLONY));
+}
+
+#[test]
+fn random_track_follows_the_official_colony_rule_per_scenario_and_is_reproducible() {
+    let mut c = cfg();
+    c.sets = vec!["Prosperity".into()];
+    c.track = Track::Random { required: vec![], kingdoms_per_generation: 20 };
+    let setup = Setup::new(&c).unwrap();
+    assert!(setup.space.gainable.contains(&cards::id::PLATINUM));
+    assert!(setup.space.gainable.contains(&cards::id::COLONY));
+    let mut rng_a = dominion_engine::rng::Rng::new(5);
+    let mut rng_b = dominion_engine::rng::Rng::new(5);
+    let a = setup.scenarios(&mut rng_a, 1);
+    let b = setup.scenarios(&mut rng_b, 1);
+    assert_eq!(a.len(), b.len());
+    for (sa, sb) in a.iter().zip(&b) {
+        assert_eq!(sa.kingdom, sb.kingdom, "reproducible by seed");
+        // Prosperity-only draws always trigger the Colony rule.
+        assert!(sa.kingdom.contains(&cards::id::PLATINUM) && sa.kingdom.contains(&cards::id::COLONY));
+    }
+}
+
+#[test]
 fn unknown_set_name_is_a_config_error() {
     let mut c = cfg();
     c.sets = vec!["Alchemy".into()];
@@ -101,7 +161,10 @@ fn assess_measures_any_file_and_reports_errors() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../strategies");
     let bm = std::fs::read_to_string(format!("{root}/big_money_ultimate.toml")).unwrap();
     let e = assess(&cfg(), &bm, 2000, false).unwrap();
-    assert!(e.win_rate > 0.05 && e.win_rate < 0.35, "{}", e.win_rate);
+    // Default `cfg()` now draws its kingdom from all four sets (Base/Intrigue/Seaside/Prosperity,
+    // per the default `EvolveConfig::sets`), a bigger and Colony-inclusive supply than the old
+    // Base+Intrigue-only default, which shifts Big Money's win rate against Double Witch upward.
+    assert!(e.win_rate > 0.05 && e.win_rate < 0.45, "{}", e.win_rate);
     assert!(assess(&cfg(), "name = 1", 10, false).is_err());
     let mut bad = cfg();
     bad.opponents.clear();

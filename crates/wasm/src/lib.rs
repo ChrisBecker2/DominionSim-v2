@@ -1251,6 +1251,7 @@ pub extern "C" fn card_info() -> i32 {
         (cards::CURSE_T, "curse"),
         (cards::ATTACK, "attack"),
         (cards::REACTION, "reaction"),
+        (cards::DURATION, "duration"),
     ];
     let items: Vec<String> = (0..cards::NUM_CARDS as u8)
         .map(|c| {
@@ -1318,14 +1319,23 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 2 != 0 {
         v.push(cards::CardSet::Intrigue);
     }
+    if sets_mask & 4 != 0 {
+        v.push(cards::CardSet::Seaside);
+    }
+    if sets_mask & 8 != 0 {
+        v.push(cards::CardSet::Prosperity);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
-/// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue), seeded from `seed` so
-/// the same seed and set selection reproduce the same kingdom. A required card outside the
-/// selected sets is kept anyway. Writes JSON {strategySeats, kingdom} (kingdom: 10 comma-separated
-/// names, or more if the seats alone need more than 10).
+/// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
+/// bit 3 = Prosperity), seeded from `seed` so the same seed and set selection reproduce the same
+/// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
+/// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
+/// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
+/// (kingdom: 10 comma-separated names, or more if the seats alone need more than 10, or if
+/// Colonies were added).
 #[no_mangle]
 pub extern "C" fn padded_kingdom(players: u32, sets_mask: u32, seed: u64) -> i32 {
     let r = APP.with(|cell| {
@@ -1334,7 +1344,7 @@ pub extern "C" fn padded_kingdom(players: u32, sets_mask: u32, seed: u64) -> i32
         let (strategy_seats, required) = required_seat_cards(&app, n);
         let sets = card_sets_from_mask(sets_mask);
         let mut rng = Rng::derive(seed, KINGDOM_PAD_STREAM);
-        let kingdom = cards::random_kingdom(&sets, &required, &mut rng);
+        let kingdom = cards::random_kingdom_with_colonies(&sets, &required, &mut rng);
         let names: Vec<&str> = kingdom.iter().map(|&c| cards::name(c)).collect();
         format!("{{\"strategySeats\":{strategy_seats},\"kingdom\":{}}}", jstr(&names.join(", ")))
     });
@@ -1643,7 +1653,12 @@ fn capitalize(s: &str) -> String {
 
 fn choice_label(d: &Decision, c: Choice) -> String {
     match c {
-        Choice::Pass => "Done".to_string(),
+        Choice::Pass => match d.kind {
+            DecisionKind::PlayTreasure => "Done playing treasures".to_string(),
+            DecisionKind::PlayAction => "Done playing actions".to_string(),
+            DecisionKind::Buy => "Done buying".to_string(),
+            _ => "Done".to_string(),
+        },
         Choice::Yes => "Yes".to_string(),
         Choice::No => "No".to_string(),
         Choice::Mode(i) => d.source.and_then(|src| cards::modes(src).get(i as usize)).map(|o| o.label()).unwrap_or_default(),
@@ -1722,8 +1737,10 @@ fn sequence_json(iter: impl Iterator<Item = u8>) -> String {
 
 fn supply_json(state: &GameState) -> String {
     let mut ids: Vec<u8> = (0..cards::NUM_CARDS as u8).filter(|&c| state.in_supply(c)).collect();
-    // Victory, then treasure (high to low), then Curse, then kingdom cards cheapest first.
-    const BASE_ORDER: [u8; 7] = [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER, id::COPPER, id::CURSE];
+    // Victory (Colony alongside Province), then treasure high to low (Platinum alongside Gold),
+    // then Curse, then kingdom cards cheapest first.
+    const BASE_ORDER: [u8; 9] =
+        [id::COLONY, id::PROVINCE, id::DUCHY, id::ESTATE, id::PLATINUM, id::GOLD, id::SILVER, id::COPPER, id::CURSE];
     ids.sort_by_key(|&c| match BASE_ORDER.iter().position(|&b| b == c) {
         Some(i) => (0, i as u8, ""),
         None => (1, cards::cost(c), cards::name(c)),
@@ -1775,7 +1792,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
-            "\"vp\":{vp},\"turnsTaken\":{turns}}}"
+            "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         p = p,
         cur = state.turn.player as usize == p,
@@ -1792,6 +1809,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         nv_mat = counts_json(&ps.native_village_mat.counts()),
         island_mat = counts_json(&ps.island_mat.counts()),
         vp = ps.vp(),
+        vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,
     )
 }

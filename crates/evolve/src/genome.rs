@@ -15,6 +15,8 @@ pub enum Var {
     /// Action cards I own.
     CountActions,
     ProvincesLeft,
+    /// Colonies left in the supply (0 in games without Colony).
+    ColoniesLeft,
     /// Total coin value of my treasures.
     Money,
     /// My VP minus the best opponent's.
@@ -85,6 +87,7 @@ impl Var {
             Var::Count(_) => (1, 12),
             Var::CountActions => (1, 15),
             Var::ProvincesLeft => (1, 8),
+            Var::ColoniesLeft => (1, 8),
             Var::Money => (3, 40),
             Var::VpLead => (-20, 20),
             Var::MyTurn => (2, 30),
@@ -106,6 +109,7 @@ impl Var {
             Var::Count(c) => format!("count({})", cards::name(c).replace([' ', '\''], "")),
             Var::CountActions => "count_type(action)".into(),
             Var::ProvincesLeft => "provinces_left".into(),
+            Var::ColoniesLeft => "colonies_left".into(),
             Var::Money => "money".into(),
             Var::VpLead => "vp_lead".into(),
             Var::MyTurn => "my_turn".into(),
@@ -126,6 +130,7 @@ impl Var {
         }
         Some(match lower.as_str() {
             "provinces_left" | "provincesleft" => Var::ProvincesLeft,
+            "colonies_left" | "coloniesleft" => Var::ColoniesLeft,
             "money" => Var::Money,
             "vp_lead" | "vplead" => Var::VpLead,
             "my_turn" | "myturn" => Var::MyTurn,
@@ -137,7 +142,7 @@ impl Var {
 
     /// Whether `x <= n` reads better than `x < n+1`.
     fn prefers_le(self) -> bool {
-        matches!(self, Var::ProvincesLeft | Var::EmptyPiles)
+        matches!(self, Var::ProvincesLeft | Var::ColoniesLeft | Var::EmptyPiles)
     }
 }
 

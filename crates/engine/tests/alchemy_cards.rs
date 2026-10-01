@@ -311,6 +311,66 @@ fn workshop_and_smugglers_never_gain_potion_cost_cards() {
     assert!(!g.players[0].discard.has(id::GOLEM));
 }
 
+// Transmute ($0P) as the reference cost. "Costing up to $XP" compares each part on its own: a
+// card costs no more if its coins are no more and it needs no more Potions, so a Potion-free
+// card fits under a Potion limit (Expand on Transmute may gain Village), while a Potion card
+// never fits under a Potion-free limit (Workshop can't gain Transmute).
+// TODO(Debt): when Empires adds Debt costs, extend these with the third cost part (a card with
+// Debt in its cost only fits under a limit with at least as much Debt).
+
+#[test]
+fn remodel_on_transmute_gains_up_to_two_coins_and_a_potion() {
+    let k = [id::REMODEL, id::TRANSMUTE, id::APOTHECARY, id::ALCHEMIST, id::VILLAGE, id::VINEYARD];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::TRANSMUTE]);
+    play(&mut g, id::REMODEL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 2, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    for c in [id::APOTHECARY, id::TRANSMUTE, id::VINEYARD, id::ESTATE, id::COPPER] {
+        assert!(o.contains(&c), "{} ($2P limit)", cards::name(c));
+    }
+    assert!(!o.contains(&id::ALCHEMIST), "Alchemist costs $3P: one coin too many");
+    assert!(!o.contains(&id::VILLAGE), "Village costs $3: one coin too many");
+}
+
+#[test]
+fn expand_on_transmute_gains_up_to_three_coins_and_a_potion() {
+    let k = [id::EXPAND, id::TRANSMUTE, id::APOTHECARY, id::ALCHEMIST, id::VILLAGE, id::GOLEM];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::EXPAND, id::TRANSMUTE]);
+    play(&mut g, id::EXPAND);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 3, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    for c in [id::ALCHEMIST, id::APOTHECARY, id::VILLAGE, id::SILVER] {
+        assert!(o.contains(&c), "{} ($3P limit)", cards::name(c));
+    }
+    assert!(!o.contains(&id::GOLEM), "Golem costs $4P");
+    assert!(!o.contains(&id::POTION), "Potion costs $4");
+}
+
+#[test]
+fn workshop_cannot_gain_transmute() {
+    let mut g = new_state(&[id::WORKSHOP, id::TRANSMUTE, id::VINEYARD, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    play(&mut g, id::WORKSHOP);
+    expect_decision(&mut g);
+    let o = offered(&g);
+    assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION) && o.contains(&id::SILVER), "up to $4");
+    assert!(!o.contains(&id::TRANSMUTE) && !o.contains(&id::VINEYARD), "$0P cards need a Potion the limit lacks");
+}
+
+#[test]
+fn smugglers_cannot_copy_a_potion_cost_card() {
+    let mut g = new_state(&[id::SMUGGLERS, id::TRANSMUTE], 2);
+    g.players[1].last_turn_gains.add(id::TRANSMUTE, 1);
+    set_hand(&mut g, 0, &[id::SMUGGLERS]);
+    play(&mut g, id::SMUGGLERS);
+    assert!(!g.players[0].discard.has(id::TRANSMUTE), "Transmute costs $0P: not \"up to $6\"");
+    assert_eq!(g.supply.get(id::TRANSMUTE), 10);
+}
+
 #[test]
 fn swindler_gives_a_card_with_the_same_cost_including_the_potion() {
     // Victim's top card Golem ($4P): the replacement must cost exactly $4P (only Golem here).

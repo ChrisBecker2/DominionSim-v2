@@ -152,6 +152,10 @@ simulator, so its "ignores P cards" case does not apply. `gain_source.rs` and th
 - Evolve has no Potion-aware templates ("Big Money + Familiar" can't buy it without a Potion).
   The Lab can pick Alchemy, but a search needs a Potion rule to get started.
 - Sample strategies: only Familiar-BM.
+- **Debt (later, with Empires):** costs get a third part. Extend the cost-comparison tests
+  (`alchemy_cards.rs`: Remodel/Expand on Transmute, Workshop, Smugglers, Upgrade, Forge) so a
+  card with Debt only fits under a limit with at least as much Debt, and Potion and Debt combine
+  (e.g. a $0P8D-style limit). The rule stays "each part no more than the limit's".
 
 ## 7. Performance log
 

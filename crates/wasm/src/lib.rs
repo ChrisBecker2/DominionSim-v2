@@ -919,11 +919,23 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
             v[i] += x;
         };
         let search_cfg = SearchConfig { node_budget: 20_000, ..app.search_cfg.clone() };
+        // From a new game (before the deal) every game also seats the players in a random order,
+        // so who goes first is random too. Physical seat i is played by seat `order[i]`'s
+        // controller, and its results are reported under that seat.
+        let new_game = start.turn.phase == Phase::Setup;
         for g in 0..games {
             let mut s = start;
             s.chance_mode = false;
             s.pause_at_turn_start = false;
             s.rng = Rng::derive(seed as u64, g as u64);
+            let mut order: [usize; MAX_PLAYERS] = std::array::from_fn(|i| i);
+            if new_game {
+                let mut r = Rng::derive(seed as u64 ^ 0x5EA7_0D3E, g as u64);
+                for i in (1..n).rev() {
+                    order.swap(i, r.below(i as u32 + 1) as usize);
+                }
+            }
+            let seats: [u32; MAX_PLAYERS] = std::array::from_fn(|i| app.seats[order[i]]);
             let mut tally = BuyTally::default();
             let (mut cur_player, mut cur_number) = (s.turn.player as usize, s.turn.number);
             let mut leftover = s.turn.coins as u32;
@@ -933,10 +945,11 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
                 if turn_ended {
                     let p = cur_player;
                     let t = s.players[p].turns_taken.max(1) as usize - 1;
-                    bump(&mut vp[p], t, s.players[p].vp() as f64);
-                    bump(&mut money[p], t, (tally.spent + leftover) as f64);
-                    bump(&mut buys[p], t, tally.bought as f64);
-                    bump(&mut count[p], t, 1.0);
+                    let seat = order[p];
+                    bump(&mut vp[seat], t, s.players[p].vp() as f64);
+                    bump(&mut money[seat], t, (tally.spent + leftover) as f64);
+                    bump(&mut buys[seat], t, tally.bought as f64);
+                    bump(&mut count[seat], t, 1.0);
                     tally = BuyTally::default();
                     cur_player = s.turn.player as usize;
                     cur_number = s.turn.number;
@@ -946,7 +959,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
                     Step::GameOver => break,
                     Step::TurnStart { .. } | Step::Chance { .. } => {}
                     Step::Decision(d) => {
-                        let c = controller_choice(&app.seats, &app.strategies, &mut app.searcher, &search_cfg, &s, &d);
+                        let c = controller_choice(&seats, &app.strategies, &mut app.searcher, &search_cfg, &s, &d);
                         if s.apply(c, &mut tally).is_err() {
                             break;
                         }
@@ -966,8 +979,8 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
             for p in 0..n {
                 longest = longest.max(s.players[p].turns_taken);
                 if w & (1 << p) != 0 {
-                    wins[p] += 1.0 / k;
-                    bump(&mut wins_at[p], s.players[p].turns_taken.max(1) as usize - 1, 1.0 / k);
+                    wins[order[p]] += 1.0 / k;
+                    bump(&mut wins_at[order[p]], s.players[p].turns_taken.max(1) as usize - 1, 1.0 / k);
                 }
             }
             length_sum += longest as f64;

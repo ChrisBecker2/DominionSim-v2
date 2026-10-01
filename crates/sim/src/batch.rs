@@ -26,7 +26,10 @@ pub struct MatchConfig {
 }
 
 /// Play `strategies.len()` strategies against each other (one per seat) for `cfg.games` games,
-/// rotating seats. Returns one `StratStats` per input strategy, in input order.
+/// rotating seats: each group of `p` consecutive games shares one deal and rotates the seating,
+/// so every strategy sits in every seat once (2 players: both go first once). With 3+ players
+/// each group also starts from a random seating, so every relative order comes up. Returns one
+/// `StratStats` per input strategy, in input order.
 pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats> {
     let p = strategies.len();
     assert!((2..=MAX_PLAYERS).contains(&p), "match needs 2..={MAX_PLAYERS} strategies, got {p}");
@@ -41,12 +44,21 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
             |(mut gcfg, mut acc), g| {
                 let rotation = (g % p as u64) as usize;
                 gcfg.seed = Rng::derive(base_seed, g / p as u64).next_u64();
+                // Base seating for this group: identity for 2 players (rotation already covers
+                // both orders), a random order for 3+.
+                let mut base: [usize; MAX_PLAYERS] = std::array::from_fn(|i| i);
+                if p >= 3 {
+                    let mut r = Rng::derive(base_seed ^ 0x5EA7_0D3E, g / p as u64);
+                    for i in (1..p).rev() {
+                        base.swap(i, r.below(i as u32 + 1) as usize);
+                    }
+                }
                 let mut state = GameState::new(&gcfg);
 
                 // Build `p` agents on the stack, then split them into disjoint `&mut dyn Agent`
                 // slots. No heap allocation: `agents` is a fixed-size array, not a Vec.
                 let mut agents: [StrategyAgent; MAX_PLAYERS] = std::array::from_fn(|i| {
-                    let idx = if i < p { (i + rotation) % p } else { 0 };
+                    let idx = if i < p { base[(i + rotation) % p] } else { 0 };
                     StrategyAgent::new(strategies[idx])
                 });
                 let mut refs: [&mut dyn Agent; MAX_PLAYERS] = {
@@ -57,7 +69,7 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
                 let result = play_game(&mut state, &mut refs[..p], &mut NoEvents);
                 let win_share = 1.0 / result.winners.count_ones().max(1) as f64;
                 for i in 0..p {
-                    let strat_idx = (i + rotation) % p;
+                    let strat_idx = base[(i + rotation) % p];
                     let s = &mut acc[strat_idx];
                     s.games += 1;
                     if result.winners & (1 << i) != 0 {

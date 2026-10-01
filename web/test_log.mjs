@@ -200,5 +200,34 @@ deck: 5 Copper, 3 Estate, 2 Copper
     JSON.stringify(v.players.map(dealt)));
 }
 
+// Simulate from a new game seats the players randomly (who goes first is random): a Big Money
+// mirror then splits about evenly; from turn 1 already started, player 1 keeps the first move.
+{
+  const { w, rd } = await instance();
+  const sim = () => {
+    w.state_bytes_current();
+    const st = new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()).slice();
+    const p = w.alloc(st.length);
+    new Uint8Array(w.memory.buffer, p, st.length).set(st);
+    const ok = w.simulate(p, 2000, 7);
+    w.dealloc(p, st.length);
+    if (!ok) throw new Error(rd());
+    const r = JSON.parse(rd());
+    return r.players[0].wins / (r.players[0].wins + r.players[1].wins);
+  };
+  w.list_bots();
+  const bmu = JSON.parse(rd()).indexOf("Big Money Ultimate");
+  w.set_seat(0, bmu); w.set_seat(1, bmu);
+  const k = enc.encode("Village, Smithy");
+  const p = w.alloc(k.length);
+  new Uint8Array(w.memory.buffer, p, k.length).set(k);
+  w.new_game(2, p, k.length, 9n, 0);
+  const fromNew = sim();
+  w.resume();
+  const fromDealt = sim();
+  check("mirror from a new game: about 50/50 (random seating)", Math.abs(fromNew - 0.5) < 0.04, fromNew.toFixed(3));
+  check("mirror after the deal: player 1 moves first and wins more", fromDealt > fromNew, `${fromDealt.toFixed(3)} vs ${fromNew.toFixed(3)}`);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

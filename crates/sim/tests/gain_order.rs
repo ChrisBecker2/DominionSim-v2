@@ -265,6 +265,12 @@ fn read_strategy(file: &str) -> String {
     std::fs::read_to_string(format!("{}/../../strategies/{file}", env!("CARGO_MANIFEST_DIR"))).unwrap()
 }
 
+/// A shipped strategy with the (opt-in) `win_this_turn` lookahead turned on. Top-level keys must
+/// precede the first [[table]].
+fn with_win_check(file: &str) -> String {
+    read_strategy(file).replacen("[[", "win_this_turn = true\n\n[[", 1)
+}
+
 const DUCHY_WIN: &str = "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
     supply: Silver=0, Estate=0, Duchy=2, Province=3\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
     [player 1]\nhand: Throne Room Gold Gold Remodel Village Village\ndeck: 2 Copper, 3 Estate\n\n\
@@ -274,17 +280,15 @@ const DUCHY_WIN: &str = "players: 2\nkingdom: Cellar, Market, Merchant, Militia,
 fn win_this_turn_finds_the_two_duchy_win() {
     // Duchy is on Double Witch's list (provinces_left <= 4 holds), and two Duchies empty the
     // third pile while ahead: the bot wins this turn instead of remodeling into Provinces.
-    let g = play_turn(&read_strategy("double_witch.toml"), DUCHY_WIN);
+    let g = play_turn(&with_win_check("double_witch.toml"), DUCHY_WIN);
     assert!(g.is_game_over(), "game should end this turn");
     assert_eq!(g.winners(), 1, "player 1 wins outright");
     assert_eq!(g.supply.get(id::DUCHY), 0);
 }
 
 #[test]
-fn win_this_turn_can_be_turned_off() {
-    // Top-level keys must precede the first [[table]].
-    let src = read_strategy("double_witch.toml").replacen("[[", "win_this_turn = false\n\n[[", 1);
-    let g = play_turn(&src, DUCHY_WIN);
+fn win_this_turn_is_off_by_default() {
+    let g = play_turn(&read_strategy("double_witch.toml"), DUCHY_WIN);
     assert!(!g.is_game_over(), "without the rule it follows its list (Gold -> Province twice)");
     assert_eq!(g.players[0].all_cards().get(id::PROVINCE), 2);
 }
@@ -293,7 +297,7 @@ fn win_this_turn_can_be_turned_off() {
 fn win_this_turn_never_acquires_unlisted_cards() {
     // Big Money's list has no Duchy: the Duchy win exists but needs unlisted cards, so no
     // certain win is found and it follows its list.
-    let g = play_turn(&read_strategy("big_money.toml"), DUCHY_WIN);
+    let g = play_turn(&with_win_check("big_money.toml"), DUCHY_WIN);
     assert!(!g.is_game_over());
     assert_eq!(g.players[0].all_cards().get(id::DUCHY), 0);
 }
@@ -306,7 +310,7 @@ fn analysis_ranks_the_rules_pick_first_when_win_this_turn_applies() {
                 supply: Gold=0, Estate=0, Duchy=2, Province=4\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
                 [player 1]\nhand: Gold Gold Throne Room Remodel\ndeck: 2 Copper, 3 Estate\n\n\
                 [player 2]\nhand: 3 Copper, 2 Estate\ndeck: 4 Copper, Estate\n";
-    let strat = Strategy::parse(&read_strategy("double_witch.toml")).unwrap();
+    let strat = Strategy::parse(&with_win_check("double_witch.toml")).unwrap();
     let mut g = parse_state(text).unwrap();
     let d = match g.advance(&mut NoEvents) {
         Step::Decision(d) => d,

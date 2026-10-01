@@ -850,7 +850,10 @@ impl GameState {
             }
             K::MultiplierFinalize => {
                 self.stack.pop();
-                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes == self.turn.multiplier_expected {
+                // Throne Room / King's Court stays in play with the Duration it played if *any*
+                // of its plays keeps that Duration in play ("even if only one play of the
+                // Duration card is keeping it in play, Throne Room stays in play with it").
+                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
                     self.turn.duration_held.add(f.source, 1);
                 }
                 self.turn.multiplier_card = 0;
@@ -1181,13 +1184,12 @@ impl GameState {
             }
             Then::PlayPicked { times } => {
                 if f.count > 0 {
-                    // Throne Room / King's Court on a Duration card: the multiplier itself also
-                    // stays in play, but only if *every* resolution actually schedules a
-                    // next-turn effect (a conditional Duration, e.g. Haven/Tactician with too
-                    // few cards, can fail some resolutions and still keep the target itself,
-                    // tracked separately by `duration_held` from the original play/pick — but not
-                    // the multiplier). `MultiplierFinalize` sits below all `times` resolutions
-                    // (and everything they push) and checks the tally once they've all unwound.
+                    // Throne Room / King's Court on a Duration card: the multiplier also stays in
+                    // play if at least one resolution schedules a next-turn effect (a conditional
+                    // Duration, e.g. Haven/Tactician with too few cards, may do nothing on some
+                    // resolutions; one is enough). `MultiplierFinalize` sits below all `times`
+                    // resolutions (and everything they push) and checks the tally once they've
+                    // all unwound.
                     if cards::is(f.last, cards::DURATION) {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = times;

@@ -469,13 +469,10 @@ pub struct TurnState {
     /// Throne Room / King's Court multiplier bookkeeping, live only while its target's `times`
     /// `PlayEffects` resolutions (and everything they push, e.g. Haven's set-aside pick) are
     /// still unwinding: 0 when no multiplier group is in progress. See `Then::PlayPicked` and
-    /// `FrameKind::MultiplierFinalize`. Ported test `TestHavenThroneRoom`/`TestTactitianThroneRoom`
-    /// (1st edition, adapted): the multiplier itself stays in play only if *every* resolution
-    /// actually scheduled a next-turn effect — for a conditional Duration (Haven with too few
-    /// cards, Tactician with an empty hand), a resolution that finds nothing to do does not count,
-    /// so the multiplier discards normally even though the target itself may still stay (its
-    /// physical copy is tracked separately by `duration_held`, from the original play/pick, not
-    /// per resolution).
+    /// `FrameKind::MultiplierFinalize`. Current rule: the multiplier stays in play with the
+    /// Duration if *any* of its resolutions scheduled a next-turn effect ("even if only one play
+    /// of the Duration card is keeping it in play, Throne Room stays in play with it"). Only when
+    /// no resolution did anything for next turn (Haven with an empty hand, say) do both discard.
     pub multiplier_card: CardId,
     pub multiplier_expected: u8,
     pub multiplier_successes: u8,

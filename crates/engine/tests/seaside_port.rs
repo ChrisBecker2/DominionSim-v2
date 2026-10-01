@@ -293,38 +293,30 @@ fn tactician_next_turn_draws_five_and_a_buy_and_action() {
 }
 
 #[test]
-fn tactician_through_throne_room_only_holds_if_activated_every_time() {
-    // Adapted from TestTactitianThroneRoom (1290, 1st edition): in this engine's simpler,
-    // documented rule (see `state::TurnState::multiplier_card`), the *multiplier* only stays in
-    // play if every one of its resolutions actually scheduled the target's next-turn effect;
-    // Tactician itself always stays once at least one resolution had a card to discard (tracked
-    // separately, by the physical play, not per resolution).
-    let mut g = new_state(&[id::THRONE_ROOM, id::TACTICIAN], 2);
-    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TACTICIAN, id::ESTATE]);
-    play(&mut g, id::THRONE_ROOM);
-    choose(&mut g, Choice::Card(id::TACTICIAN));
-    // 1st resolution: hand has the Estate, discards it, schedules. 2nd resolution: hand is
-    // already empty, does nothing, does not schedule.
-    assert!(g.players[0].discard.has(id::ESTATE));
-    assert!(g.turn.duration_held.has(id::TACTICIAN), "Tactician itself stays (activated once)");
-    assert!(!g.turn.duration_held.has(id::THRONE_ROOM), "Throne Room discards (not activated every time)");
-    assert_eq!(g.players[0].pending_durations_len, 1);
-}
-
-#[test]
-fn tactician_through_throne_room_can_never_activate_both_times() {
-    // Unlike Haven/Blockade (each resolution acts on a fresh, independent pick), Tactician's
-    // condition is "if you have a card in hand" and its effect discards the *whole* hand: the
-    // 1st resolution (if it activates at all) always empties the hand, so the 2nd can never also
-    // activate. Throne Room therefore never stays in play when multiplying Tactician, even with
-    // plenty of cards.
+fn tactician_through_throne_room_keeps_throne_room_when_one_play_activates() {
+    // TestTactitianThroneRoom (1290) is 1st edition; current rule: "Even if only one play of the
+    // Duration card is keeping it in play, Throne Room stays in play with it." The 1st play
+    // discards the hand and schedules; the 2nd finds an empty hand and does nothing. Tactician
+    // and Throne Room both stay, and next turn's bonus happens once.
     let mut g = new_state(&[id::THRONE_ROOM, id::TACTICIAN], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TACTICIAN, id::ESTATE, id::ESTATE]);
     play(&mut g, id::THRONE_ROOM);
     choose(&mut g, Choice::Card(id::TACTICIAN));
     assert_eq!(g.players[0].discard.get(id::ESTATE), 2);
-    assert!(g.turn.duration_held.has(id::TACTICIAN) && !g.turn.duration_held.has(id::THRONE_ROOM));
+    assert!(g.turn.duration_held.has(id::TACTICIAN), "Tactician stays");
+    assert!(g.turn.duration_held.has(id::THRONE_ROOM), "Throne Room stays with it");
     assert_eq!(g.players[0].pending_durations_len, 1);
+    assert_eq!(g.players[0].pending_durations[0].times, 1, "only the 1st play had a hand to discard");
+}
+
+#[test]
+fn tactician_through_throne_room_with_an_empty_hand_keeps_neither() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::TACTICIAN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TACTICIAN]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::TACTICIAN));
+    assert!(!g.turn.duration_held.has(id::TACTICIAN) && !g.turn.duration_held.has(id::THRONE_ROOM));
+    assert_eq!(g.players[0].pending_durations_len, 0);
 }
 
 // ===========================================================================
@@ -392,8 +384,10 @@ fn haven_via_throne_room_sets_aside_two_different_cards() {
 }
 
 #[test]
-fn haven_via_throne_room_with_one_card_keeps_haven_but_not_throne_room() {
-    // TestHavenThroneRoom, "1 card" case: only the 1st resolution has a card to set aside.
+fn haven_via_throne_room_with_one_card_keeps_haven_and_throne_room() {
+    // TestHavenThroneRoom, "1 card" case: only the 1st resolution has a card to set aside. The
+    // 1st-edition C++ suite discarded Throne Room here; the current rule keeps it in play with
+    // Haven ("even if only one play of the Duration card is keeping it in play").
     let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN, id::ESTATE]);
     play(&mut g, id::THRONE_ROOM);
@@ -401,8 +395,8 @@ fn haven_via_throne_room_with_one_card_keeps_haven_but_not_throne_room() {
     choose(&mut g, Choice::Card(id::HAVEN));
     assert!(g.players[0].hand.is_empty());
     assert_eq!(g.players[0].set_aside, counts_of(&[id::ESTATE]));
-    assert!(g.turn.duration_held.has(id::HAVEN), "Haven stays (activated once)");
-    assert!(!g.turn.duration_held.has(id::THRONE_ROOM), "Throne Room discards (not activated every time)");
+    assert!(g.turn.duration_held.has(id::HAVEN), "Haven stays");
+    assert!(g.turn.duration_held.has(id::THRONE_ROOM), "Throne Room stays with it");
     assert_eq!(g.players[0].pending_durations_len, 1);
 }
 
@@ -1844,4 +1838,141 @@ fn gaining_more_distinct_cards_than_the_smugglers_record_holds_does_not_crash() 
         buy(&mut g, c);
     }
     assert_eq!(g.players[0].all_cards().get(id::LIBRARY), 1, "every buy still happened");
+}
+
+// ===========================================================================
+// Throne Room / King's Court with Durations, end to end (current rules):
+// - the target is played twice (three times): each play's next-turn effect happens;
+// - the multiplier stays in play with the Duration if any of its plays keeps the Duration in
+//   play; both are discarded at the cleanup of the turn the Duration finishes;
+// - Throne Room on Throne Room plays two different cards twice each.
+// ===========================================================================
+
+/// Finish the current player's turn and the opponent's (passing every optional choice), so
+/// player 0's next turn starts and its start-of-turn Duration effects resolve. Returns once
+/// player 0 has a decision on that turn.
+fn to_my_next_turn(g: &mut GameState) {
+    let start = g.turn.number;
+    loop {
+        let d = expect_decision(g);
+        if g.turn.player == 0 && g.turn.number > start + 1 {
+            let _ = d;
+            return;
+        }
+        let cs = choices(g);
+        let c = if cs.contains(&Choice::Pass) { Choice::Pass } else { cs[0] };
+        choose(g, c);
+    }
+}
+
+#[test]
+fn throne_room_wharf_doubles_now_and_next_turn_and_both_stay_until_then() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::WHARF], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::WHARF]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 20]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::WHARF));
+    assert_eq!(g.players[0].hand.get(id::ESTATE), 4, "+2 Cards twice");
+    assert_eq!(g.turn.buys, 3, "+1 Buy twice");
+    to_my_next_turn(&mut g);
+    // Both stayed in play through cleanup and the opponent's turn.
+    assert!(g.players[0].in_play.has(id::THRONE_ROOM) && g.players[0].in_play.has(id::WHARF));
+    // Next turn: 5-card hand + 2 Cards twice, +1 Buy twice.
+    assert_eq!(g.players[0].hand.total(), 5 + 4);
+    assert_eq!(g.turn.buys, 3);
+    assert_eq!(g.players[0].pending_durations_len, 0);
+    // Both are discarded at this turn's cleanup.
+    to_my_next_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::THRONE_ROOM) && !g.players[0].in_play.has(id::WHARF));
+}
+
+#[test]
+fn throne_room_haven_with_one_card_keeps_throne_room_until_haven_returns_its_card() {
+    // Empty deck: the 1st Haven play sets aside the Gold (the only card); the 2nd has nothing to
+    // set aside. One play keeps Haven in play, so Throne Room stays too.
+    let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN, id::GOLD]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::HAVEN));
+    assert_eq!(g.players[0].set_aside, counts_of(&[id::GOLD]));
+    assert_eq!(g.players[0].pending_durations_len, 1);
+    to_my_next_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::THRONE_ROOM), "Throne Room stays with Haven");
+    // Haven returned the Gold to hand at the start of the turn (it then auto-played as a
+    // Treasure on reaching the Buy phase).
+    assert!(g.players[0].set_aside.is_empty());
+    assert!(g.players[0].hand.has(id::GOLD) || g.players[0].in_play.has(id::GOLD), "Haven returned the set-aside Gold");
+    to_my_next_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::THRONE_ROOM) && !g.players[0].in_play.has(id::HAVEN));
+}
+
+#[test]
+fn throne_room_on_a_duration_that_does_nothing_both_times_discards_both() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::HAVEN));
+    to_my_next_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::THRONE_ROOM) && !g.players[0].in_play.has(id::HAVEN));
+}
+
+#[test]
+fn kings_court_merchant_ship_gives_six_now_and_six_next_turn() {
+    let mut g = new_state(&[id::KINGS_COURT, id::MERCHANT_SHIP], 2);
+    set_hand(&mut g, 0, &[id::KINGS_COURT, id::MERCHANT_SHIP]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 20]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::KINGS_COURT);
+    choose(&mut g, Choice::Card(id::MERCHANT_SHIP));
+    assert_eq!(g.turn.coins, 6);
+    to_my_next_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::KINGS_COURT) && g.players[0].in_play.has(id::MERCHANT_SHIP));
+    assert_eq!(g.turn.coins, 6, "+$2 three times at the start of the next turn");
+    to_my_next_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::KINGS_COURT));
+}
+
+#[test]
+fn throne_room_on_throne_room_on_two_durations_keeps_both_throne_rooms() {
+    // Throne Room plays Throne Room twice: Caravan twice, then Wharf twice. Both Throne Rooms
+    // played Durations that stay, so all four cards stay; next turn: Caravan +1 Card x2, Wharf
+    // +2 Cards +1 Buy x2.
+    let mut g = new_state(&[id::THRONE_ROOM, id::CARAVAN, id::WHARF], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::THRONE_ROOM, id::CARAVAN, id::WHARF]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 30]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::THRONE_ROOM));
+    choose(&mut g, Choice::Card(id::CARAVAN));
+    choose(&mut g, Choice::Card(id::WHARF));
+    assert_eq!(g.turn.played.get(id::CARAVAN), 2);
+    assert_eq!(g.turn.played.get(id::WHARF), 2);
+    to_my_next_turn(&mut g);
+    let ip = g.players[0].in_play;
+    assert_eq!((ip.get(id::THRONE_ROOM), ip.get(id::CARAVAN), ip.get(id::WHARF)), (2, 1, 1));
+    assert_eq!(g.players[0].hand.total(), 5 + 2 + 4);
+    assert_eq!(g.turn.buys, 3);
+}
+
+#[test]
+fn throne_room_on_throne_room_on_a_duration_and_a_non_duration_keeps_one_throne_room() {
+    // Throne Room plays Throne Room twice: Caravan twice (a Duration: the Throne Room that played
+    // it stays), then Village twice (not a Duration). Only one Throne Room stays.
+    let mut g = new_state(&[id::THRONE_ROOM, id::CARAVAN, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::THRONE_ROOM, id::CARAVAN, id::VILLAGE]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 30]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::THRONE_ROOM));
+    choose(&mut g, Choice::Card(id::CARAVAN));
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    // 1 action spent on the first Throne Room; Caravan twice (+1 each), Village twice (+2 each).
+    assert_eq!(g.turn.actions, 0 + 2 + 4);
+    to_my_next_turn(&mut g);
+    let ip = g.players[0].in_play;
+    assert_eq!((ip.get(id::THRONE_ROOM), ip.get(id::CARAVAN), ip.get(id::VILLAGE)), (1, 1, 0));
+    assert_eq!(g.players[0].hand.total(), 5 + 2);
 }

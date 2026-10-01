@@ -18,9 +18,10 @@
 //! whichever card unlocks the highest-ranked gain in the list (ties: trash the cheaper card).
 //! `[[buy]]` is accepted as an older alias for `[[gain]]`.
 //!
-//! One lookahead rule applies to every strategy unless the file sets `win_this_turn = false`: when
-//! the game is close to ending, if some line of play this turn wins for certain while acquiring
-//! only gain-list cards, play it.
+//! An optional lookahead rule, `win_this_turn = true` (off by default): when the game is close to
+//! ending, if some line of play this turn wins for certain while acquiring only gain-list cards,
+//! play it. Measured in mirror matches it rarely changes results and costs a lot of speed, so it's
+//! opt-in.
 //!
 //! Everything else (Cellar, Militia, Bureaucrat, Throne Room, Bandit, Library,
 //! Harbinger, Vassal, Moneylender, Artisan, Sentry, Poacher...) is handled by sensible,
@@ -138,8 +139,9 @@ struct StrategyFile {
     #[serde(default)]
     keep_treasure: Option<u8>,
     /// Before following the lists, look for a line of play that wins the game this turn for
-    /// certain, acquiring only cards in the gain list; play it if found. Default true.
-    #[serde(default = "default_true")]
+    /// certain, acquiring only cards in the gain list; play it if found. Default false (opt-in:
+    /// it rarely changes results and is expensive).
+    #[serde(default)]
     win_this_turn: bool,
     /// Cards never gained, even when a forced gain (Workshop, Remodel...) has nothing listed.
     #[serde(default)]

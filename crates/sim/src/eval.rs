@@ -141,7 +141,14 @@ impl Evaluator for GainListEvaluator<'_> {
         if is_play_decision(state.turn.player, decision) {
             // Play order is searched, unless it's no real choice (the bot plays the obvious order).
             if matches!(decision.kind, DecisionKind::PlayAction) && decision.player == me && self.strategy.search_play {
-                return crate::strategy::obvious_play(&view, choices).map(Choice::Card);
+                let shortcut = crate::strategy::obvious_play(&view, choices).or_else(|| {
+                    if self.strategy.states_play_for_hand(&view) {
+                        None
+                    } else {
+                        crate::strategy::cantrip_first(&view, choices)
+                    }
+                });
+                return shortcut.map(Choice::Card);
             }
             return None;
         }

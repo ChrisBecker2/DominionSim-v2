@@ -200,7 +200,7 @@ pub struct CardDef {
     /// Plays another Action card this many times (Throne Room: 2); 0 if it doesn't.
     pub plays: u8,
     /// Whether playing it involves a choice for its player (see [`OnPlay`]). Every Action card
-    /// must be marked explicitly with `choice_free(..)` or `has_choice(..)`.
+    /// must be marked explicitly with `choice_free(..)`, `has_choice(..)` or `order_sensitive(..)`.
     pub on_play: OnPlay,
     pub set: CardSet,
     /// Whether the card's effects are implemented. Cards that aren't can't be put in a kingdom
@@ -221,9 +221,26 @@ pub enum OnPlay {
     /// drawing terminals, then the rest (`best_obvious_play`).
     ChoiceFree,
     /// Its player makes a decision (what to trash, gain, discard, set aside or play), or it
-    /// changes that player's own deck or discard in a way a later draw can see (Bureaucrat,
-    /// Bandit, Vassal, Harbinger, Sentry). Play order is a real choice: bots search it.
+    /// changes that player's own deck or discard in a way a later draw can see (Bandit,
+    /// Courtyard). Play order is a real choice: bots search it. Playing a choice-free +Actions
+    /// card (Village, Laboratory, Market...) before it never makes it worse: more cards in hand
+    /// only add options, so bots play those first without searching (`cantrip_first`).
     Choice,
+    /// Like `Choice` (or choice-free in itself), but a +Actions card played before it can make it
+    /// worse, so cantrips are not played first while it's in hand: it multiplies a card (Throne
+    /// Room), depends on hand size or the Actions in hand (Library, Watchtower, Diplomat, Shanty
+    /// Town, Minion), puts, reveals or leaves known cards on top of the deck for a later draw
+    /// (Harbinger, Bureaucrat, Artisan, Courtyard, Secret Passage, Sentry, Patrol, Lookout,
+    /// Treasure Map, Replace, Apothecary, Scrying Pool, Wishing Well, Sea Chart, Native Village),
+    /// plays from the deck top (Vassal, Golem), or picks any card from its
+    /// player's hand to trash, discard, set aside, pass or reveal, since the +Actions card itself
+    /// may be the best pick (Remodel a Festival into a Gold, Warehouse discarding a Sailor;
+    /// Chapel, Upgrade, Expand, Forge, Trading Post, Salvager, Bishop, Apprentice, Transmute,
+    /// Steward, Masquerade, Haven, Island, Courtier, Cellar, Vault, Mill, Poacher). Cards that
+    /// only pick Treasures or a named card (Mine, Moneylender, Mint, Baron), or discard the whole
+    /// hand (Tactician), don't. Rule of thumb: anything that looks at or puts cards on its player's own deck, or
+    /// could take an Action from their hand, belongs here.
+    OrderSensitive,
 }
 
 const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
@@ -274,6 +291,11 @@ const fn has_choice(d: CardDef) -> CardDef {
     CardDef { on_play: OnPlay::Choice, ..d }
 }
 
+/// Marks an Action card as [`OnPlay::OrderSensitive`].
+const fn order_sensitive(d: CardDef) -> CardDef {
+    CardDef { on_play: OnPlay::OrderSensitive, ..d }
+}
+
 pub static CARDS: [CardDef; NUM_CARDS] = [
     choice_free(c("Copper", 0, TREASURE, 1, 0, 0, 0, 0)),
     choice_free(c("Silver", 3, TREASURE, 2, 0, 0, 0, 0)),
@@ -284,78 +306,78 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     // Coins=1: only relevant when Curse is also a Treasure this game (Charlatan; see
     // `GameState::is_treasure`). Choice-free: playing it (when it's a Treasure) is just +$1.
     choice_free(c("Curse", 0, CURSE_T, 1, -1, 0, 0, 0)),
-    has_choice(c("Cellar", 2, ACTION, 0, 0, 0, 1, 0)), // what to discard
-    has_choice(c("Chapel", 2, ACTION, 0, 0, 0, 0, 0)), // what to trash
+    order_sensitive(c("Cellar", 2, ACTION, 0, 0, 0, 1, 0)), // what to discard (may be the +Actions card in hand)
+    order_sensitive(c("Chapel", 2, ACTION, 0, 0, 0, 0, 0)), // what to trash (may be the +Actions card in hand)
     choice_free(c("Moat", 2, ACTION | REACTION, 0, 0, 2, 0, 0)),
-    has_choice(c("Harbinger", 3, ACTION, 0, 0, 1, 1, 0)), // what to topdeck from the discard
+    order_sensitive(c("Harbinger", 3, ACTION, 0, 0, 1, 1, 0)), // what to topdeck from the discard; a later draw takes it
     choice_free(c("Merchant", 3, ACTION, 0, 0, 1, 1, 0)), // +$1 on the first Silver: order-free
-    has_choice(c("Vassal", 3, ACTION, 2, 0, 0, 0, 0)), // discards the deck top; may play it
+    order_sensitive(c("Vassal", 3, ACTION, 2, 0, 0, 0, 0)), // plays the deck top for free; a draw first changes what it finds
     choice_free(c("Village", 3, ACTION, 0, 0, 1, 2, 0)),
     has_choice(c("Workshop", 3, ACTION, 0, 0, 0, 0, 0)), // what to gain
-    has_choice(c("Bureaucrat", 4, ACTION | ATTACK, 0, 0, 0, 0, 0)), // gains Silver onto the deck
+    order_sensitive(c("Bureaucrat", 4, ACTION | ATTACK, 0, 0, 0, 0, 0)), // gains Silver onto the deck; a later draw takes it
     c("Gardens", 4, VICTORY, 0, 0, 0, 0, 0),
     choice_free(c("Militia", 4, ACTION | ATTACK, 2, 0, 0, 0, 0)),
     has_choice(c("Moneylender", 4, ACTION, 0, 0, 0, 0, 0)), // may trash a Copper
-    has_choice(c("Poacher", 4, ACTION, 1, 0, 1, 1, 0)), // discards per empty pile
-    has_choice(c("Remodel", 4, ACTION, 0, 0, 0, 0, 0)), // what to trash and gain
+    order_sensitive(c("Poacher", 4, ACTION, 1, 0, 1, 1, 0)), // discards per empty pile (may be the +Actions card in hand)
+    order_sensitive(c("Remodel", 4, ACTION, 0, 0, 0, 0, 0)), // what to trash and gain (may be the +Actions card in hand)
     choice_free(c("Smithy", 4, ACTION, 0, 0, 3, 0, 0)),
-    has_choice(plays(c("Throne Room", 4, ACTION, 0, 0, 0, 0, 0), 2)), // what to play twice
+    order_sensitive(plays(c("Throne Room", 4, ACTION, 0, 0, 0, 0, 0), 2)), // what to play twice (maybe the +Actions card itself)
     has_choice(c("Bandit", 5, ACTION | ATTACK, 0, 0, 0, 0, 0)), // gains a Gold (a reshuffle can draw it)
     choice_free(c("Council Room", 5, ACTION, 0, 0, 4, 0, 1)),
     choice_free(c("Festival", 5, ACTION, 2, 0, 0, 2, 1)),
     choice_free(c("Laboratory", 5, ACTION, 0, 0, 2, 1, 0)),
-    has_choice(c("Library", 5, ACTION, 0, 0, 0, 0, 0)), // which actions to set aside
+    order_sensitive(c("Library", 5, ACTION, 0, 0, 0, 0, 0)), // draws to 7: cards drawn first are wasted
     choice_free(c("Market", 5, ACTION, 1, 0, 1, 1, 1)),
     has_choice(c("Mine", 5, ACTION, 0, 0, 0, 0, 0)), // which treasure to upgrade
-    has_choice(c("Sentry", 5, ACTION, 0, 0, 1, 1, 0)), // trash / discard / reorder the top 2
+    order_sensitive(c("Sentry", 5, ACTION, 0, 0, 1, 1, 0)), // trash / discard / reorder the top 2; a later draw takes the kept ones
     choice_free(c("Witch", 5, ACTION | ATTACK, 0, 0, 2, 0, 0)),
-    has_choice(c("Artisan", 6, ACTION, 0, 0, 0, 0, 0)), // what to gain and topdeck
+    order_sensitive(c("Artisan", 6, ACTION, 0, 0, 0, 0, 0)), // what to gain and topdeck; a later draw takes it
     // ---- Intrigue (2nd edition). Stats are the vanilla part; the rest is in `effects.rs`. ----
-    intrigue(has_choice(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck
+    intrigue(order_sensitive(c("Courtyard", 2, ACTION, 0, 0, 3, 0, 0))), // what to put on the deck; a later draw takes it
     intrigue(has_choice(c("Lurker", 2, ACTION, 0, 0, 0, 1, 0))), // trash from Supply or gain from trash
     intrigue(has_choice(c("Pawn", 2, ACTION, 0, 0, 0, 0, 0))), // two of four bonuses
-    intrigue(has_choice(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash
-    intrigue(has_choice(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
-    intrigue(has_choice(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three
+    intrigue(order_sensitive(c("Masquerade", 3, ACTION, 0, 0, 2, 0, 0))), // what to pass / trash (may be the +Actions card in hand)
+    intrigue(order_sensitive(c("Shanty Town", 3, ACTION, 0, 0, 0, 2, 0))), // draws only with no Actions in hand: order matters
+    intrigue(order_sensitive(c("Steward", 3, ACTION, 0, 0, 0, 0, 0))), // one of three (may be the +Actions card in hand)
     intrigue(has_choice(c("Swindler", 3, ACTION | ATTACK, 2, 0, 0, 0, 0))), // what the victims gain
-    intrigue(has_choice(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card
+    intrigue(order_sensitive(c("Wishing Well", 3, ACTION, 0, 0, 1, 1, 0))), // name a card, reveal the top; a miss stays known for a later draw
     intrigue(has_choice(c("Baron", 4, ACTION, 0, 0, 0, 0, 1))), // discard an Estate?
     intrigue(choice_free(c("Bridge", 4, ACTION, 1, 0, 0, 0, 1))), // cost reduction only (no gains of its own)
     intrigue(has_choice(c("Conspirator", 4, ACTION, 2, 0, 0, 0, 0))), // depends on actions played: order matters
-    intrigue(has_choice(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
+    intrigue(order_sensitive(c("Diplomat", 4, ACTION | REACTION, 0, 0, 2, 0, 0))), // depends on hand size: order matters
     intrigue(has_choice(c("Ironworks", 4, ACTION, 0, 0, 0, 0, 0))), // what to gain
-    intrigue(has_choice(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2?
+    intrigue(order_sensitive(c("Mill", 4, ACTION | VICTORY, 0, 1, 1, 1, 0))), // discard 2? (may be the +Actions card in hand)
     intrigue(has_choice(c("Mining Village", 4, ACTION, 0, 0, 1, 2, 0))), // trash it?
-    intrigue(has_choice(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck
-    intrigue(has_choice(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses
+    intrigue(order_sensitive(c("Secret Passage", 4, ACTION, 0, 0, 2, 1, 0))), // what to put where in the deck; a later draw may take it
+    intrigue(order_sensitive(c("Courtier", 5, ACTION, 0, 0, 0, 0, 0))), // what to reveal, which bonuses (may be the +Actions card in hand)
     intrigue(c("Duke", 5, VICTORY, 0, 0, 0, 0, 0)), // 1 VP per Duchy (`state::vp_of_cards`)
-    intrigue(has_choice(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands
-    intrigue(has_choice(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back
-    intrigue(has_choice(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // what to trash and gain
+    intrigue(order_sensitive(c("Minion", 5, ACTION | ATTACK, 0, 0, 0, 1, 0))), // +$2 or new hands: cards drawn first may be discarded
+    intrigue(order_sensitive(c("Patrol", 5, ACTION, 0, 0, 3, 0, 0))), // order of the cards put back; a later draw takes them
+    intrigue(order_sensitive(c("Replace", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // may gain onto the deck; a later draw takes it
     intrigue(choice_free(c("Torturer", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only the victims choose
-    intrigue(has_choice(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash
-    intrigue(has_choice(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain
+    intrigue(order_sensitive(c("Trading Post", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash (may be the +Actions card in hand)
+    intrigue(order_sensitive(c("Upgrade", 5, ACTION, 0, 0, 1, 1, 0))), // what to trash and gain (may be the +Actions card in hand)
     intrigue(choice_free(c("Harem", 6, TREASURE | VICTORY, 2, 2, 0, 0, 0))),
     intrigue(has_choice(c("Nobles", 6, ACTION | VICTORY, 0, 2, 0, 0, 0))), // +3 Cards or +2 Actions
     // ---- Seaside (2nd edition). D = Duration; the next-turn parts are in `effects.rs`. ----
-    seaside(has_choice(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside
+    seaside(order_sensitive(c("Haven", 2, ACTION | DURATION, 0, 0, 1, 1, 0))), // what to set aside (may be the +Actions card in hand)
     seaside(choice_free(c("Lighthouse", 2, ACTION | DURATION, 1, 0, 0, 1, 0))),
-    seaside(has_choice(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add or take
+    seaside(order_sensitive(c("Native Village", 2, ACTION, 0, 0, 0, 2, 0))), // mat: add the deck top or take the mat
     seaside(choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
     seaside(choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
-    seaside(has_choice(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep
+    seaside(order_sensitive(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep the top; a later draw takes the kept one
     seaside(choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
-    seaside(has_choice(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // depends on what's in play: order matters
+    seaside(order_sensitive(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // reveals the top; a miss stays known for a later draw
     seaside(has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
-    seaside(has_choice(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard
+    seaside(order_sensitive(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard (may be the +Actions card in hand)
     seaside(has_choice(c("Blockade", 4, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0))), // what to gain
     seaside(choice_free(c("Caravan", 4, ACTION | DURATION, 0, 0, 1, 1, 0))),
     seaside(choice_free(c("Cutpurse", 4, ACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
-    seaside(has_choice(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat
-    seaside(has_choice(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash
+    seaside(order_sensitive(c("Island", 4, ACTION | VICTORY, 0, 2, 0, 0, 0))), // what to put on the mat (may be the +Actions card in hand)
+    seaside(order_sensitive(c("Salvager", 4, ACTION, 0, 0, 0, 0, 1))), // what to trash (may be the +Actions card in hand)
     seaside(choice_free(c("Sailor", 4, ACTION | DURATION, 0, 0, 0, 1, 0))), // choices only on gains / next turn
     seaside(choice_free(c("Tide Pools", 4, ACTION | DURATION, 0, 0, 3, 1, 0))), // the discard is next turn
-    seaside(has_choice(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // trashes itself and another
+    seaside(order_sensitive(c("Treasure Map", 4, ACTION, 0, 0, 0, 0, 0))), // gains Golds onto the deck; a later draw takes them
     seaside(choice_free(c("Bazaar", 5, ACTION, 1, 0, 1, 2, 0))),
     seaside(choice_free(c("Corsair", 5, ACTION | DURATION | ATTACK, 2, 0, 0, 0, 0))),
     seaside(choice_free(c("Merchant Ship", 5, ACTION | DURATION, 2, 0, 0, 0, 0))),
@@ -367,8 +389,8 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     seaside(choice_free(c("Wharf", 5, ACTION | DURATION, 0, 0, 2, 0, 1))),
     // ---- Prosperity (2nd edition). ----
     prosperity(has_choice(c("Anvil", 3, TREASURE, 1, 0, 0, 0, 0))), // discard a Treasure to gain up to $4?
-    prosperity(has_choice(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: order matters
-    prosperity(has_choice(c("Bishop", 4, ACTION, 1, 0, 0, 0, 0))), // what to trash
+    prosperity(order_sensitive(c("Watchtower", 3, ACTION | REACTION, 0, 0, 0, 0, 0))), // draws to 6: cards drawn first are wasted
+    prosperity(order_sensitive(c("Bishop", 4, ACTION, 1, 0, 0, 0, 0))), // what to trash (may be the +Actions card in hand)
     prosperity(choice_free(c("Clerk", 4, ACTION | REACTION | ATTACK, 2, 0, 0, 0, 0))), // only victims act
     prosperity(has_choice(c("Investment", 4, TREASURE, 0, 0, 0, 0, 0))), // trash a card, then +$1 or trash this for VP
     prosperity(choice_free(c("Monument", 4, ACTION, 2, 0, 0, 0, 0))), // +1 VP token
@@ -376,37 +398,37 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     prosperity(has_choice(c("Tiara", 4, TREASURE, 0, 0, 0, 0, 1))), // which Treasure (if any) to play twice
     prosperity(choice_free(c("Worker's Village", 4, ACTION, 0, 0, 1, 2, 1))),
     prosperity(choice_free(c("Charlatan", 5, ACTION | ATTACK, 3, 0, 0, 0, 0))),
-    prosperity(choice_free(c("City", 5, ACTION, 0, 0, 1, 2, 0))), // bonus from empty piles, which choice-free plays can't change
+    prosperity(choice_free(c("City", 5, ACTION, 0, 0, 1, 2, 0))), // bonus from empty piles: see `reads_empty_piles`
     prosperity(choice_free(c("Collection", 5, TREASURE, 2, 0, 0, 0, 1))), // passive +1 VP on gain while in play
     prosperity(has_choice(c("Crystal Ball", 5, TREASURE, 1, 0, 0, 0, 0))), // trash / discard / play the top card
     prosperity(has_choice(c("Magnate", 5, ACTION, 0, 0, 0, 0, 0))), // draws per treasure in hand: order matters
     prosperity(has_choice(c("Mint", 5, ACTION, 0, 0, 0, 0, 0))), // which treasure to copy
     prosperity(choice_free(c("Rabble", 5, ACTION | ATTACK, 0, 0, 3, 0, 0))), // only victims act
-    prosperity(has_choice(c("Vault", 5, ACTION, 0, 0, 2, 0, 0))), // what to discard
+    prosperity(order_sensitive(c("Vault", 5, ACTION, 0, 0, 2, 0, 0))), // what to discard (may be the +Actions card in hand)
     prosperity(has_choice(c("War Chest", 5, TREASURE, 0, 0, 0, 0, 0))), // gain up to $5, not named
     prosperity(choice_free(c("Grand Market", 6, ACTION, 2, 0, 1, 1, 1))), // can't be bought with a Copper in play
     prosperity(choice_free(c("Hoard", 6, TREASURE, 2, 0, 0, 0, 0))), // passive bonus Gold on bought Victory gains
     prosperity(has_choice(c("Bank", 7, TREASURE, 0, 0, 0, 0, 0))), // value depends on play order: play it last
-    prosperity(has_choice(c("Expand", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
-    prosperity(has_choice(c("Forge", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain
-    prosperity(has_choice(plays(c("King's Court", 7, ACTION, 0, 0, 0, 0, 0), 3))), // what to play three times
+    prosperity(order_sensitive(c("Expand", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain (may be the +Actions card in hand)
+    prosperity(order_sensitive(c("Forge", 7, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain (may be the +Actions card in hand)
+    prosperity(order_sensitive(plays(c("King's Court", 7, ACTION, 0, 0, 0, 0, 0), 3))), // what to play three times (maybe the +Actions card itself)
     prosperity(choice_free(c("Peddler", 8, ACTION, 1, 0, 1, 1, 0))),
     prosperity(choice_free(c("Platinum", 9, TREASURE, 5, 0, 0, 0, 0))),
     prosperity(c("Colony", 11, VICTORY, 0, 10, 0, 0, 0)),
     // ---- Alchemy. P = Potion in the cost (`with_p`). ----
-    alchemy(with_p(has_choice(c("Transmute", 0, ACTION, 0, 0, 0, 0, 0)))), // what to trash
+    alchemy(with_p(order_sensitive(c("Transmute", 0, ACTION, 0, 0, 0, 0, 0)))), // what to trash (may be the +Actions card in hand)
     alchemy(with_p(c("Vineyard", 0, VICTORY, 0, 0, 0, 0, 0))), // 1 VP per 3 Actions (`state::vp_of_cards`)
     alchemy(choice_free(c("Herbalist", 2, ACTION, 1, 0, 0, 0, 1))), // the cleanup offer is not a play decision
-    alchemy(with_p(has_choice(c("Apothecary", 2, ACTION, 0, 0, 1, 1, 0)))), // reveals the top 4, reorders
-    alchemy(with_p(has_choice(c("Scrying Pool", 2, ACTION | ATTACK, 0, 0, 0, 1, 0)))), // discards or keeps tops, draws
+    alchemy(with_p(order_sensitive(c("Apothecary", 2, ACTION, 0, 0, 1, 1, 0)))), // reveals the top 4, reorders; a later draw takes them
+    alchemy(with_p(order_sensitive(c("Scrying Pool", 2, ACTION | ATTACK, 0, 0, 0, 1, 0)))), // discards or keeps tops, draws; order matters
     alchemy(with_p(has_choice(c("University", 2, ACTION, 0, 0, 0, 2, 0)))), // what to gain
     alchemy(with_p(choice_free(c("Alchemist", 3, ACTION, 0, 0, 2, 1, 0)))), // the cleanup offer is not a play decision
     alchemy(with_p(choice_free(c("Familiar", 3, ACTION | ATTACK, 0, 0, 1, 1, 0)))), // only victims gain
     // $1 per 5 cards in deck + discard: no choice-free Treasure changes those counts, so the
     // order among choice-free Treasures never matters (has-choice Treasures stop auto-play anyway).
     alchemy(with_p(choice_free(c("Philosopher's Stone", 3, TREASURE, 0, 0, 0, 0, 0)))),
-    alchemy(with_p(has_choice(c("Golem", 4, ACTION, 0, 0, 0, 0, 0)))), // order of the two Actions
-    alchemy(has_choice(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash
+    alchemy(with_p(order_sensitive(c("Golem", 4, ACTION, 0, 0, 0, 0, 0)))), // plays Actions from the deck for free; a draw first changes what it finds
+    alchemy(order_sensitive(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash (may be the +Actions card in hand)
     alchemy(potion_card(choice_free(c("Potion", 4, TREASURE, 0, 0, 0, 0, 0)))),
 ];
 
@@ -414,6 +436,22 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
 #[inline(always)]
 pub fn is_choice_free(card: CardId) -> bool {
     CARDS[card as usize].on_play == OnPlay::ChoiceFree
+}
+
+/// Whether `card`'s bonus depends on how many supply piles are empty (City). It is choice-free,
+/// but a card played before it that empties a pile changes it: a Curse-giving Attack (Witch,
+/// Sea Witch, Familiar, Charlatan) or a card that gains. Bots check for that before taking a
+/// play-order shortcut (`sim::strategy::empty_pile_risk`) instead of always searching City hands.
+#[inline]
+pub fn reads_empty_piles(card: CardId) -> bool {
+    card == id::CITY
+}
+
+/// Whether `card` is an [`OnPlay::OrderSensitive`] action: while it's in hand, choice-free
+/// +Actions cards are not simply played first.
+#[inline]
+pub fn is_order_sensitive(card: CardId) -> bool {
+    CARDS[card as usize].on_play == OnPlay::OrderSensitive
 }
 
 #[inline(always)]
@@ -778,7 +816,7 @@ mod tests {
     fn every_action_is_marked_choice_free_or_not() {
         for (i, d) in CARDS.iter().enumerate() {
             let marked = d.types & (ACTION | TREASURE) != 0 || i as CardId == id::CURSE;
-            assert_eq!(d.on_play != OnPlay::NotAction, marked, "{} (card {i}) must be marked with choice_free/has_choice iff it is an Action or Treasure", d.name);
+            assert_eq!(d.on_play != OnPlay::NotAction, marked, "{} (card {i}) must be marked with choice_free/has_choice/order_sensitive iff it is an Action or Treasure", d.name);
         }
         let free: Vec<&str> = CARDS.iter().filter(|d| d.on_play == OnPlay::ChoiceFree).map(|d| d.name).collect();
         assert_eq!(
@@ -794,6 +832,19 @@ mod tests {
                 "Herbalist", "Alchemist", "Familiar", "Philosopher's Stone", "Potion",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
+        );
+        let sensitive: Vec<&str> = CARDS.iter().filter(|d| d.on_play == OnPlay::OrderSensitive).map(|d| d.name).collect();
+        assert_eq!(
+            sensitive,
+            [
+                "Cellar", "Chapel", "Harbinger", "Vassal", "Bureaucrat", "Poacher", "Remodel", "Throne Room", "Library",
+                "Sentry", "Artisan", "Courtyard", "Masquerade", "Shanty Town", "Steward", "Wishing Well", "Diplomat",
+                "Mill", "Secret Passage", "Courtier", "Minion", "Patrol", "Replace", "Trading Post", "Upgrade",
+                "Haven", "Native Village", "Lookout", "Sea Chart", "Warehouse", "Island", "Salvager", "Treasure Map",
+                "Watchtower", "Bishop", "Vault", "Expand", "Forge", "King's Court",
+                "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice",
+            ],
+            "the order-sensitive set changed: a card belongs here if playing a choice-free +Actions card before it can make it worse"
         );
     }
 }

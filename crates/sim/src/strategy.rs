@@ -530,6 +530,13 @@ impl Strategy {
             if let Some(c) = obvious_play(view, choices) {
                 return Choice::Card(c);
             }
+            // A real choice, but the +Actions cantrips go first (unless the hand is
+            // order-sensitive or the stated play rules speak to it).
+            if !self.states_play_for_hand(view) {
+                if let Some(c) = cantrip_first(view, choices) {
+                    return Choice::Card(c);
+                }
+            }
         }
         if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
@@ -545,6 +552,12 @@ impl Strategy {
     /// searching. Used in search playouts.
     pub fn rule_play(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// Whether the strategy's `[[play]]` rules name an Action in hand that isn't choice-free
+    /// (then its stated order, not `cantrip_first`, decides).
+    pub fn states_play_for_hand(&self, view: &PlayerView) -> bool {
+        self.play.iter().any(|(c, _)| view.hand().has(*c) && !cards::is_choice_free(*c))
     }
 
     /// Whether the strategy's `[[play]]` rules name `card`.
@@ -1123,6 +1136,9 @@ impl Strategy {
 /// for whatever gets drawn. `None` when there is a real choice (a card with a decision, or more
 /// terminals than actions), which the bot searches instead.
 pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    if empty_pile_risk(view) {
+        return None;
+    }
     let mut terminals: i32 = 0;
     // Actions left after playing every +Actions card in hand.
     let mut spare = view.turn().actions as i32;
@@ -1147,6 +1163,56 @@ pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
         let d = cards::def(c);
         (d.actions > 0, d.actions, d.cards, d.coins, d.buys, std::cmp::Reverse(c))
     })
+}
+
+/// The choice-free +Actions card (Village, Laboratory, Market, Bazaar...) to play before
+/// anything else, when the order is otherwise a real choice. Playing it first never hurts unless
+/// a card in hand is [`OnPlay::OrderSensitive`](dominion_engine::cards::OnPlay) (Throne Room,
+/// Library, Harbinger, City...): it costs no action and only adds cards to choose from. Not when
+/// this turn could reshuffle: a card gained or discarded before the shuffle (Workshop's Silver)
+/// would be in it, so when the drawing happens matters. That's ruled out when the deck holds
+/// more cards than every Action in hand and deck could draw (a choice card counted as drawing
+/// 3, for draws picked as a mode: Pawn, Nobles). Most +Actions first, then fewest cards (seeing
+/// less before the next choice); `None` if there is no such card or something in hand is
+/// order-sensitive. Callers skip it when the strategy states [[play]] rules for the hand.
+pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    if empty_pile_risk(view) {
+        return None;
+    }
+    let mut could_draw: u32 = 0;
+    for (c, n) in view.hand().iter().chain(view.deck().iter()) {
+        if !cards::is(c, ACTION) {
+            continue;
+        }
+        if view.hand().has(c) && cards::is_order_sensitive(c) {
+            return None;
+        }
+        let d = cards::def(c);
+        let draws = if cards::is_choice_free(c) { d.cards } else { d.cards.max(3) };
+        could_draw += draws as u32 * n as u32;
+    }
+    if could_draw >= view.deck_size() {
+        return None;
+    }
+    iter_cards(choices)
+        .filter(|&c| cards::is_choice_free(c) && cards::def(c).actions > 0)
+        .max_by_key(|&c| {
+            let d = cards::def(c);
+            (d.actions, std::cmp::Reverse(d.cards), d.coins, d.buys, std::cmp::Reverse(c))
+        })
+}
+
+/// Whether a card in hand reads empty piles (City) and another could empty one first: an Attack
+/// (it may hand out the last Curses) or a card with a choice (it may gain) while some supply
+/// pile is down to 3 cards. Then the play order is a real choice.
+pub fn empty_pile_risk(view: &PlayerView) -> bool {
+    let hand = view.hand();
+    if !hand.iter().any(|(c, _)| cards::reads_empty_piles(c)) {
+        return false;
+    }
+    let attack = hand.iter().any(|(c, _)| cards::is(c, cards::ATTACK));
+    let gainer = hand.iter().any(|(c, _)| cards::is(c, ACTION) && !cards::is_choice_free(c));
+    attack || (gainer && view.supply_cards().any(|c| view.supply(c) <= 3))
 }
 
 fn iter_cards(choices: &[Choice]) -> impl Iterator<Item = CardId> + '_ {

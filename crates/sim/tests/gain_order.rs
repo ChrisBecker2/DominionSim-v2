@@ -294,10 +294,27 @@ fn win_this_turn_is_off_by_default() {
 }
 
 #[test]
-fn win_this_turn_never_acquires_unlisted_cards() {
-    // Big Money's list has no Duchy: the Duchy win exists but needs unlisted cards, so no
-    // certain win is found and it follows its list.
+fn win_this_turn_gains_unlisted_cards_when_they_win() {
+    // Big Money's list has no Duchy, but the Duchy win is certain: the win check takes it.
     let g = play_turn(&with_win_check("big_money.toml"), DUCHY_WIN);
+    assert!(g.is_game_over(), "the win check gains whatever wins, listed or not");
+    assert_eq!(g.winners(), 1);
+    assert_eq!(g.supply.get(id::DUCHY), 0);
+}
+
+#[test]
+fn win_this_turn_triggers_on_three_low_piles_with_provinces_full() {
+    // Provinces are untouched (8), but Silver and Estate are empty and Duchy has 2 left: three
+    // piles under 3 cards, so the check runs and finds the two-Duchy pile-out win.
+    let text = DUCHY_WIN.replace("Province=3", "Province=8");
+    let g = play_turn(&with_win_check("double_witch.toml"), &text);
+    assert!(g.is_game_over(), "game should end on piles this turn");
+    assert_eq!(g.winners(), 1);
+}
+
+#[test]
+fn without_the_win_check_big_money_follows_its_list() {
+    let g = play_turn(&read_strategy("big_money.toml"), DUCHY_WIN);
     assert!(!g.is_game_over());
     assert_eq!(g.players[0].all_cards().get(id::DUCHY), 0);
 }

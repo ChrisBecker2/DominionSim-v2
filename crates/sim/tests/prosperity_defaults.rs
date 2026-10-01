@@ -108,3 +108,50 @@ fn war_chest_naming_default_denies_the_costliest_legal_card() {
     // supply; ties break toward the higher card id (War Chest).
     assert_eq!(decide(&strat, &g, 1, &d), Choice::Card(id::WAR_CHEST));
 }
+
+// ---- With `search_play` (the default): Investment's and Crystal Ball's own choices are
+// searched, because they change which Treasures are left to play; Bank is always played last. ----
+
+fn decide_full(strat: &Strategy, g: &GameState, player: u8, d: &Decision) -> Choice {
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    strat.decide(&PlayerView::new(g, player), d, buf.as_slice())
+}
+
+/// Plays player 1's whole Buy phase with `strat` (full `decide`), returning coins when the Buy
+/// decision is reached.
+fn coins_at_buy(strat: &Strategy, g: &mut GameState) -> u16 {
+    loop {
+        let d = next_decision(g);
+        if d.kind == DecisionKind::Buy {
+            return g.turn.coins;
+        }
+        let c = decide_full(strat, g, d.player, &d);
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+}
+
+#[test]
+fn investment_trash_choice_is_searched_to_keep_the_coins_for_a_province() {
+    // A strategy whose trash list puts Copper first. With Investment, Estate, Copper, Gold, Gold:
+    // trashing the Estate keeps $1 + $3 + $3 + Investment's $1 = $8 (a Province); trashing the
+    // Copper (what the rule order picks) leaves $7.
+    let src = "name = \"T\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[trash]]\ncard = \"Copper\"\n[[trash]]\ncard = \"Estate\"\n";
+    let rules = Strategy::parse(&src.replace("name = \"T\"\n", "name = \"T\"\nsearch_play = false\n")).unwrap();
+    let searched = Strategy::parse(src).unwrap();
+    let hand = "Investment, Estate, Copper, Gold, Gold";
+    assert_eq!(coins_at_buy(&rules, &mut buy_phase_state("Investment", hand)), 7, "rule order trashes the Copper");
+    assert_eq!(coins_at_buy(&searched, &mut buy_phase_state("Investment", hand)), 8, "the search keeps it and trashes the Estate");
+}
+
+#[test]
+fn bank_is_played_after_the_other_choice_treasures_even_when_searching() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Province\"\n").unwrap();
+    let mut g = buy_phase_state("Bank, Crystal Ball", "Bank, Crystal Ball, Gold");
+    let d = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    assert_ne!(decide_full(&strat, &g, 0, &d), Choice::Card(id::BANK), "Bank waits for the others");
+    // Played through: Crystal Ball $1 reveals a Copper from the deck and plays it ($1), Gold $3,
+    // then Bank last counts all four Treasures in play ($4).
+    assert_eq!(coins_at_buy(&strat, &mut buy_phase_state("Bank, Crystal Ball", "Bank, Crystal Ball, Gold")), 1 + 1 + 3 + 4);
+}

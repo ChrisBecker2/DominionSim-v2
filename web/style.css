@@ -16,7 +16,7 @@
   --c-action: #e4e2dc;
   --c-reaction: #bcd6f2;
   --c-attack-edge: #b54a3c;
-  --c-duration-edge: #b8792a;
+  --c-duration: #f2bd84;
   --c-text: #23221d;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -40,7 +40,7 @@
     --c-action: #3d3b35;
     --c-reaction: #243f5e;
     --c-attack-edge: #d9705f;
-    --c-duration-edge: #e0a458;
+    --c-duration: #6e451c;
     --c-text: #f1ede2;
   }
 }
@@ -327,8 +327,7 @@ section, .panel {
 .card.curse { background: var(--c-curse); }
 .card.reaction { background: var(--c-reaction); }
 .card.attack { box-shadow: inset 3px 0 0 var(--c-attack-edge); padding-left: 7px; }
-.card.duration { box-shadow: inset -3px 0 0 var(--c-duration-edge); padding-right: 7px; }
-.card.attack.duration { box-shadow: inset 3px 0 0 var(--c-attack-edge), inset -3px 0 0 var(--c-duration-edge); padding-left: 7px; padding-right: 7px; }
+.card.duration { background: var(--c-duration); }
 #log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }
 
 #log-list .phase-marker { color: var(--text-dim); font-style: italic; padding-left: 8px; }
@@ -468,4 +467,3 @@ section, .panel {
 /* Dual-type cards: split chip, primary type first */
 .card.dual-treasure-victory { background: linear-gradient(135deg, var(--c-treasure) 50%, var(--c-victory) 50%); }
 .card.dual-action-victory { background: linear-gradient(135deg, var(--c-action) 50%, var(--c-victory) 50%); }
-.card.dual-action-reaction { background: linear-gradient(135deg, var(--c-action) 50%, var(--c-reaction) 50%); }

@@ -835,24 +835,37 @@ fn bank_counts_treasures_in_play_including_itself() {
     play_treasure(&mut g, id::BANK);
     assert_eq!(g.turn.coins, 3);
 
-    // Copper (auto-played, +1) then Bank sees 2 treasures in play (+2) = 3.
+    // With Bank in hand nothing auto-plays: the order is the player's. Copper (+1) then Bank
+    // sees 2 treasures in play (+2) = 3.
     let mut g = new_state(&[id::BANK], 2);
     set_hand(&mut g, 0, &[id::BANK, id::COPPER]);
+    play_treasure(&mut g, id::COPPER);
     play_treasure(&mut g, id::BANK);
     assert_eq!(g.turn.coins, 3);
 
-    // Copper, Silver, Gold (auto-played, 1+2+3=6) then Bank (+4, counting itself) = 10.
+    // Bank first sees only itself (+1), then the Copper (auto-played once no Treasure with a
+    // choice is left, +1) = 2: playing Bank early is worse.
+    let mut g = new_state(&[id::BANK], 2);
+    set_hand(&mut g, 0, &[id::BANK, id::COPPER]);
+    play_treasure(&mut g, id::BANK);
+    assert_eq!(expect_decision(&mut g).kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 2);
+
+    // Copper, Silver, Gold (1+2+3=6) then Bank (+4, counting itself) = 10.
     let mut g = new_state(&[id::BANK], 2);
     set_hand(&mut g, 0, &[id::BANK, id::COPPER, id::SILVER, id::GOLD]);
+    play_treasure(&mut g, id::COPPER);
+    play_treasure(&mut g, id::SILVER);
+    play_treasure(&mut g, id::GOLD);
     play_treasure(&mut g, id::BANK);
     assert_eq!(g.turn.coins, 10);
 
-    // Choice-free Treasures always auto-play before any `PlayTreasure` decision is offered (2nd
-    // edition; see `docs/seaside-prosperity-plan.md` §2.2), so Bank can never actually be played
-    // before the Coppers here, even though it's the only treasure with a real play-order choice:
-    // both Coppers auto-play first (+1+1), then Bank counts all 3 treasures in play (+3) = 5.
+    // "Done" plays the remaining plain Treasures and leaves Bank unplayed; played after both
+    // Coppers, Bank counts all 3 treasures in play (+1 +1 +3 = 5).
     let mut g = new_state(&[id::BANK], 2);
     set_hand(&mut g, 0, &[id::BANK, id::COPPER, id::COPPER]);
+    play_treasure(&mut g, id::COPPER);
+    play_treasure(&mut g, id::COPPER);
     play_treasure(&mut g, id::BANK);
     assert_eq!(g.turn.coins, 5);
 }
@@ -962,9 +975,7 @@ fn anvil_plays_for_one_coin() {
 
 #[test]
 fn anvil_may_discard_a_treasure_to_gain_up_to_four() {
-    // Discards the *other* Anvil: an ordinary choice-free Treasure (Silver) would already have
-    // auto-played into `in_play` before this decision even comes up, so it wouldn't be in hand
-    // to discard.
+    // Discards the *other* Anvil (see also `anvil_may_discard_a_plain_treasure_still_in_hand`).
     let mut g = new_state(&[id::ANVIL], 2);
     set_hand(&mut g, 0, &[id::ANVIL, id::ANVIL]);
     expect_decision(&mut g);
@@ -985,7 +996,20 @@ fn anvil_declining_the_discard_gains_nothing() {
     play_treasure(&mut g, id::ANVIL);
     pass(&mut g);
     assert!(g.players[0].discard.is_empty());
-    assert_eq!(g.players[0].hand.get(id::SILVER), 1);
+    // The Silver was kept, and plays normally once no Treasure with a choice is left.
+    assert_eq!(g.players[0].in_play.get(id::SILVER), 1);
+    assert_eq!(g.turn.coins, 1 + 2);
+}
+
+#[test]
+fn anvil_may_discard_a_plain_treasure_still_in_hand() {
+    // With Anvil in hand, Silver isn't auto-played first, so it's there to discard.
+    let mut g = new_state(&[id::ANVIL], 2);
+    set_hand(&mut g, 0, &[id::ANVIL, id::SILVER]);
+    play_treasure(&mut g, id::ANVIL);
+    choose(&mut g, Choice::Card(id::SILVER));
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert!(g.players[0].discard.has(id::SILVER) && g.players[0].discard.has(id::ESTATE));
 }
 
 // ===========================================================================
@@ -995,8 +1019,6 @@ fn anvil_declining_the_discard_gains_nothing() {
 
 #[test]
 fn investment_trash_then_plus_one_coin() {
-    // Estate (not a choice-free Treasure) stays in hand to be trashed; Copper would have
-    // auto-played away before this decision.
     let mut g = new_state(&[id::INVESTMENT], 2);
     set_hand(&mut g, 0, &[id::INVESTMENT, id::ESTATE]);
     expect_decision(&mut g);
@@ -1009,9 +1031,6 @@ fn investment_trash_then_plus_one_coin() {
 
 #[test]
 fn investment_trash_self_for_vp_per_differently_named_treasure() {
-    // Anvil, Bank and Tiara are has-choice Treasures, so (unlike Copper/Silver/Gold) they stay
-    // in hand until explicitly played and are still there when Investment's hand-reveal counts
-    // differently-named Treasures.
     let mut g = new_state(&[id::INVESTMENT, id::ANVIL, id::BANK, id::TIARA], 2);
     set_hand(&mut g, 0, &[id::INVESTMENT, id::ESTATE, id::ANVIL, id::BANK, id::TIARA]);
     expect_decision(&mut g);
@@ -1031,9 +1050,6 @@ fn investment_trash_self_for_vp_per_differently_named_treasure() {
 
 #[test]
 fn tiara_gives_a_buy_and_may_play_a_treasure_twice() {
-    // Bank (has-choice) is used as the replay target: an ordinary choice-free Treasure like
-    // Silver would already have auto-played into `in_play` before Tiara's own decision comes up,
-    // so it would never be available to select.
     let mut g = new_state(&[id::TIARA, id::BANK], 2);
     set_hand(&mut g, 0, &[id::TIARA, id::BANK]);
     expect_decision(&mut g);
@@ -1060,12 +1076,11 @@ fn tiara_may_decline_to_replay_anything() {
 
 #[test]
 fn tiara_replaying_bank_recomputes_its_value_each_time() {
-    // Bank played first (normally); once it's out of hand, Tiara's own replay decision has
-    // nothing left to offer and skips straight through (same as `PlayAction` with no playable
-    // actions), landing directly on the Buy decision.
+    // Copper and Bank played first; once no Treasure is left in hand, Tiara's own replay
+    // decision has nothing to offer and skips straight through to the Buy decision.
     let mut g = new_state(&[id::TIARA, id::BANK], 2);
     set_hand(&mut g, 0, &[id::TIARA, id::BANK, id::COPPER]);
-    expect_decision(&mut g); // Copper auto-plays first
+    play_treasure(&mut g, id::COPPER);
     play_treasure(&mut g, id::BANK);
     play_treasure(&mut g, id::TIARA);
     let d = expect_decision(&mut g);
@@ -1214,7 +1229,7 @@ fn charlatan_makes_curse_a_one_coin_treasure_and_bank_counts_it() {
     // Bank counts it too.
     let mut g = new_state(&[id::CHARLATAN, id::BANK], 2);
     set_hand(&mut g, 0, &[id::BANK, id::CURSE]);
-    expect_decision(&mut g); // Curse auto-plays (choice-free), Bank offered next
+    play_treasure(&mut g, id::CURSE);
     play_treasure(&mut g, id::BANK);
     assert_eq!(g.turn.coins, 1 + 2); // Curse (+1) then Bank counting both (+2)
 }
@@ -1430,4 +1445,39 @@ fn witch_curses_go_to_the_first_player_in_turn_order_when_the_pile_is_short() {
     play(&mut g, id::WITCH);
     assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "the player to the left gets the last Curse");
     assert_eq!(g.players[2].all_cards().get(id::CURSE), 0);
+}
+
+#[test]
+fn investment_can_trash_a_plain_treasure_and_counts_plain_treasures_in_hand() {
+    // With Investment in hand nothing auto-plays, so Copper/Silver/Gold are still in hand: it can
+    // trash one, and its VP option counts the differently named Treasures left in hand.
+    let mut g = new_state(&[id::INVESTMENT], 2);
+    set_hand(&mut g, 0, &[id::INVESTMENT, id::COPPER, id::SILVER, id::GOLD]);
+    play_treasure(&mut g, id::INVESTMENT);
+    choose(&mut g, Choice::Card(id::COPPER)); // trash the Copper
+    choose(&mut g, Choice::Mode(1)); // trash Investment: Silver, Gold in hand
+    assert_eq!(g.players[0].vp_tokens, 2);
+    assert!(g.trash.has(id::COPPER) && g.trash.has(id::INVESTMENT));
+    // Then the Silver and Gold play.
+    assert_eq!(g.turn.coins, 2 + 3);
+}
+
+#[test]
+fn plain_treasures_still_auto_play_without_a_choice_treasure_in_hand() {
+    let mut g = new_state(&[id::BANK], 2);
+    set_hand(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 6);
+}
+
+#[test]
+fn passing_on_treasure_play_plays_the_remaining_plain_treasures() {
+    let mut g = new_state(&[id::BANK], 2);
+    set_hand(&mut g, 0, &[id::BANK, id::COPPER, id::GOLD]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    pass(&mut g); // Bank stays in hand; Copper and Gold play
+    assert_eq!(g.turn.coins, 4);
+    assert!(g.players[0].hand.has(id::BANK));
 }

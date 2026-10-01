@@ -194,8 +194,12 @@
   function initCards() {
     for (const c of JSON.parse(ok(wasm.card_info()))) {
       const t = c.types;
+      // Duration cards are orange and Reactions blue, whatever else they are (Astrolabe,
+      // Pirate, Moat, Diplomat...).
       const primary = t.includes("curse")
         ? "curse"
+        : t.includes("duration")
+        ? "duration"
         : t.includes("treasure")
         ? "treasure"
         : t.includes("victory")
@@ -203,18 +207,14 @@
         : t.includes("reaction")
         ? "reaction"
         : "action";
-      // Dual-type cards (Harem: Treasure-Victory, Mill/Nobles: Action-Victory, Diplomat:
-      // Action-Reaction) get a split chip: the primary colour plus the second type's.
+      // Treasure-Victory (Harem) and Action-Victory (Mill, Nobles, Island) get a split chip.
       const has = (x) => t.includes(x);
       const dual = has("treasure") && has("victory")
         ? " dual-treasure-victory"
         : has("action") && has("victory")
         ? " dual-action-victory"
-        : has("action") && has("reaction")
-        ? " dual-action-reaction"
         : "";
-      const durationMod = has("duration") ? " duration" : "";
-      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : "") + durationMod);
+      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : ""));
     }
     // Longest names first so "Throne Room" wins over any shorter overlap.
     const names = [...cardClass.keys()].sort((a, b) => b.length - a.length);

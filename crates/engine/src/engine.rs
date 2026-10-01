@@ -439,7 +439,7 @@ impl GameState {
             }
             DecisionKind::PlayTreasure => {
                 for (c, _) in self.players[p].hand.iter() {
-                    if self.is_treasure(c) && !cards::is_choice_free(c) {
+                    if self.is_treasure(c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -474,6 +474,9 @@ impl GameState {
                 self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
+            (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && cards::is_choice_free(c) => {
+                self.play_free_treasure(c, 1, sink);
+            }
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure => {
                 let ps = &mut self.players[p as usize];
                 ps.hand.remove(c);
@@ -483,9 +486,10 @@ impl GameState {
                 self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Buy, Choice::Pass) if kind == DecisionKind::PlayTreasure => {
-                // Done playing Treasures for the rest of this Buy phase (durably: the next
-                // `run_phase` call offers Buy, even if another has-choice Treasure remains
-                // unplayed in hand, e.g. from a card that puts one there afterward).
+                // Done choosing: the remaining choice-free Treasures are played, the remaining
+                // has-choice ones are not. Durable for the rest of this Buy phase (the next
+                // `run_phase` call offers Buy, even if another has-choice Treasure arrives).
+                self.play_all_choice_free_treasures(sink);
                 self.turn.treasures_done = true;
             }
             (Phase::Buy, Choice::Card(c)) => {
@@ -513,65 +517,76 @@ impl GameState {
         sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
     }
 
-    /// Play every choice-free Treasure (Copper, Silver, Gold, ...; see `cards::is_choice_free`)
-    /// in the current player's hand. Has-choice Treasures (Anvil, Bank, ...) are played one at a
-    /// time through the `PlayTreasure` decision instead.
-    /// Returns whether a has-choice Treasure remains in hand afterward (found for free during
-    /// the same hand scan, so `run_phase`'s Buy arm doesn't need a second one to decide whether
-    /// to offer `PlayTreasure`).
+    /// Start of (or return to) the Buy phase. Choice-free Treasures (Copper, Silver, Gold, ...;
+    /// see `cards::is_choice_free`) are auto-played, all at once, unless the hand also holds a
+    /// Treasure with a choice (Investment, Anvil, Tiara, Crystal Ball, War Chest, Bank): then
+    /// order matters (Investment counts and may trash Treasures still in hand, Anvil discards
+    /// one, Tiara replays one, Bank counts those already played), so nothing is auto-played and
+    /// every Treasure in hand is offered through the `PlayTreasure` decision. Returns whether
+    /// that decision is needed.
     fn play_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) -> bool {
         let p = self.turn.player;
         let hand = self.players[p as usize].hand;
-        let mut has_choice_left = false;
+        if hand.iter().any(|(c, _)| self.is_treasure(c) && !cards::is_choice_free(c)) {
+            return true;
+        }
+        self.play_all_choice_free_treasures(sink);
+        false
+    }
+
+    /// Play every choice-free Treasure in the current player's hand.
+    fn play_all_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) {
+        let p = self.turn.player;
+        let hand = self.players[p as usize].hand;
         for (c, n) in hand.iter() {
-            if !self.is_treasure(c) {
-                continue;
-            }
-            if !cards::is_choice_free(c) {
-                has_choice_left = true;
-                continue;
-            }
-            let ps = &mut self.players[p as usize];
-            ps.hand.set(c, 0);
-            ps.in_play.add(c, n);
-            self.turn.played.add(c, n);
-            for _ in 0..n {
-                sink.event(Event::Play { player: p, card: c });
-            }
-            self.turn.coins += cards::def(c).coins as u16 * n as u16;
-            self.turn.buys += cards::def(c).buys * n;
-            if c == id::SILVER {
-                if self.turn.silvers_played == 0 {
-                    self.turn.coins += self.turn.merchants as u16;
-                }
-                self.turn.silvers_played += n;
-            }
-            // Astrolabe (choice-free Duration Treasure): "now" is the vanilla +$1 +1 Buy above;
-            // each copy independently schedules its own next-turn +$1 +1 Buy and stays in play
-            // (looped so each physical copy is marked held; see `push_duration_pending`).
-            if cards::is(c, cards::DURATION) {
-                for _ in 0..n {
-                    self.push_duration_pending(p, c, 1, 0);
-                }
-            }
-            // Corsair (owned by anyone else): the first Silver or Gold played each turn is
-            // trashed instead of staying in play. Card ids are fixed in ascending order
-            // (Copper < Silver < Gold), so this loop's iteration order already gives Silver
-            // priority over Gold when both are in hand, matching "the first ... they play".
-            if (c == id::SILVER || c == id::GOLD) && !self.turn.corsair_trashed_first && self.in_supply(id::CORSAIR) {
-                let n_players = self.num_players;
-                let has_other_corsair =
-                    (0..n_players).any(|v| v != p && self.players[v as usize].in_play.has(id::CORSAIR));
-                if has_other_corsair {
-                    self.turn.corsair_trashed_first = true;
-                    let ps = &mut self.players[p as usize];
-                    ps.in_play.remove(c);
-                    self.trash.add(c, 1);
-                    sink.event(Event::Trash { player: p, card: c });
-                }
+            if self.is_treasure(c) && cards::is_choice_free(c) {
+                self.play_free_treasure(c, n, sink);
             }
         }
-        has_choice_left
+    }
+
+    /// Play `n` copies of the choice-free Treasure `c` from the current player's hand.
+    fn play_free_treasure<S: EventSink>(&mut self, c: CardId, n: u8, sink: &mut S) {
+        let p = self.turn.player;
+        let ps = &mut self.players[p as usize];
+        ps.hand.set(c, ps.hand.get(c) - n);
+        ps.in_play.add(c, n);
+        self.turn.played.add(c, n);
+        for _ in 0..n {
+            sink.event(Event::Play { player: p, card: c });
+        }
+        self.turn.coins += cards::def(c).coins as u16 * n as u16;
+        self.turn.buys += cards::def(c).buys * n;
+        if c == id::SILVER {
+            if self.turn.silvers_played == 0 {
+                self.turn.coins += self.turn.merchants as u16;
+            }
+            self.turn.silvers_played += n;
+        }
+        // Astrolabe (choice-free Duration Treasure): "now" is the vanilla +$1 +1 Buy above;
+        // each copy independently schedules its own next-turn +$1 +1 Buy and stays in play
+        // (looped so each physical copy is marked held; see `push_duration_pending`).
+        if cards::is(c, cards::DURATION) {
+            for _ in 0..n {
+                self.push_duration_pending(p, c, 1, 0);
+            }
+        }
+        // Corsair (owned by anyone else): the first Silver or Gold played each turn is
+        // trashed instead of staying in play. Card ids are fixed in ascending order
+        // (Copper < Silver < Gold), so this loop's iteration order already gives Silver
+        // priority over Gold when both are in hand, matching "the first ... they play".
+        if (c == id::SILVER || c == id::GOLD) && !self.turn.corsair_trashed_first && self.in_supply(id::CORSAIR) {
+            let n_players = self.num_players;
+            let has_other_corsair =
+                (0..n_players).any(|v| v != p && self.players[v as usize].in_play.has(id::CORSAIR));
+            if has_other_corsair {
+                self.turn.corsair_trashed_first = true;
+                let ps = &mut self.players[p as usize];
+                ps.in_play.remove(c);
+                self.trash.add(c, 1);
+                sink.event(Event::Trash { player: p, card: c });
+            }
+        }
     }
 
     /// Push Treasury's optional "put this onto your deck" `YesNo`, once per copy in play,

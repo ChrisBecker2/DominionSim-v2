@@ -19,9 +19,9 @@
 //! `[[buy]]` is accepted as an older alias for `[[gain]]`.
 //!
 //! An optional lookahead rule, `win_this_turn = true` (off by default): when the game is close to
-//! ending, if some line of play this turn wins for certain while acquiring only gain-list cards,
-//! play it. Measured in mirror matches it rarely changes results and costs a lot of speed, so it's
-//! opt-in.
+//! ending (Provinces or Colonies low, or three piles under 3 cards), if some line of play this turn
+//! wins for certain, gaining any cards it needs, play it. Measured in mirror matches it rarely
+//! changes results and costs a lot of speed, so it's opt-in.
 //!
 //! Everything else (Cellar, Militia, Bureaucrat, Throne Room, Bandit, Library,
 //! Harbinger, Vassal, Moneylender, Artisan, Sentry, Poacher...) is handled by sensible,
@@ -138,9 +138,9 @@ struct StrategyFile {
     /// many treasures in hand. Default 2.
     #[serde(default)]
     keep_treasure: Option<u8>,
-    /// Before following the lists, look for a line of play that wins the game this turn for
-    /// certain, acquiring only cards in the gain list; play it if found. Default false (opt-in:
-    /// it rarely changes results and is expensive).
+    /// Before following the lists, when the game is close to ending, look for a line of play that
+    /// wins the game this turn for certain (gaining any cards); play it if found. Default false
+    /// (opt-in: it rarely changes results and is expensive).
     #[serde(default)]
     win_this_turn: bool,
     /// Cards never gained, even when a forced gain (Workshop, Remodel...) has nothing listed.
@@ -291,6 +291,15 @@ impl Strategy {
                 return c;
             }
         }
+        // Choices inside a Treasure being played (Investment, Crystal Ball, Anvil) change which
+        // Treasures are left to play: searched like the play order when `search_play` is on.
+        if self.search_play && view.is_my_turn() && crate::eval::is_treasure_effect_decision(view.me(), decision) && choices.len() > 1 {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
         self.decide_by_rules(view, decision, choices)
     }
 
@@ -398,25 +407,11 @@ impl Strategy {
         if view.in_supply(id::COLONY) && (view.supply(id::COLONY) as u32) <= MAX_ENDING_GAINS {
             return true;
         }
+        // The pile ending: as many piles as end the game (3; 4 with 5+ players) each have fewer
+        // than 3 cards left, counting empty ones.
         let pile_limit: u32 = if view.num_players() >= 5 { 4 } else { 3 };
-        let need = pile_limit.saturating_sub(view.empty_piles()).min(4);
-        // Sum of the `need` smallest non-empty piles, via a small fixed-size selection.
-        let mut smallest = [u32::MAX; 4];
-        for c in view.supply_cards() {
-            if view.supply(c) > 0 {
-                let n = view.supply(c) as u32;
-                let mut i = smallest.len();
-                while i > 0 && smallest[i - 1] > n {
-                    i -= 1;
-                }
-                if i < smallest.len() {
-                    smallest.copy_within(i..3, i + 1);
-                    smallest[i] = n;
-                }
-            }
-        }
-        let total: u32 = smallest[..need as usize].iter().fold(0u32, |a, &b| a.saturating_add(b));
-        total <= MAX_ENDING_GAINS
+        let low = view.supply_cards().filter(|&c| view.supply(c) < 3).count() as u32;
+        low >= pile_limit
     }
 
     /// First entry in the gain list that's a legal choice and whose condition holds.
@@ -768,6 +763,11 @@ impl Strategy {
     /// `play_decision` does for `PlayAction` (`is_play_decision` in `eval.rs` treats it the same
     /// way); `rule_play_treasure` is the fast/default fallback otherwise.
     fn play_treasure_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        // Nothing left whose order or choices matter (only plain Treasures, and Bank, which goes
+        // last): the rule order, no search needed.
+        if !iter_cards(choices).any(|c| c != id::BANK && !cards::is_choice_free(c)) {
+            return self.rule_play_treasure(choices);
+        }
         if self.search_play && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
@@ -778,16 +778,23 @@ impl Strategy {
         self.rule_play_treasure(choices)
     }
 
-    /// The `PlayTreasure` choice by rule order alone, without searching: play every has-choice
-    /// Treasure that helps except Bank, then Bank last (its value grows with every other
-    /// Treasure already played this Buy phase), then Done. Used both as the `search_play = false`
-    /// default and inside search playouts (avoiding re-entering `search_play_choice` from within
-    /// its own playout, which would panic on the thread-local searcher's double borrow).
+    /// The `PlayTreasure` choice by rule order alone, without searching:
+    /// 1. Treasures with a choice, except Bank (Investment, Anvil, Tiara, Crystal Ball, War
+    ///    Chest), while the plain Treasures are still in hand for them to count, trash, discard or
+    ///    replay;
+    /// 2. if Bank is waiting, the plain Treasures one by one, then Bank (it counts every Treasure
+    ///    in play, so it goes last);
+    /// 3. Done (which plays any plain Treasures left).
+    /// Used both as the `search_play = false` default and inside search playouts (avoiding
+    /// re-entering `search_play_choice` from within its own playout).
     pub fn rule_play_treasure(&self, choices: &[Choice]) -> Choice {
-        if let Some(c) = iter_cards(choices).find(|&c| c != id::BANK) {
+        if let Some(c) = iter_cards(choices).find(|&c| c != id::BANK && !cards::is_choice_free(c)) {
             return Choice::Card(c);
         }
         if has_card(choices, id::BANK) {
+            if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c)) {
+                return Choice::Card(c);
+            }
             return Choice::Card(id::BANK);
         }
         Choice::Pass

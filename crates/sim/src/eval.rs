@@ -103,12 +103,8 @@ impl Evaluator for GainListEvaluator<'_> {
         // default) a turn that wins the game outright, acquiring only listed cards, outranks every
         // list priority, matching what the bot itself plays.
         let tie = self.tie_break.leaf_value(root, leaf, me) - game_end_value(leaf, me);
-        let win = if self.strategy.win_this_turn && leaf.result_if_turn_ends() == Some(1 << me) {
-            let only_listed = (0..NUM_CARDS as CardId).all(|c| after.get(c) <= before.get(c) || self.strategy.lists(c));
-            if only_listed { 1e15 } else { 0.0 }
-        } else {
-            0.0
-        };
+        // A turn that wins the game outright outranks everything, whatever it gains.
+        let win = if self.strategy.win_this_turn && leaf.result_if_turn_ends() == Some(1 << me) { 1e15 } else { 0.0 };
         win + v + self.preferences(root, leaf, me, &before, &after) + 1e-6 * tie
     }
 
@@ -158,19 +154,24 @@ impl Evaluator for GainListEvaluator<'_> {
         Some(self.strategy.decide_by_rules(&view, decision, choices))
     }
 
-    /// The strategy only buys cards in its gain list whose conditions hold, else Done.
+    /// The strategy only buys cards in its gain list whose conditions hold, else Done; except that
+    /// while its `win_this_turn` check applies, any buy is considered (a winning line may need an
+    /// unlisted card, and the bot would play it).
     fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
         match (decision.kind, choice) {
-            (DecisionKind::Buy, Choice::Card(c)) => self.strategy.allows_buy(&PlayerView::new(state, me), c),
+            (DecisionKind::Buy, Choice::Card(c)) => {
+                let view = PlayerView::new(state, me);
+                self.strategy.win_check_applies(&view) || self.strategy.allows_buy(&view, c)
+            }
+            (DecisionKind::PlayTreasure, Choice::Card(c)) => !bank_too_early(state, me, c),
             _ => true,
         }
     }
 }
 
-/// Scores 1 if the turn ends the game with `me` winning outright, else 0. Only lets `me` buy or
-/// gain cards from the strategy's gain list (conditions true) or pass; a forced gain with no
-/// listed option prunes the line. Expectimax over this is the probability of a certain win
-/// using only cards the strategy wants, so a value of 1 means a guaranteed win this turn.
+/// Scores 1 if the turn ends the game with `me` winning outright, else 0. Every buy and gain is
+/// considered (a winning line may need any card). Expectimax over this is the probability of a
+/// certain win, so a value of 1 means a guaranteed win this turn.
 pub struct WinFinder<'a> {
     pub strategy: &'a Strategy,
 }
@@ -178,15 +179,6 @@ pub struct WinFinder<'a> {
 impl Evaluator for WinFinder<'_> {
     fn leaf_value(&self, _root: &GameState, leaf: &GameState, me: u8) -> f64 {
         if leaf.result_if_turn_ends() == Some(1 << me) { 1.0 } else { 0.0 }
-    }
-
-    fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
-        match (decision.kind, choice) {
-            (DecisionKind::Buy | DecisionKind::Gain { .. }, Choice::Card(c)) => {
-                self.strategy.gain_rank(&PlayerView::new(state, me), c).is_some()
-            }
-            _ => true,
-        }
     }
 
     fn value_when_nothing_allowed(&self) -> Option<f64> {
@@ -228,6 +220,24 @@ pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
             | DecisionKind::Select { act: dominion_engine::Act::Play, .. }
             | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
     ) || (matches!(d.kind, DecisionKind::Mode { .. }) && d.player == turn_player)
+        || is_treasure_effect_decision(turn_player, d)
+}
+
+/// A choice the turn player makes while one of their Treasures resolves (Investment's trash and
+/// its +$1-or-VP choice, Crystal Ball's trash/discard/play, Anvil's discard): these change which
+/// Treasures are left to play, so they're searched like the play order itself. Gains stay
+/// list-driven.
+pub fn is_treasure_effect_decision(turn_player: u8, d: &Decision) -> bool {
+    d.player == turn_player
+        && d.source.is_some_and(|c| dominion_engine::cards::is(c, dominion_engine::cards::TREASURE))
+        && matches!(d.kind, DecisionKind::Select { .. } | DecisionKind::YesNo { .. } | DecisionKind::Mode { .. })
+}
+
+/// Bank is worth $1 per Treasure in play, so it's best played after every other Treasure: while
+/// another Treasure is still in `me`'s hand, playing Bank now is never considered.
+fn bank_too_early(state: &GameState, me: u8, c: CardId) -> bool {
+    c == dominion_engine::cards::id::BANK
+        && state.players[me as usize].hand.iter().any(|(x, _)| x != dominion_engine::cards::id::BANK && state.is_treasure(x))
 }
 
 const PLAY_TT_BITS: u32 = 16;

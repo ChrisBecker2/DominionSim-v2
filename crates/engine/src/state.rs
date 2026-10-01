@@ -347,6 +347,11 @@ pub struct PlayerState {
     /// Smugglers is in this game's supply. Public information (all gains are public), so
     /// `determinize` doesn't touch it.
     pub last_turn_gains: SmallMultiset<GAIN_RECORD_CAP>,
+    /// Cards that stayed in this player's play area past their own cleanup but are discarded at
+    /// the *next* turn's cleanup, whoever's turn it is: a failed Outpost (played during an
+    /// Outpost turn, so it can't grant a 3rd turn in a row) and any Throne Room / King's Court
+    /// that played it ("If Outpost fails, you discard it during Clean-up of the next turn").
+    pub discard_next_cleanup: DurationHeld,
 }
 
 impl PlayerState {

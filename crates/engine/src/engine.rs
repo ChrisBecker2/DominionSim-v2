@@ -15,7 +15,7 @@
 
 use crate::cards::{self, id, CardId, ACTION, NUM_CARDS};
 use crate::counts::Counts;
-use crate::state::{Act, Dest, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
+use crate::state::{Act, Dest, DurationHeld, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
 
 /// What kind of input is needed. Deliberately generic: a new card should almost always be
 /// expressible as a composition of these, not a new variant.
@@ -634,10 +634,44 @@ impl GameState {
         // against the in-play snapshot before Duration cards are split out below (Outpost has no
         // start-of-turn effect of its own, so it's never in `pending_durations`; only presence in
         // `in_play` marks it played this turn).
-        let ps = &self.players[p];
-        let grant_extra = ps.in_play.has(id::OUTPOST) && !self.turn.is_extra_turn;
+        // An Outpost played this turn is in `duration_held` (one held over from the previous
+        // turn is only in `in_play`). It makes the next hand 3 cards even when it fails to grant
+        // the extra turn ("you only draw 3 cards, even if you know you won't get the extra turn").
+        // Failing means this is already an Outpost turn: it then stays in play (with any Throne
+        // Room / King's Court that played it, recorded by `MultiplierFinalize`) until the next
+        // turn's cleanup, and has nothing left to do at the start of this player's next turn.
+        let outpost_played = self.turn.duration_held.has(id::OUTPOST);
+        let grant_extra = outpost_played && !self.turn.is_extra_turn;
         self.turn.outpost_grants_extra = grant_extra;
-        let draw_n = if grant_extra { 3 } else { 5 };
+        let draw_n = if outpost_played { 3 } else { 5 };
+        // Other players' failed Outposts from the previous turn are discarded now.
+        for q in 0..self.num_players as usize {
+            if q != p && !self.players[q].discard_next_cleanup.is_empty() {
+                let qs = &mut self.players[q];
+                for (c, n) in qs.discard_next_cleanup.iter() {
+                    let n = n.min(qs.in_play.get(c));
+                    qs.in_play.set(c, qs.in_play.get(c) - n);
+                    qs.discard.add(c, n);
+                }
+                qs.discard_next_cleanup = DurationHeld::EMPTY;
+            }
+        }
+        if outpost_played && !grant_extra {
+            let ps = &mut self.players[p];
+            let n = self.turn.duration_held.get(id::OUTPOST).min(ps.in_play.get(id::OUTPOST));
+            ps.discard_next_cleanup.add(id::OUTPOST, n);
+            let mut kept = 0;
+            for i in 0..ps.pending_durations_len as usize {
+                if ps.pending_durations[i].card != id::OUTPOST {
+                    ps.pending_durations[kept] = ps.pending_durations[i];
+                    kept += 1;
+                }
+            }
+            for i in kept..ps.pending_durations_len as usize {
+                ps.pending_durations[i] = Default::default();
+            }
+            ps.pending_durations_len = kept as u8;
+        }
 
         let ps = &mut self.players[p];
         let hand = ps.hand;

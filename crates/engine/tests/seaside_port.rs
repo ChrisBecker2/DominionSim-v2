@@ -489,6 +489,72 @@ fn outpost_twice_in_a_row_does_not_grant_a_third_turn() {
     assert!(!g.turn.is_extra_turn);
 }
 
+/// Pass through decisions until it's `player`'s turn.
+fn pass_until_turn_of(g: &mut GameState, player: u8) {
+    while g.turn.player != player {
+        pass(g);
+    }
+}
+
+#[test]
+fn a_failed_outpost_still_draws_three_and_is_discarded_at_the_next_turns_cleanup() {
+    // Official rules: "You only draw 3 cards, even if you know you won't get the extra turn";
+    // "If Outpost fails ... you discard it during Clean-up of the next turn, whoever's turn it is."
+    let mut g = new_state(&[id::OUTPOST], 2);
+    set_hand(&mut g, 0, &[id::OUTPOST]);
+    set_deck_known(&mut g, 0, &[id::OUTPOST, id::ESTATE, id::ESTATE]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 10]);
+    play(&mut g, id::OUTPOST);
+    pass(&mut g); // the Outpost turn
+    assert!(g.turn.is_extra_turn);
+    play(&mut g, id::OUTPOST); // fails: it would be a 3rd turn in a row
+    pass(&mut g);
+    assert_eq!(g.turn.player, 1);
+    assert_eq!(g.players[0].hand.total(), 3, "a failed Outpost still means a 3-card hand");
+    assert_eq!(g.players[0].in_play.get(id::OUTPOST), 1, "the failed Outpost stays in play; the first one was discarded");
+    assert_eq!(g.players[0].discard_next_cleanup.get(id::OUTPOST), 1);
+    assert_eq!(g.players[0].pending_durations_len, 0, "nothing left to do at the start of my next turn");
+    let text = format_state(&g);
+    assert!(text.contains("discard at next cleanup: Outpost"), "{text}");
+    assert_eq!(parse_state(&text).unwrap().players[0].discard_next_cleanup, g.players[0].discard_next_cleanup);
+    pass_until_turn_of(&mut g, 0); // the opponent's turn, with its cleanup
+    assert!(g.players[0].in_play.is_empty(), "discarded during the opponent's cleanup");
+    assert!(g.players[0].discard.has(id::OUTPOST));
+    assert!(g.players[0].discard_next_cleanup.is_empty());
+    assert!(!g.turn.is_extra_turn);
+}
+
+#[test]
+fn throne_room_on_a_failed_outpost_stays_with_it_until_the_next_cleanup() {
+    // "If you play Outpost multiple times with a card like Throne Room, Throne Room stays in play
+    // with Outpost even though you won't get a second extra turn."
+    let mut g = new_state(&[id::THRONE_ROOM, id::OUTPOST], 2);
+    set_hand(&mut g, 0, &[id::OUTPOST]);
+    set_deck_known(&mut g, 0, &[id::THRONE_ROOM, id::OUTPOST, id::ESTATE]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 10]);
+    play(&mut g, id::OUTPOST);
+    pass(&mut g); // the Outpost turn: hand Throne Room, Outpost, Estate
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::OUTPOST));
+    pass(&mut g);
+    assert_eq!(g.turn.player, 1);
+    assert_eq!(g.players[0].hand.total(), 3);
+    assert!(g.players[0].in_play.has(id::THRONE_ROOM) && g.players[0].in_play.has(id::OUTPOST));
+    pass_until_turn_of(&mut g, 0);
+    assert!(g.players[0].in_play.is_empty());
+    assert!(g.players[0].discard.has(id::THRONE_ROOM) && g.players[0].discard.has(id::OUTPOST));
+}
+
+#[test]
+fn outpost_grants_no_extra_turn_once_the_game_has_ended() {
+    let mut g = new_state(&[id::OUTPOST], 2);
+    set_supply(&mut g, id::PROVINCE, 1);
+    set_hand(&mut g, 0, &[id::OUTPOST, id::GOLD, id::GOLD, id::SILVER]);
+    play(&mut g, id::OUTPOST);
+    buy(&mut g, id::PROVINCE);
+    assert!(matches!(adv(&mut g), Step::GameOver), "the last Province ends the game; no Outpost turn");
+}
+
 // ===========================================================================
 // Astrolabe — new in 2nd edition, Treasure-Duration: "Now and next turn: +$1, +1 Buy." Choice-
 // free: it auto-plays, and its next-turn part is a duration (see the plan's step-3 note).

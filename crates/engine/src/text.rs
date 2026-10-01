@@ -372,6 +372,14 @@ pub fn format_state(state: &GameState) -> String {
         if ps.vp_tokens > 0 {
             out.push_str(&format!("vp tokens: {}\n", ps.vp_tokens));
         }
+        if !ps.discard_next_cleanup.is_empty() {
+            let mut c = Counts::EMPTY;
+            for (card, n) in ps.discard_next_cleanup.iter() {
+                c.set(card, n);
+            }
+            out.push_str(&format!("discard at next cleanup: {}
+", format_counts(&c)));
+        }
         if ps.pending_durations_len > 0 {
             let list = &ps.pending_durations[..ps.pending_durations_len as usize];
             out.push_str(&format!("durations: {}\n", format_pending_durations(list)));
@@ -663,6 +671,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 }
                 "discard" => ps.discard = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "in play" => ps.in_play = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
+                "discard at next cleanup" => {
+                    let c = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?;
+                    let mut d = DurationHeld::EMPTY;
+                    for (card, n) in c.iter() {
+                        d.add(card, n);
+                    }
+                    ps.discard_next_cleanup = d;
+                }
                 "set aside" => ps.set_aside = parse_counts(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "turns" => ps.turns_taken = val.parse().map_err(|_| format!("line {ln2}: invalid turns '{val}'"))?,
                 "vp tokens" | "vp_tokens" => {

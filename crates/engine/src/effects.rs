@@ -855,6 +855,11 @@ impl GameState {
                 // Duration card is keeping it in play, Throne Room stays in play with it").
                 if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
                     self.turn.duration_held.add(f.source, 1);
+                    // An Outpost played during an Outpost turn fails (no 3rd turn in a row): the
+                    // multiplier stays in play with it until the next turn's cleanup (`cleanup`).
+                    if f.subject == id::OUTPOST && self.turn.is_extra_turn {
+                        self.players[p as usize].discard_next_cleanup.add(f.source, 1);
+                    }
                 }
                 self.turn.multiplier_card = 0;
                 Run::Continue
@@ -1194,7 +1199,7 @@ impl GameState {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = times;
                         self.turn.multiplier_successes = 0;
-                        self.stack.push(Frame { depth: f.depth, ..Frame::new(K::MultiplierFinalize, p, f.source) });
+                        self.stack.push(Frame { depth: f.depth, subject: f.last, ..Frame::new(K::MultiplierFinalize, p, f.source) });
                     }
                     // Pushed last-first so the 1st resolution is on top; `count` = which play.
                     for nth in (1..=times).rev() {

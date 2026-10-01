@@ -189,6 +189,11 @@ pub enum Event {
     Reaction { player: u8, card: CardId },
     /// Masquerade: `player` passes `card` to `to`, once every passing player has chosen.
     Pass { player: u8, card: CardId, to: u8 },
+    /// Vanilla bonuses `source` just gave `player` (+Actions, +Buys, +$, +VP tokens; never
+    /// +Cards, which show as Draw events). Emitted once per application, only when something
+    /// is non-zero, except for a Duration firing at the start of its owner's turn, which is
+    /// always emitted (at depth 0, possibly all zero) to mark the firing.
+    Bonus { player: u8, source: CardId, actions: u8, buys: u8, coins: u16, vp: u16 },
     GameOver,
 }
 
@@ -198,6 +203,13 @@ pub trait EventSink {
     /// below the card's play). Sinks that don't care can ignore it.
     #[inline(always)]
     fn depth(&mut self, _depth: u8) {}
+    /// Report vanilla bonuses (see `Event::Bonus`); nothing is emitted when all are zero.
+    #[inline(always)]
+    fn bonus(&mut self, player: u8, source: CardId, actions: u8, buys: u8, coins: u16, vp: u16) {
+        if (actions | buys) != 0 || (coins | vp) != 0 {
+            self.event(Event::Bonus { player, source, actions, buys, coins, vp });
+        }
+    }
 }
 
 /// Discards events; compiles to nothing.
@@ -557,6 +569,14 @@ impl GameState {
         }
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
         self.turn.buys += cards::def(c).buys * n;
+        // A Treasure's own printed value is not repeated; its extras (+Buy, Duration "now"
+        // bonus, Merchant's +$1) are, indented under the play.
+        let own_coins = if cards::is(c, cards::DURATION) { cards::def(c).coins as u16 * n as u16 } else { 0 };
+        let merchant = if c == id::SILVER && self.turn.silvers_played == 0 { self.turn.merchants as u16 } else { 0 };
+        sink.depth(1);
+        sink.bonus(p, c, 0, cards::def(c).buys * n, own_coins, 0);
+        sink.bonus(p, id::MERCHANT, 0, 0, merchant, 0);
+        sink.depth(0);
         if c == id::SILVER {
             if self.turn.silvers_played == 0 {
                 self.turn.coins += self.turn.merchants as u16;
@@ -780,6 +800,7 @@ impl GameState {
                 cards::GainTrigger::CollectionAction => {
                     if cards::is(c, cards::ACTION) {
                         self.players[pi].vp_tokens += count as u16;
+                        sink.bonus(p, watcher, 0, 0, 0, count as u16);
                     }
                 }
                 // Decision-based: handled below (a frame per copy, not an immediate effect).

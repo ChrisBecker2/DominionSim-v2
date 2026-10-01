@@ -282,6 +282,9 @@ struct App {
     start_text: String,
     /// Turn-by-turn record of the current game (reset by New game / Load state).
     record: GameRecord,
+    /// The card most recently played in the log: a bonus from the same card is printed bare
+    /// ("+2 Actions"), one from another card names its source ("Merchant: +$1").
+    last_played: Option<u8>,
 }
 
 impl App {
@@ -311,6 +314,7 @@ impl App {
             plan: None,
             start_text,
             record: GameRecord::default(),
+            last_played: None,
         };
         app.record = GameRecord::new(&app.state);
         for (e, depth) in &sink.events {
@@ -334,6 +338,26 @@ impl App {
         self.record.on_event(e);
         // Effects are indented under the card that caused them (non-breaking spaces survive HTML).
         let indent = "\u{a0}\u{a0}\u{a0}".repeat(depth as usize);
+        match *e {
+            Event::TurnStart { .. } => self.last_played = None,
+            Event::Play { card, .. } | Event::PlayAgain { card, .. } => self.last_played = Some(card),
+            Event::Bonus { player, source, actions, buys, coins, vp } => {
+                let text = bonus_text(actions, buys, coins, vp, cards::is(source, cards::TREASURE));
+                let line = if depth == 0 {
+                    // A Duration firing at the start of its owner's turn.
+                    let sep = if text.is_empty() { "" } else { ": " };
+                    format!("Player {}'s {} (duration){sep}{text}", player + 1, cards::name(source))
+                } else if self.last_played == Some(source) {
+                    text
+                } else {
+                    format!("{}: {text}", cards::name(source))
+                };
+                self.log.push(format!("{indent}{line}"));
+                self.log_group = None;
+                return;
+            }
+            _ => {}
+        }
         if let Some((tag, player, card)) = groupable(e) {
             // Runs only condense at the same depth.
             let tag = tag * 16 + depth.min(15);
@@ -506,9 +530,20 @@ pub extern "C" fn load_state(ptr: u32, len: u32) -> i32 {
                 app.log.push("Loaded state from text.".to_string());
                 let summary = load_summary(&app.state);
                 app.log.push(summary);
-                // Parsing always clears `pending` (see text.rs docs); advance once to compute
-                // the first real decision (or discover the game is already over).
-                advance_and_log(&mut app);
+                // Parsing always clears `pending` (see text.rs docs). Show the position exactly
+                // as loaded: if reaching the first decision would do anything automatic first
+                // (play Treasures, draw, enter the Buy phase, resolve Durations), stay paused
+                // ("Continue", like a turn boundary) and let the first user action advance.
+                // Already at a real decision (nothing automatic pending): show it.
+                app.state.pause_at_turn_start = true;
+                let mut probe = app.state;
+                let mut sink = LogSink::default();
+                probe.advance(&mut sink);
+                if sink.events.is_empty() {
+                    app.state = probe;
+                    let state = app.state;
+                    app.record.after_step(&state);
+                }
                 app.set_result(String::new());
                 1
             }
@@ -1453,8 +1488,31 @@ fn groupable(e: &Event) -> Option<(u8, u8, u8)> {
     }
 }
 
+/// "+2 Actions, +1 Buy, +$3, +1 VP" (only the non-zero parts; Cards show as draws). Treasures
+/// list their coins first, as printed ("+$1, +1 Buy" for Astrolabe).
+fn bonus_text(actions: u8, buys: u8, coins: u16, vp: u16, coins_first: bool) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if coins_first && coins > 0 {
+        parts.push(format!("+${coins}"));
+    }
+    if actions > 0 {
+        parts.push(format!("+{actions} Action{}", if actions == 1 { "" } else { "s" }));
+    }
+    if buys > 0 {
+        parts.push(format!("+{buys} Buy{}", if buys == 1 { "" } else { "s" }));
+    }
+    if !coins_first && coins > 0 {
+        parts.push(format!("+${coins}"));
+    }
+    if vp > 0 {
+        parts.push(format!("+{vp} VP"));
+    }
+    parts.join(", ")
+}
+
 fn render_event(e: &Event) -> String {
     match *e {
+        Event::Bonus { .. } => String::new(), // rendered by `push_log_event`
         Event::TurnStart { player, turn } => format!("--- Turn {turn}: Player {} ---", player + 1),
         Event::Shuffle { player } => format!("Player {} shuffles their discard into their deck", player + 1),
         Event::Draw { player, card } => format!("Player {} draws {}", player + 1, cards::name(card)),
@@ -1837,10 +1895,13 @@ fn player_json(state: &GameState, p: usize) -> String {
 
 fn pending_json(state: &GameState) -> String {
     if state.pending_decision().is_none() && state.turn.phase != Phase::GameOver {
+        // A real turn boundary says "Start turn"; a loaded or mid-turn position says "Continue".
+        let label = if state.turn.announced { "Continue" } else { "Start turn" };
+        let what = if state.turn.announced { "Position loaded; the next step plays on from here." } else { "" };
         return format!(
-            "{{\"player\":{},\"source\":null,\"paused\":true,\"description\":{},\"choices\":[{{\"index\":-1,\"label\":\"Start turn\"}}]}}",
+            "{{\"player\":{},\"source\":null,\"paused\":true,\"description\":{},\"choices\":[{{\"index\":-1,\"label\":\"{label}\"}}]}}",
             state.turn.player,
-            jstr(&format!("Turn {}: Player {} is up.", state.turn.number, state.turn.player + 1))
+            jstr(&format!("Turn {}: Player {} is up. {what}", state.turn.number, state.turn.player + 1).trim_end())
         );
     }
     let d = match state.pending_decision() {

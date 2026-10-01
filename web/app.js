@@ -191,30 +191,42 @@
   let cardClass = new Map(); // card name -> css classes
   let cardRegex = null;
 
+  // <chip-class> Pure: the CSS classes of a card chip from its type names (tested by web/test_log.mjs).
+  function chipClass(t) {
+    // Duration cards are orange and Reactions blue, whatever else they are (Astrolabe,
+    // Pirate, Moat, Diplomat...).
+    const primary = t.includes("curse")
+      ? "curse"
+      : t.includes("duration")
+      ? "duration"
+      : t.includes("treasure")
+      ? "treasure"
+      : t.includes("victory")
+      ? "victory"
+      : t.includes("reaction")
+      ? "reaction"
+      : "action";
+    // Two-type cards get a split chip: Treasure-Victory (Harem), Action-Victory (Mill, Nobles,
+    // Island), Duration-Treasure (Astrolabe: orange/gold), Duration-Reaction (Pirate:
+    // orange/blue). A Duration that is only an Action (Caravan) stays solid orange, a Reaction
+    // that is only an Action (Moat) solid blue.
+    const has = (x) => t.includes(x);
+    const dual = has("treasure") && has("victory")
+      ? " dual-treasure-victory"
+      : has("action") && has("victory")
+      ? " dual-action-victory"
+      : has("duration") && has("treasure")
+      ? " dual-duration-treasure"
+      : has("duration") && has("reaction")
+      ? " dual-duration-reaction"
+      : "";
+    return "card " + primary + dual + (has("attack") ? " attack" : "");
+  }
+  // </chip-class>
+
   function initCards() {
     for (const c of JSON.parse(ok(wasm.card_info()))) {
-      const t = c.types;
-      // Duration cards are orange and Reactions blue, whatever else they are (Astrolabe,
-      // Pirate, Moat, Diplomat...).
-      const primary = t.includes("curse")
-        ? "curse"
-        : t.includes("duration")
-        ? "duration"
-        : t.includes("treasure")
-        ? "treasure"
-        : t.includes("victory")
-        ? "victory"
-        : t.includes("reaction")
-        ? "reaction"
-        : "action";
-      // Treasure-Victory (Harem) and Action-Victory (Mill, Nobles, Island) get a split chip.
-      const has = (x) => t.includes(x);
-      const dual = has("treasure") && has("victory")
-        ? " dual-treasure-victory"
-        : has("action") && has("victory")
-        ? " dual-action-victory"
-        : "";
-      cardClass.set(c.name, "card " + primary + dual + (t.includes("attack") ? " attack" : ""));
+      cardClass.set(c.name, chipClass(c.types));
     }
     // Longest names first so "Throne Room" wins over any shorter overlap.
     const names = [...cardClass.keys()].sort((a, b) => b.length - a.length);
@@ -1382,7 +1394,7 @@
     window.addEventListener("resize", () => renderSim());
     $("btn-analyze").addEventListener("click", () => {
       if (lastView && lastView.pending && lastView.pending.paused) {
-        doAction(() => api.resume(), "Start turn");
+        doAction(() => api.resume(), "Continue");
         if (crashed || !lastView.pending || lastView.pending.paused || lastView.gameOver) return;
       }
       if (typeof Worker === "undefined" || !wasmModule) {

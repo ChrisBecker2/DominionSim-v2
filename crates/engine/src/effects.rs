@@ -96,6 +96,9 @@ impl GameState {
         self.turn.actions += def.actions;
         self.turn.buys += def.buys;
         self.turn.coins += def.coins as u16;
+        // A Treasure's printed value is shown by its own play line; Action cards' +$ is a bonus.
+        let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) { 0 } else { def.coins as u16 };
+        sink.bonus(p, card, def.actions, def.buys, shown_coins, 0);
 
         use Act::*;
         match card {
@@ -180,7 +183,10 @@ impl GameState {
                 self.stack.push(gain_frame(p, card, 5, Filter::Any, Dest::Hand));
             }
             id::BRIDGE => self.turn.cost_reduction += 1,
-            id::MONUMENT => self.players[p as usize].vp_tokens += 1,
+            id::MONUMENT => {
+                self.players[p as usize].vp_tokens += 1;
+                sink.bonus(p, card, 0, 0, 0, 1);
+            }
             id::CITY => {
                 // +1 Card +2 Actions (vanilla); with 1+ empty piles +1 Card more, with 2+ also +1 Buy +$1.
                 let empty = self.empty_piles();
@@ -190,6 +196,7 @@ impl GameState {
                 if empty >= 2 {
                     self.turn.buys += 1;
                     self.turn.coins += 1;
+                    sink.bonus(p, card, 0, 1, 1, 0);
                 }
             }
             id::MAGNATE => {
@@ -225,6 +232,7 @@ impl GameState {
                 let actions_played: u32 = self.turn.played.iter().filter(|&(c, _)| cards::is(c, ACTION)).map(|(_, n)| n as u32).sum();
                 if actions_played >= 3 {
                     self.turn.actions += 1;
+                    sink.bonus(p, card, 1, 0, 0, 0);
                     self.stack.push(draw_frame(p, card, 1));
                 }
             }
@@ -293,6 +301,7 @@ impl GameState {
                 // mandatory if hand holds anything to trash ("Trash a card from your hand", no
                 // "may"; each other player's is explicitly "may" and not an Attack: no Moat check).
                 self.players[p as usize].vp_tokens += 1;
+                sink.bonus(p, card, 0, 0, 0, 1);
                 let n = self.num_players;
                 for i in (1..n).rev() {
                     let v = (p + i) % n;
@@ -361,7 +370,11 @@ impl GameState {
             // Bank's own value is dynamic ($1 per Treasure in play, counting itself, which is
             // already placed in `in_play` by the time this runs): no static `coins` in its
             // `CardDef` (that generic bonus applied above is 0), computed fresh here instead.
-            id::BANK => self.turn.coins += self.treasures_in_play(p) as u16,
+            id::BANK => {
+                let n = self.treasures_in_play(p) as u16;
+                self.turn.coins += n;
+                sink.bonus(p, card, 0, 0, n, 0);
+            }
             // ---- Seaside (2nd edition), step 3: Durations. "Now" parts beyond vanilla
             // CardDef bonuses; "next turn" parts are in `resolve_duration_start`. Every other
             // Duration card here (Lighthouse, Astrolabe, Fishing Village, Monkey, Caravan,
@@ -1004,12 +1017,10 @@ impl GameState {
                 if gained {
                     match f.then {
                         Then::GainedTypeStatBonus => {
-                            if cards::is(c, ACTION) {
-                                self.turn.actions += 1;
-                            }
-                            if cards::is(c, TREASURE) {
-                                self.turn.coins += 1;
-                            }
+                            let (a, k) = (cards::is(c, ACTION) as u8, cards::is(c, TREASURE) as u16);
+                            self.turn.actions += a;
+                            self.turn.coins += k;
+                            sink.bonus(p, f.source, a, 0, k, 0);
                             if cards::is(c, VICTORY) {
                                 self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, 1) });
                             }
@@ -1070,7 +1081,10 @@ impl GameState {
                     self.resolve_effects(f.subject, p, f.depth, sink);
                 }
                 match f.then {
-                    Then::CoinsPerPick(n) | Then::YesCoinsElseGainSubject(n) => self.turn.coins += n as u16,
+                    Then::CoinsPerPick(n) | Then::YesCoinsElseGainSubject(n) => {
+                        self.turn.coins += n as u16;
+                        sink.bonus(p, f.source, 0, 0, n as u16, 0);
+                    }
                     Then::ReactDrawDiscard { draw, discard } => {
                         self.stack.push(Frame { depth: f.depth, ..select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, discard, discard, Then::Nothing) });
                         self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, draw) });
@@ -1175,7 +1189,10 @@ impl GameState {
                     self.stack.push(draw_frame(p, f.source, f.count));
                 }
             }
-            Then::CoinsPerPick(n) => self.turn.coins += n as u16 * f.count as u16,
+            Then::CoinsPerPick(n) => {
+                self.turn.coins += n as u16 * f.count as u16;
+                sink.bonus(p, f.source, 0, 0, n as u16 * f.count as u16, 0);
+            }
             Then::GainUpTo { plus, filter, dest, exact, dest_by_type } => {
                 if f.count > 0 {
                     let then = if dest_by_type { Then::GainedTypeDestAttack } else { Then::Nothing };
@@ -1216,6 +1233,7 @@ impl GameState {
             Then::CoinsIfCount { count, coins } => {
                 if f.count == count {
                     self.turn.coins += coins as u16;
+                    sink.bonus(p, f.source, 0, 0, coins as u16, 0);
                 }
             }
             Then::GainCardIfCount { count, card, dest } => {
@@ -1240,6 +1258,7 @@ impl GameState {
             Then::ActionsIfHandAtMost { max_hand, actions } => {
                 if self.players[p as usize].hand.total() <= max_hand as u32 {
                     self.turn.actions += actions;
+                    sink.bonus(p, f.source, actions, 0, 0, 0);
                 }
             }
             Then::GainFixedUpTo { max_cost, filter, dest } => {
@@ -1254,7 +1273,9 @@ impl GameState {
             }
             Then::VpPerCost { per } => {
                 if f.count > 0 {
-                    self.players[p as usize].vp_tokens += (self.cost(f.last) / per) as u16;
+                    let vp = (self.cost(f.last) / per) as u16;
+                    self.players[p as usize].vp_tokens += vp;
+                    sink.bonus(p, f.source, 0, 0, 0, vp);
                 }
             }
             Then::GainExactCostSum { dest } => {
@@ -1285,7 +1306,10 @@ impl GameState {
                     }
                 }
             }
-            Then::CoinsEqualToCostSum => self.turn.coins += f.cost_sum,
+            Then::CoinsEqualToCostSum => {
+                self.turn.coins += f.cost_sum;
+                sink.bonus(p, f.source, 0, 0, f.cost_sum, 0);
+            }
             Then::TreasureMapGold => {
                 if f.count > 0 && f.self_trashed {
                     for _ in 0..4 {
@@ -1345,14 +1369,25 @@ impl GameState {
         for fr in &mut self.stack.frames[base..self.stack.len as usize] {
             fr.depth = f.depth;
         }
+        // Vanilla bonuses from the chosen atoms are logged as one line.
+        let (mut b_actions, mut b_buys, mut b_coins) = (0u8, 0u8, 0u16);
         for i in 0..table.len() as u8 {
             if f.min & (1 << i) == 0 {
                 continue;
             }
             match table[i as usize] {
-                ModeOpt::Actions(n) => self.turn.actions += n,
-                ModeOpt::Buys(n) => self.turn.buys += n,
-                ModeOpt::Coins(n) => self.turn.coins += n as u16,
+                ModeOpt::Actions(n) => {
+                    self.turn.actions += n;
+                    b_actions += n;
+                }
+                ModeOpt::Buys(n) => {
+                    self.turn.buys += n;
+                    b_buys += n;
+                }
+                ModeOpt::Coins(n) => {
+                    self.turn.coins += n as u16;
+                    b_coins += n as u16;
+                }
                 ModeOpt::Gain(c, dest) => {
                     self.gain(p, c, dest, false, sink);
                 }
@@ -1392,6 +1427,7 @@ impl GameState {
                         }
                     }
                     self.players[p as usize].vp_tokens += distinct;
+                    sink.bonus(p, f.source, 0, 0, 0, distinct);
                 }
                 ModeOpt::NativeVillageTake => {
                     // "Put all the cards from your mat into your hand" (no decision: order among
@@ -1413,6 +1449,7 @@ impl GameState {
                 | ModeOpt::NativeVillageAdd => {}
             }
         }
+        sink.bonus(p, f.source, b_actions, b_buys, b_coins, 0);
     }
 
     /// Discard every card in `p`'s hand (Minion's "discard your hand" for the acting player and
@@ -1522,6 +1559,18 @@ impl GameState {
     /// `resolve_effects_inner`'s "special frames first, +cards draw last" convention).
     pub(crate) fn resolve_duration_start<S: EventSink>(&mut self, p: u8, e: crate::state::PendingDuration, sink: &mut S) {
         let times = e.times;
+        // The firing is logged at the turn's top level, with its bonuses (always emitted, even
+        // with none: Haven, Caravan); what it then does (draws, gains, ...) is indented below.
+        let (cards_n, actions_n, buys_n, coins_n) = cards::duration_bonus(e.card);
+        sink.event(Event::Bonus {
+            player: p,
+            source: e.card,
+            actions: actions_n * times,
+            buys: buys_n * times,
+            coins: coins_n as u16 * times as u16,
+            vp: 0,
+        });
+        sink.depth(1);
         match e.card {
             id::HAVEN | id::BLOCKADE => {
                 // Put the set-aside/gained card (arg) back into hand, if there was one.
@@ -1534,22 +1583,21 @@ impl GameState {
                 }
             }
             id::TIDE_POOLS | id::SEA_WITCH => {
-                self.stack.push(select(p, e.card, Zone::Hand, Act::Discard, Filter::Any, 2, 2, Then::Nothing));
+                self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Discard, Filter::Any, 2, 2, Then::Nothing) });
             }
             id::SAILOR => {
-                self.stack.push(select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing));
+                self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing) });
             }
             id::PIRATE => {
-                self.stack.push(gain_frame(p, e.card, 6, self.treasure_filter(), Dest::Hand));
+                self.stack.push(Frame { depth: 1, ..gain_frame(p, e.card, 6, self.treasure_filter(), Dest::Hand) });
             }
             _ => {} // Outpost: no start-of-turn effect (handled at cleanup/turn transition).
         }
-        let (cards_n, actions_n, buys_n, coins_n) = cards::duration_bonus(e.card);
         self.turn.actions += actions_n * times;
         self.turn.buys += buys_n * times;
         self.turn.coins += coins_n as u16 * times as u16;
         if cards_n > 0 && times > 0 {
-            self.stack.push(draw_frame(p, e.card, cards_n * times));
+            self.stack.push(Frame { depth: 1, ..draw_frame(p, e.card, cards_n * times) });
         }
     }
 

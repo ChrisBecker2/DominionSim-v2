@@ -289,6 +289,13 @@ impl Searcher {
         TaskResult { ev: r.ev, exact: r.exact, nodes: self.nodes, tt_hits: self.tt_hits, pv, outcomes }
     }
 
+    /// `node_value` as (value, exact), for the graph builder (`graph.rs`): after an analysis
+    /// these are answered from the transposition table.
+    pub(crate) fn node_value_pub<E: Evaluator>(&mut self, root: &GameState, state: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> (f64, bool) {
+        let r = self.node_value(root, state, me, cfg, eval);
+        (r.ev, r.exact)
+    }
+
     // ------------------------------------------------------------------------------------
     // Core recursive value function.
     // ------------------------------------------------------------------------------------

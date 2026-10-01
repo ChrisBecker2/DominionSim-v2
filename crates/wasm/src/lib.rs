@@ -1408,6 +1408,74 @@ pub extern "C" fn run_bots() -> i32 {
     result_of(r)
 }
 
+/// The pending decision's search as a graph (see `dominion_search::SearchGraph`), scored like
+/// `analyze`, with at most `max_nodes` positions. Writes JSON:
+/// {searchedNodes, ttHits, truncated, nodes: [{kind, depth, value, exact, inEdges, expanded,
+/// best, hand, inPlay, gained, coins, actions, buys}], edges: [{from, to, label, prob, best}]}.
+#[no_mangle]
+pub extern "C" fn search_graph(max_nodes: u32) -> i32 {
+    let r = APP.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let app = &mut *guard;
+        let d = app.state.pending_decision().ok_or("no decision is pending")?;
+        let world = {
+            let v = PlayerView::new(&app.state, d.player);
+            v.determinize(&mut Rng::new(v.stable_seed()))
+        };
+        let (eval, _) = seat_eval(&app.strategies, scoring_strategy(app, d.player));
+        let cfg = app.search_cfg.clone();
+        let g = app.searcher.search_graph(&world, d.player, &cfg, &eval, max_nodes.clamp(2, 20_000) as usize);
+        let pairs = |v: &[(u8, u8)]| {
+            let items: Vec<String> = v.iter().map(|&(c, n)| format!("[{},{n}]", jstr(cards::name(c)))).collect();
+            format!("[{}]", items.join(","))
+        };
+        let nodes: Vec<String> = g
+            .nodes
+            .iter()
+            .map(|n| {
+                let kind = match n.kind {
+                    dominion_search::NodeKind::Root => "root",
+                    dominion_search::NodeKind::Decision => "decision",
+                    dominion_search::NodeKind::Chance => "chance",
+                    dominion_search::NodeKind::Leaf => "leaf",
+                };
+                format!(
+                    "{{\"kind\":\"{kind}\",\"depth\":{},\"value\":{:.4},\"exact\":{},\"inEdges\":{},\"expanded\":{},\"best\":{},\"hand\":{},\"inPlay\":{},\"gained\":{},\"coins\":{},\"actions\":{},\"buys\":{}}}",
+                    n.depth,
+                    n.value,
+                    n.exact,
+                    n.in_edges,
+                    n.expanded,
+                    n.best,
+                    pairs(&n.state.hand),
+                    pairs(&n.state.in_play),
+                    pairs(&n.state.gained),
+                    n.state.coins,
+                    n.state.actions,
+                    n.state.buys
+                )
+            })
+            .collect();
+        let edges: Vec<String> = g
+            .edges
+            .iter()
+            .map(|e| {
+                let prob = e.prob.map_or("null".to_string(), |p| format!("{p:.6}"));
+                format!("{{\"from\":{},\"to\":{},\"label\":{},\"prob\":{prob},\"best\":{}}}", e.from, e.to, jstr(&e.label), e.best)
+            })
+            .collect();
+        Ok::<String, String>(format!(
+            "{{\"searchedNodes\":{},\"ttHits\":{},\"truncated\":{},\"nodes\":[{}],\"edges\":[{}]}}",
+            g.searched_nodes,
+            g.tt_hits,
+            g.truncated,
+            nodes.join(","),
+            edges.join(",")
+        ))
+    });
+    result_of(r)
+}
+
 /// Exact within-turn search of the pending decision, from the decider's honest view.
 /// Writes JSON: {player, nodes, ttHits, options: [{label, ev, exact, pv}]} (best first).
 #[no_mangle]

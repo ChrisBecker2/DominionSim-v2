@@ -1,16 +1,12 @@
-//! Prosperity (2nd edition) card tests, ported from the old C++ simulator's
-//! `DominionSimTestCards\PropserityCardsTests.cpp` (1st-edition Prosperity) where the card exists
-//! in 2nd edition, adapted to this engine's API. Each test cites the C++ `TEST_METHOD` it came
-//! from. Tests for cards new in 2nd edition are written from the card text. See
-//! `docs/seaside-prosperity-plan.md` §4.
+//! Prosperity (2nd edition) card tests: each card's printed effect, edge cases (empty deck,
+//! reshuffles) and interactions with Throne Room / King's Court, including the cards new in
+//! 2nd edition. See `docs/seaside-prosperity-plan.md` §4.
 //!
-//! Adapting C++ assertions: `VerifyTurnBasics(actions, buys, coins)` there is checked before
-//! treasures are played; this engine auto-plays choice-free treasures on entering the Buy phase,
-//! so coin totals below include any treasures in hand.
+//! Turn totals (actions, buys, coins): this engine auto-plays choice-free treasures on entering
+//! the Buy phase, so coin totals below include any treasures in hand.
 //!
-//! Not ported (1st edition only): TestLoan, TestVenture, TestMountebank, TestTalisman, TestGoons,
-//! TestCountingHouse, TestTradeRoute, TestTradeRouteTokens, TestRoyalSeal. The "Simulation"
-//! sub-cases test the C++ bot harness, not card rules, and aren't ported.
+//! Not covered (1st edition only): Loan, Venture, Mountebank, Talisman, Goons, Counting House,
+//! Trade Route, Royal Seal.
 
 mod common;
 use common::*;
@@ -28,7 +24,7 @@ fn vp_of(pairs: &[(CardId, u8)]) -> i32 {
 }
 
 // ===========================================================================
-// Platinum and Colony — C++ TestPlatinum, TestColony
+// Platinum and Colony
 // ===========================================================================
 
 #[test]
@@ -41,7 +37,7 @@ fn platinum_is_a_five_coin_treasure_with_a_pile_of_twelve() {
     for n in [2, 6] {
         assert_eq!(new_state(&[id::PLATINUM, id::COLONY], n).supply.get(id::PLATINUM), 12);
     }
-    // TestTreasure(Platinum, 5)
+    // Platinum is worth $5.
     let mut g = new_state(&[id::PLATINUM, id::COLONY], 2);
     set_hand(&mut g, 0, &[id::PLATINUM]);
     let d = expect_decision(&mut g);
@@ -86,14 +82,14 @@ fn colony_games_round_trip_through_the_text_format() {
 }
 
 // ===========================================================================
-// Monument — C++ TestMonument
+// Monument
 // ===========================================================================
 
 #[test]
 fn monument_gives_two_coins_and_a_vp_token() {
     let d = cards::def(id::MONUMENT);
     assert_eq!((d.cost, d.vp), (4, 0));
-    // TestGame<PlayFirstAction>({Monument}, {Duchy}): VerifyTurnBasics(0, 1, 2), 1 VP token.
+    // Playing it leaves 0 actions, 1 buy, $2, and a VP token.
     let mut g = new_state(&[id::MONUMENT], 2);
     set_hand(&mut g, 0, &[id::MONUMENT]);
     set_deck_known(&mut g, 0, &[id::DUCHY]);
@@ -110,7 +106,7 @@ fn monument_gives_two_coins_and_a_vp_token() {
 
 #[test]
 fn throne_room_monument_gives_two_tokens() {
-    // C++ TestMonument "ThroneRoom for most VP" (the card-rule part: two plays, two tokens, $4).
+    // "ThroneRoom for most VP": two plays, two tokens, $4.
     let mut g = new_state(&[id::MONUMENT, id::THRONE_ROOM], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MONUMENT]);
     play(&mut g, id::THRONE_ROOM);
@@ -119,13 +115,13 @@ fn throne_room_monument_gives_two_tokens() {
 }
 
 // ===========================================================================
-// Worker's Village — C++ TestWorkersVillage
+// Worker's Village
 // ===========================================================================
 
 #[test]
 fn workers_village_card_two_actions_and_a_buy() {
     assert_eq!(cards::by_name("Workers Village"), Some(id::WORKERS_VILLAGE));
-    // TestGame<PlayFirstAction>({WorkersVillage, Estate}, {Duchy, Province}): (2, 2, 0).
+    // Playing it leaves 2 actions, 2 buys, $0.
     let mut g = new_state(&[id::WORKERS_VILLAGE], 2);
     set_hand(&mut g, 0, &[id::WORKERS_VILLAGE, id::ESTATE]);
     set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE]);
@@ -136,7 +132,7 @@ fn workers_village_card_two_actions_and_a_buy() {
 }
 
 // ===========================================================================
-// City — C++ TestCity
+// City
 // ===========================================================================
 
 fn city_turn(empty: &[CardId]) -> GameState {
@@ -170,12 +166,12 @@ fn city_scales_with_empty_piles() {
 }
 
 // ===========================================================================
-// Grand Market — C++ TestGrandMarket
+// Grand Market
 // ===========================================================================
 
 #[test]
 fn grand_market_plays_as_a_market_plus() {
-    // TestGame<PlayFirstAction>({GrandMarket, Estate}, {Duchy, Province}): (1, 2, 2).
+    // Playing it leaves 1 action, 2 buys, $2.
     let mut g = new_state(&[id::GRAND_MARKET], 2);
     set_hand(&mut g, 0, &[id::GRAND_MARKET, id::ESTATE]);
     set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE]);
@@ -202,7 +198,7 @@ fn grand_market_cant_be_bought_with_a_copper_in_play() {
 }
 
 // ===========================================================================
-// Magnate — new in 2nd edition, no C++ test
+// Magnate — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -234,7 +230,7 @@ fn treasure_buys_are_applied_when_played() {
 }
 
 // ===========================================================================
-// Bishop — C++ TestBishop (93)
+// Bishop
 // ===========================================================================
 
 #[test]
@@ -249,7 +245,7 @@ fn bishop_alone_gives_one_vp_token_and_one_coin() {
 
 #[test]
 fn bishop_trash_vp_is_one_plus_half_cost_rounded_down() {
-    // VerifyBishop(card, expectedVP, discount): the base +1 VP plus floor(cost/2) of whatever
+    // (card, expected VP, discount): the base +1 VP plus floor(cost/2) of whatever
     // was trashed (Bishop's own trash is mandatory once something's available).
     for &(card, expected_vp, discount) in &[
         (id::COPPER, 1u16, 0u8),
@@ -316,7 +312,7 @@ fn bishop_other_players_may_each_trash_a_card() {
 }
 
 // ===========================================================================
-// Mint — C++ TestMint (409)
+// Mint
 // ===========================================================================
 
 #[test]
@@ -383,7 +379,7 @@ fn mint_gaining_it_any_other_way_does_not_trash_treasures() {
 }
 
 // ===========================================================================
-// Expand — C++ TestExpand (529)
+// Expand
 // ===========================================================================
 
 #[test]
@@ -424,7 +420,7 @@ fn expand_discount_applies_to_the_gained_card_not_the_budget() {
 }
 
 // ===========================================================================
-// Forge — C++ TestForge (629)
+// Forge
 // ===========================================================================
 
 #[test]
@@ -479,7 +475,7 @@ fn forge_silver_and_estate_into_duchy() {
 }
 
 // ===========================================================================
-// Hoard — C++ TestHoard (1341)
+// Hoard
 // ===========================================================================
 
 #[test]
@@ -547,7 +543,7 @@ fn hoard_with_no_gold_left_gains_nothing_extra() {
 }
 
 // ===========================================================================
-// Rabble — C++ TestRabble (1748)
+// Rabble
 // ===========================================================================
 
 #[test]
@@ -581,7 +577,7 @@ fn rabble_discards_actions_and_treasures_from_victims_and_topdecks_the_rest() {
 }
 
 // ===========================================================================
-// Vault — C++ TestVault (1838)
+// Vault
 // ===========================================================================
 
 #[test]
@@ -650,7 +646,7 @@ fn vault_victim_may_decline_to_discard_at_all() {
 }
 
 // ===========================================================================
-// King's Court — C++ TestKingsCourt (1972)
+// King's Court
 // ===========================================================================
 
 #[test]
@@ -685,7 +681,7 @@ fn kings_court_plays_village_three_times() {
 
 #[test]
 fn kings_court_on_kings_court_on_village() {
-    // KC KC Village Village Village (the C++ port's exact scenario): the outer KC plays the
+    // KC KC Village Village Village: the outer KC plays the
     // inner KC 3 times; each of those 3 resolutions independently offers "play an Action from
     // hand", picking a different physical Village (since the previous one already left hand),
     // and each picked Village is itself played 3 times by the inner KC — 3x3 = 9 Village plays.
@@ -704,7 +700,7 @@ fn kings_court_on_kings_court_on_village() {
 }
 
 // ===========================================================================
-// Watchtower — C++ TestWatchtower (2777)
+// Watchtower
 // ===========================================================================
 
 #[test]
@@ -815,7 +811,7 @@ fn watchtower_reacts_to_a_gain_to_hand() {
 }
 
 // ===========================================================================
-// Bank — C++ TestBank (810)
+// Bank
 // ===========================================================================
 
 #[test]
@@ -871,7 +867,7 @@ fn bank_counts_treasures_in_play_including_itself() {
 }
 
 // ===========================================================================
-// Quarry — C++ TestQuarry (936)
+// Quarry
 // ===========================================================================
 
 #[test]
@@ -905,7 +901,7 @@ fn quarry_mixes_with_a_flat_turn_wide_discount() {
 }
 
 // ===========================================================================
-// Peddler — C++ TestPeddler (1068)
+// Peddler
 // ===========================================================================
 
 #[test]
@@ -1393,8 +1389,8 @@ fn treasures_done_and_named_for_war_chest_are_not_persisted_and_reset_on_load() 
 }
 
 // ===========================================================================
-// King's Court on a Duration — PropserityCardsTests.cpp TestKingsCourtDuration (2027).
-// Only the King's Court + Merchant Ship cases are ported (both Seaside/Prosperity, implemented
+// King's Court on a Duration.
+// Only the King's Court + Merchant Ship cases are covered (both Seaside/Prosperity, implemented
 // here); the Hireling case is skipped (Adventures, a permanent Duration, out of scope for our
 // four sets).
 // ===========================================================================

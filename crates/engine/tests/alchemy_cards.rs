@@ -1,20 +1,16 @@
-//! Alchemy card tests, ported from the old C++ simulator's
-//! `DominionSimTestCards\AlchemyCardsTests.cpp` (Alchemy has a single edition, so every card
-//! there exists here except Possession, which is not implemented, by decision), adapted to this
-//! engine's API. Each test cites the C++ `TEST_METHOD` (and line) it came from. The Potion-cost
-//! rules (Remodel, Upgrade, Forge, Bridge, ...) have no C++ counterpart and are written from the
-//! rules of the game. See `docs/alchemy-plan.md`.
+//! Alchemy card tests: every card except Possession (not implemented, by decision), including
+//! the Potion-cost rules (Remodel, Upgrade, Forge, Bridge, ...). Alchemy has a single edition,
+//! so there are no edition notes. See `docs/alchemy-plan.md`.
 //!
-//! Adapting C++ assertions:
-//! - `VerifyTurnBasics(actions, buys, coins)` there is checked before treasures are played; this
+//! Conventions:
+//! - Turn totals (actions, buys, coins) are checked before treasures are played; this
 //!   engine auto-plays choice-free treasures on entering the Buy phase, so coins include them.
-//! - Cards of other sets the C++ tests borrow as decoys (Adventurer, Necropolis, Hovel,
+//! - Cards from sets outside this simulator (Adventurer, Necropolis, Hovel,
 //!   Woodcutter, Poor House, Hamlet, the Ruins ...) are replaced by 2nd-edition cards with the
 //!   same relevant properties (Village for a +Actions card, Festival for a "+$" terminal, Estate
-//!   for Hovel); the Ruins and shelter cases, the -1 Card token and the Debt cases (Engineer,
-//!   City Quarter, Fortune) are not ported (those sets are not in this simulator).
-//! - "Simulation" sub-cases test the C++ bot harness, not the rules; the bot defaults are tested
-//!   in `crates/sim/tests/alchemy_defaults.rs`.
+//!   for Hovel); Ruins, shelters, the -1 Card token and Debt (Engineer,
+//!   City Quarter, Fortune) are not covered (those sets are not in this simulator).
+//! - Bot defaults are tested in `crates/sim/tests/alchemy_defaults.rs`.
 
 mod common;
 use common::*;
@@ -32,7 +28,7 @@ fn offered(g: &GameState) -> Vec<CardId> {
 }
 
 // ===========================================================================
-// Potion — C++ TestPotion (15)
+// Potion
 // ===========================================================================
 
 #[test]
@@ -51,7 +47,7 @@ fn potion_basics() {
 
 #[test]
 fn potion_gives_a_potion_when_played() {
-    // One Potion; two Potions; mixed with other treasures (C++ cases, in order).
+    // One Potion; two Potions; mixed with other treasures.
     for (hand, coins, potions) in [
         (vec![id::POTION], 0u16, 1u8),
         (vec![id::POTION, id::POTION], 0, 2),
@@ -339,7 +335,7 @@ fn swindler_gives_a_card_with_the_same_cost_including_the_potion() {
 }
 
 // ===========================================================================
-// Vineyard — C++ TestVineyard (66)
+// Vineyard
 // ===========================================================================
 
 fn vp(cs: &[(CardId, u8)]) -> i32 {
@@ -382,7 +378,7 @@ fn vineyard_pile_is_a_victory_pile() {
 }
 
 // ===========================================================================
-// Transmute — C++ TestTransmute (95)
+// Transmute
 // ===========================================================================
 
 fn transmute(kingdom: &[CardId], hand_extra: &[CardId]) -> GameState {
@@ -427,7 +423,7 @@ fn transmute_a_treasure_gains_a_transmute() {
 
 #[test]
 fn transmute_a_multi_type_card_gains_each() {
-    // Nobles (Action-Victory): Gold and Duchy (C++ lists {Gold, Duchy}).
+    // Nobles (Action-Victory): Gold and Duchy.
     let g = transmute(&[id::VILLAGE], &[id::NOBLES]);
     assert!(g.trash.has(id::NOBLES));
     assert_eq!(g.players[0].discard, counts_of(&[id::GOLD, id::DUCHY]));
@@ -498,7 +494,7 @@ fn transmute_treats_curse_as_a_treasure_under_charlatan() {
 }
 
 // ===========================================================================
-// Apothecary — C++ TestApothecary (305)
+// Apothecary
 // ===========================================================================
 
 #[test]
@@ -619,7 +615,7 @@ fn apothecary_reshuffles_the_discard_pile_when_the_deck_runs_out() {
 }
 
 // ===========================================================================
-// Scrying Pool — C++ TestScryingPool (431)
+// Scrying Pool
 // ===========================================================================
 
 #[test]
@@ -762,7 +758,7 @@ fn scrying_pool_is_blocked_by_moat_but_the_owner_still_reveals() {
 }
 
 // ===========================================================================
-// University — C++ TestUniversity (543)
+// University
 // ===========================================================================
 
 #[test]
@@ -819,7 +815,7 @@ fn university_gain_can_be_declined() {
 }
 
 // ===========================================================================
-// Familiar — C++ TestFamiliar (601)
+// Familiar
 // ===========================================================================
 
 #[test]
@@ -882,7 +878,7 @@ fn familiar_is_blocked_by_moat() {
 }
 
 // ===========================================================================
-// Apprentice — C++ TestApprentice (688)
+// Apprentice
 // ===========================================================================
 
 #[test]
@@ -898,7 +894,7 @@ fn apprentice_basics_and_nothing_to_trash() {
     assert_eq!(expect_decision(&mut g).kind, DecisionKind::Buy);
 }
 
-/// C++ `TestApprentice(trashed, discount, drawn)`: the hand is Apprentice, `trashed` and a
+/// The hand is Apprentice, `trashed` and a
 /// decoy (Gardens); this turn's costs are reduced by `discount`; Apprentice trashes `trashed`
 /// and draws `drawn` Duchies.
 fn apprentice(trashed: CardId, discount: u8, drawn: u32) {
@@ -963,10 +959,10 @@ fn apprentice_must_trash() {
 }
 
 // ===========================================================================
-// Philosopher's Stone — C++ TestPhilosphersStone (830)
+// Philosopher's Stone
 // ===========================================================================
 
-/// C++ `VerifyStone`: hand = 10 Estates + the Stone, 10 Golds and 10 Villages already in play;
+/// Hand = 10 Estates + the Stone, 10 Golds and 10 Villages already in play;
 /// the Stone is worth $1 per 5 cards in deck + discard (known top, unknown and known bottom).
 fn stone(coins: u16, deck: &[CardId], discard: &[CardId], known: &[CardId], bottom: &[CardId]) {
     let mut g = new_state(&[id::PHILOSOPHERS_STONE], 2);
@@ -1031,7 +1027,7 @@ fn philosophers_stone_counts_each_copy_and_every_play() {
 }
 
 // ===========================================================================
-// Golem — C++ TestGolem (870)
+// Golem
 // ===========================================================================
 
 fn golem_state(kingdom: &[CardId], hand: &[CardId], deck_top_first: &[CardId], discard: &[CardId]) -> GameState {
@@ -1050,7 +1046,7 @@ fn golem_basics() {
 
 #[test]
 fn golem_with_no_other_actions_discards_everything_it_reveals() {
-    // C++ "No other actions": deck {Duchy, Copper, Hovel} (Estate here) and a Province in the
+    // "No other actions": deck {Duchy, Copper, Estate} and a Province in the
     // discard: all four are revealed (the discard is reshuffled in) and discarded.
     let mut g = golem_state(&[id::GOLEM], &[id::GOLEM, id::ESTATE], &[id::DUCHY, id::COPPER, id::ESTATE], &[id::PROVINCE]);
     play(&mut g, id::GOLEM);
@@ -1062,7 +1058,7 @@ fn golem_with_no_other_actions_discards_everything_it_reveals() {
 
 #[test]
 fn golem_with_one_action_plays_it() {
-    // C++ "1 action, play the Necropolis" (+2 Actions): Festival here.
+    // "1 action, play it": Festival stands in for a +2 Actions card.
     let mut g = golem_state(
         &[id::GOLEM, id::FESTIVAL],
         &[id::GOLEM, id::ESTATE],
@@ -1080,7 +1076,7 @@ fn golem_with_one_action_plays_it() {
 
 #[test]
 fn golem_plays_the_two_actions_in_the_order_chosen() {
-    // C++ "2 actions, play the Village (draws Gold) and then Woodcutter" (Festival here).
+    // "2 actions, play the Village (draws Gold) and then a second Action" (Festival here).
     let mut g = golem_state(
         &[id::GOLEM, id::VILLAGE, id::FESTIVAL],
         &[id::GOLEM, id::ESTATE],
@@ -1108,8 +1104,8 @@ fn golem_plays_the_two_actions_in_the_order_chosen() {
 
 #[test]
 fn golem_second_action_is_held_while_the_first_resolves() {
-    // C++ "2 actions, play ThroneRoom, choose Necropolis in hand, then play Woodcutter", and the
-    // cheat "cannot choose an action that is waiting to be played by Golem for ThroneRoom".
+    // "2 actions, play Throne Room, choose an Action in hand, then play the other", and the
+    // rule "cannot choose an action that is waiting to be played by Golem for Throne Room".
     // Throne Room first: it may only pick the Festival from the HAND, not Smithy (held by Golem).
     let mut g = golem_state(
         &[id::GOLEM, id::THRONE_ROOM, id::SMITHY, id::FESTIVAL],
@@ -1136,7 +1132,7 @@ fn golem_second_action_is_held_while_the_first_resolves() {
 
 #[test]
 fn golem_played_durations_stay_in_play() {
-    // C++ "Play durations" / "Durations are moved after a full turn".
+    // "Play durations" / "Durations are moved after a full turn".
     let mut g = golem_state(
         &[id::GOLEM, id::MERCHANT_SHIP, id::FISHING_VILLAGE],
         &[id::GOLEM, id::ESTATE],
@@ -1212,7 +1208,7 @@ fn throne_room_on_golem_resolves_it_twice() {
 }
 
 // ===========================================================================
-// Alchemist and Herbalist — C++ TestAlchemist (1007), TestHerbalist (1039). Their "when you
+// Alchemist and Herbalist: Their "when you
 // discard this from play" offers are made at the end of the Buy phase, like Treasury's.
 // ===========================================================================
 
@@ -1230,7 +1226,7 @@ fn alchemist_basics_and_play() {
 
 #[test]
 fn alchemist_goes_back_on_the_deck_with_a_potion_in_play() {
-    // C++ "Place on deck": {Alchemist, Potion}, deck of 5 Duchies.
+    // "Place on deck": {Alchemist, Potion}, deck of 5 Duchies.
     let mut g = new_state(&[id::ALCHEMIST], 2);
     set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION]);
     set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
@@ -1263,7 +1259,7 @@ fn alchemist_offer_can_be_declined() {
 
 #[test]
 fn alchemist_cannot_go_back_without_a_potion_in_play() {
-    // C++ "Cannot place on deck without Potion in play".
+    // "Cannot place on deck without Potion in play".
     let mut g = new_state(&[id::ALCHEMIST], 2);
     set_hand(&mut g, 0, &[id::ALCHEMIST]);
     set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
@@ -1351,7 +1347,7 @@ fn throne_room_on_herbalist_still_puts_back_one_treasure() {
 
 #[test]
 fn alchemist_resolves_before_herbalist_so_both_it_and_the_potion_go_back() {
-    // C++ "Resolve in order to have both Alchemist and Potion on deck": the Alchemist's offer is
+    // "Resolve in order to have both Alchemist and Potion on deck": the Alchemist's offer is
     // made first (the Potion is still in play), then Herbalist puts the Potion on top of it.
     let mut g = new_state(&[id::ALCHEMIST, id::HERBALIST], 2);
     set_hand(&mut g, 0, &[id::ALCHEMIST, id::HERBALIST, id::POTION]);

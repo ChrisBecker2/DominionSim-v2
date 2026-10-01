@@ -1,7 +1,7 @@
 # Plan: Intrigue (2nd edition)
 
-> **Status (2026-09-29): implemented.** All 26 cards are playable and tested (ported
-> `IntrigueCardsTests.cpp` cases plus new tests). The Intrigue sample strategies are Torturer-BM,
+> **Status (2026-09-29): implemented.** All 26 cards are playable and tested (card tests in
+> `crates/engine/tests/intrigue_cards.rs`). The Intrigue sample strategies are Torturer-BM,
 > Courtyard-BM, Masquerade-BM and Duke-Duchy. Card-set selection is in the game page, the Lab and
 > the CLI. Open: a pre-existing `stable_seed` hidden-information subtlety during multi-victim
 > attacks (Bureaucrat); MAP-Elites for search diversity.
@@ -158,42 +158,40 @@ like Estates, Duchies and Provinces.
    - Lab set selection.
    - A search for counters to Double Witch using Intrigue cards too.
 
-Card tests live next to the existing ones (`crates/engine/tests`), mostly ported from
-`IntrigueCardsTests.cpp` (§5a). The Intrigue cases in the Base suite are ported too: Mine ↔ Harem,
-and Torturer as an attack. Following the project's working mode, Sonnet agents implement steps 2–5
-in parallel against this spec and the ported tests, and I review, test and merge.
+Card tests live next to the existing ones (`crates/engine/tests`; see §5a). The Intrigue cases in
+the Base tests are covered too: Mine ↔ Harem, and Torturer as an attack. Following the project's
+working mode, Sonnet agents implement steps 2–5 in parallel against this spec and the tests, and I
+review, test and merge.
 
-## 5a. Porting `IntrigueCardsTests.cpp`
+## 5a. Intrigue card tests
 
-The C++ suite (3,572 lines, 25 `TEST_METHOD`s) targets Intrigue **1st** edition. It goes to
-`crates/engine/tests/intrigue_port.rs` in the same style as `dominionsim_port.rs`: states as text,
-scripted choices, and each test citing the C++ `TEST_METHOD` it came from. It's ported card by card
-as each card lands (the tests are its spec), so every step in §5 ends with that card's ported
-cases green.
+`crates/engine/tests/intrigue_cards.rs`, in the same style as `base_cards.rs`: states as text and
+scripted choices. Tests are written card by card as each card lands (the tests are its spec), so
+every step in §5 ends with that card's cases green.
 
-| C++ test (line) | 2nd edition? | Port notes |
-|---|---|---|
-| TestCourtyard (15) | yes | Topdeck choice; empty-deck cases |
-| TestPawn (110) | yes | Every pair of the four options, including illegal same-option picks |
-| TestHarem (247), TestDuke (264) | yes | VP and treasure value |
-| TestShantyTown (638) | yes | Hands with/without actions; Throne Room × Shanty Town; Shanty Town × 2 |
-| TestNobles (730) | yes | Both modes; empty deck; an illegal mode is rejected |
-| TestSteward (775) | yes | All three modes; trash with fewer than 2 cards in hand |
-| TestBaron (872) | yes | With/without Estate, discard declined (gains an Estate), empty Estate pile |
-| TestConspirator (928) | yes | Fewer than 3 vs 3+ actions played; Village chains |
-| TestIronworks (1017) | yes | Bonus per gained type, incl. dual types |
-| TestTorturer (1376) | yes | Victim's discard-or-Curse choice, Curse to hand, empty Curse pile |
-| TestTradingPost (1566) | yes | 0/1/2 cards to trash; Silver to hand |
-| TestUpgrade (1670) | yes | Exact +$1 gains; nothing at that cost |
-| TestBridge (1912) | yes | Cost reduction, including the C++ "Bridge play order" TODO (the search handles it here) |
-| TestSwindler (2130) | yes | Attacker picks the victim's gain at the same cost; empty deck; no card at that cost |
-| TestWishingWell (2407) | yes | Named hit/miss; empty deck |
-| TestMinion (2518) | yes | Both modes; victims with fewer than 5 cards unaffected |
-| TestMiningVillage (2686) | yes | Trash for +$2; Throne Room × Mining Village trashes only once |
-| TestMasquerade (2940) | yes, **text changed** | 2nd edition: only players *with cards in hand* pass, to the next such player. Rewrite any 1st-edition cases where an empty-handed player passes or receives |
-| TestGreatHall, TestSecretChamber, TestScout, TestSaboteur, TestCoppersmith, TestTribute | **no** (1st edition only) | Not ported |
+| Card | Covered |
+|---|---|
+| Courtyard | Topdeck choice; empty-deck cases |
+| Pawn | Every pair of the four options, including illegal same-option picks |
+| Harem, Duke | VP and treasure value |
+| Shanty Town | Hands with/without actions; Throne Room × Shanty Town; Shanty Town × 2 |
+| Nobles | Both modes; empty deck; an illegal mode is rejected |
+| Steward | All three modes; trash with fewer than 2 cards in hand |
+| Baron | With/without Estate, discard declined (gains an Estate), empty Estate pile |
+| Conspirator | Fewer than 3 vs 3+ actions played; Village chains |
+| Ironworks | Bonus per gained type, incl. dual types |
+| Torturer | Victim's discard-or-Curse choice, Curse to hand, empty Curse pile |
+| Trading Post | 0/1/2 cards to trash; Silver to hand |
+| Upgrade | Exact +$1 gains; nothing at that cost |
+| Bridge | Cost reduction, including play order (the search handles it) |
+| Swindler | Attacker picks the victim's gain at the same cost; empty deck; no card at that cost |
+| Wishing Well | Named hit/miss; empty deck |
+| Minion | Both modes; victims with fewer than 5 cards unaffected |
+| Mining Village | Trash for +$2; Throne Room × Mining Village trashes only once |
+| Masquerade | **Text changed** in 2nd edition: only players *with cards in hand* pass, to the next such player. Cases where an empty-handed player passes or receives follow the 2nd-edition rule |
+| Great Hall, Secret Chamber, Scout, Saboteur, Coppersmith, Tribute | 1st edition only; not covered |
 
-**2nd-edition cards with no C++ tests** (new tests written from the card text): Lurker,
+**2nd-edition cards** (tests written from the card text): Lurker,
 Diplomat, Mill, Secret Passage, Courtier, Patrol and Replace.
 
 **Cross-cutting tests:**

@@ -1,14 +1,14 @@
 # Plan: Alchemy
 
 > **Status (2026-09-30): implemented, except Possession, which is not implemented (by decision).**
-> The 11 other kingdom cards and the Potion are playable and tested; the ported
-> `AlchemyCardsTests.cpp` cases are in `crates/engine/tests/alchemy_port.rs`. Bot defaults:
+> The 11 other kingdom cards and the Potion are playable and tested; the card tests are in
+> `crates/engine/tests/alchemy_cards.rs`. Bot defaults:
 > `crates/sim/tests/alchemy_defaults.rs`. Sample strategy: `strategies/familiar_bm.toml`.
 
 Alchemy has one edition: 12 kingdom cards plus the basic Potion. This simulator has 11 of the 12.
 
 > Card text is from memory: the wiki blocks automated fetches (an Anubis proof-of-work page), as
-> it did for the earlier sets. The ported tests and the rulings below are the specification;
+> it did for the earlier sets. The tests and the rulings below are the specification;
 > check them against the physical cards when convenient.
 
 ## 1. Cards
@@ -133,13 +133,13 @@ in chips), so nothing changed there.
 
 ## 5. Tests
 
-`alchemy_port.rs` ports every C++ test (TestPotion, TestVineyard, TestTransmute, TestApothecary,
-TestScryingPool, TestUniversity, TestFamiliar, TestApprentice, TestPhilosphersStone, TestGolem,
-TestAlchemist, TestHerbalist). Adapted: the other-set decoys (Adventurer, Necropolis, Hovel,
-Woodcutter, Poor House, Hamlet) are 2nd-edition cards with the same relevant property (Festival,
-Village, Estate, Smithy, Witch); the Ruins, shelter, -1 Card token and Debt cases (Engineer, City
-Quarter, Fortune) are not ported (those sets are not here); the "Simulation" cases (the C++ bots)
-are covered by `sim/tests/alchemy_defaults.rs`. New: the Potion cost rules (buying with and
+`alchemy_cards.rs` covers every Alchemy card except Possession: Potion, Vineyard, Transmute,
+Apothecary, Scrying Pool, University, Familiar, Apprentice, Philosopher's Stone, Golem, Alchemist
+and Herbalist. Cards from sets outside this simulator that would make natural decoys (Adventurer,
+Necropolis, Hovel, Woodcutter, Poor House, Hamlet) are replaced by 2nd-edition cards with the same
+relevant property (Festival, Village, Estate, Smithy, Witch); Ruins, shelters, the -1 Card token and
+Debt (Engineer, City Quarter, Fortune) are not covered (those sets are not here). Bot behaviour is
+covered by `sim/tests/alchemy_defaults.rs`. Also covered: the Potion cost rules (buying with and
 without a Potion, Remodel, Upgrade, Forge, Bridge, Quarry, Bishop, Workshop, Smugglers,
 Swindler), Scrying Pool with Moat, Golem with Throne Room and Durations, Herbalist and Alchemist
 order and Throne Room, text round trips, kingdom plumbing. Talisman (1st edition) is not in this

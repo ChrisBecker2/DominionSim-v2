@@ -7,7 +7,7 @@ included:
 - Prosperity: Contraband, Counting House, Goons, Loan, Mountebank, Royal Seal, Talisman, Trade Route,
   Venture.
 
-> Card text is from memory (the wiki blocks automated fetches). The ported tests and a check
+> Card text is from memory (the wiki blocks automated fetches). The tests and a check
 > against the physical cards are the specification.
 
 ## 1. The cards
@@ -149,25 +149,25 @@ included:
    - Colony games in the UI.
    - A search for Double Witch counters across all sets.
 
-## 4. Porting the C++ tests (1st edition)
+## 4. Card tests
 
-- **Seaside** (`SeasideCardsTests.cpp`), ported: Bazaar, Cutpurse, Lookout, Caravan, Wharf,
-  MerchantShip, Warehouse, Salvager, TreasureMap, Lighthouse, Tactitian (+ThroneRoom),
-  FishingVillage, Island, Haven (+ThroneRoom), NativeVillage, Smugglers, Outpost, Treasury.
-  - Not ported (1st edition only): Seahag, Explorer, Navigator, Ambassador, GhostShip,
-    PirateShip, PearlDiver, Embargo.
-  - Differences to adapt: Lighthouse and Wharf are unchanged in 2nd edition; Treasury changed
+- **Seaside**: Bazaar, Cutpurse, Lookout, Caravan, Wharf, Merchant Ship, Warehouse, Salvager,
+  Treasure Map, Lighthouse, Tactician (+Throne Room), Fishing Village, Island, Haven (+Throne
+  Room), Native Village, Smugglers, Outpost, Treasury.
+  - Not covered (1st edition only): Seahag, Explorer, Navigator, Ambassador, Ghost Ship,
+    Pirate Ship, Pearl Diver, Embargo.
+  - Edition differences: Lighthouse and Wharf are unchanged in 2nd edition; Treasury changed
     (it's "may", at the end of the Buy phase); Haven's set-aside card returns to hand.
-- **Prosperity** (`PropserityCardsTests.cpp`), ported: Platinum, Monument, WorkersVillage,
-  Bishop, City, Mint, Expand, Forge, Bank, Colony, Quarry, Peddler, Hoard, Rabble, Vault,
-  KingsCourt (+Duration), Watchtower, GrandMarket.
-  - Not ported (1st edition only): Loan, Venture, Mountebank, Talisman, Goons, CountingHouse,
-    TradeRoute(+Tokens), RoyalSeal. LoseTrack is checked when ported.
+- **Prosperity**: Platinum, Monument, Workers Village, Bishop, City, Mint, Expand, Forge, Bank,
+  Colony, Quarry, Peddler, Hoard, Rabble, Vault, King's Court (+Duration), Watchtower, Grand
+  Market.
+  - Not covered (1st edition only): Loan, Venture, Mountebank, Talisman, Goons, Counting House,
+    Trade Route (+tokens), Royal Seal.
   - Mint changed in 2nd edition: its on-buy trash skips Durations.
-- **New tests** for the 2nd-edition-only cards: Monkey, Sea Chart, Blockade, Sailor, Tide Pools,
-  Corsair, Pirate, Sea Witch, Astrolabe, Anvil, Clerk, Investment, Tiara, Charlatan, Collection,
-  Crystal Ball, Magnate and War Chest.
-- Test files: `crates/engine/tests/seaside_port.rs` and `prosperity_port.rs`.
+- **2nd-edition-only cards** (tests written from the card text): Monkey, Sea Chart, Blockade,
+  Sailor, Tide Pools, Corsair, Pirate, Sea Witch, Astrolabe, Anvil, Clerk, Investment, Tiara,
+  Charlatan, Collection, Crystal Ball, Magnate and War Chest.
+- Test files: `crates/engine/tests/seaside_cards.rs` and `prosperity_cards.rs`.
 
 ## 5. Performance log
 

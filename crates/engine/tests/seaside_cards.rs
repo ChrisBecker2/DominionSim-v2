@@ -1,15 +1,12 @@
-//! Seaside (2nd edition) card tests, ported from the old C++ simulator's
-//! `DominionSimTestCards\SeasideCardsTests.cpp` (1st-edition Seaside) where the card exists in
-//! 2nd edition, adapted to this engine's API. Each test cites the C++ `TEST_METHOD` it came from.
-//! Tests for cards new in 2nd edition are written from the card text. See
+//! Seaside (2nd edition) card tests: each card's printed effect, edge cases (empty deck,
+//! reshuffles) and the Duration timing, including the cards new in 2nd edition. See
 //! `docs/seaside-prosperity-plan.md` §4.
 //!
-//! Adapting C++ assertions: `VerifyTurnBasics(actions, buys, coins)` there is checked before
-//! treasures are played; this engine auto-plays choice-free treasures on entering the Buy phase.
+//! Turn totals (actions, buys, coins): this engine auto-plays choice-free treasures on entering
+//! the Buy phase, so coin totals below include any treasures in hand.
 //!
-//! Not ported (1st edition only): TestSeahag, TestExplorer, TestNavigator, TestAmbassador,
-//! TestGhostShip, TestPirateShip, TestPearlDiver, TestEmbargo. "Simulation" sub-cases test the
-//! C++ bot harness and aren't ported.
+//! Not covered (1st edition only): Seahag, Explorer, Navigator, Ambassador, Ghost Ship,
+//! Pirate Ship, Pearl Diver, Embargo.
 
 mod common;
 use common::*;
@@ -20,7 +17,7 @@ use dominion_engine::text::{format_state, parse_state};
 use dominion_engine::*;
 
 // ===========================================================================
-// Bazaar — C++ TestBazaar
+// Bazaar
 // ===========================================================================
 
 #[test]
@@ -28,7 +25,7 @@ fn bazaar_card_two_actions_and_a_coin() {
     let d = cards::def(id::BAZAAR);
     assert_eq!((d.cost, d.vp), (5, 0));
     assert_eq!(cards::set_of(id::BAZAAR), CardSet::Seaside);
-    // Regular play: MakeGame<PlayFirstAction>({Bazaar}, {Gold, Gold}): hand {Gold}, deck {Gold},
+    // Regular play: hand {Gold}, deck {Gold},
     // (2, 1, $1) before treasures; the drawn Gold then auto-plays for $1 + $3.
     let mut g = new_state(&[id::BAZAAR], 2);
     set_hand(&mut g, 0, &[id::BAZAAR]);
@@ -48,9 +45,9 @@ fn bazaar_card_two_actions_and_a_coin() {
 }
 
 // ===========================================================================
-// The Duration framework: for "as duration" (start-of-turn) behaviour, the C++ suite directly
-// sets up `VirtuallyPlayedDurations()` rather than playing a card and cycling a full turn; the
-// same shortcut works here: `new_state` already leaves the state at the very start of player 0's
+// The Duration framework: for "as duration" (start-of-turn) behaviour, these tests set up
+// the pending durations directly rather than playing a card and cycling a full turn:
+// `new_state` already leaves the state at the very start of player 0's
 // turn (phase Action, empty stack, `announced: false`), so injecting `pending_durations` and then
 // asking for the next decision (`expect_decision`, which calls `advance`) exercises exactly the
 // same `push_turn_start_frames` / `resolve_duration_start` path a real second turn would.
@@ -63,7 +60,7 @@ fn inject_pending(g: &mut GameState, p: usize, card: CardId, times: u8, arg: Car
 }
 
 // ===========================================================================
-// Caravan — C++ TestCaravan (570). "+1 Card +1 Action. Next turn: +1 Card."
+// Caravan: "+1 Card +1 Action. Next turn: +1 Card."
 // ===========================================================================
 
 #[test]
@@ -109,7 +106,7 @@ fn caravan_next_turn_draws_one_card() {
 }
 
 // ===========================================================================
-// Wharf — C++ TestWharf (616). "Now and next turn: +2 Cards +1 Buy."
+// Wharf: "Now and next turn: +2 Cards +1 Buy."
 // ===========================================================================
 
 #[test]
@@ -139,7 +136,7 @@ fn wharf_next_turn_draws_two_and_a_buy() {
 }
 
 // ===========================================================================
-// Merchant Ship — C++ TestMerchantShip (684). "Now and next turn: +$2."
+// Merchant Ship: "Now and next turn: +$2."
 // ===========================================================================
 
 #[test]
@@ -161,7 +158,7 @@ fn merchant_ship_now_and_next_turn_give_two_coins() {
 }
 
 // ===========================================================================
-// Lighthouse — C++ TestLighthouse (1119). "+1 Action. Now and next turn: +$1. While in play,
+// Lighthouse: "+1 Action. Now and next turn: +$1. While in play,
 // other players' Attacks don't affect you."
 // ===========================================================================
 
@@ -234,7 +231,7 @@ fn lighthouse_blocks_witch_and_torturer_too() {
 }
 
 // ===========================================================================
-// Fishing Village — C++ TestFishingVillage (1325). "+2 Actions +$1. Next turn: +1 Action +$1."
+// Fishing Village: "+2 Actions +$1. Next turn: +1 Action +$1."
 // ===========================================================================
 
 #[test]
@@ -254,7 +251,7 @@ fn fishing_village_now_and_next_turn() {
 }
 
 // ===========================================================================
-// Tactician — C++ TestTactitian (1228), TestTactitianThroneRoom (1290). "If you have a card in
+// Tactician: "If you have a card in
 // hand, discard your hand, and next turn: +5 Cards +1 Action +1 Buy."
 // ===========================================================================
 
@@ -294,7 +291,7 @@ fn tactician_next_turn_draws_five_and_a_buy_and_action() {
 
 #[test]
 fn tactician_through_throne_room_keeps_throne_room_when_one_play_activates() {
-    // TestTactitianThroneRoom (1290) is 1st edition; current rule: "Even if only one play of the
+    // 2nd edition: "Even if only one play of the
     // Duration card is keeping it in play, Throne Room stays in play with it." The 1st play
     // discards the hand and schedules; the 2nd finds an empty hand and does nothing. Tactician
     // and Throne Room both stay, and next turn's bonus happens once.
@@ -320,7 +317,7 @@ fn tactician_through_throne_room_with_an_empty_hand_keeps_neither() {
 }
 
 // ===========================================================================
-// Haven — C++ TestHaven (1795), TestHavenThroneRoom (1750). "+1 Card +1 Action. Set aside a card
+// Haven: "+1 Card +1 Action. Set aside a card
 // from your hand face down; next turn put it into your hand." (1st and 2nd edition agree: the
 // set-aside card returns to hand next turn either way.)
 // ===========================================================================
@@ -346,7 +343,7 @@ fn haven_sets_aside_a_card_and_schedules_its_return() {
 
 #[test]
 fn haven_with_no_card_to_set_aside_is_not_a_duration() {
-    // C++ TestHaven: "no card to Haven, Haven gets cleaned up (not marked for duration)".
+    // "no card to Haven, Haven gets cleaned up (not marked for duration)".
     let mut g = new_state(&[id::HAVEN], 2);
     set_hand(&mut g, 0, &[id::HAVEN]);
     play(&mut g, id::HAVEN);
@@ -368,7 +365,7 @@ fn haven_next_turn_returns_the_set_aside_card_to_hand() {
 
 #[test]
 fn haven_via_throne_room_sets_aside_two_different_cards() {
-    // TestHavenThroneRoom (1750), "2 cards" case: both resolutions have a card to set aside, so
+    // "2 cards" case: both resolutions have a card to set aside, so
     // Haven and Throne Room both stay in play, and two *different* cards end up set aside.
     let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN, id::ESTATE, id::GOLD]);
@@ -385,8 +382,8 @@ fn haven_via_throne_room_sets_aside_two_different_cards() {
 
 #[test]
 fn haven_via_throne_room_with_one_card_keeps_haven_and_throne_room() {
-    // TestHavenThroneRoom, "1 card" case: only the 1st resolution has a card to set aside. The
-    // 1st-edition C++ suite discarded Throne Room here; the current rule keeps it in play with
+    // "1 card" case: only the 1st resolution has a card to set aside. The
+    // 1st edition discarded Throne Room here; the current rule keeps it in play with
     // Haven ("even if only one play of the Duration card is keeping it in play").
     let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN, id::ESTATE]);
@@ -402,7 +399,7 @@ fn haven_via_throne_room_with_one_card_keeps_haven_and_throne_room() {
 
 #[test]
 fn haven_via_throne_room_with_no_cards_holds_neither() {
-    // TestHavenThroneRoom, "0 cards" case.
+    // "0 cards" case.
     let mut g = new_state(&[id::THRONE_ROOM, id::HAVEN], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HAVEN]);
     play(&mut g, id::THRONE_ROOM);
@@ -414,7 +411,7 @@ fn haven_via_throne_room_with_no_cards_holds_neither() {
 
 
 // ===========================================================================
-// Outpost — C++ TestOutpost (2821). "Your next hand is 3 cards; take an extra turn after this
+// Outpost: "Your next hand is 3 cards; take an extra turn after this
 // one (but not a 3rd turn in a row — 2nd edition only; see below)."
 // ===========================================================================
 
@@ -437,7 +434,7 @@ fn outpost_marks_extra_turn_and_draws_three_for_the_same_player() {
 
 #[test]
 fn two_outposts_the_same_turn_grant_only_one_extra_turn() {
-    // C++ TestOutpost: "Play multiple Outposts, only gets marked for extra turn once."
+    // "Play multiple Outposts, only gets marked for extra turn once."
     let mut g = new_state(&[id::VILLAGE, id::OUTPOST], 2);
     set_hand(&mut g, 0, &[id::VILLAGE, id::OUTPOST, id::OUTPOST]);
     set_deck_known(&mut g, 0, &[id::ESTATE]);
@@ -473,8 +470,7 @@ fn throne_room_outpost_only_grants_one_extra_turn_and_has_one_pending_entry() {
 
 #[test]
 fn outpost_twice_in_a_row_does_not_grant_a_third_turn() {
-    // 2nd edition only: "This can't cause you to take more than two turns in a row" — not
-    // present in the 1st-edition C++ suite (new test).
+    // 2nd edition only: "This can't cause you to take more than two turns in a row".
     let mut g = new_state(&[id::OUTPOST], 2);
     set_hand(&mut g, 0, &[id::OUTPOST]);
     set_deck_known(&mut g, 0, &[id::OUTPOST, id::ESTATE, id::ESTATE]);
@@ -918,7 +914,7 @@ fn sea_witch_next_turn_draws_two_then_discards_two() {
 
 // ===========================================================================
 // Clerk's start-of-turn reaction (step 3: the TODO from step 2 is now resolved). Its attack is
-// already covered by `prosperity_port.rs`.
+// already covered by `prosperity_cards.rs`.
 // ===========================================================================
 
 #[test]
@@ -1023,7 +1019,7 @@ fn determinize_hides_havens_set_aside_card_from_opponents() {
 // ===========================================================================
 
 // ===========================================================================
-// Cutpurse — C++ TestCutpurse (286). "+$2. Each other player discards a Copper (or reveals a
+// Cutpurse: "+$2. Each other player discards a Copper (or reveals a
 // hand with no Copper)."
 // ===========================================================================
 
@@ -1063,7 +1059,7 @@ fn cutpurse_does_nothing_if_the_victim_has_no_copper_in_hand() {
 }
 
 // ===========================================================================
-// Lookout — C++ TestLookout (455). "+1 Action. Look at the top 3 cards of your deck. Trash one
+// Lookout: "+1 Action. Look at the top 3 cards of your deck. Trash one
 // of them. Discard one of them. Put the other one back on top." Mandatory (not "may") up to
 // however many are available; reuses Sentry's RevealTop + Select stack.
 // ===========================================================================
@@ -1117,8 +1113,8 @@ fn lookout_with_three_cards_trashes_discards_and_keeps_one_on_top() {
 
 #[test]
 fn lookout_trash_and_discard_are_real_choices_with_distinct_cards() {
-    // Adapted from the C++ "Trash Curse, place Gold on KnownDeck" optimization case: a scripted
-    // bot there; here, driven explicitly.
+    // Trash the Curse, put the Gold back on the known deck:
+    // driven explicitly.
     let mut g = new_state(&[id::LOOKOUT], 2);
     set_hand(&mut g, 0, &[id::LOOKOUT]);
     set_deck_known(&mut g, 0, &[id::GOLD, id::COPPER, id::CURSE]);
@@ -1135,7 +1131,7 @@ fn lookout_trash_and_discard_are_real_choices_with_distinct_cards() {
 }
 
 // ===========================================================================
-// Warehouse — C++ TestWarehouse (723). "+3 Cards +1 Action. Discard 3 cards."
+// Warehouse: "+3 Cards +1 Action. Discard 3 cards."
 // ===========================================================================
 
 #[test]
@@ -1175,8 +1171,8 @@ fn warehouse_discards_exactly_three_with_more_in_hand() {
 }
 
 // ===========================================================================
-// Salvager — C++ TestSalvager (819). "+1 Buy. Trash a card from your hand. +$ equal to its
-// cost." Mandatory if hand holds anything (the C++ "Must trash if played" case): min 1, not 0.
+// Salvager: "+1 Buy. Trash a card from your hand. +$ equal to its
+// cost." Mandatory if hand holds anything ("Must trash if played"): min 1, not 0.
 // ===========================================================================
 
 #[test]
@@ -1228,7 +1224,7 @@ fn salvager_uses_the_reduced_cost_when_trashing() {
 }
 
 // ===========================================================================
-// Treasure Map — C++ TestTreasureMap (975). "Trash this and a Treasure Map from your hand. If
+// Treasure Map: "Trash this and a Treasure Map from your hand. If
 // you trashed two Treasure Maps, gain 4 Golds onto your deck." 2nd edition: "this" is trashed
 // only if it's still in play (Throne Room / King's Court: only the 1st resolution can ever
 // trash "this").
@@ -1333,7 +1329,7 @@ fn treasure_map_through_throne_room_with_two_hand_copies_still_gains_only_four()
 }
 
 // ===========================================================================
-// Island — C++ TestIsland (1616). "Put this and a card from your hand onto your Island mat."
+// Island: "Put this and a card from your hand onto your Island mat."
 // Action–Victory (2 VP). The mat is public; its cards count as owned (VP, `all_cards`).
 // ===========================================================================
 
@@ -1362,7 +1358,7 @@ fn island_alone_goes_onto_the_mat_by_itself() {
 
 #[test]
 fn island_puts_a_hand_card_on_the_mat_too() {
-    // Adapted from the C++ "IslandEstate" bot, which always picks the Estate: here, a real
+    // A real
     // 2-way choice (Estate vs. Duchy, neither a Treasure so hand stays inspectable), driven
     // explicitly.
     let mut g = new_state(&[id::ISLAND], 2);
@@ -1398,10 +1394,9 @@ fn island_through_throne_room_with_only_one_card_in_hand() {
 }
 
 // ===========================================================================
-// Native Village — C++ TestNativeVillage (1951). "+2 Actions. Choose one: put the top card of
+// Native Village: "+2 Actions. Choose one: put the top card of
 // your deck face down on your Native Village mat; or put all the cards from your mat into your
 // hand." The mat is private (`determinize` hides it); its cards count as owned (VP, `all_cards`).
-// Not ported: "-1 Card token" cases (a different expansion's mechanic, not implemented here).
 // ===========================================================================
 
 #[test]
@@ -1472,7 +1467,7 @@ fn native_village_takes_a_nonempty_mat_into_hand() {
 
 #[test]
 fn native_village_round_trip_through_conspirator_draws_the_2nd_gold() {
-    // Adapted from the C++ "Round trip Gold through NativeVillage to use Conspirator" scenario
+    // Round trip a Gold through Native Village to use Conspirator:
     // (a scripted-bot Simulation case there): put a Gold on the mat with one Native Village, take
     // it back with another, driven explicitly rather than via a bot. The Gold, once back in hand,
     // auto-plays as soon as the Buy phase is entered (no more actions left), landing in `in_play`
@@ -1490,7 +1485,7 @@ fn native_village_round_trip_through_conspirator_draws_the_2nd_gold() {
 }
 
 // ===========================================================================
-// Smugglers — C++ TestSmugglers (2656). "Gain a copy of a card costing up to $6 that the player
+// Smugglers: "Gain a copy of a card costing up to $6 that the player
 // to your right gained on their last turn. Choose among those cards that are still in the
 // supply, at the current cost."
 // ===========================================================================
@@ -1576,11 +1571,11 @@ fn smugglers_reads_the_right_hand_players_actual_last_turn() {
 }
 
 // ===========================================================================
-// Treasury — C++ TestTreasury (2939). "+1 Card +1 Action +$1. At the end of your Buy phase this
+// Treasury: "+1 Card +1 Action +$1. At the end of your Buy phase this
 // turn, if you didn't gain a Victory card in it, you may put this onto your deck." 2nd edition:
 // the trigger moved from "start of Clean-up" to "end of your Buy phase", and the condition is
 // "gained" (any gain during the Buy phase), not just "bought" — broader than the 1st edition's
-// literal-purchase check, though every C++ case here only ever exercises a literal buy.
+// literal-purchase check, though every case here only ever exercises a literal buy.
 // ===========================================================================
 
 #[test]
@@ -1717,7 +1712,7 @@ fn treasury_offered_once_per_copy_in_play() {
 }
 
 // ===========================================================================
-// Sea Chart — new in 2nd edition (not in the C++ suite): "+1 Card +1 Action. Reveal the top card
+// Sea Chart — new in 2nd edition: "+1 Card +1 Action. Reveal the top card
 // of your deck. If you have a copy of it in play, put it into your hand; otherwise it stays on
 // top, now known."
 // ===========================================================================

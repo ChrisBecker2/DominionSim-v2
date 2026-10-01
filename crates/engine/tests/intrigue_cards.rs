@@ -1,11 +1,9 @@
-//! Intrigue (2nd edition) card tests, ported from the old C++ simulator's
-//! `DominionSimTestCards\IntrigueCardsTests.cpp` (1st-edition Intrigue) where the card exists in
-//! 2nd edition, adapted to this engine's API. Each test cites the C++ `TEST_METHOD` it came
-//! from; tests for cards new in 2nd edition (Lurker, Diplomat, Mill, Secret Passage, Courtier,
-//! Patrol, Replace) are written from the card text. See `docs/intrigue-plan.md` §5a.
+//! Intrigue (2nd edition) card tests: each card's printed effect and edge cases (empty deck,
+//! reshuffles, empty hands), including the cards new in 2nd edition (Lurker, Diplomat, Mill,
+//! Secret Passage, Courtier, Patrol, Replace). See `docs/intrigue-plan.md` §5a.
 //!
-//! Not ported (1st edition only): TestGreatHall, TestSecretChamber, TestScout, TestSaboteur,
-//! TestCoppersmith, TestTribute.
+//! Not covered (1st edition only): Great Hall, Secret Chamber, Scout, Saboteur, Coppersmith,
+//! Tribute.
 
 mod common;
 use common::*;
@@ -23,12 +21,12 @@ fn vp_of(pairs: &[(CardId, u8)]) -> i32 {
 }
 
 // ===========================================================================
-// Harem — C++ TestHarem
+// Harem
 // ===========================================================================
 
 #[test]
 fn harem_basics_vp_and_worth() {
-    // VerifyBasics<MatchVictory, MatchTreasure>(Harem, "Harem", 6, 2)
+    // Cost, VP and worth (a Victory-Treasure).
     let d = cards::def(id::HAREM);
     assert_eq!((d.cost, d.vp, d.coins), (6, 2, 2));
     assert!(cards::is(id::HAREM, cards::TREASURE) && cards::is(id::HAREM, cards::VICTORY));
@@ -36,7 +34,7 @@ fn harem_basics_vp_and_worth() {
     for (n, vp) in [(1, 2), (2, 4), (3, 6), (10, 20)] {
         assert_eq!(vp_of(&[(id::HAREM, n)]), vp);
     }
-    // MakeGame<PlayAllTreasures>(Harem, {Estate, Estate}): played as a treasure for $2.
+    // Played as a treasure for $2.
     let mut g = new_state(&[id::HAREM], 2);
     set_hand(&mut g, 0, &[id::HAREM]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE]);
@@ -56,7 +54,7 @@ fn harem_pile_is_a_victory_pile() {
 
 #[test]
 fn mine_a_silver_into_a_harem_and_a_harem_into_a_gold() {
-    // Base C++ suite, TestMine / Harem cases: Harem is a Treasure for Mine in both directions.
+    // Harem is a Treasure for Mine in both directions.
     let mut g = new_state(&[id::MINE, id::HAREM], 2);
     set_hand(&mut g, 0, &[id::MINE, id::SILVER]);
     play(&mut g, id::MINE);
@@ -78,7 +76,7 @@ fn mine_a_silver_into_a_harem_and_a_harem_into_a_gold() {
 }
 
 // ===========================================================================
-// Duke — C++ TestDuke
+// Duke
 // ===========================================================================
 
 #[test]
@@ -96,7 +94,7 @@ fn duke_is_worth_one_per_duchy() {
 }
 
 // ===========================================================================
-// Bridge — C++ TestBridge
+// Bridge
 // ===========================================================================
 
 #[test]
@@ -104,7 +102,7 @@ fn bridge_gives_a_buy_a_coin_and_a_discount() {
     let d = cards::def(id::BRIDGE);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::BRIDGE, cards::ACTION));
-    // MakeGame<PlayFirstAction>({Bridge}): VerifyTurnBasics(0 actions, 2 buys, $1), discount 1.
+    // Playing it leaves 0 actions, 2 buys, $1, and a discount of 1.
     let mut g = new_state(&[id::BRIDGE], 2);
     set_hand(&mut g, 0, &[id::BRIDGE]);
     play(&mut g, id::BRIDGE);
@@ -123,7 +121,7 @@ fn bridge_gives_a_buy_a_coin_and_a_discount() {
 
 #[test]
 fn two_throne_rooms_and_two_bridges_buy_two_provinces_and_three_silvers() {
-    // C++ TestBridge simulation case: {ThroneRoom, ThroneRoom, Bridge, Bridge, Silver, Silver}.
+    // Hand: Throne Room, Throne Room, Bridge, Bridge, Silver, Silver.
     // Throne Room plays the second Throne Room twice, each time on a Bridge: 4 Bridge plays with
     // one action = +4 buys (5), +$4, discount 4. With $8 (4 + two Silvers) Provinces cost $4:
     // two Provinces, then three free Silvers.
@@ -187,7 +185,7 @@ fn unimplemented_cards_cannot_be_in_a_kingdom() {
 }
 
 // ===========================================================================
-// Courtyard — C++ TestCourtyard (line 15)
+// Courtyard
 // ===========================================================================
 
 #[test]
@@ -238,7 +236,7 @@ fn courtyard_basics_and_deck_sizes() {
 }
 
 // ===========================================================================
-// Shanty Town — C++ TestShantyTown (line 638)
+// Shanty Town
 // ===========================================================================
 
 #[test]
@@ -246,7 +244,7 @@ fn shanty_town_draws_only_with_no_action_in_hand() {
     let d = cards::def(id::SHANTY_TOWN);
     assert_eq!((d.cost, d.vp), (3, 0));
 
-    // Action in hand (Village): no draw. (C++'s GreatHall sub-case is 1st-edition-only: skipped.)
+    // Action in hand (Village): no draw.
     let mut g = new_state(&[id::SHANTY_TOWN, id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::SHANTY_TOWN, id::VILLAGE]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE]);
@@ -324,7 +322,7 @@ fn shanty_town_with_throne_room_and_two_shanty_towns() {
 }
 
 // ===========================================================================
-// Conspirator — C++ TestConspirator (line 928)
+// Conspirator
 // ===========================================================================
 
 #[test]
@@ -380,7 +378,7 @@ fn conspirator_with_throne_room_counts_both_plays() {
 }
 
 // ===========================================================================
-// Baron — C++ TestBaron (line 872)
+// Baron
 // ===========================================================================
 
 #[test]
@@ -426,7 +424,7 @@ fn baron_discards_estate_or_gains_one() {
 }
 
 // ===========================================================================
-// Mining Village — C++ TestMiningVillage (line 2686)
+// Mining Village
 // ===========================================================================
 
 #[test]
@@ -488,7 +486,7 @@ fn mining_village_with_throne_room_trashes_only_once() {
 }
 
 // ===========================================================================
-// Ironworks — C++ TestIronworks (line 1017)
+// Ironworks
 // ===========================================================================
 
 #[test]
@@ -546,12 +544,11 @@ fn ironworks_bonus_matches_the_gained_card_type() {
     assert!(g.players[0].hand.is_empty());
 
     // Nothing affordable: Copper (cost 0) is always gainable, so this can't happen with the
-    // basic supply present (C++'s "nothing to gain" case excludes the basic cards entirely,
-    // which this engine always includes): not ported.
+    // basic supply present.
 }
 
 // ===========================================================================
-// Trading Post — C++ TestTradingPost (line 1566)
+// Trading Post
 // ===========================================================================
 
 #[test]
@@ -592,7 +589,7 @@ fn trading_post_gains_a_silver_only_for_exactly_two_trashed() {
 }
 
 // ===========================================================================
-// Upgrade — C++ TestUpgrade (line 1670)
+// Upgrade
 // ===========================================================================
 
 #[test]
@@ -672,7 +669,7 @@ fn upgrade_with_throne_room_and_dual_type_gain() {
 }
 
 // ===========================================================================
-// Mill (Action-Victory, 1 VP) — new in 2nd edition, no C++ test
+// Mill (Action-Victory, 1 VP) — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -750,7 +747,7 @@ fn mill_with_throne_room() {
 }
 
 // ===========================================================================
-// Patrol — new in 2nd edition, no C++ test
+// Patrol — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -825,7 +822,7 @@ fn patrol_with_throne_room() {
 }
 
 // ===========================================================================
-// Replace (Action-Attack) — new in 2nd edition, no C++ test
+// Replace (Action-Attack) — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -934,7 +931,7 @@ fn mode_idx(card: CardId, pred: impl Fn(&ModeOpt) -> bool) -> u8 {
 }
 
 // ===========================================================================
-// Pawn — C++ TestPawn (line 110)
+// Pawn
 // ===========================================================================
 
 #[test]
@@ -983,7 +980,7 @@ fn pawn_two_different_bonuses() {
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE]));
     assert!(g.players[0].deck_known.is_empty());
 
-    // Picking the same option twice (the C++ "Coins, Coins" / bad-choice cases) is illegal.
+    // Picking the same option twice is illegal.
     let mut g = new_state(&[id::PAWN], 2);
     set_hand(&mut g, 0, &[id::PAWN]);
     play(&mut g, id::PAWN);
@@ -993,7 +990,7 @@ fn pawn_two_different_bonuses() {
 }
 
 // ===========================================================================
-// Nobles — C++ TestNobles (line 730)
+// Nobles
 // ===========================================================================
 
 #[test]
@@ -1049,7 +1046,7 @@ fn nobles_choose_cards_or_actions() {
 }
 
 // ===========================================================================
-// Steward — C++ TestSteward (line 775)
+// Steward
 // ===========================================================================
 
 #[test]
@@ -1129,7 +1126,7 @@ fn steward_choose_one_of_three() {
 }
 
 // ===========================================================================
-// Minion — C++ TestMinion (line 2518)
+// Minion
 // ===========================================================================
 
 #[test]
@@ -1192,7 +1189,7 @@ fn minion_coins_or_new_hands() {
 }
 
 // ===========================================================================
-// Torturer — C++ TestTorturer (line 1376)
+// Torturer
 // ===========================================================================
 
 #[test]
@@ -1286,7 +1283,7 @@ fn torturer_victim_discards_or_gains_a_curse() {
 }
 
 // ===========================================================================
-// Courtier — new in 2nd edition, no C++ test
+// Courtier — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -1344,7 +1341,7 @@ fn courtier_reveals_and_chooses_per_type() {
 }
 
 // ===========================================================================
-// Lurker — new in 2nd edition, no C++ test
+// Lurker — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -1461,14 +1458,14 @@ fn throne_room_with_mode_cards() {
 }
 
 // ===========================================================================
-// Wishing Well — C++ TestWishingWell (line 2407)
+// Wishing Well
 // ===========================================================================
 
 #[test]
 fn wishing_well_names_hit_and_miss() {
-    // C++ TestWishingWell, "Didn't wish for the right thing" / "Wished for the right thing"
-    // (lines 2420, 2430). Non-Treasure fillers throughout (Duchy/Province/Estate) in place of the
-    // C++ case's Estate/Village/Copper/Gold: with no Action left to play after Wishing Well, any
+    // "Didn't wish for the right thing" / "Wished for the right thing"
+    // Non-Treasure fillers throughout (Duchy/Province/Estate): with no Action left to play after
+    // Wishing Well, any
     // Treasure drawn into hand would auto-play into the Buy phase once the stack empties, which
     // isn't what these cases test.
     let d = cards::def(id::WISHING_WELL);
@@ -1500,12 +1497,12 @@ fn wishing_well_names_hit_and_miss() {
 }
 
 #[test]
-fn wishing_well_port_wished_for_the_right_thing_out_of_discard() {
-    // C++ TestWishingWell, "Wished for the right thing out of discard" (line 2450): the +1 Card
+fn wishing_well_wished_for_the_right_thing_out_of_discard() {
+    // "Wished for the right thing out of discard": the +1 Card
     // draws the deck's only card, then Wishing Well itself names correctly out of the reshuffled
-    // discard. The commented-out sibling case ("Didn't wish...out of discard", line 2440) is
-    // disabled in the C++ source itself, so it isn't ported. Duchy in place of the C++ case's
-    // Gold: with no Action left to play, a Treasure drawn into hand would auto-play into the Buy
+    // discard. Duchy rather than Gold: with no Action left to play, a Treasure drawn into hand
+    // would auto-play into the Buy
+    // phase once the stack empties, which isn't what this tests.
     // phase once the stack empties, which isn't what this tests.
     let mut g = new_state(&[id::WISHING_WELL], 2);
     set_hand(&mut g, 0, &[id::WISHING_WELL]);
@@ -1518,10 +1515,10 @@ fn wishing_well_port_wished_for_the_right_thing_out_of_discard() {
 }
 
 #[test]
-fn wishing_well_port_one_card_left_cannot_wish_for_anything() {
-    // C++ TestWishingWell, "1 card left, can't wish for anything" / "1 card left in discard,
-    // can't wish for anything" (lines 2461, 2470): the +1 Card draw consumes the only available
-    // card, leaving nothing to name. ("0 cards left", line 2479, is
+fn wishing_well_one_card_left_cannot_wish_for_anything() {
+    // "1 card left, can't wish for anything" / "1 card left in discard,
+    // can't wish for anything": the +1 Card draw consumes the only available
+    // card, leaving nothing to name. ("0 cards left" is
     // `wishing_well_empty_deck_and_discard_skips_naming` below.)
     let mut g = new_state(&[id::WISHING_WELL], 2);
     set_hand(&mut g, 0, &[id::WISHING_WELL]);
@@ -1541,7 +1538,7 @@ fn wishing_well_port_one_card_left_cannot_wish_for_anything() {
 
 #[test]
 fn wishing_well_empty_deck_and_discard_skips_naming() {
-    // C++ TestWishingWell, "0 cards left, can't wish for anything" (line 2479).
+    // "0 cards left, can't wish for anything".
     let mut g = new_state(&[id::WISHING_WELL], 2);
     set_hand(&mut g, 0, &[id::WISHING_WELL]);
     play(&mut g, id::WISHING_WELL);
@@ -1550,9 +1547,6 @@ fn wishing_well_empty_deck_and_discard_skips_naming() {
     assert_eq!(g.turn.actions, 1);
 }
 
-// Not ported: the "Simulation" sub-case (line 2489, Scout + Wishing Well) is a bot-harness case
-// that also relies on Scout, a 1st-edition-only card not in this project's scope; the commented-out
-// TODO case right after it (line 2504) is disabled in the C++ source itself.
 
 #[test]
 fn wishing_well_reshuffles_the_discard_to_name_from() {
@@ -1569,12 +1563,12 @@ fn wishing_well_reshuffles_the_discard_to_name_from() {
 }
 
 // ===========================================================================
-// Swindler (Action-Attack) — C++ TestSwindler (line 2130)
+// Swindler (Action-Attack)
 // ===========================================================================
 
 #[test]
 fn swindler_attacker_picks_the_victims_gain_at_the_trashed_cost() {
-    // C++ TestSwindler, `VerifyBasics` (line 2132).
+    // Basic cost and effect.
     let d = cards::def(id::SWINDLER);
     assert_eq!((d.cost, d.coins), (3, 2));
     assert!(cards::is(id::SWINDLER, cards::ATTACK));
@@ -1596,8 +1590,8 @@ fn swindler_attacker_picks_the_victims_gain_at_the_trashed_cost() {
 }
 
 #[test]
-fn swindler_port_copper_for_curse() {
-    // C++ TestSwindler, "Swindle a Copper for a Curse" (line 2135).
+fn swindler_copper_for_curse() {
+    // "Swindle a Copper for a Curse".
     let mut g = new_state(&[id::SWINDLER], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
     set_deck_known(&mut g, 1, &[id::COPPER, id::VILLAGE]);
@@ -1613,11 +1607,9 @@ fn swindler_port_copper_for_curse() {
 }
 
 #[test]
-fn swindler_port_village_for_silver() {
-    // C++ TestSwindler, "Swindle a Village for a Silver" (line 2152). The C++ kingdom pairing
-    // (Village, Woodcutter -- Woodcutter isn't in this engine) just gives Silver a 2nd cost-3
-    // option to choose over; Village's own always-in-supply pile (once it's a kingdom card here)
-    // already does that.
+fn swindler_village_for_silver() {
+    // "Swindle a Village for a Silver". Village's own always-in-supply pile (once it's a kingdom
+    // card here) gives Silver a 2nd cost-3 option to choose over.
     let mut g = new_state(&[id::SWINDLER, id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
     set_deck_known(&mut g, 1, &[id::VILLAGE, id::ESTATE]);
@@ -1631,8 +1623,8 @@ fn swindler_port_village_for_silver() {
 }
 
 #[test]
-fn swindler_port_must_swindle_estate_for_estate() {
-    // C++ TestSwindler, "Must Swindle an Estate for an Estate" (line 2171): nothing else costs
+fn swindler_must_swindle_estate_for_estate() {
+    // "Must Swindle an Estate for an Estate": nothing else costs
     // 2, so the only legal gain is another Estate, auto-applied.
     let mut g = new_state(&[id::SWINDLER], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
@@ -1644,9 +1636,9 @@ fn swindler_port_must_swindle_estate_for_estate() {
 }
 
 #[test]
-fn swindler_port_discount_gives_the_same_relative_choice() {
-    // C++ TestSwindler, "Swindle a Village for a Silver with a discount (should be exact same
-    // result as above)" (line 2189): a uniform discount shifts every cost by the same amount, so
+fn swindler_discount_gives_the_same_relative_choice() {
+    // "Swindle a Village for a Silver with a discount (should be exact same
+    // result as above)": a uniform discount shifts every cost by the same amount, so
     // the same two options (Village, Silver) remain the choice, just at a lower price.
     let mut g = new_state(&[id::SWINDLER, id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
@@ -1661,8 +1653,8 @@ fn swindler_port_discount_gives_the_same_relative_choice() {
 }
 
 #[test]
-fn swindler_port_discount_allows_estate_to_curse() {
-    // C++ TestSwindler, "Swindle with discount allows for Estate to Curse" (line 2209).
+fn swindler_discount_allows_estate_to_curse() {
+    // "Swindle with discount allows for Estate to Curse".
     let mut g = new_state(&[id::SWINDLER], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
     set_deck_known(&mut g, 1, &[id::ESTATE, id::VILLAGE]);
@@ -1676,11 +1668,11 @@ fn swindler_port_discount_allows_estate_to_curse() {
 }
 
 #[test]
-fn swindler_port_extreme_discount_makes_every_card_swindleable() {
-    // C++ TestSwindler, "Swindle with discount allows for Province to Curse" (line 2227): a
+fn swindler_extreme_discount_makes_every_card_swindleable() {
+    // "Swindle with discount allows for Province to Curse": a
     // discount of 8 floors every card's cost at 0, so the whole supply -- not just cards that
     // happen to cost 0 -- becomes a legal (and equally worst-case) gain ("All cards can be
-    // Swindled too", per the C++ comment).
+    // Swindled too").
     let mut g = new_state(&[id::SWINDLER], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
     set_deck_known(&mut g, 1, &[id::PROVINCE, id::VILLAGE]);
@@ -1697,9 +1689,8 @@ fn swindler_port_extreme_discount_makes_every_card_swindleable() {
 }
 
 #[test]
-fn swindler_port_no_cards_to_gain() {
-    // C++ TestSwindler, "No cards to gain" (line 2245): there the whole supply was built without
-    // any basic cards, so nothing cost as much as the trashed Gold; the 7 basics can't be removed
+fn swindler_no_cards_to_gain() {
+    // "No cards to gain": nothing may cost as much as the trashed Gold. The 7 basics can't be removed
     // in this engine, so emptying Gold's own pile (nothing else in the base/Intrigue supply costs
     // 6) reaches the same "nothing to gain" state.
     let mut g = new_state(&[id::SWINDLER], 2);
@@ -1712,13 +1703,9 @@ fn swindler_port_no_cards_to_gain() {
     assert_eq!(g.players[1].deck_known.peek_top(), Some(id::VILLAGE));
 }
 
-// Not ported from TestSwindler: the Potions (lines 2277-2330) and Debt (lines 2332-2386) cases
-// exercise currencies this project doesn't implement, and several use cards from other
-// expansions (Transmute, Apothecary, ScryingPool, Engineer, CityQuarter, RoyalBlacksmith,
-// Fortune) outside Base/Intrigue 2nd edition. "Solo play" (line 2389) needs a 1-player game,
-// which this engine doesn't support (minimum 2 players); its externally observable behavior --
+// Solo play would need a 1-player game,
+// which this engine doesn't support (minimum 2 players); its observable behavior --
 // +$2, nothing trashed, no victims -- is already covered by `swindler_moat_blocks_it_entirely`.
-// "Simulation - Gets played" (line 2398) is a bot-harness case.
 
 #[test]
 fn swindler_moat_blocks_it_entirely() {
@@ -1754,7 +1741,7 @@ fn swindler_with_bridge_uses_the_reduced_cost() {
 
 #[test]
 fn swindler_on_an_empty_deck_trashes_nothing() {
-    // C++ TestSwindler, "No cards in deck" (line 2262).
+    // "No cards in deck".
     let mut g = new_state(&[id::SWINDLER], 2);
     set_hand(&mut g, 0, &[id::SWINDLER]);
     play(&mut g, id::SWINDLER);
@@ -1776,19 +1763,19 @@ fn swindler_with_no_card_at_that_cost_gains_nothing() {
 }
 
 // ===========================================================================
-// Masquerade — C++ TestMasquerade (line 2940). 2nd edition changed the pass: only players
+// Masquerade: 2nd edition changed the pass: only players
 // with cards in hand pass, to the next such player -- an empty-handed player is skipped
 // entirely, on *both* ends (it neither gives nor receives). The 1st-edition suite only skipped
 // the giving side (an empty-handed player still received a pass); every case below that
 // involves an empty hand is rewritten for the 2nd-edition rule, with a comment explaining the
-// change and citing the original case(s) it replaces.
+// change.
 // ===========================================================================
 
 #[test]
-fn masquerade_port_self_pass_when_no_other_player_has_cards() {
-    // C++ TestMasquerade, "One player" / "Draw Cards, pass Curse to self, Trash Curse"
-    // (line 2944): the C++ suite tests this with a genuine 1-player game, which this engine
-    // doesn't support (minimum 2 players); a 2nd player with an empty hand produces the
+fn masquerade_self_pass_when_no_other_player_has_cards() {
+    // "One player" / "Draw Cards, pass Curse to self, Trash Curse": a genuine 1-player game
+    // isn't supported by this engine
+    // (minimum 2 players); a 2nd player with an empty hand produces the
     // identical self-pass wraparound, since 2nd edition already skips empty-handed players on
     // both ends of the pass.
     let mut g = new_state(&[id::MASQUERADE], 2);
@@ -1809,9 +1796,9 @@ fn masquerade_port_self_pass_when_no_other_player_has_cards() {
 }
 
 #[test]
-fn masquerade_port_self_pass_with_one_card_then_optional_trash() {
-    // C++ TestMasquerade, "One player" / "Only 1 card to draw" (line 2965) and "Trashing is
-    // optional" (line 3344), both adapted to 2 players as above.
+fn masquerade_self_pass_with_one_card_then_optional_trash() {
+    // "One player" / "Only 1 card to draw" and "Trashing is
+    // optional", both adapted to 2 players as above.
 
     // Trashes the self-passed card.
     let mut g = new_state(&[id::MASQUERADE], 2);
@@ -1836,13 +1823,12 @@ fn masquerade_port_self_pass_with_one_card_then_optional_trash() {
 }
 
 #[test]
-fn masquerade_port_base_case_simultaneous_pass() {
-    // C++ TestMasquerade, "Two player" / "Base case" (line 2986). The C++ brains also assert
-    // that the offered choices and the player's own hand haven't been touched by the *other*
-    // player's pick yet (`VerifyPermutation` on `pick.Choices()`/`view.Hand()`); that honesty
+fn masquerade_base_case_simultaneous_pass() {
+    // "Two player" / "Base case". The offered choices and the player's own hand must not
+    // have been touched by the *other* player's pick yet; that honesty
     // property is covered directly by `masquerade_honesty_hides_earlier_passes_from_a_later_chooser`
-    // below via `determinize`, so it isn't re-asserted here. Gardens in place of player 0's Gold
-    // (the C++ case's own hand card): with no Action left to play, a Treasure ending up in the
+    // below via `determinize`, so it isn't re-asserted here. Gardens rather than Gold
+    // for player 0: with no Action left to play, a Treasure ending up in the
     // *active* player's hand would auto-play into the Buy phase once the stack empties, which
     // isn't what this tests; player 1's Gold is unaffected (only the active player auto-plays),
     // so it's kept as-is.
@@ -1882,21 +1868,17 @@ fn masquerade_port_base_case_simultaneous_pass() {
     assert_eq!(g.trash, counts_of(&[id::ESTATE]));
 }
 
-// Not ported: "Base case, 2nd player has Masquerade" (line 3029) and the following duplicate of
-// the base case (line 3063) are redundant with the port above (same scenario; the first only
-// relabels which seat currently has the turn, the second is an exact repeat without the
-// mid-decision assertions).
 
 #[test]
-fn masquerade_port_self_pass_when_the_other_player_has_no_cards() {
-    // C++ TestMasquerade, "Playing player has nothing to pass, but can still Trash any card"
-    // (line 3092), "Other player has nothing to pass" (line 3121), and "...leaving nothing for
-    // playing player to trash" (line 3150) all test a 1st-edition-only mechanic: an empty-handed
+fn masquerade_self_pass_when_the_other_player_has_no_cards() {
+    // "Playing player has nothing to pass, but can still Trash any card",
+    // "Other player has nothing to pass", and "...leaving nothing for
+    // playing player to trash" all test a 1st-edition-only mechanic: an empty-handed
     // player still *receives* a pass (only the *giving* side was skipped for them). 2nd edition
     // changed this so an empty-handed player is skipped on both ends, so in all three cases here
     // the lone player with cards simply passes to themselves and the empty-handed player is
-    // never touched; this single case (closest to line 3121, the richest of the three) replaces
-    // all three 1st-edition variants. Duchy in place of the C++ case's Gold: with no Action left
+    // never touched; this single case (the richest of the three) replaces
+    // all three 1st-edition variants. Duchy rather than Gold: with no Action left
     // to play, a Treasure sitting in the active player's final hand would auto-play into the Buy
     // phase once the stack empties, which isn't what this tests.
     let mut g = new_state(&[id::MASQUERADE], 2);
@@ -1918,9 +1900,9 @@ fn masquerade_port_self_pass_when_the_other_player_has_no_cards() {
 }
 
 #[test]
-fn masquerade_port_neither_player_can_pass_or_trash() {
-    // C++ TestMasquerade, the 2-player "nothing to draw, trash or pass, so nothing happens" case
-    // (line 3332); the preceding 1-player variant (line 3325) is redundant with this one plus
+fn masquerade_neither_player_can_pass_or_trash() {
+    // The 2-player "nothing to draw, trash or pass, so nothing happens" case;
+    // the 1-player variant is redundant with this one plus
     // the self-pass ports above.
     let mut g = new_state(&[id::MASQUERADE], 2);
     set_hand(&mut g, 0, &[id::MASQUERADE]);
@@ -1932,8 +1914,8 @@ fn masquerade_port_neither_player_can_pass_or_trash() {
 }
 
 #[test]
-fn masquerade_port_three_player_all_pass_simultaneously() {
-    // C++ TestMasquerade, "Three player" / "All usage" (line 3206). Fully portable to 2nd
+fn masquerade_three_player_all_pass_simultaneously() {
+    // "Three player" / "All usage". Same in
     // edition as-is: every player has cards throughout, so the empty-hand rule change never
     // applies here.
     let mut g = new_state(&[id::MASQUERADE], 3);
@@ -1966,8 +1948,8 @@ fn masquerade_port_three_player_all_pass_simultaneously() {
 }
 
 #[test]
-fn masquerade_port_three_player_second_player_has_no_cards() {
-    // C++ TestMasquerade, "Three player" / "2nd player has no cards to pass" (line 3271).
+fn masquerade_three_player_second_player_has_no_cards() {
+    // "Three player" / "2nd player has no cards to pass".
     // Player 0's result happens to be identical either edition (it receives from player 2 either
     // way); players 1 and 2 differ -- 2nd edition skips the empty-handed player 1 entirely on
     // both ends, so player 0 passes across it straight to player 2, and player 1 never receives
@@ -1997,14 +1979,10 @@ fn masquerade_port_three_player_second_player_has_no_cards() {
     assert_eq!(g.trash, counts_of(&[id::ESTATE]));
 }
 
-// Not ported from TestMasquerade: "Optimization" (lines 3358-3380, one case plus a disabled
-// TODO) and "Simulation" (lines 3382-3520+: pass/trash decisions driven by BasicBigMoney's/
-// DoBasicBrain's own deck-value heuristics across six sub-cases) are bot-harness cases, not
-// card-rules tests.
 
 #[test]
 fn masquerade_empty_handed_player_neither_passes_nor_receives() {
-    // Fresh scenario (no direct C++ analogue at 3 players with exactly one empty hand): the
+    // 3 players with exactly one empty hand: the
     // other two pass to each other, skipping the empty-handed player entirely (2nd edition; see
     // the note at the top of this section).
     let mut g = new_state(&[id::MASQUERADE], 3);
@@ -2045,7 +2023,7 @@ fn masquerade_honesty_hides_earlier_passes_from_a_later_chooser() {
 }
 
 // ===========================================================================
-// Secret Passage — new in 2nd edition, no C++ test
+// Secret Passage — new in 2nd edition
 // ===========================================================================
 
 #[test]
@@ -2152,7 +2130,7 @@ fn old_state_text_without_deck_bottom_line_still_parses() {
 }
 
 // ===========================================================================
-// Diplomat (Action-Reaction) — new in 2nd edition, no C++ test
+// Diplomat (Action-Reaction) — new in 2nd edition
 // ===========================================================================
 
 #[test]

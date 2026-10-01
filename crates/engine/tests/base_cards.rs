@@ -1,26 +1,19 @@
-//! Cards tests ported from the old C++ simulator's `DominionSimTestCards\DominionCardsTests.cpp`
-//! (`DominionSimTest::DominionCardsTests`), adapted to this engine's API and to Base Set 2nd
-//! edition rules. Each test cites the C++ `TEST_METHOD` it was ported from.
+//! Base Set 2nd edition card tests: each card's printed effect, edge cases (empty deck,
+//! reshuffles) and 2nd-edition rulings.
 //!
-//! Scope: only cards that exist in the Base Set 2nd edition. Skipped entirely (not in 2E, or
-//! Duration cards which belong to a different expansion):
-//!   TestWoodcutter, TestAdventurer, TestFeast, TestChancellor, TestThief, TestSpy,
-//!   TestThroneRoomDuration.
+//! Scope: only cards that exist in the Base Set 2nd edition (Woodcutter, Adventurer, Feast,
+//! Chancellor, Thief and Spy are 1st edition only).
 //!
-//! 1E -> 2E adaptations (called out again at each relevant test):
-//!   - Throne Room: "You may play an Action card from your hand twice" (optional in 2E; the
-//!     C++ suite's `VerifyThrows<Cheat>` "must ThroneRoom a card" case is inverted below).
-//!   - Moneylender: "You may trash a Copper from your hand for +$3" (optional; the C++ suite
-//!     treated the trash as automatic/mandatory).
+//! 1E -> 2E differences (called out again at each relevant test):
+//!   - Throne Room: "You may play an Action card from your hand twice" (optional in 2E; 1E made
+//!     it mandatory).
+//!   - Moneylender: "You may trash a Copper from your hand for +$3" (optional; 1E trashed
+//!     it automatically).
 //!   - Mine: "You may trash a Treasure... gain a Treasure to your HAND" (optional, and gains
-//!     to hand rather than discard; the C++ suite's cheat case "must trash a treasure" is
-//!     likewise inverted).
-//!   - Bureaucrat: matches the C++ suite already (gains Silver to the top of the deck).
+//!     to hand rather than discard; 1E made the trash mandatory).
+//!   - Bureaucrat: gains Silver to the top of the deck (same in both editions).
 //!
-//! Not ported (test the C++ engine's own scripted-strategy / simulation harness, discount
-//! mechanics, Potion-costing cards, or promos not present in this engine, none of which this
-//! engine models): the `VerifyOptimizations<BasicBigMoney>` cases, discount (`AddDiscount`)
-//! cases, Potion/Transmute/Apothecary/Harem/Platinum cases, and the `-1 Card token` cases.
+//! Not covered here: Potion-costing cards (see alchemy_cards.rs) and bot behaviour (sim crate).
 
 mod common;
 use common::*;
@@ -42,23 +35,21 @@ fn vp_of(pairs: &[(CardId, u8)]) -> i32 {
 }
 
 // ===========================================================================
-// Treasures: Copper, Silver, Gold — C++ TestCopper / TestSilver / TestGold
+// Treasures: Copper, Silver, Gold
 // ===========================================================================
 
 #[test]
-fn dsim_copper_basics() {
-    // C++ TEST_METHOD(TestCopper) — VerifyBasics<MatchTreasure>(Copper, "Copper", 0, 0)
+fn copper_basics() {
     let d = cards::def(id::COPPER);
     assert_eq!(d.cost, 0);
     assert!(cards::is(id::COPPER, cards::TREASURE));
     assert_eq!(d.vp, 0);
     // Variable "copper worth" (AddCopperWorth) isn't modeled by this engine (no such kingdom
-    // card is implemented in Base Set 2E), so only the plain worth is ported below.
+    // card is implemented in Base Set 2E), so only the plain worth is tested below.
 }
 
 #[test]
-fn dsim_copper_worth_one() {
-    // C++ TEST_METHOD(TestCopper) — TestTreasure(Copper, 1)
+fn copper_worth_one() {
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::COPPER]);
     let step = adv(&mut g);
@@ -67,8 +58,7 @@ fn dsim_copper_worth_one() {
 }
 
 #[test]
-fn dsim_silver_basics_and_worth() {
-    // C++ TEST_METHOD(TestSilver) — VerifyBasics<MatchTreasure>(Silver, "Silver", 3, 0); TestTreasure(Silver, 2)
+fn silver_basics_and_worth() {
     let d = cards::def(id::SILVER);
     assert_eq!(d.cost, 3);
     assert!(cards::is(id::SILVER, cards::TREASURE));
@@ -81,8 +71,7 @@ fn dsim_silver_basics_and_worth() {
 }
 
 #[test]
-fn dsim_gold_basics_and_worth() {
-    // C++ TEST_METHOD(TestGold) — VerifyBasics<MatchTreasure>(Gold, "Gold", 6, 0); TestTreasure(Gold, 3)
+fn gold_basics_and_worth() {
     let d = cards::def(id::GOLD);
     assert_eq!(d.cost, 6);
     assert!(cards::is(id::GOLD, cards::TREASURE));
@@ -95,12 +84,11 @@ fn dsim_gold_basics_and_worth() {
 }
 
 // ===========================================================================
-// Victory cards: Estate, Duchy, Province — C++ TestEstate / TestDuchy / TestProvince
+// Victory cards: Estate, Duchy, Province
 // ===========================================================================
 
 #[test]
-fn dsim_estate_basics_and_vp() {
-    // C++ TEST_METHOD(TestEstate)
+fn estate_basics_and_vp() {
     let d = cards::def(id::ESTATE);
     assert_eq!(d.cost, 2);
     assert!(cards::is(id::ESTATE, cards::VICTORY));
@@ -112,8 +100,7 @@ fn dsim_estate_basics_and_vp() {
 }
 
 #[test]
-fn dsim_duchy_basics_and_vp() {
-    // C++ TEST_METHOD(TestDuchy)
+fn duchy_basics_and_vp() {
     let d = cards::def(id::DUCHY);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::DUCHY, cards::VICTORY));
@@ -125,8 +112,7 @@ fn dsim_duchy_basics_and_vp() {
 }
 
 #[test]
-fn dsim_province_basics_and_vp() {
-    // C++ TEST_METHOD(TestProvince)
+fn province_basics_and_vp() {
     let d = cards::def(id::PROVINCE);
     assert_eq!(d.cost, 8);
     assert!(cards::is(id::PROVINCE, cards::VICTORY));
@@ -138,12 +124,11 @@ fn dsim_province_basics_and_vp() {
 }
 
 // ===========================================================================
-// Curse — C++ TestCurse
+// Curse
 // ===========================================================================
 
 #[test]
-fn dsim_curse_basics_and_vp() {
-    // C++ TEST_METHOD(TestCurse)
+fn curse_basics_and_vp() {
     let d = cards::def(id::CURSE);
     assert_eq!(d.cost, 0);
     assert!(cards::is(id::CURSE, cards::CURSE_T));
@@ -156,12 +141,11 @@ fn dsim_curse_basics_and_vp() {
 }
 
 // ===========================================================================
-// Gardens ("Garden" in the C++ suite) — C++ TestGarden
+// Gardens
 // ===========================================================================
 
 #[test]
-fn dsim_gardens_basics() {
-    // C++ TEST_METHOD(TestGarden) — VerifyBasics<MatchVictory, MatchHasExtendedVP>(Garden, "Garden", 4, 0)
+fn gardens_basics() {
     let d = cards::def(id::GARDENS);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::GARDENS, cards::VICTORY));
@@ -169,16 +153,16 @@ fn dsim_gardens_basics() {
 }
 
 #[test]
-fn dsim_gardens_vp_rounds_down_when_small() {
-    // C++ TEST_METHOD(TestGarden) — "Should all round down to 0"
+fn gardens_vp_rounds_down_when_small() {
+    // "Should all round down to 0"
     assert_eq!(vp_of(&[(id::GARDENS, 0)]), 0);
     assert_eq!(vp_of(&[(id::GARDENS, 1)]), 0);
     assert_eq!(vp_of(&[(id::GARDENS, 9)]), 0);
 }
 
 #[test]
-fn dsim_gardens_vp_rounds_to_nearest_whole() {
-    // C++ TEST_METHOD(TestGarden) — "Should round to nearest whole"
+fn gardens_vp_rounds_to_nearest_whole() {
+    // "Should round to nearest whole"
     assert_eq!(vp_of(&[(id::GARDENS, 1), (id::GOLD, 9)]), 1, "total 10 -> floor(10/10)=1");
     assert_eq!(vp_of(&[(id::GARDENS, 1), (id::GOLD, 11)]), 1, "total 12 -> floor(12/10)=1");
     assert_eq!(vp_of(&[(id::GARDENS, 1), (id::GOLD, 24)]), 2, "total 25 -> floor(25/10)=2");
@@ -187,15 +171,15 @@ fn dsim_gardens_vp_rounds_to_nearest_whole() {
 }
 
 #[test]
-fn dsim_gardens_vp_suddenly_worth_a_lot() {
-    // C++ TEST_METHOD(TestGarden) — "Suddenly worth a lot of points"
+fn gardens_vp_suddenly_worth_a_lot() {
+    // "Suddenly worth a lot of points"
     assert_eq!(vp_of(&[(id::GARDENS, 10)]), 10);
     assert_eq!(vp_of(&[(id::GARDENS, 12)]), 12);
 }
 
 #[test]
-fn dsim_gardens_finds_cards_everywhere() {
-    // C++ TEST_METHOD(TestGarden) — "Gardens should find cards everywhere" (counts every zone,
+fn gardens_finds_cards_everywhere() {
+    // "Gardens should find cards everywhere" (counts every zone,
     // not just the deck; this engine's vp_of_cards already sums over `all_cards()`).
     assert_eq!(vp_of(&[(id::VILLAGE, 1), (id::SMITHY, 8), (id::GARDENS, 1)]), 1, "total 10 -> 1");
     assert_eq!(
@@ -206,13 +190,13 @@ fn dsim_gardens_finds_cards_everywhere() {
 }
 
 #[test]
-fn dsim_gardens_stacks_with_other_vp_cards() {
-    // C++ TEST_METHOD(TestGarden) — "Stacks with other VP cards"
+fn gardens_stacks_with_other_vp_cards() {
+    // "Stacks with other VP cards"
     assert_eq!(vp_of(&[(id::PROVINCE, 1), (id::ESTATE, 8), (id::DUCHY, 1), (id::GARDENS, 1)]), 18);
 }
 
 #[test]
-fn dsim_gardens_live_scoring_via_playerstate_vp() {
+fn gardens_live_scoring_via_playerstate_vp() {
     // Same contract, but exercised through `PlayerState::vp()` on a real GameState.
     let mut g = new_state(&[id::GARDENS], 2);
     set_hand(&mut g, 0, &[id::GARDENS]);
@@ -222,11 +206,11 @@ fn dsim_gardens_live_scoring_via_playerstate_vp() {
 }
 
 // ===========================================================================
-// Village — C++ TestVillage
+// Village
 // ===========================================================================
 
 #[test]
-fn dsim_village_basics() {
+fn village_basics() {
     let d = cards::def(id::VILLAGE);
     assert_eq!(d.cost, 3);
     assert!(cards::is(id::VILLAGE, cards::ACTION));
@@ -234,8 +218,8 @@ fn dsim_village_basics() {
 }
 
 #[test]
-fn dsim_village_draws_and_gives_two_actions() {
-    // C++ TEST_METHOD(TestVillage) — deck of [Estate, Estate]
+fn village_draws_and_gives_two_actions() {
+    // deck of [Estate, Estate]
     let mut g = new_state(&[id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::VILLAGE]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE]);
@@ -246,8 +230,8 @@ fn dsim_village_draws_and_gives_two_actions() {
 }
 
 #[test]
-fn dsim_village_with_empty_deck() {
-    // C++ TEST_METHOD(TestVillage) — "No cards in deck"
+fn village_with_empty_deck() {
+    // "No cards in deck"
     let mut g = new_state(&[id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::VILLAGE]);
     let next = play(&mut g, id::VILLAGE);
@@ -257,19 +241,19 @@ fn dsim_village_with_empty_deck() {
 }
 
 // ===========================================================================
-// Smithy — C++ TestSmithy
+// Smithy
 // ===========================================================================
 
 #[test]
-fn dsim_smithy_basics() {
+fn smithy_basics() {
     let d = cards::def(id::SMITHY);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::SMITHY, cards::ACTION));
 }
 
 #[test]
-fn dsim_smithy_full_deck() {
-    // C++ TEST_METHOD(TestSmithy) — deck { Province, Duchy, Estate, Gold }, 3 drawn, 1 left
+fn smithy_full_deck() {
+    // deck { Province, Duchy, Estate, Gold }, 3 drawn, 1 left
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
     set_deck_known(&mut g, 0, &[id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD]);
@@ -280,8 +264,8 @@ fn dsim_smithy_full_deck() {
 }
 
 #[test]
-fn dsim_smithy_only_two_cards_in_deck() {
-    // C++ TEST_METHOD(TestSmithy) — "Only 2 cards in deck"
+fn smithy_only_two_cards_in_deck() {
+    // "Only 2 cards in deck"
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
@@ -291,8 +275,8 @@ fn dsim_smithy_only_two_cards_in_deck() {
 }
 
 #[test]
-fn dsim_smithy_only_one_card_in_deck() {
-    // C++ TEST_METHOD(TestSmithy) — "Only 1 card in deck"
+fn smithy_only_one_card_in_deck() {
+    // "Only 1 card in deck"
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
     set_deck_known(&mut g, 0, &[id::ESTATE]);
@@ -302,8 +286,8 @@ fn dsim_smithy_only_one_card_in_deck() {
 }
 
 #[test]
-fn dsim_smithy_empty_deck_and_discard() {
-    // C++ TEST_METHOD(TestSmithy) — "No cards in deck"
+fn smithy_empty_deck_and_discard() {
+    // "No cards in deck"
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
     play(&mut g, id::SMITHY);
@@ -311,8 +295,8 @@ fn dsim_smithy_empty_deck_and_discard() {
 }
 
 #[test]
-fn dsim_smithy_cards_in_discard_but_not_deck() {
-    // C++ TEST_METHOD(TestSmithy) — "Cards in discard, but not in deck"
+fn smithy_cards_in_discard_but_not_deck() {
+    // "Cards in discard, but not in deck"
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
     set_discard(&mut g, 0, &[id::ESTATE; 4]);
@@ -323,11 +307,11 @@ fn dsim_smithy_cards_in_discard_but_not_deck() {
 }
 
 #[test]
-fn dsim_smithy_some_in_deck_but_not_enough() {
-    // C++ TEST_METHOD(TestSmithy) — "Some cards in deck, but not enough" (spans a reshuffle)
+fn smithy_some_in_deck_but_not_enough() {
+    // "Some cards in deck, but not enough" (spans a reshuffle)
     let mut g = new_state(&[id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::SMITHY]);
-    // (The C++ fixture used a Gold here; substituted with a Duchy since this engine auto-plays
+    // (A Duchy rather than a Gold here, since this engine auto-plays
     // any treasure left in the current player's hand the instant the turn rolls into the Buy
     // phase, which would otherwise move it out of `hand` before this assertion runs.)
     set_deck_known(&mut g, 0, &[id::DUCHY]);
@@ -339,11 +323,11 @@ fn dsim_smithy_some_in_deck_but_not_enough() {
 }
 
 // ===========================================================================
-// Moat — C++ TestMoat
+// Moat
 // ===========================================================================
 
 #[test]
-fn dsim_moat_basics() {
+fn moat_basics() {
     let d = cards::def(id::MOAT);
     assert_eq!(d.cost, 2);
     assert!(cards::is(id::MOAT, cards::ACTION));
@@ -351,8 +335,8 @@ fn dsim_moat_basics() {
 }
 
 #[test]
-fn dsim_moat_played_as_action_draws_two() {
-    // C++ TEST_METHOD(TestMoat) — "Play as action"
+fn moat_played_as_action_draws_two() {
+    // "Play as action"
     let mut g = new_state(&[id::MOAT], 2);
     set_hand(&mut g, 0, &[id::MOAT]);
     set_deck_known(&mut g, 0, &[id::ESTATE; 5]);
@@ -363,9 +347,8 @@ fn dsim_moat_played_as_action_draws_two() {
 }
 
 #[test]
-fn dsim_moat_blocks_militia() {
-    // C++ TEST_METHOD(TestMoat) — "Test a bunch of attacks" (Militia; Seahag/Saboteur/Torturer
-    // aren't in Base Set 2E and are skipped).
+fn moat_blocks_militia() {
+    // Militia blocked by Moat.
     let mut g = new_state(&[id::MOAT, id::MILITIA], 2);
     set_hand(&mut g, 0, &[id::MILITIA]);
     let victim_hand = [id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::MOAT];
@@ -375,8 +358,8 @@ fn dsim_moat_blocks_militia() {
 }
 
 #[test]
-fn dsim_moat_blocks_witch() {
-    // C++ TEST_METHOD(TestMoat) — "Test a bunch of attacks" (Witch)
+fn moat_blocks_witch() {
+    // Witch blocked by Moat
     let mut g = new_state(&[id::MOAT, id::WITCH], 2);
     set_hand(&mut g, 0, &[id::WITCH]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
@@ -387,11 +370,11 @@ fn dsim_moat_blocks_witch() {
 }
 
 // ===========================================================================
-// Market — C++ TestMarket
+// Market
 // ===========================================================================
 
 #[test]
-fn dsim_market_basics() {
+fn market_basics() {
     let d = cards::def(id::MARKET);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::MARKET, cards::ACTION));
@@ -404,8 +387,7 @@ fn verify_market_played(g: &GameState) {
 }
 
 #[test]
-fn dsim_market_normal_draw() {
-    // C++ TEST_METHOD(TestMarket)
+fn market_normal_draw() {
     let mut g = new_state(&[id::MARKET], 2);
     set_hand(&mut g, 0, &[id::MARKET]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
@@ -416,8 +398,8 @@ fn dsim_market_normal_draw() {
 }
 
 #[test]
-fn dsim_market_no_cards_left() {
-    // C++ TEST_METHOD(TestMarket) — "No cards left"
+fn market_no_cards_left() {
+    // "No cards left"
     let mut g = new_state(&[id::MARKET], 2);
     set_hand(&mut g, 0, &[id::MARKET]);
     play(&mut g, id::MARKET);
@@ -426,8 +408,8 @@ fn dsim_market_no_cards_left() {
 }
 
 #[test]
-fn dsim_market_deck_empty_reshuffles_from_discard() {
-    // C++ TEST_METHOD(TestMarket) — "Deck empty with cards in discard"
+fn market_deck_empty_reshuffles_from_discard() {
+    // "Deck empty with cards in discard"
     let mut g = new_state(&[id::MARKET], 2);
     set_hand(&mut g, 0, &[id::MARKET]);
     set_discard(&mut g, 0, &[id::ESTATE, id::ESTATE]);
@@ -439,12 +421,11 @@ fn dsim_market_deck_empty_reshuffles_from_discard() {
 }
 
 // ===========================================================================
-// Festival — C++ TestFestival
+// Festival
 // ===========================================================================
 
 #[test]
-fn dsim_festival_gives_actions_buy_and_coin() {
-    // C++ TEST_METHOD(TestFestival)
+fn festival_gives_actions_buy_and_coin() {
     let d = cards::def(id::FESTIVAL);
     assert_eq!(d.cost, 5);
     let mut g = new_state(&[id::FESTIVAL], 2);
@@ -457,12 +438,11 @@ fn dsim_festival_gives_actions_buy_and_coin() {
 }
 
 // ===========================================================================
-// Laboratory — C++ TestLaboratory
+// Laboratory
 // ===========================================================================
 
 #[test]
-fn dsim_laboratory_draws_two_keeps_action() {
-    // C++ TEST_METHOD(TestLaboratory)
+fn laboratory_draws_two_keeps_action() {
     let d = cards::def(id::LABORATORY);
     assert_eq!(d.cost, 5);
     let mut g = new_state(&[id::LABORATORY], 2);
@@ -475,19 +455,19 @@ fn dsim_laboratory_draws_two_keeps_action() {
 }
 
 // ===========================================================================
-// Chapel — C++ TestChapel
+// Chapel
 // ===========================================================================
 
 #[test]
-fn dsim_chapel_basics() {
+fn chapel_basics() {
     let d = cards::def(id::CHAPEL);
     assert_eq!(d.cost, 2);
     assert!(cards::is(id::CHAPEL, cards::ACTION));
 }
 
 #[test]
-fn dsim_chapel_may_trash_nothing() {
-    // C++ TEST_METHOD(TestChapel) — "Should trash nothing"
+fn chapel_may_trash_nothing() {
+    // "Should trash nothing"
     let mut g = new_state(&[id::CHAPEL], 2);
     set_hand(&mut g, 0, &[id::CHAPEL]);
     let next = play(&mut g, id::CHAPEL);
@@ -496,8 +476,8 @@ fn dsim_chapel_may_trash_nothing() {
 }
 
 #[test]
-fn dsim_chapel_trash_the_only_card_in_hand() {
-    // C++ TEST_METHOD(TestChapel) — "Trash the only remaining card in hand"
+fn chapel_trash_the_only_card_in_hand() {
+    // "Trash the only remaining card in hand"
     let mut g = new_state(&[id::CHAPEL], 2);
     set_hand(&mut g, 0, &[id::CHAPEL, id::COPPER]);
     play(&mut g, id::CHAPEL);
@@ -507,8 +487,8 @@ fn dsim_chapel_trash_the_only_card_in_hand() {
 }
 
 #[test]
-fn dsim_chapel_trash_one_of_several() {
-    // C++ TEST_METHOD(TestChapel) — "Trash a card in hand". Coppers are treasures, so the two
+fn chapel_trash_one_of_several() {
+    // "Trash a card in hand". Coppers are treasures, so the two
     // left untrashed get auto-played the instant Chapel finishes and the turn rolls into the
     // Buy phase (no more Actions to play) — check total ownership and coins, not raw `hand`.
     let mut g = new_state(&[id::CHAPEL], 2);
@@ -522,8 +502,8 @@ fn dsim_chapel_trash_one_of_several() {
 }
 
 #[test]
-fn dsim_chapel_trash_two() {
-    // C++ TEST_METHOD(TestChapel) — "Trash 2 cards" (see auto-play note above)
+fn chapel_trash_two() {
+    // "Trash 2 cards" (see auto-play note above)
     let mut g = new_state(&[id::CHAPEL], 2);
     set_hand(&mut g, 0, &[id::CHAPEL, id::COPPER, id::COPPER, id::COPPER]);
     play(&mut g, id::CHAPEL);
@@ -536,8 +516,8 @@ fn dsim_chapel_trash_two() {
 }
 
 #[test]
-fn dsim_chapel_trash_three() {
-    // C++ TEST_METHOD(TestChapel) — "Trash 3 cards"
+fn chapel_trash_three() {
+    // "Trash 3 cards"
     let mut g = new_state(&[id::CHAPEL], 2);
     set_hand(&mut g, 0, &[id::CHAPEL, id::COPPER, id::SILVER, id::GOLD]);
     play(&mut g, id::CHAPEL);
@@ -549,8 +529,8 @@ fn dsim_chapel_trash_three() {
 }
 
 #[test]
-fn dsim_chapel_trash_four_is_the_cap() {
-    // C++ TEST_METHOD(TestChapel) — "Trash 4 cards" plus the "trash 4/5 when cheating" cases:
+fn chapel_trash_four_is_the_cap() {
+    // "Trash 4 cards" and the attempt to trash a 5th:
     // this engine simply never offers a 5th trash, so the cap is exercised structurally.
     let mut g = new_state(&[id::CHAPEL], 2);
     set_hand(&mut g, 0, &[id::CHAPEL, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::ESTATE]);
@@ -565,19 +545,19 @@ fn dsim_chapel_trash_four_is_the_cap() {
 }
 
 // ===========================================================================
-// Cellar — C++ TestCellar
+// Cellar
 // ===========================================================================
 
 #[test]
-fn dsim_cellar_basics() {
+fn cellar_basics() {
     let d = cards::def(id::CELLAR);
     assert_eq!(d.cost, 2);
     assert!(cards::is(id::CELLAR, cards::ACTION));
 }
 
 #[test]
-fn dsim_cellar_decline_has_no_effect() {
-    // C++ TEST_METHOD(TestCellar) — "Chooses to not discard anything"
+fn cellar_decline_has_no_effect() {
+    // "Chooses to not discard anything"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR, id::ESTATE, id::DUCHY, id::PROVINCE]);
     play(&mut g, id::CELLAR);
@@ -588,8 +568,8 @@ fn dsim_cellar_decline_has_no_effect() {
 }
 
 #[test]
-fn dsim_cellar_empty_hand_offers_nothing() {
-    // C++ TEST_METHOD(TestCellar) — "No cards in hand, shouldn't get asked to discard something"
+fn cellar_empty_hand_offers_nothing() {
+    // "No cards in hand, shouldn't get asked to discard something"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR]);
     let next = play(&mut g, id::CELLAR);
@@ -598,8 +578,8 @@ fn dsim_cellar_empty_hand_offers_nothing() {
 }
 
 #[test]
-fn dsim_cellar_discards_one_and_draws_one() {
-    // C++ TEST_METHOD(TestCellar) — "Discard the only card in hand and draw a single card"
+fn cellar_discards_one_and_draws_one() {
+    // "Discard the only card in hand and draw a single card"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR, id::DUCHY]);
     set_deck_known(&mut g, 0, &[id::PROVINCE, id::ESTATE]);
@@ -611,8 +591,8 @@ fn dsim_cellar_discards_one_and_draws_one() {
 }
 
 #[test]
-fn dsim_cellar_discard_and_get_it_straight_back_via_reshuffle() {
-    // C++ TEST_METHOD(TestCellar) — "Discard the only card in hand and only one in the deck
+fn cellar_discard_and_get_it_straight_back_via_reshuffle() {
+    // "Discard the only card in hand and only one in the deck
     // (should get it back)"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR, id::DUCHY]);
@@ -624,8 +604,8 @@ fn dsim_cellar_discard_and_get_it_straight_back_via_reshuffle() {
 }
 
 #[test]
-fn dsim_cellar_discard_only_three_of_four() {
-    // C++ TEST_METHOD(TestCellar) — "Discard only 3 cards even though more are in hand"
+fn cellar_discard_only_three_of_four() {
+    // "Discard only 3 cards even though more are in hand"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR, id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
     set_deck_known(&mut g, 0, &[id::PROVINCE, id::PROVINCE, id::PROVINCE, id::GOLD]);
@@ -640,8 +620,8 @@ fn dsim_cellar_discard_only_three_of_four() {
 }
 
 #[test]
-fn dsim_cellar_discard_all_four() {
-    // C++ TEST_METHOD(TestCellar) — "Discard all 4 cards"
+fn cellar_discard_all_four() {
+    // "Discard all 4 cards"
     let mut g = new_state(&[id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::CELLAR, id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
     set_deck_known(&mut g, 0, &[id::PROVINCE; 4]);
@@ -653,19 +633,19 @@ fn dsim_cellar_discard_all_four() {
 }
 
 // ===========================================================================
-// Workshop — C++ TestWorkshop
+// Workshop
 // ===========================================================================
 
 #[test]
-fn dsim_workshop_basics() {
+fn workshop_basics() {
     let d = cards::def(id::WORKSHOP);
     assert_eq!(d.cost, 3);
     assert!(cards::is(id::WORKSHOP, cards::ACTION));
 }
 
 #[test]
-fn dsim_workshop_gains_from_kingdom() {
-    // C++ TEST_METHOD(TestWorkshop) — "Gain a card (should be a Smithy)"
+fn workshop_gains_from_kingdom() {
+    // "Gain a card (should be a Smithy)"
     let mut g = new_state(&[id::WORKSHOP, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::WORKSHOP]);
     play(&mut g, id::WORKSHOP);
@@ -675,8 +655,8 @@ fn dsim_workshop_gains_from_kingdom() {
 }
 
 #[test]
-fn dsim_workshop_falls_back_to_base_cards_when_kingdom_too_pricey() {
-    // C++ TEST_METHOD(TestWorkshop) — "Nothing else on the board under 4, should not throw"
+fn workshop_falls_back_to_base_cards_when_kingdom_too_pricey() {
+    // "Nothing else on the board under 4, should not throw"
     let mut g = new_state(&[id::WORKSHOP], 2);
     set_hand(&mut g, 0, &[id::WORKSHOP]);
     play(&mut g, id::WORKSHOP);
@@ -689,8 +669,8 @@ fn dsim_workshop_falls_back_to_base_cards_when_kingdom_too_pricey() {
 }
 
 #[test]
-fn dsim_workshop_gain_is_mandatory() {
-    // C++ TEST_METHOD(TestWorkshop) — "Must gain a card" (cheat check). In this engine a Gain
+fn workshop_gain_is_mandatory() {
+    // "Must gain a card". In this engine a Gain
     // frame with any legal option never offers Pass, so a Pass attempt is simply illegal.
     let mut g = new_state(&[id::WORKSHOP], 2);
     set_hand(&mut g, 0, &[id::WORKSHOP]);
@@ -700,11 +680,11 @@ fn dsim_workshop_gain_is_mandatory() {
 }
 
 // ===========================================================================
-// Library — C++ TestLibrary
+// Library
 // ===========================================================================
 
 #[test]
-fn dsim_library_basics() {
+fn library_basics() {
     let d = cards::def(id::LIBRARY);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::LIBRARY, cards::ACTION));
@@ -722,8 +702,8 @@ fn answer_all_library_decisions(g: &mut GameState, keep_actions: bool) {
 }
 
 #[test]
-fn dsim_library_no_actions_drawn_leaves_the_rest_in_deck() {
-    // C++ TEST_METHOD(TestLibrary) — "Should draw 7 Estates, leaving the duchies in the deck"
+fn library_no_actions_drawn_leaves_the_rest_in_deck() {
+    // "Should draw 7 Estates, leaving the duchies in the deck"
     let mut g = new_state(&[id::LIBRARY], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
     set_deck_known(
@@ -738,9 +718,9 @@ fn dsim_library_no_actions_drawn_leaves_the_rest_in_deck() {
 }
 
 #[test]
-fn dsim_library_keeps_actions_when_told_to() {
-    // C++ TEST_METHOD(TestLibrary) — "Should draw all the 7 cards in the deck" (KeepXCard<true>).
-    // Treasures are avoided in the fixture (Copper/Gold in the original) since they'd be
+fn library_keeps_actions_when_told_to() {
+    // "Should draw all the 7 cards in the deck" (keeping Actions).
+    // Treasures are avoided here (no Copper/Gold in the deck) since they'd be
     // auto-played the instant the turn rolls into the Buy phase, before we could inspect them.
     let mut g = new_state(&[id::LIBRARY, id::VILLAGE, id::MOAT, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
@@ -756,9 +736,9 @@ fn dsim_library_keeps_actions_when_told_to() {
 }
 
 #[test]
-fn dsim_library_skips_actions_which_get_discarded_at_the_end() {
-    // C++ TEST_METHOD(TestLibrary) — "Should draw 7 cards, but chooses to skip keeping the
-    // actions" (KeepXCard<false>). Woodcutter (not in 2E) is replaced with Merchant.
+fn library_skips_actions_which_get_discarded_at_the_end() {
+    // "Should draw 7 cards, but chooses to skip keeping the
+    // actions". Merchant stands in for Woodcutter (not in 2E).
     let mut g = new_state(&[id::LIBRARY, id::VILLAGE, id::MOAT, id::MERCHANT], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
     set_deck_known(&mut g, 0, &[id::CURSE, id::VILLAGE, id::ESTATE, id::MOAT]);
@@ -773,9 +753,9 @@ fn dsim_library_skips_actions_which_get_discarded_at_the_end() {
 }
 
 #[test]
-fn dsim_library_not_enough_cards_skips_actions_and_stops_short() {
-    // C++ TEST_METHOD(TestLibrary) — "Not enough in the deck, so should draw 5 cards" (skipping
-    // actions). Gold is replaced with Curse in the fixture to avoid the Buy-phase auto-play
+fn library_not_enough_cards_skips_actions_and_stops_short() {
+    // "Not enough in the deck, so should draw 5 cards" (skipping
+    // actions). Curse rather than Gold, to avoid the Buy-phase auto-play
     // pitfall (see comment above); the shape of the test (2 skipped actions, 5 kept) matches.
     let mut g = new_state(&[id::LIBRARY, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
@@ -789,8 +769,8 @@ fn dsim_library_not_enough_cards_skips_actions_and_stops_short() {
 }
 
 #[test]
-fn dsim_library_only_actions_left_gains_nothing_and_terminates() {
-    // C++ TEST_METHOD(TestLibrary) — "Only actions left, should gain nothing (and not loop
+fn library_only_actions_left_gains_nothing_and_terminates() {
+    // "Only actions left, should gain nothing (and not loop
     // forever)". Woodcutter (not in 2E) is replaced with Merchant.
     let mut g = new_state(&[id::LIBRARY, id::VILLAGE, id::SMITHY, id::MERCHANT, id::CHAPEL, id::CELLAR], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
@@ -805,8 +785,8 @@ fn dsim_library_only_actions_left_gains_nothing_and_terminates() {
 }
 
 #[test]
-fn dsim_library_nothing_in_deck_or_discard() {
-    // C++ TEST_METHOD(TestLibrary) — "Nothing else in the deck, should gain nothing"
+fn library_nothing_in_deck_or_discard() {
+    // "Nothing else in the deck, should gain nothing"
     let mut g = new_state(&[id::LIBRARY], 2);
     set_hand(&mut g, 0, &[id::LIBRARY]);
     let next = play(&mut g, id::LIBRARY);
@@ -815,22 +795,20 @@ fn dsim_library_nothing_in_deck_or_discard() {
 }
 
 // ===========================================================================
-// Moneylender — C++ TestMoneyLender
+// Moneylender
 // ===========================================================================
 
 #[test]
-fn dsim_moneylender_basics() {
+fn moneylender_basics() {
     let d = cards::def(id::MONEYLENDER);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::MONEYLENDER, cards::ACTION));
 }
 
 #[test]
-fn dsim_moneylender_optional_in_2e() {
-    // 2E ADAPTATION: "You may trash a Copper from your hand for +$3" is optional. The C++
-    // suite's `PlayFirstAction` strategy always trashed the Copper with no decision at all
-    // ("MoneyLender doesn't ask the player to choose Coppers... there's no cheats to test
-    // for"); this engine correctly offers Pass instead.
+fn moneylender_optional_in_2e() {
+    // 2E: "You may trash a Copper from your hand for +$3" is optional. 1E trashed the Copper
+    // with no decision at all; this engine offers Pass instead.
     let mut g = new_state(&[id::MONEYLENDER], 2);
     set_hand(&mut g, 0, &[id::MONEYLENDER, id::COPPER]);
     play(&mut g, id::MONEYLENDER);
@@ -838,8 +816,8 @@ fn dsim_moneylender_optional_in_2e() {
 }
 
 #[test]
-fn dsim_moneylender_single_copper_in_hand() {
-    // C++ TEST_METHOD(TestMoneyLender) — "Single copper in hand"
+fn moneylender_single_copper_in_hand() {
+    // "Single copper in hand"
     let mut g = new_state(&[id::MONEYLENDER], 2);
     set_hand(&mut g, 0, &[id::MONEYLENDER, id::COPPER]);
     play(&mut g, id::MONEYLENDER);
@@ -850,8 +828,8 @@ fn dsim_moneylender_single_copper_in_hand() {
 }
 
 #[test]
-fn dsim_moneylender_copper_with_other_cards() {
-    // C++ TEST_METHOD(TestMoneyLender) — "Single copper in hand with other cards". Silver/Gold
+fn moneylender_copper_with_other_cards() {
+    // "Single copper in hand with other cards". Silver/Gold
     // are treasures, so they auto-play into the Buy phase once Moneylender resolves (no more
     // Actions left) — check total ownership and coins, not raw `hand`.
     let mut g = new_state(&[id::MONEYLENDER], 2);
@@ -867,8 +845,8 @@ fn dsim_moneylender_copper_with_other_cards() {
 }
 
 #[test]
-fn dsim_moneylender_multiple_coppers_trashes_only_one() {
-    // C++ TEST_METHOD(TestMoneyLender) — "Multiple coppers, should only trash one". The
+fn moneylender_multiple_coppers_trashes_only_one() {
+    // "Multiple coppers, should only trash one". The
     // untrashed Copper is also a treasure and auto-plays into the Buy phase.
     let mut g = new_state(&[id::MONEYLENDER], 2);
     set_hand(&mut g, 0, &[id::MONEYLENDER, id::COPPER, id::CURSE, id::COPPER, id::CURSE]);
@@ -881,8 +859,8 @@ fn dsim_moneylender_multiple_coppers_trashes_only_one() {
 }
 
 #[test]
-fn dsim_moneylender_no_coppers_offers_no_decision() {
-    // C++ TEST_METHOD(TestMoneyLender) — "No coppers in hand, should not gain coins". Gold and
+fn moneylender_no_coppers_offers_no_decision() {
+    // "No coppers in hand, should not gain coins". Gold and
     // Silver still auto-play as ordinary treasures once the turn rolls into the Buy phase; only
     // Moneylender's own conditional +$3 bonus is withheld.
     let mut g = new_state(&[id::MONEYLENDER], 2);
@@ -897,19 +875,19 @@ fn dsim_moneylender_no_coppers_offers_no_decision() {
 }
 
 // ===========================================================================
-// Remodel — C++ TestRemodel
+// Remodel
 // ===========================================================================
 
 #[test]
-fn dsim_remodel_basics() {
+fn remodel_basics() {
     let d = cards::def(id::REMODEL);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::REMODEL, cards::ACTION));
 }
 
 #[test]
-fn dsim_remodel_estate_to_smithy_with_multiple_choices() {
-    // C++ TEST_METHOD(TestRemodel) — "Remodel an estate into a Smithy from multiple choices".
+fn remodel_estate_to_smithy_with_multiple_choices() {
+    // "Remodel an estate into a Smithy from multiple choices".
     // Gold/Silver are treasures and auto-play into the Buy phase once Remodel resolves (Village
     // can't be played either, since 0 Actions remain) — check total ownership, not raw `hand`.
     let mut g = new_state(&[id::REMODEL, id::SMITHY], 2);
@@ -927,8 +905,8 @@ fn dsim_remodel_estate_to_smithy_with_multiple_choices() {
 }
 
 #[test]
-fn dsim_remodel_gold_to_province() {
-    // C++ TEST_METHOD(TestRemodel) — "Gold to a Province". Silver/Copper auto-play into the Buy
+fn remodel_gold_to_province() {
+    // "Gold to a Province". Silver/Copper auto-play into the Buy
     // phase once Remodel resolves — check total ownership and coins, not raw `hand`.
     let mut g = new_state(&[id::REMODEL], 2);
     set_hand(&mut g, 0, &[id::REMODEL, id::GOLD, id::SILVER, id::COPPER]);
@@ -943,8 +921,8 @@ fn dsim_remodel_gold_to_province() {
 }
 
 #[test]
-fn dsim_remodel_upgrade_cap_is_trashed_cost_plus_two() {
-    // C++ TEST_METHOD(TestRemodel) — "Remodel 5 point card with base cards, should only get
+fn remodel_upgrade_cap_is_trashed_cost_plus_two() {
+    // "Remodel 5 point card with base cards, should only get
     // back cards 6 or less" (a Laboratory, cost 5, caps the gain at cost 7; Province at 8 is
     // unreachable).
     let mut g = new_state(&[id::REMODEL, id::LABORATORY], 2);
@@ -963,8 +941,8 @@ fn dsim_remodel_upgrade_cap_is_trashed_cost_plus_two() {
 }
 
 #[test]
-fn dsim_remodel_nothing_in_hand_is_a_no_op() {
-    // C++ TEST_METHOD(TestRemodel) — "Nothing else in hand, should not remodel anything"
+fn remodel_nothing_in_hand_is_a_no_op() {
+    // "Nothing else in hand, should not remodel anything"
     let mut g = new_state(&[id::REMODEL], 2);
     set_hand(&mut g, 0, &[id::REMODEL]);
     let next = play(&mut g, id::REMODEL);
@@ -973,8 +951,8 @@ fn dsim_remodel_nothing_in_hand_is_a_no_op() {
 }
 
 #[test]
-fn dsim_remodel_trash_is_mandatory_when_something_is_available() {
-    // C++ TEST_METHOD(TestRemodel) — "Must trash a card" (cheat check)
+fn remodel_trash_is_mandatory_when_something_is_available() {
+    // "Must trash a card"
     let mut g = new_state(&[id::REMODEL], 2);
     set_hand(&mut g, 0, &[id::REMODEL, id::ESTATE]);
     play(&mut g, id::REMODEL);
@@ -982,8 +960,8 @@ fn dsim_remodel_trash_is_mandatory_when_something_is_available() {
 }
 
 #[test]
-fn dsim_remodel_cannot_trash_a_card_not_in_hand() {
-    // C++ TEST_METHOD(TestRemodel) — "Tried to trash a card not in the hand" (cheat check).
+fn remodel_cannot_trash_a_card_not_in_hand() {
+    // "Tried to trash a card not in the hand".
     // Two distinct candidates in hand so the trash pick isn't auto-applied as a forced single
     // choice (which would otherwise skip straight past this decision to the Gain that follows).
     let mut g = new_state(&[id::REMODEL], 2);
@@ -993,8 +971,8 @@ fn dsim_remodel_cannot_trash_a_card_not_in_hand() {
 }
 
 #[test]
-fn dsim_remodel_cannot_gain_a_card_not_offered() {
-    // C++ TEST_METHOD(TestRemodel) — "Tried to gain a card not offered" (cheat check): a Copper
+fn remodel_cannot_gain_a_card_not_offered() {
+    // "Tried to gain a card not offered": a Copper
     // (cost 0) is trashed, capping the gain at cost 2, so Gold (cost 6) is illegal.
     let mut g = new_state(&[id::REMODEL], 2);
     set_hand(&mut g, 0, &[id::REMODEL, id::COPPER]);
@@ -1004,21 +982,20 @@ fn dsim_remodel_cannot_gain_a_card_not_offered() {
 }
 
 // ===========================================================================
-// Throne Room — C++ TestThroneRoom
+// Throne Room
 // ===========================================================================
 
 #[test]
-fn dsim_throne_room_basics() {
+fn throne_room_basics() {
     let d = cards::def(id::THRONE_ROOM);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::THRONE_ROOM, cards::ACTION));
 }
 
 #[test]
-fn dsim_throne_room_is_optional_in_2e() {
-    // 2E ADAPTATION: "You may play an Action card from your hand twice." The C++ suite's
-    // "Must ThroneRoom a card" cheat check assumed 1E's mandatory wording; in 2E, Pass is a
-    // legal choice even with a playable Action in hand.
+fn throne_room_is_optional_in_2e() {
+    // 2E: "You may play an Action card from your hand twice." 1E's wording was mandatory;
+    // in 2E, Pass is a legal choice even with a playable Action in hand.
     let mut g = new_state(&[id::THRONE_ROOM, id::WORKSHOP], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::WORKSHOP]);
     play(&mut g, id::THRONE_ROOM);
@@ -1032,8 +1009,8 @@ fn verify_throne_room_played(g: &GameState, actions: u16, buys: u16, coins: u16)
 }
 
 #[test]
-fn dsim_throne_room_smithy() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Smithy"
+fn throne_room_smithy() {
+    // "ThroneRoom a Smithy"
     let mut g = new_state(&[id::THRONE_ROOM, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SMITHY]);
     set_deck_known(&mut g, 0, &[id::ESTATE; 10]);
@@ -1045,8 +1022,8 @@ fn dsim_throne_room_smithy() {
 }
 
 #[test]
-fn dsim_throne_room_village() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Village"
+fn throne_room_village() {
+    // "ThroneRoom a Village"
     let mut g = new_state(&[id::THRONE_ROOM, id::VILLAGE], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::VILLAGE]);
     set_deck_known(&mut g, 0, &[id::ESTATE; 5]);
@@ -1058,8 +1035,8 @@ fn dsim_throne_room_village() {
 }
 
 #[test]
-fn dsim_throne_room_market() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Market"
+fn throne_room_market() {
+    // "ThroneRoom a Market"
     let mut g = new_state(&[id::THRONE_ROOM, id::MARKET], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MARKET]);
     set_deck_known(&mut g, 0, &[id::ESTATE; 5]);
@@ -1070,8 +1047,8 @@ fn dsim_throne_room_market() {
 }
 
 #[test]
-fn dsim_throne_room_remodel() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Remodel"
+fn throne_room_remodel() {
+    // "ThroneRoom a Remodel"
     let mut g = new_state(&[id::THRONE_ROOM, id::REMODEL, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::REMODEL, id::SILVER, id::SILVER]);
     play(&mut g, id::THRONE_ROOM);
@@ -1087,8 +1064,8 @@ fn dsim_throne_room_remodel() {
 }
 
 #[test]
-fn dsim_throne_room_witch() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Witch"
+fn throne_room_witch() {
+    // "ThroneRoom a Witch"
     let mut g = new_state(&[id::THRONE_ROOM, id::WITCH], 3);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::WITCH]);
     set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
@@ -1102,8 +1079,8 @@ fn dsim_throne_room_witch() {
 }
 
 #[test]
-fn dsim_throne_room_militia() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Militia"
+fn throne_room_militia() {
+    // "ThroneRoom a Militia"
     let mut g = new_state(&[id::THRONE_ROOM, id::MILITIA], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MILITIA]);
     set_hand(&mut g, 1, &[id::ESTATE; 5]);
@@ -1114,8 +1091,8 @@ fn dsim_throne_room_militia() {
 }
 
 #[test]
-fn dsim_throne_room_moneylender() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a MoneyLender"
+fn throne_room_moneylender() {
+    // "ThroneRoom a MoneyLender"
     let mut g = new_state(&[id::THRONE_ROOM, id::MONEYLENDER], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MONEYLENDER, id::COPPER, id::COPPER]);
     play(&mut g, id::THRONE_ROOM);
@@ -1128,8 +1105,8 @@ fn dsim_throne_room_moneylender() {
 }
 
 #[test]
-fn dsim_throne_room_workshop() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a Workshop"
+fn throne_room_workshop() {
+    // "ThroneRoom a Workshop"
     let mut g = new_state(&[id::THRONE_ROOM, id::WORKSHOP, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::WORKSHOP]);
     play(&mut g, id::THRONE_ROOM);
@@ -1141,8 +1118,8 @@ fn dsim_throne_room_workshop() {
 }
 
 #[test]
-fn dsim_throne_room_mine_copper_to_gold() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom to Mine a single Copper into a Gold". Also
+fn throne_room_mine_copper_to_gold() {
+    // "ThroneRoom to Mine a single Copper into a Gold". Also
     // exercises the 2E Mine adaptation (gains to hand).
     let mut g = new_state(&[id::THRONE_ROOM, id::MINE], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MINE, id::COPPER]);
@@ -1164,8 +1141,8 @@ fn dsim_throne_room_mine_copper_to_gold() {
 }
 
 #[test]
-fn dsim_throne_room_on_throne_room_with_nothing_left_to_play() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a ThroneRoom with nothing to play, should
+fn throne_room_on_throne_room_with_nothing_left_to_play() {
+    // "ThroneRoom a ThroneRoom with nothing to play, should
     // not throw"
     let mut g = new_state(&[id::THRONE_ROOM], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::THRONE_ROOM]);
@@ -1177,11 +1154,10 @@ fn dsim_throne_room_on_throne_room_with_nothing_left_to_play() {
 }
 
 #[test]
-fn dsim_throne_room_on_throne_room_chains_two_more_actions() {
-    // C++ TEST_METHOD(TestThroneRoom) — "ThroneRoom a ThroneRoom to play more actions". The
-    // original used Woodcutter (not in 2E: +1 Buy +2 Coins, no Actions); replaced here with
-    // Festival (+2 Actions +1 Buy +2 Coins), so the expected action count differs from the
-    // C++ source (4, not 0) — the buys/coins totals happen to still match.
+fn throne_room_on_throne_room_chains_two_more_actions() {
+    // "ThroneRoom a ThroneRoom to play more actions". Festival stands in for a +2 Actions card
+    // (Woodcutter, +1 Buy +$2 and no Actions, is not in 2E), so the expected action count is 4;
+    // and the buys/coins totals are unchanged.
     let mut g = new_state(&[id::THRONE_ROOM, id::FESTIVAL, id::MILITIA], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::THRONE_ROOM, id::FESTIVAL, id::MILITIA]);
     set_hand(&mut g, 1, &[id::COPPER; 5]);
@@ -1195,21 +1171,21 @@ fn dsim_throne_room_on_throne_room_chains_two_more_actions() {
 }
 
 // ===========================================================================
-// Mine — C++ TestMine
+// Mine
 // ===========================================================================
 
 #[test]
-fn dsim_mine_basics() {
+fn mine_basics() {
     let d = cards::def(id::MINE);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::MINE, cards::ACTION));
 }
 
 #[test]
-fn dsim_mine_is_optional_and_gains_to_hand_in_2e() {
-    // 2E ADAPTATION: "You may trash a Treasure... gain a Treasure to your hand costing up to
-    // $3 more." The C++ suite's "Must trash a treasure" cheat check assumed 1E's mandatory
-    // wording and a discard destination; 2E offers Pass, and (checked separately below) the
+fn mine_is_optional_and_gains_to_hand_in_2e() {
+    // 2E: "You may trash a Treasure... gain a Treasure to your hand costing up to
+    // $3 more." 1E made the trash mandatory and gained to the discard pile; 2E offers Pass, and
+    // (checked separately below) the
     // gain lands in hand.
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE, id::GOLD]);
@@ -1218,8 +1194,8 @@ fn dsim_mine_is_optional_and_gains_to_hand_in_2e() {
 }
 
 #[test]
-fn dsim_mine_copper_to_silver_gains_to_hand() {
-    // C++ TEST_METHOD(TestMine) — "Copper to a Silver"
+fn mine_copper_to_silver_gains_to_hand() {
+    // "Copper to a Silver"
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE, id::COPPER]);
     play(&mut g, id::MINE);
@@ -1231,8 +1207,8 @@ fn dsim_mine_copper_to_silver_gains_to_hand() {
 }
 
 #[test]
-fn dsim_mine_silver_to_gold() {
-    // C++ TEST_METHOD(TestMine) — "Silver to a Gold"
+fn mine_silver_to_gold() {
+    // "Silver to a Gold"
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE, id::SILVER]);
     play(&mut g, id::MINE);
@@ -1243,8 +1219,8 @@ fn dsim_mine_silver_to_gold() {
 }
 
 #[test]
-fn dsim_mine_gold_to_gold() {
-    // C++ TEST_METHOD(TestMine) — "Gold to a Gold"
+fn mine_gold_to_gold() {
+    // "Gold to a Gold"
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE, id::GOLD]);
     play(&mut g, id::MINE);
@@ -1256,8 +1232,8 @@ fn dsim_mine_gold_to_gold() {
 }
 
 #[test]
-fn dsim_mine_gold_to_copper_downgrade_is_legal() {
-    // C++ TEST_METHOD(TestMine) — "Gold to a Copper". Real Mine has no lower bound on the
+fn mine_gold_to_copper_downgrade_is_legal() {
+    // "Gold to a Copper". Real Mine has no lower bound on the
     // gained Treasure's cost, so this "downgrade" is legal in both 1E and 2E; not a bug.
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE, id::GOLD]);
@@ -1269,8 +1245,8 @@ fn dsim_mine_gold_to_copper_downgrade_is_legal() {
 }
 
 #[test]
-fn dsim_mine_empty_hand_is_a_no_op() {
-    // C++ TEST_METHOD(TestMine) — "Mine with empty hand"
+fn mine_empty_hand_is_a_no_op() {
+    // "Mine with empty hand"
     let mut g = new_state(&[id::MINE], 2);
     set_hand(&mut g, 0, &[id::MINE]);
     let next = play(&mut g, id::MINE);
@@ -1278,8 +1254,8 @@ fn dsim_mine_empty_hand_is_a_no_op() {
 }
 
 #[test]
-fn dsim_mine_no_treasures_in_hand_is_a_no_op() {
-    // C++ TEST_METHOD(TestMine) — "Mine with cards in hand, but no treasures"
+fn mine_no_treasures_in_hand_is_a_no_op() {
+    // "Mine with cards in hand, but no treasures"
     let mut g = new_state(&[id::MINE, id::VILLAGE, id::MOAT], 2);
     set_hand(&mut g, 0, &[id::MINE, id::VILLAGE, id::CURSE, id::MOAT]);
     let next = play(&mut g, id::MINE);
@@ -1290,19 +1266,19 @@ fn dsim_mine_no_treasures_in_hand_is_a_no_op() {
 }
 
 // ===========================================================================
-// Council Room — C++ TestCouncilRoom
+// Council Room
 // ===========================================================================
 
 #[test]
-fn dsim_council_room_basics() {
+fn council_room_basics() {
     let d = cards::def(id::COUNCIL_ROOM);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::COUNCIL_ROOM, cards::ACTION));
 }
 
 #[test]
-fn dsim_council_room_one_other_player() {
-    // C++ TEST_METHOD(TestCouncilRoom) — "One other player"
+fn council_room_one_other_player() {
+    // "One other player"
     let mut g = new_state(&[id::COUNCIL_ROOM], 2);
     set_hand(&mut g, 0, &[id::COUNCIL_ROOM]);
     set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
@@ -1315,8 +1291,8 @@ fn dsim_council_room_one_other_player() {
 }
 
 #[test]
-fn dsim_council_room_current_player_in_the_middle() {
-    // C++ TEST_METHOD(TestCouncilRoom) — "Two other players, current is in the middle"
+fn council_room_current_player_in_the_middle() {
+    // "Two other players, current is in the middle"
     let mut g = new_state(&[id::COUNCIL_ROOM], 3);
     reset_turn(&mut g, 1);
     set_hand(&mut g, 1, &[id::COUNCIL_ROOM, id::ESTATE]);
@@ -1331,8 +1307,8 @@ fn dsim_council_room_current_player_in_the_middle() {
 }
 
 #[test]
-fn dsim_council_room_neither_player_has_enough_cards_to_draw() {
-    // C++ TEST_METHOD(TestCouncilRoom) — "Neither player has enough cards to draw"
+fn council_room_neither_player_has_enough_cards_to_draw() {
+    // "Neither player has enough cards to draw"
     let mut g = new_state(&[id::COUNCIL_ROOM], 2);
     set_hand(&mut g, 0, &[id::COUNCIL_ROOM]);
     set_hand(&mut g, 1, &[id::ESTATE; 5]);
@@ -1343,11 +1319,11 @@ fn dsim_council_room_neither_player_has_enough_cards_to_draw() {
 }
 
 // ===========================================================================
-// Militia — C++ TestMilitia
+// Militia
 // ===========================================================================
 
 #[test]
-fn dsim_militia_basics() {
+fn militia_basics() {
     let d = cards::def(id::MILITIA);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::MILITIA, cards::ACTION));
@@ -1355,9 +1331,9 @@ fn dsim_militia_basics() {
 }
 
 #[test]
-fn dsim_militia_multiple_players_varying_hand_sizes() {
-    // C++ TEST_METHOD(TestMilitia) — "Militia against other players, some with more and some
-    // with less than 3 cards" (a representative subset of the C++ suite's per-player loop).
+fn militia_multiple_players_varying_hand_sizes() {
+    // Militia against other players, some with more and some
+    // with less than 3 cards (a representative subset of hand sizes).
     let mut g = new_state(&[id::MILITIA], 4);
     set_hand(&mut g, 0, &[id::MILITIA]);
     set_hand(&mut g, 1, &[]);
@@ -1372,8 +1348,8 @@ fn dsim_militia_multiple_players_varying_hand_sizes() {
 }
 
 #[test]
-fn dsim_militia_hand_of_three_or_fewer_is_untouched() {
-    // C++ TEST_METHOD(TestMilitia) — implicit in the loop above (initialHandSize <= 3)
+fn militia_hand_of_three_or_fewer_is_untouched() {
+    // a hand of 3 or fewer cards discards nothing
     let mut g = new_state(&[id::MILITIA], 2);
     set_hand(&mut g, 0, &[id::MILITIA]);
     set_hand(&mut g, 1, &[id::COPPER, id::COPPER]);
@@ -1383,11 +1359,11 @@ fn dsim_militia_hand_of_three_or_fewer_is_untouched() {
 }
 
 // ===========================================================================
-// Witch — C++ TestWitch
+// Witch
 // ===========================================================================
 
 #[test]
-fn dsim_witch_basics() {
+fn witch_basics() {
     let d = cards::def(id::WITCH);
     assert_eq!(d.cost, 5);
     assert!(cards::is(id::WITCH, cards::ACTION));
@@ -1395,8 +1371,8 @@ fn dsim_witch_basics() {
 }
 
 #[test]
-fn dsim_witch_two_other_players() {
-    // C++ TEST_METHOD(TestWitch) — "Witch with 2 other players"
+fn witch_two_other_players() {
+    // "Witch with 2 other players"
     let mut g = new_state(&[id::WITCH], 3);
     set_hand(&mut g, 0, &[id::WITCH]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
@@ -1407,8 +1383,8 @@ fn dsim_witch_two_other_players() {
 }
 
 #[test]
-fn dsim_witch_no_curses_left() {
-    // C++ TEST_METHOD(TestWitch) — "No more curses"
+fn witch_no_curses_left() {
+    // "No more curses"
     let mut g = new_state(&[id::WITCH], 3);
     set_hand(&mut g, 0, &[id::WITCH]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
@@ -1421,8 +1397,8 @@ fn dsim_witch_no_curses_left() {
 }
 
 #[test]
-fn dsim_witch_not_enough_curses_leftmost_players_get_priority() {
-    // C++ TEST_METHOD(TestWitch) — "Not enough curses"
+fn witch_not_enough_curses_leftmost_players_get_priority() {
+    // "Not enough curses"
     let mut g = new_state(&[id::WITCH], 4);
     reset_turn(&mut g, 1);
     set_hand(&mut g, 1, &[id::WITCH]);
@@ -1435,11 +1411,11 @@ fn dsim_witch_not_enough_curses_leftmost_players_get_priority() {
 }
 
 // ===========================================================================
-// Bureaucrat — C++ TestBureaucrat
+// Bureaucrat
 // ===========================================================================
 
 #[test]
-fn dsim_bureaucrat_basics() {
+fn bureaucrat_basics() {
     let d = cards::def(id::BUREAUCRAT);
     assert_eq!(d.cost, 4);
     assert!(cards::is(id::BUREAUCRAT, cards::ACTION));
@@ -1447,8 +1423,8 @@ fn dsim_bureaucrat_basics() {
 }
 
 #[test]
-fn dsim_bureaucrat_no_cards_in_other_players_hand() {
-    // C++ TEST_METHOD(TestBureaucrat) — "No cards in other player's hand"
+fn bureaucrat_no_cards_in_other_players_hand() {
+    // "No cards in other player's hand"
     let mut g = new_state(&[id::BUREAUCRAT], 2);
     set_hand(&mut g, 0, &[id::BUREAUCRAT, id::ESTATE]);
     set_hand(&mut g, 1, &[]);
@@ -1459,8 +1435,8 @@ fn dsim_bureaucrat_no_cards_in_other_players_hand() {
 }
 
 #[test]
-fn dsim_bureaucrat_multiple_opponents_each_choose_a_victory_card() {
-    // C++ TEST_METHOD(TestBureaucrat) — "Other players have estates, last player has Moat"
+fn bureaucrat_multiple_opponents_each_choose_a_victory_card() {
+    // "Other players have estates, last player has Moat"
     // (adapted to have each victim independently choose between two Victory cards).
     let mut g = new_state(&[id::BUREAUCRAT], 3);
     set_hand(&mut g, 0, &[id::BUREAUCRAT]);
@@ -1484,8 +1460,8 @@ fn dsim_bureaucrat_multiple_opponents_each_choose_a_victory_card() {
 }
 
 #[test]
-fn dsim_bureaucrat_no_silver_left_still_forces_the_topdeck() {
-    // C++ TEST_METHOD(TestBureaucrat) — "No silvers left"
+fn bureaucrat_no_silver_left_still_forces_the_topdeck() {
+    // "No silvers left"
     let mut g = new_state(&[id::BUREAUCRAT], 2);
     set_hand(&mut g, 0, &[id::BUREAUCRAT]);
     set_hand(&mut g, 1, &[id::ESTATE]);
@@ -1497,8 +1473,8 @@ fn dsim_bureaucrat_no_silver_left_still_forces_the_topdeck() {
 }
 
 #[test]
-fn dsim_bureaucrat_victim_with_no_victory_card_is_untouched() {
-    // C++ TEST_METHOD(TestBureaucrat) — matches the reveal-only path also exercised via Moat
+fn bureaucrat_victim_with_no_victory_card_is_untouched() {
+    // matches the reveal-only path also exercised via Moat
     let mut g = new_state(&[id::BUREAUCRAT], 2);
     set_hand(&mut g, 0, &[id::BUREAUCRAT]);
     set_hand(&mut g, 1, &[id::COPPER, id::COPPER, id::SILVER]);

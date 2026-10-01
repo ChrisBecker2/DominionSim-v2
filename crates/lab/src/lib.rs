@@ -187,8 +187,11 @@ struct StatusResponse {
 struct CardInfo {
     name: String,
     cost: u8,
+    /// The printed cost, e.g. "$3" or "$2P" (P = Potion).
+    #[serde(rename = "costLabel")]
+    cost_label: String,
     types: Vec<&'static str>,
-    /// "Base", "Intrigue", "Seaside" or "Prosperity".
+    /// "Base", "Intrigue", "Seaside", "Prosperity" or "Alchemy".
     set: &'static str,
 }
 
@@ -200,7 +203,7 @@ fn card_info(c: CardId) -> CardInfo {
         }
     }
     let set = cards::set_of(c).name();
-    CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), types, set }
+    CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), cost_label: cards::cost_string(c), types, set }
 }
 
 fn cards_response() -> serde_json::Value {

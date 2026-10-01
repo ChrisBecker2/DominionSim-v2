@@ -18,8 +18,9 @@ async function instance() {
 }
 
 const KINGDOM = "Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop";
-const position = (supply, hand, deck) => `players: 2
-kingdom: ${KINGDOM}
+const ALCHEMY_KINGDOM = "Apothecary, Golem, Scrying Pool, University, Transmute, Familiar, Village, Smithy, Herbalist, Alchemist";
+const position = (supply, hand, deck, kingdom = KINGDOM) => `players: 2
+kingdom: ${kingdom}
 supply: ${supply}
 turn: 9  player: 1  phase: action  actions: 1  buys: 1  coins: 0
 
@@ -39,6 +40,11 @@ const POSITIONS = [
   position("Province=8", "Cellar Market Estate Estate Copper", "6 Copper, 3 Estate, 2 Silver, Gold"),
   position("Province=2", "Militia Mine Silver Gold Copper", "5 Copper, 2 Silver, Gold, 2 Estate"),
   position("Province=6", "Workshop Merchant Silver Silver Copper", "5 Copper, Estate, Smithy"),
+  // Alchemy: Potions in hand (buying with a Potion), Golem's order, Scrying Pool, Transmute, University.
+  position("Province=8", "Apothecary Potion 3 Copper", "4 Copper, Potion, 2 Silver, 3 Estate, Gold", ALCHEMY_KINGDOM),
+  position("Province=8", "Golem Scrying Pool Potion 2 Copper", "Village, Smithy, 3 Copper, Gold, 2 Estate, Silver", ALCHEMY_KINGDOM),
+  position("Province=8", "Transmute University Estate Potion Copper", "5 Copper, 3 Estate, Silver, Gold", ALCHEMY_KINGDOM),
+  position("Province=8", "Alchemist Herbalist Potion Gold Silver", "5 Copper, 3 Estate, Silver, Gold", ALCHEMY_KINGDOM),
 ];
 
 const probe = await instance();

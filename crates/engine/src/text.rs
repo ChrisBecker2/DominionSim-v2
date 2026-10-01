@@ -237,6 +237,7 @@ struct TurnFields {
     actions: u8,
     buys: u8,
     coins: u16,
+    potions: u8,
     cost_reduction: u8,
     /// This turn was granted as an extra turn by an Outpost played last turn (Seaside).
     extra_turn: bool,
@@ -248,7 +249,7 @@ struct TurnFields {
 impl Default for TurnFields {
     fn default() -> Self {
         TurnFields {
-            number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, cost_reduction: 0,
+            number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
             extra_turn: false, corsair_trashed: false,
         }
     }
@@ -281,6 +282,7 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "actions" => f.actions = val.parse().map_err(|_| format!("line {lineno}: invalid actions '{val}'"))?,
             "buys" => f.buys = val.parse().map_err(|_| format!("line {lineno}: invalid buys '{val}'"))?,
             "coins" => f.coins = val.parse().map_err(|_| format!("line {lineno}: invalid coins '{val}'"))?,
+            "potions" => f.potions = val.parse().map_err(|_| format!("line {lineno}: invalid potions '{val}'"))?,
             "cost_reduction" => {
                 f.cost_reduction = val.parse().map_err(|_| format!("line {lineno}: invalid cost_reduction '{val}'"))?
             }
@@ -329,6 +331,10 @@ pub fn format_state(state: &GameState) -> String {
         state.turn.buys,
         state.turn.coins
     ));
+    // Alchemy: only while a Potion is available.
+    if state.turn.potions > 0 {
+        out.push_str(&format!("  potions: {}", state.turn.potions));
+    }
     // Only while something (Bridge) has reduced costs this turn.
     if state.turn.cost_reduction > 0 {
         out.push_str(&format!("  cost_reduction: {}", state.turn.cost_reduction));
@@ -564,6 +570,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         actions: tf.actions,
         buys: tf.buys,
         coins: tf.coins,
+        potions: tf.potions,
         merchants: 0,
         silvers_played: 0,
         number: tf.number,

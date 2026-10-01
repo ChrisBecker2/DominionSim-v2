@@ -259,6 +259,7 @@ section, .panel {
 #supply-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 #supply-table th, #supply-table td { text-align: left; padding: 2px 6px; }
 #supply-table th { color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); }
+#supply-table .cost { color: var(--text-dim); font-size: 11.5px; }
 #supply-table td.count-0 { color: var(--danger); font-weight: 700; }
 #supply-table tr:nth-child(even) td { background: var(--panel-2); }
 

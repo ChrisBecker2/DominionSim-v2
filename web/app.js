@@ -345,6 +345,8 @@
     add("Actions", t.actions);
     add("Buys", t.buys);
     add("Coins", "$" + t.coins);
+    // Alchemy: only in games with a Potion pile.
+    if (view.supply.some((c) => c.name === "Potion")) add("Potions", String(t.potions || 0));
     if (view.gameOver) {
       const g = el("span", "gameover");
       const names = view.winners.map((p) => "P" + (p + 1)).join(", ");
@@ -472,6 +474,8 @@
       const tr = document.createElement("tr");
       const tdName = document.createElement("td");
       tdName.appendChild(cardChip(c.name));
+      // The printed cost, "$3" or "$2P" (P = Potion).
+      tdName.appendChild(el("span", "cost", " " + (c.costLabel || "$" + c.cost)));
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
       if (c.count === 0) tdCount.className = "count-0";
@@ -747,8 +751,9 @@
   let gameRequiredKingdom = null;
 
   const SETS_KEY = "dominion.cardSets";
-  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8 };
+  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy (matches
+  // `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

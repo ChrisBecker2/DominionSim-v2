@@ -15,7 +15,7 @@ use dominion_sim::stats::StratStats;
 use dominion_sim::{kingdom, Strategy};
 
 #[derive(Parser)]
-#[command(name = "dominion-sim", about = "Batch-simulate Dominion (Base/Intrigue/Seaside/Prosperity, 2nd edition) strategies", version)]
+#[command(name = "dominion-sim", about = "Batch-simulate Dominion (Base/Intrigue/Seaside/Prosperity 2nd edition, Alchemy) strategies", version)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -41,7 +41,7 @@ enum Cmd {
         /// --seed; a randomly drawn Prosperity card adds Platinum and Colony, the official rule);
         /// or a comma-separated list of exactly 10 kingdom card names (add "Platinum,Colony" to
         /// this list explicitly for a Colony game). <sets> is any "+"-joined combination of
-        /// "base", "intrigue", "seaside" and "prosperity" (random/random:<sets> without a suffix
+        /// "base", "intrigue", "seaside", "prosperity" and "alchemy" (random/random:<sets> without a suffix
         /// use base+intrigue).
         #[arg(long, default_value = "first-game")]
         kingdom: String,

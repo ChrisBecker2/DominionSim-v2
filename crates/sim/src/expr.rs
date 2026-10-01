@@ -33,6 +33,12 @@ pub enum Var {
     MyTurn,
     /// Coins available to spend this turn.
     Coins,
+    /// Potions available to spend this turn (Alchemy): Potion cards played, less those spent on
+    /// buying cards with a Potion in their cost. Buying such a card needs `potions >= 1`.
+    Potions,
+    /// Cards I own with a Potion in their cost (Familiar, Golem, ...), wherever they are: handy for
+    /// "buy a Potion only while I have fewer than N of them" rules.
+    PotionCards,
     /// Buys remaining this turn.
     Buys,
     /// Actions remaining this turn.
@@ -59,6 +65,8 @@ impl Var {
             Var::Turn => view.turn().number as i64,
             Var::MyTurn => view.turns_taken_of(view.me()) as i64 + 1,
             Var::Coins => view.turn().coins as i64,
+            Var::Potions => view.turn().potions as i64,
+            Var::PotionCards => view.my_cards().iter().filter(|&(c, _)| cards::potion_cost(c)).map(|(_, n)| n as i64).sum(),
             Var::Buys => view.turn().buys as i64,
             Var::Actions => view.turn().actions as i64,
             Var::Money => money_value(&view.my_cards()),
@@ -81,6 +89,8 @@ impl Var {
             "my_turn" | "myturn" => Var::MyTurn,
             "coins" => Var::Coins,
             "buys" => Var::Buys,
+            "potions" => Var::Potions,
+            "potion_cards" | "potioncards" => Var::PotionCards,
             "actions" => Var::Actions,
             "money" => Var::Money,
             "total_cards" | "totalcards" => Var::TotalCards,
@@ -470,6 +480,8 @@ mod tests {
         assert_eq!(Expr::parse("count(Gold) >= 1").unwrap().eval(&view), 0);
         assert_eq!(Expr::parse("provinces_left <= 4 and buys > 0").unwrap().eval(&view), 0);
         assert_eq!(Expr::parse("colonies_left").unwrap().eval(&view), 0, "no Colony in this game");
+        assert_eq!(Expr::parse("potions").unwrap().eval(&view), 0);
+        assert_eq!(Expr::parse("potion_cards").unwrap().eval(&view), 0);
         assert_eq!(Expr::parse("not (count(Gold) >= 1)").unwrap().eval(&view), 1);
         assert_eq!(Expr::parse("supply(Province) == 8").unwrap().eval(&view), 1);
         assert_eq!(Expr::parse("count_type(treasure) >= 7").unwrap().eval(&view), 1);

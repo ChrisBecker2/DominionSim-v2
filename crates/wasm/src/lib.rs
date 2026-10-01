@@ -25,7 +25,7 @@
 
 use dominion_engine::{
     id, Act, Choice, ChoiceBuf, Decision, DecisionKind, Dest, Event, Filter, GameConfig, GameState, Pending, Phase,
-    Step, Zone,
+    Step, Zone, NO_SOURCE,
 };
 use dominion_engine::cards;
 use dominion_engine::counts::Counts;
@@ -1256,7 +1256,13 @@ pub extern "C" fn card_info() -> i32 {
     let items: Vec<String> = (0..cards::NUM_CARDS as u8)
         .map(|c| {
             let types: Vec<String> = flags.iter().filter(|(f, _)| cards::is(c, *f)).map(|(_, n)| jstr(n)).collect();
-            format!("{{\"name\":{},\"cost\":{},\"types\":[{}]}}", jstr(cards::name(c)), cards::cost(c), types.join(","))
+            format!(
+                "{{\"name\":{},\"cost\":{},\"costLabel\":{},\"types\":[{}]}}",
+                jstr(cards::name(c)),
+                cards::cost(c),
+                jstr(&cards::cost_string(c)),
+                types.join(",")
+            )
         })
         .collect();
     result_of(Ok(format!("[{}]", items.join(","))))
@@ -1325,12 +1331,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 8 != 0 {
         v.push(cards::CardSet::Prosperity);
     }
+    if sets_mask & 16 != 0 {
+        v.push(cards::CardSet::Alchemy);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1528,13 +1537,14 @@ fn render_event(e: &Event) -> String {
         Event::Draw { player, card } => format!("Player {} draws {}", player + 1, cards::name(card)),
         Event::Play { player, card } => format!("Player {} plays {}", player + 1, cards::name(card)),
         Event::Buy { player, card } => format!("Player {} buys {}", player + 1, cards::name(card)),
-        Event::Gain { player, card, to } => {
+        Event::Gain { player, card, to, source } => {
             let dest = match to {
                 Dest::Discard => "discard pile",
                 Dest::Hand => "hand",
                 Dest::DeckTop => "deck (on top)",
             };
-            format!("Player {} gains {} to their {}", player + 1, cards::name(card), dest)
+            let from = if source == NO_SOURCE { String::new() } else { format!(" ({})", cards::name(source)) };
+            format!("Player {} gains {} to their {}{from}", player + 1, cards::name(card), dest)
         }
         Event::Trash { player, card } => format!("Player {} trashes {}", player + 1, cards::name(card)),
         Event::Discard { player, card } => format!("Player {} discards {}", player + 1, cards::name(card)),
@@ -1617,6 +1627,9 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::VictoryOrCurse => ("a Victory card or Curse".into(), "Victory cards and Curses".into()),
         Filter::ActionOrTreasure => ("an Action or Treasure card".into(), "Action or Treasure cards".into()),
         Filter::TreasureOrCurse => ("a Treasure".into(), "Treasures".into()),
+        Filter::Either(a, b) => (format!("a {} or {}", cards::name(a), cards::name(b)), format!("{}s and {}s", cards::name(a), cards::name(b))),
+        Filter::NonAction => ("a non-Action card".into(), "non-Action cards".into()),
+        Filter::ActionNot(c) => (format!("an Action card other than {}", cards::name(c)), format!("Action cards other than {}", cards::name(c))),
     }
 }
 
@@ -1644,12 +1657,17 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
     };
     let body = match d.kind {
         DecisionKind::PlayAction => format!("You may play an Action card ({} action(s) left).", state.turn.actions),
-        DecisionKind::Buy => format!("You may buy a card (${} available, {} buy(s) left).", state.turn.coins, state.turn.buys),
+        DecisionKind::Buy => {
+            let potions = if state.in_supply(id::POTION) { format!(", {} Potion(s)", state.turn.potions) } else { String::new() };
+            format!("You may buy a card (${}{potions} available, {} buy(s) left).", state.turn.coins, state.turn.buys)
+        }
         DecisionKind::PlayTreasure => format!("You may play a Treasure card (${} so far).", state.turn.coins),
-        DecisionKind::Gain { max_cost, filter, dest, exact } => {
+        DecisionKind::Gain { max_cost, filter, dest, exact, potion, optional } => {
             let (one, _) = filter_noun(filter);
             let cost = if exact { "exactly" } else { "up to" };
-            format!("Gain {one} costing {cost} ${max_cost}{}.", dest_phrase(dest))
+            let p = if potion { "P" } else { "" };
+            let may = if optional { "You may gain" } else { "Gain" };
+            format!("{may} {one} costing {cost} ${max_cost}{p}{}.", dest_phrase(dest))
         }
         DecisionKind::Select { from, act, filter, min, max, ordered } => {
             let (one, many) = filter_noun(filter);
@@ -1746,6 +1764,7 @@ fn choice_label(d: &Decision, c: Choice) -> String {
             DecisionKind::PlayTreasure => "Done playing treasures".to_string(),
             DecisionKind::PlayAction => "Done playing actions".to_string(),
             DecisionKind::Buy => "Done buying".to_string(),
+            DecisionKind::Gain { .. } => "Don't gain".to_string(),
             _ => "Done".to_string(),
         },
         Choice::Yes => "Yes".to_string(),
@@ -1828,8 +1847,8 @@ fn supply_json(state: &GameState) -> String {
     let mut ids: Vec<u8> = (0..cards::NUM_CARDS as u8).filter(|&c| state.in_supply(c)).collect();
     // Victory (Colony alongside Province), then treasure high to low (Platinum alongside Gold),
     // then Curse, then kingdom cards cheapest first.
-    const BASE_ORDER: [u8; 9] =
-        [id::COLONY, id::PROVINCE, id::DUCHY, id::ESTATE, id::PLATINUM, id::GOLD, id::SILVER, id::COPPER, id::CURSE];
+    const BASE_ORDER: [u8; 10] =
+        [id::COLONY, id::PROVINCE, id::DUCHY, id::ESTATE, id::PLATINUM, id::GOLD, id::SILVER, id::COPPER, id::CURSE, id::POTION];
     ids.sort_by_key(|&c| match BASE_ORDER.iter().position(|&b| b == c) {
         Some(i) => (0, i as u8, ""),
         None => (1, cards::cost(c), cards::name(c)),
@@ -1838,9 +1857,10 @@ fn supply_json(state: &GameState) -> String {
         .iter()
         .map(|&c| {
             format!(
-                "{{\"id\":{c},\"name\":{},\"cost\":{},\"count\":{}}}",
+                "{{\"id\":{c},\"name\":{},\"cost\":{},\"costLabel\":{},\"count\":{}}}",
                 jstr(cards::name(c)),
                 cards::cost(c),
+                jstr(&cards::cost_string(c)),
                 state.supply.get(c)
             )
         })
@@ -1961,7 +1981,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
     format!(
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
-            "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc}}},",
+            "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
             "\"supply\":{supply},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
@@ -1974,6 +1994,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         ta = state.turn.actions,
         tb = state.turn.buys,
         tc = state.turn.coins,
+        tpot = state.turn.potions,
         supply = supply_json(state),
         trash = counts_json(&state.trash),
         players = players.join(","),
@@ -1983,4 +2004,59 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         pending = pending_json(state),
         log = log_json.join(","),
     )
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+    use dominion_engine::{ChoiceBuf, NoEvents};
+
+    fn log_of(events: &[Event]) -> Vec<String> {
+        events.iter().filter(|e| matches!(e, Event::Gain { .. })).map(render_event).collect()
+    }
+
+    #[test]
+    fn gain_lines_name_their_source_card() {
+        let gain = |card, source| Event::Gain { player: 0, card, to: Dest::Discard, source };
+        assert_eq!(render_event(&gain(id::GOLD, id::HOARD)), "Player 1 gains Gold to their discard pile (Hoard)");
+        assert_eq!(render_event(&gain(id::CURSE, id::WITCH)), "Player 1 gains Curse to their discard pile (Witch)");
+        // A plain buy prints as before, with no parentheses.
+        assert_eq!(render_event(&gain(id::SILVER, NO_SOURCE)), "Player 1 gains Silver to their discard pile");
+    }
+
+    /// Play a real Witch and Hoard through the engine and render the events it produced.
+    #[test]
+    fn real_games_log_witch_curses_hoard_golds_and_plain_buys() {
+        use dominion_engine::state::{GameConfig, PlayerState};
+        let cfg = GameConfig { num_players: 2, kingdom: vec![id::WITCH, id::HOARD], seed: 1, max_turns: 100 };
+        let mut g = GameState::new(&cfg);
+        g.advance(&mut NoEvents);
+        for p in 0..2 {
+            g.players[p] = PlayerState::default();
+        }
+        g.players[0].hand = Counts::EMPTY;
+        g.players[0].hand.add(id::WITCH, 1);
+        g.players[0].hand.add(id::HOARD, 1);
+        g.stack = Default::default();
+        g.pending = Pending::None;
+        g.turn = dominion_engine::state::TurnState::start(0, 1);
+        let mut ev: Vec<Event> = Vec::new();
+        let mut buf = ChoiceBuf::default();
+        // Witch, then (Buy phase: Hoard auto-plays for $2) buy an Estate.
+        let step = g.advance(&mut ev);
+        assert!(matches!(step, Step::Decision(_)));
+        g.apply(Choice::Card(id::WITCH), &mut ev).unwrap();
+        g.advance(&mut ev);
+        g.legal_choices(&mut buf);
+        g.apply(Choice::Card(id::ESTATE), &mut ev).unwrap();
+        g.advance(&mut ev);
+        assert_eq!(
+            log_of(&ev),
+            vec![
+                "Player 2 gains Curse to their discard pile (Witch)".to_string(),
+                "Player 1 gains Estate to their discard pile".to_string(),
+                "Player 1 gains Gold to their discard pile (Hoard)".to_string(),
+            ]
+        );
+    }
 }

@@ -46,7 +46,7 @@ fn one() -> f64 {
 pub struct EvolveConfig {
     pub track: Track,
     /// Which expansions' kingdom cards are in play: any of "Base", "Intrigue", "Seaside",
-    /// "Prosperity". Governs the default (empty) fixed kingdom, the random track's draw pool,
+    /// "Prosperity", "Alchemy". Governs the default (empty) fixed kingdom, the random track's draw pool,
     /// and so the search space.
     pub sets: Vec<String>,
     /// Fixed track only: whether its games use Platinum and Colony (default: auto-detect from

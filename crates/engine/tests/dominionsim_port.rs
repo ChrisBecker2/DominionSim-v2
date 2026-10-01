@@ -917,7 +917,7 @@ fn dsim_remodel_estate_to_smithy_with_multiple_choices() {
     play(&mut g, id::REMODEL);
     choose(&mut g, Choice::Card(id::ESTATE));
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: cards::cost(id::ESTATE) + 2, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: cards::cost(id::ESTATE) + 2, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SMITHY));
     assert_eq!(g.players[0].hand.get(id::VILLAGE), 1, "Village stays in hand (no Actions left to spend on it)");
     assert_eq!(g.players[0].all_cards().get(id::GOLD), 1);
@@ -954,7 +954,7 @@ fn dsim_remodel_upgrade_cap_is_trashed_cost_plus_two() {
     let step = play(&mut g, id::REMODEL);
     assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Gain { .. }, .. })));
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 7, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 7, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     assert!(choices(&g).contains(&Choice::Card(id::GOLD)), "Gold costs 6 <= 7");
     assert!(!choices(&g).contains(&Choice::Card(id::PROVINCE)), "Province costs 8 > 7");
     choose(&mut g, Choice::Card(id::GOLD));

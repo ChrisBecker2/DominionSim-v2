@@ -183,6 +183,36 @@ async function main() {
     check(allFour.kingdom.length >= 10, `all-four-sets padding produced a kingdom (got ${allFour.kingdom.length})`);
     const allFourAgain = paddedKingdom(3, 15, 42);
     check(JSON.stringify(allFour.kingdom) === JSON.stringify(allFourAgain.kingdom), "all-four-sets padding is reproducible by seed");
+
+    // All 11 Alchemy kingdom cards (Possession is not implemented), transcribed independently of
+    // the engine's card table. Potion is a basic card that joins whenever a Potion-cost card does.
+    const ALCHEMY = new Set([
+      "Transmute", "Vineyard", "Herbalist", "Apothecary", "Scrying Pool", "University", "Alchemist",
+      "Familiar", "Philosopher's Stone", "Golem", "Apprentice",
+    ]);
+    const alchemyOnly = paddedKingdom(2, 16, 99); // sets_mask 16 = Alchemy
+    const alchemyPadding = alchemyOnly.kingdom.filter((c) => c !== "Witch" && c !== "Potion");
+    check(alchemyPadding.every((c) => ALCHEMY.has(c)), `Alchemy-only padding is all Alchemy (got: ${alchemyOnly.kingdom.join(", ")})`);
+    check(alchemyOnly.kingdom.includes("Potion"), "an Alchemy kingdom brings the Potion pile");
+    check(!baseOnly.kingdom.includes("Potion"), "no Potion without Alchemy");
+  }
+
+  section("an Alchemy game: Potion pile, printed costs with a Potion, potions in the turn");
+  {
+    newGame(2, "Familiar, Apothecary, Golem, Herbalist, Village, Smithy, Witch, Market, Militia, Moat", 7, 0);
+    const v = view();
+    const potion = v.supply.find((c) => c.name === "Potion");
+    check(potion && potion.count === 16 && potion.costLabel === "$4", `Potion pile of 16 costing $4 joins the supply (got ${JSON.stringify(potion)})`);
+    const fam = v.supply.find((c) => c.name === "Familiar");
+    check(fam && fam.costLabel === "$3P" && fam.cost === 3, `Familiar is shown as $3P (got ${JSON.stringify(fam)})`);
+    check(v.supply.find((c) => c.name === "Herbalist").costLabel === "$2", "Herbalist is $2");
+    check(v.turn.potions === 0, "no potions at the start of a turn");
+    const info = JSON.parse(ok(wasm.card_info()));
+    check(info.find((c) => c.name === "Golem").costLabel === "$4P", "card_info carries cost labels");
+    const text = stateText();
+    check(/Potion=16/.test(text), "the Potion pile is in the state text");
+    loadState(text);
+    check(view().supply.some((c) => c.name === "Potion"), "the state text round-trips with the Potion pile");
   }
 
   section("a Colony game's supply, VP tokens, durations and mats (Seaside + Prosperity view)");

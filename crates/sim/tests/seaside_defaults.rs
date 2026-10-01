@@ -285,7 +285,7 @@ fn smugglers_follows_the_gain_list() {
         Step::Decision(d) => d,
         s => panic!("{s:?}"),
     };
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     let mut buf = ChoiceBuf::default();
     g.legal_choices(&mut buf);
     let choice = strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice());

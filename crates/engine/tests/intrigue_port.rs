@@ -500,7 +500,7 @@ fn ironworks_bonus_matches_the_gained_card_type() {
     let mut g = new_state(&[id::IRONWORKS], 2);
     set_hand(&mut g, 0, &[id::IRONWORKS]);
     play(&mut g, id::IRONWORKS);
-    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SILVER));
     assert_eq!((g.turn.actions, g.turn.coins), (0, 1));
     assert_eq!(g.players[0].discard, counts_of(&[id::SILVER]));
@@ -611,7 +611,7 @@ fn upgrade_trashes_and_gains_exactly_one_more() {
         Some(Upgrade { plus: 1, filter: Filter::Any, dest: Dest::Discard, exact: true, dest_by_type: false })
     ));
     choose(&mut g, Choice::Card(id::ESTATE));
-    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     assert!(!choices(&g).contains(&Choice::Card(id::COPPER)), "Copper costs 0, not exactly 3");
     choose(&mut g, Choice::Card(id::SILVER));
     assert_eq!(g.players[0].discard.get(id::SILVER), 1);
@@ -1588,7 +1588,7 @@ fn swindler_attacker_picks_the_victims_gain_at_the_trashed_cost() {
     let d = g.pending_decision().unwrap();
     assert_eq!(d.player, 0, "the attacker decides");
     assert_eq!(d.for_player, 1, "the victim receives the gain");
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     assert!(choices(&g).contains(&Choice::Card(id::SILVER)) && choices(&g).contains(&Choice::Card(id::SHANTY_TOWN)));
     choose(&mut g, Choice::Card(id::SHANTY_TOWN));
     assert_eq!(g.players[1].discard, counts_of(&[id::SHANTY_TOWN]));
@@ -1605,7 +1605,7 @@ fn swindler_port_copper_for_curse() {
     assert_eq!(g.turn.coins, 2);
     assert_eq!(g.trash, counts_of(&[id::COPPER]));
     let d = g.pending_decision().unwrap();
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     assert!(choices(&g).contains(&Choice::Card(id::CURSE)) && choices(&g).contains(&Choice::Card(id::COPPER)));
     choose(&mut g, Choice::Card(id::CURSE));
     assert_eq!(g.players[1].discard, counts_of(&[id::CURSE]));
@@ -1624,7 +1624,7 @@ fn swindler_port_village_for_silver() {
     play(&mut g, id::SWINDLER);
     assert_eq!(g.trash, counts_of(&[id::VILLAGE]));
     let d = g.pending_decision().unwrap();
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SILVER));
     assert_eq!(g.players[1].discard, counts_of(&[id::SILVER]));
     assert_eq!(g.players[1].deck_known.peek_top(), Some(id::ESTATE));
@@ -1655,7 +1655,7 @@ fn swindler_port_discount_gives_the_same_relative_choice() {
     play(&mut g, id::SWINDLER);
     assert_eq!(g.trash, counts_of(&[id::VILLAGE]));
     let d = g.pending_decision().unwrap();
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SILVER));
     assert_eq!(g.players[1].discard, counts_of(&[id::SILVER]));
 }
@@ -1670,7 +1670,7 @@ fn swindler_port_discount_allows_estate_to_curse() {
     play(&mut g, id::SWINDLER);
     assert_eq!(g.trash, counts_of(&[id::ESTATE]));
     let d = g.pending_decision().unwrap();
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::CURSE));
     assert_eq!(g.players[1].discard, counts_of(&[id::CURSE]));
 }
@@ -1688,7 +1688,7 @@ fn swindler_port_extreme_discount_makes_every_card_swindleable() {
     play(&mut g, id::SWINDLER);
     assert_eq!(g.trash, counts_of(&[id::PROVINCE]));
     let d = g.pending_decision().unwrap();
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 0, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     for c in [id::COPPER, id::SILVER, id::GOLD, id::ESTATE, id::DUCHY, id::PROVINCE, id::CURSE, id::SWINDLER] {
         assert!(choices(&g).contains(&Choice::Card(c)), "{} should cost 0 under an 8-cost reduction", cards::name(c));
     }
@@ -1744,7 +1744,7 @@ fn swindler_with_bridge_uses_the_reduced_cost() {
     let d = g.pending_decision().unwrap();
     assert_eq!(
         d.kind,
-        DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true },
+        DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false },
         "Silver's cost, reduced by Bridge"
     );
     assert!(choices(&g).contains(&Choice::Card(id::SHANTY_TOWN)), "Shanty Town also costs 3, i.e. 2 after the reduction");
@@ -2300,13 +2300,13 @@ fn throne_room_with_swindler() {
     assert_eq!(g.turn.coins, 2);
     assert_eq!(g.trash, counts_of(&[id::SILVER]));
     let d0 = g.pending_decision().unwrap();
-    assert_eq!(d0.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d0.kind, DecisionKind::Gain { max_cost: 3, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SHANTY_TOWN));
     // 2nd resolution: +$2 more, trash Estate (cost 2), gain exactly 2.
     assert_eq!(g.turn.coins, 4, "two Swindler resolutions, +$2 each");
     assert_eq!(g.trash, counts_of(&[id::SILVER, id::ESTATE]));
     let d1 = g.pending_decision().unwrap();
-    assert_eq!(d1.kind, DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true });
+    assert_eq!(d1.kind, DecisionKind::Gain { max_cost: 2, filter: Filter::Any, dest: Dest::Discard, exact: true, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::COURTYARD));
     assert_eq!(g.players[1].discard, counts_of(&[id::SHANTY_TOWN, id::COURTYARD]));
     assert_eq!(g.turn.actions, 0, "Swindler grants no Actions");

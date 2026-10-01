@@ -33,8 +33,10 @@ pub enum DecisionKind {
     /// bought this turn, no more Treasures may be played.
     PlayTreasure,
     /// Gain a card from the supply costing up to `max_cost` (or exactly `max_cost` when `exact`,
-    /// e.g. Upgrade). Choices: `Card(..)`.
-    Gain { max_cost: u8, filter: Filter, dest: Dest, exact: bool },
+    /// e.g. Upgrade). `potion`: the reference cost includes a Potion (see `Frame::potion`): up to
+    /// `$max_cost` Potion-cost cards are allowed, or with `exact` the gained card's Potion must
+    /// match. `optional`: `Choice::Pass` declines (University). Choices: `Card(..)`.
+    Gain { max_cost: u8, filter: Filter, dest: Dest, exact: bool, potion: bool, optional: bool },
     /// Pick ONE card from `from` (matching `filter`) to `act` on. The selection repeats;
     /// `min`/`max` are the picks still required/allowed (including this one). `Pass` is legal
     /// when `min == 0` and ends the selection. When `ordered` is false, picks are offered in
@@ -102,6 +104,9 @@ pub enum Choice {
     /// Nth known top card, `255` = the bottom.
     Position(u8),
 }
+
+/// `Event::Gain::source` for a gain with no source card (a plain buy).
+pub const NO_SOURCE: CardId = u8::MAX;
 
 /// Must cover the largest possible choice list: one entry per supply pile (up to `NUM_CARDS`,
 /// currently 113) plus a little headroom, since decisions like Buy or War Chest can offer every
@@ -180,7 +185,9 @@ pub enum Event {
     /// A card already in play resolves again (e.g. the 2nd play from Throne Room); `nth` >= 2.
     PlayAgain { player: u8, card: CardId, source: CardId, nth: u8 },
     Buy { player: u8, card: CardId },
-    Gain { player: u8, card: CardId, to: Dest },
+    /// `source` is the card whose effect (or trigger) caused the gain, or `NO_SOURCE` for a plain
+    /// buy.
+    Gain { player: u8, card: CardId, to: Dest, source: CardId },
     Trash { player: u8, card: CardId },
     Discard { player: u8, card: CardId },
     Topdeck { player: u8, card: CardId },
@@ -431,7 +438,11 @@ impl GameState {
             }
             DecisionKind::Buy => {
                 for c in self.supply_cards() {
-                    if self.supply.get(c) > 0 && self.cost(c) as u16 <= self.turn.coins && self.may_buy(c) {
+                    if self.supply.get(c) > 0
+                        && self.cost(c) as u16 <= self.turn.coins
+                        && (self.turn.potions > 0 || !cards::potion_cost(c))
+                        && self.may_buy(c)
+                    {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -494,12 +505,15 @@ impl GameState {
             }
             (Phase::Buy, Choice::Card(c)) => {
                 self.turn.coins -= self.cost(c) as u16;
+                if cards::potion_cost(c) {
+                    self.turn.potions -= 1;
+                }
                 self.turn.buys -= 1;
                 self.turn.treasures_done = true;
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
                 sink.depth(1);
-                self.gain(p, c, Dest::Discard, true, sink);
+                self.gain(p, c, Dest::Discard, true, NO_SOURCE, sink);
                 self.on_buy_effects(p, c, sink);
             }
             // Ending the Buy phase (a plain Pass on the `Buy` decision, with or without buys
@@ -557,6 +571,10 @@ impl GameState {
         }
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
         self.turn.buys += cards::def(c).buys * n;
+        self.turn.potions += cards::def(c).potions * n;
+        if c == id::PHILOSOPHERS_STONE {
+            self.turn.coins += self.philosophers_stone_coins(p) * n as u16;
+        }
         if c == id::SILVER {
             if self.turn.silvers_played == 0 {
                 self.turn.coins += self.turn.merchants as u16;
@@ -589,25 +607,51 @@ impl GameState {
         }
     }
 
-    /// Push Treasury's optional "put this onto your deck" `YesNo`, once per copy in play,
-    /// gated on not having gained a Victory card this Buy phase (`gained_victory_in_buy`; set by
-    /// `gain`). Cheaply gated: a Base-only (or Treasury-free) game skips this with one bitmask
-    /// test.
-    fn push_treasury_offers(&mut self) {
-        if !self.in_supply(id::TREASURY) || self.turn.gained_victory_in_buy {
-            return;
-        }
+    /// $1 per 5 cards in `p`'s deck and discard pile together (Philosopher's Stone).
+    pub(crate) fn philosophers_stone_coins(&self, p: u8) -> u16 {
+        let ps = &self.players[p as usize];
+        ((ps.deck_size() + ps.discard.total()) / 5) as u16
+    }
+
+    /// The offers made at the end of the Buy phase, before cleanup discards everything in play:
+    /// Treasury's "put this onto your deck" (not if a Victory card was gained this Buy phase), then
+    /// Alchemist's (put onto your deck if a Potion is in play), then Herbalist's (put a Treasure
+    /// from play onto your deck). Alchemist and Herbalist trigger "when you discard this from
+    /// play", and the player may order such triggers; the fixed order here is Treasury, Alchemist,
+    /// Herbalist, so Herbalist can't take away the Potion Alchemist needs. All are the generic
+    /// `YesNo` / `Select` frames (`Act::Topdeck` from `Zone::InPlay`), one per copy in play.
+    /// Cheaply gated: a game without these cards skips this with three bitmask tests.
+    fn push_end_of_turn_offers(&mut self) {
         let p = self.turn.player;
-        let n = self.players[p as usize].in_play.get(id::TREASURY);
-        for _ in 0..n {
-            self.stack.push(Frame {
-                zone: Zone::InPlay, act: Act::Topdeck, subject: id::TREASURY,
-                ..Frame::new(FrameKind::YesNo, p, id::TREASURY)
-            });
+        let play = self.players[p as usize].in_play;
+        // Pushed last-first (the stack pops the top first).
+        if self.in_supply(id::HERBALIST) {
+            for _ in 0..play.get(id::HERBALIST) {
+                self.stack.push(Frame {
+                    zone: Zone::InPlay, act: Act::Topdeck, filter: self.treasure_filter(), max: 1,
+                    ..Frame::new(FrameKind::Select, p, id::HERBALIST)
+                });
+            }
+        }
+        if self.in_supply(id::ALCHEMIST) && play.has(id::POTION) {
+            for _ in 0..play.get(id::ALCHEMIST) {
+                self.stack.push(Frame {
+                    zone: Zone::InPlay, act: Act::Topdeck, subject: id::ALCHEMIST,
+                    ..Frame::new(FrameKind::YesNo, p, id::ALCHEMIST)
+                });
+            }
+        }
+        if self.in_supply(id::TREASURY) && !self.turn.gained_victory_in_buy {
+            for _ in 0..play.get(id::TREASURY) {
+                self.stack.push(Frame {
+                    zone: Zone::InPlay, act: Act::Topdeck, subject: id::TREASURY,
+                    ..Frame::new(FrameKind::YesNo, p, id::TREASURY)
+                });
+            }
         }
     }
 
-    /// End the Buy phase: Treasury's offer (once, guarded by `treasury_offered`), then cleanup
+    /// End the Buy phase: the end-of-turn offers (once, guarded by `treasury_offered`), then cleanup
     /// once nothing more is pending from it. Reached both when buys run out naturally
     /// (`run_phase`'s `Phase::Buy` arm) and when the player passes with buys still available
     /// (`apply_phase`'s Buy-decision catch-all), so the offer fires exactly once at the true end
@@ -615,7 +659,7 @@ impl GameState {
     fn end_buy_phase<S: EventSink>(&mut self, sink: &mut S) {
         if !self.turn.treasury_offered {
             self.turn.treasury_offered = true;
-            self.push_treasury_offers();
+            self.push_end_of_turn_offers();
             if !self.stack.is_empty() {
                 return;
             }
@@ -731,7 +775,7 @@ impl GameState {
     /// gain record for Smugglers (only while Smugglers is in this game's supply) and the
     /// "gained a Victory card this Buy phase" flag for Treasury (only while in the Buy phase).
     /// Returns whether it was gained.
-    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) -> bool {
+    pub(crate) fn gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, sink: &mut S) -> bool {
         if !self.supply.remove(c) {
             return false;
         }
@@ -741,7 +785,7 @@ impl GameState {
             Dest::DeckTop => ps.deck_known.push_top(c),
             Dest::Discard => ps.discard.add(c, 1),
         }
-        sink.event(Event::Gain { player: p, card: c, to });
+        sink.event(Event::Gain { player: p, card: c, to, source });
         // Smugglers' gain record: "a card the player to your right gained on their last turn"
         // means gained during *their own* turn specifically, so this excludes a victim's forced
         // gain during someone else's turn (Witch's Curse, Bandit's Gold...), which is `p !=
@@ -807,7 +851,7 @@ impl GameState {
                 cards::GainTrigger::HoardBoughtVictory => {
                     if on_buy && cards::is(c, cards::VICTORY) {
                         for _ in 0..count {
-                            self.gain(p, id::GOLD, Dest::Discard, false, sink);
+                            self.gain(p, id::GOLD, Dest::Discard, false, watcher, sink);
                         }
                     }
                 }
@@ -881,7 +925,7 @@ impl GameState {
                     let e = ps.pending_durations[i];
                     if e.card == id::BLOCKADE && e.arg == c {
                         self.turn.blockading_curse = true;
-                        self.gain(g, id::CURSE, Dest::Discard, false, sink);
+                        self.gain(g, id::CURSE, Dest::Discard, false, id::BLOCKADE, sink);
                         self.turn.blockading_curse = false;
                         break;
                     }

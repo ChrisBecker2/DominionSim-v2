@@ -1,0 +1,37 @@
+# Familiar Big Money (Alchemy) — one Potion, then up to two Familiars: each Familiar draws a
+# card, keeps the action, and hands every opponent a Curse. A card with a Potion in its cost can
+# only be bought on a turn you also play a Potion, so the Familiars wait for a hand that has it
+# (the Potion is only worth buying once; later it is one dead-ish card among the money).
+# Then Big Money with a Duchy/Estate endgame. Needs Familiar in the kingdom (the Potion pile
+# joins automatically): pair with `--kingdom auto`.
+
+name = "Familiar-BM"
+description = "Big Money with one Potion and two Familiars (cursing attack)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Familiar"
+if = "count(Familiar) < 2"
+
+[[gain]]
+card = "Potion"
+if = "count(Potion) < 1"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Familiar"

@@ -265,7 +265,8 @@ impl Strategy {
     pub fn kingdom_refs(&self) -> Vec<CardId> {
         let mut out = Vec::new();
         let mut push = |c: CardId| {
-            if c >= cards::FIRST_KINGDOM && !out.contains(&c) {
+            // Potion joins the supply by itself whenever a Potion-cost card is in the kingdom.
+            if c >= cards::FIRST_KINGDOM && c != id::POTION && !out.contains(&c) {
                 out.push(c);
             }
         };
@@ -321,10 +322,15 @@ impl Strategy {
             }
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, max, ordered } => {
+                // Scrying Pool: the owner decides, for each player's revealed top card, whether it is
+                // discarded (`Card`) or put back (`Pass`).
+                if act == Act::Discard && from == Zone::Revealed && decision.source == Some(id::SCRYING_POOL) {
+                    return self.choose_scry(view, decision, choices);
+                }
                 match act {
                     Act::Discard => self.choose_discard(view, from, filter, choices, min, max, ordered),
                     Act::Trash => self.choose_trash(view, decision, choices, from, filter, min, max, ordered),
-                    Act::Topdeck => self.choose_topdeck(choices, from, filter, ordered),
+                    Act::Topdeck => self.choose_topdeck(view, choices, from, filter, ordered),
                     Act::Play => self.play_decision(view, decision, choices, decision.play_times > 1),
                     Act::SetAside => self.choose_setaside(choices),
                     Act::Gain => self.choose_gain_from_zone(view, choices),
@@ -384,9 +390,12 @@ impl Strategy {
     /// Rank (index in the gain list) of the best entry that could be gained right now for at
     /// most `max_cost` (or exactly `max_cost` when `exact`, for Upgrade), matching `filter`,
     /// with its pile non-empty and its condition true.
-    fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter, exact: bool) -> Option<usize> {
+    fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter, exact: bool, potion: bool) -> Option<usize> {
         self.buy.iter().position(|(card, cond)| {
-            let cost_ok = if exact { view.cost(*card) == max_cost } else { view.cost(*card) <= max_cost };
+            // Potion: "up to $X" admits Potion-cost cards only when the reference cost has one;
+            // "exactly" needs it to match (the engine's gain rule, see `Frame::potion`).
+            let pc = cards::potion_cost(*card);
+            let cost_ok = if exact { view.cost(*card) == max_cost && pc == potion } else { view.cost(*card) <= max_cost && (potion || !pc) };
             cost_ok
                 && filter.matches(*card)
                 && view.in_supply(*card)
@@ -433,6 +442,10 @@ impl Strategy {
     fn choose_gain(&self, view: &PlayerView, _decision: &Decision, choices: &[Choice]) -> Choice {
         if let Some(c) = self.match_gain_list(view, choices) {
             return Choice::Card(c);
+        }
+        // An optional gain (University) that the gain list doesn't ask for is declined.
+        if choices.contains(&Choice::Pass) {
+            return Choice::Pass;
         }
         // Nothing in the buy list is affordable/legal here (e.g. a small Workshop/Remodel gain
         // below everything we listed). Never gain Curse if there's an alternative, and avoid
@@ -618,7 +631,7 @@ impl Strategy {
         if let Some(up) = decision.upgrade {
             let mut best: Option<(usize, u8, CardId)> = None;
             for c in iter_cards(choices) {
-                if let Some(rank) = self.best_gain_rank(view, view.cost(c) + up.plus, up.filter, up.exact) {
+                if let Some(rank) = self.best_gain_rank(view, view.cost(c) + up.plus, up.filter, up.exact, cards::potion_cost(c)) {
                     let key = (rank, cards::cost(c), c);
                     if best.map_or(true, |b| key < b) {
                         best = Some(key);
@@ -719,6 +732,51 @@ impl Strategy {
             }
         };
         iter_cards(choices).min_by_key(|&c| (rank(c), c)).map(Choice::Card).unwrap_or_else(|| choices[0])
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Alchemy: Scrying Pool's keep-or-discard and Herbalist's Treasure.
+    // -----------------------------------------------------------------------------------------
+
+    /// Scrying Pool, for the top card `choices` offers (`Card(c)` = discard it, `Pass` = put it
+    /// back). On my own deck: discard what I don't want to draw: Curses and Victory-only cards,
+    /// and Treasures worth less than the average card the discard would let me reach instead
+    /// (the average money of my deck's non-Action cards); keep every Action (the reveal-until
+    /// draws them all), Potions and good Treasures. On an opponent's deck, the reverse: discard the cards
+    /// they'd like to draw (Actions, Silver or better, Potions) and leave their junk on top.
+    fn choose_scry(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let Some(c) = iter_cards(choices).next() else { return Choice::Pass };
+        let discard = if decision.for_player == view.me() {
+            if cards::is(c, ACTION) || c == id::POTION {
+                false
+            } else if c == id::CURSE || (cards::is(c, VICTORY) && !cards::is(c, TREASURE)) {
+                true
+            } else {
+                let deck = view.deck();
+                let (mut money, mut n) = (0u32, 0u32);
+                for (x, k) in deck.iter().filter(|&(x, _)| !cards::is(x, ACTION)) {
+                    money += cards::def(x).coins as u32 * k as u32;
+                    n += k as u32;
+                }
+                // value(c) < average, compared without division.
+                n > 0 && (cards::def(c).coins as u32) * n < money
+            }
+        } else {
+            cards::is(c, ACTION) || c == id::POTION || (cards::is(c, TREASURE) && cards::def(c).coins >= 2)
+        };
+        if discard { Choice::Card(c) } else { Choice::Pass }
+    }
+
+    /// Herbalist: put the best Treasure in play on the deck: a Potion if the gain list wants a
+    /// card with a Potion in its cost that is still in the supply (so next turn can buy it),
+    /// else the Treasure worth the most; never a Curse (Charlatan's Treasure Curse) or a worthless
+    /// Treasure (an unwanted Potion): then nothing.
+    fn choose_herbalist_topdeck(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let wants_potion_card = self.buy.iter().any(|(c, _)| cards::potion_cost(*c) && view.in_supply(*c) && view.supply(*c) > 0);
+        let key = |c: CardId| (wants_potion_card && c == id::POTION, cards::def(c).coins, c);
+        iter_cards(choices)
+            .filter(|&c| c != id::CURSE && (cards::def(c).coins > 0 || (wants_potion_card && c == id::POTION)))
+            .max_by_key(|&c| key(c)).map(Choice::Card).unwrap_or(Choice::Pass)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1009,7 +1067,10 @@ impl Strategy {
     // Topdeck (Harbinger / Bureaucrat victim / Artisan / Sentry order).
     // -----------------------------------------------------------------------------------------
 
-    fn choose_topdeck(&self, choices: &[Choice], from: Zone, filter: Filter, ordered: bool) -> Choice {
+    fn choose_topdeck(&self, view: &PlayerView, choices: &[Choice], from: Zone, filter: Filter, ordered: bool) -> Choice {
+        if from == Zone::InPlay {
+            return self.choose_herbalist_topdeck(view, choices);
+        }
         if ordered {
             // Sentry: put cards back one at a time; the LAST pick ends up on top, so place the
             // worse remaining card first and save the better one for last.

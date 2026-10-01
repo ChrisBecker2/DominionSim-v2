@@ -656,7 +656,7 @@ fn blockade_gains_a_card_sets_it_aside_and_schedules_its_return() {
     set_hand(&mut g, 0, &[id::BLOCKADE]);
     play(&mut g, id::BLOCKADE);
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::SILVER));
     assert_eq!(g.players[0].set_aside, counts_of(&[id::SILVER]));
     assert!(g.players[0].discard.is_empty(), "moved out of discard into set_aside");
@@ -742,7 +742,7 @@ fn sailor_may_play_a_gained_duration_card_once_per_turn() {
     play(&mut g, id::SAILOR); // +1 Action refunds the action just spent
     play(&mut g, id::WORKSHOP);
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 4, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::CARAVAN)); // gain a Duration card
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Play });
@@ -856,7 +856,7 @@ fn pirate_next_turn_gains_a_treasure_to_hand() {
     let mut g = new_state(&[id::PIRATE], 2);
     inject_pending(&mut g, 0, id::PIRATE, 1, 0);
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Treasure, dest: Dest::Hand, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Treasure, dest: Dest::Hand, exact: false, potion: false, optional: false });
     // Gained straight to hand; driving on into the Buy phase then auto-plays it (choice-free).
     g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
     assert!(g.players[0].hand.has(id::GOLD), "landed in hand before any phase transition");
@@ -879,7 +879,7 @@ fn pirate_may_be_played_from_hand_when_any_player_gains_a_treasure() {
     match step {
         Step::Decision(dec) => {
             assert_eq!(dec.player, 0);
-            assert_eq!(dec.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Treasure, dest: Dest::Hand, exact: false });
+            assert_eq!(dec.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Treasure, dest: Dest::Hand, exact: false, potion: false, optional: false });
         }
         other => panic!("expected Pirate's own next-turn Gain decision, got {other:?}"),
     }
@@ -1526,7 +1526,7 @@ fn smugglers_offers_only_the_right_hand_players_last_turn_gains_up_to_six() {
     }
     play(&mut g, id::SMUGGLERS);
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     let cs = choices(&g);
     for &c in &[id::CURSE, id::COPPER, id::ESTATE, id::VILLAGE, id::GOLD] {
         assert!(cs.contains(&Choice::Card(c)), "{} (gained last turn, $6 or less) should be offered", cards::name(c));
@@ -1675,7 +1675,7 @@ fn treasury_can_go_back_after_a_victory_card_gained_in_the_action_phase() {
     play(&mut g, id::TREASURY);
     play(&mut g, id::REMODEL); // auto-trashes the only card in hand (Silver): forced, no decision
     let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 5, filter: Filter::Any, dest: Dest::Discard, exact: false });
+    assert_eq!(d.kind, DecisionKind::Gain { max_cost: 5, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: false, optional: false });
     choose(&mut g, Choice::Card(id::DUCHY));
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::Buy);

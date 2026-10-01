@@ -1,11 +1,11 @@
-//! Card identities and static definitions: Base Set, Intrigue, Seaside and Prosperity, all 2nd
-//! edition.
+//! Card identities and static definitions: Base Set, Intrigue, Seaside and Prosperity (all 2nd
+//! edition) and Alchemy (one edition; Possession is not implemented, by decision).
 
 use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 113;
+pub const NUM_CARDS: usize = 125;
 
 // Type flags.
 pub const ACTION: u8 = 1;
@@ -135,6 +135,20 @@ pub mod id {
     pub const PEDDLER: CardId = 110;
     pub const PLATINUM: CardId = 111;
     pub const COLONY: CardId = 112;
+    // Alchemy (Possession is deliberately absent); Potion is a basic card that joins the supply
+    // whenever a card with a Potion in its cost is in the kingdom.
+    pub const TRANSMUTE: CardId = 113;
+    pub const VINEYARD: CardId = 114;
+    pub const HERBALIST: CardId = 115;
+    pub const APOTHECARY: CardId = 116;
+    pub const SCRYING_POOL: CardId = 117;
+    pub const UNIVERSITY: CardId = 118;
+    pub const ALCHEMIST: CardId = 119;
+    pub const FAMILIAR: CardId = 120;
+    pub const PHILOSOPHERS_STONE: CardId = 121;
+    pub const GOLEM: CardId = 122;
+    pub const APPRENTICE: CardId = 123;
+    pub const POTION: CardId = 124;
 }
 
 /// The expansion a card comes from.
@@ -148,10 +162,12 @@ pub enum CardSet {
     Seaside,
     /// Prosperity 2nd edition (including Platinum and Colony).
     Prosperity,
+    /// Alchemy (Potion costs). Possession is not implemented.
+    Alchemy,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 4] = [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity];
+    pub const ALL: [CardSet; 5] = [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -159,6 +175,7 @@ impl CardSet {
             CardSet::Intrigue => "Intrigue",
             CardSet::Seaside => "Seaside",
             CardSet::Prosperity => "Prosperity",
+            CardSet::Alchemy => "Alchemy",
         }
     }
 }
@@ -169,6 +186,10 @@ impl CardSet {
 pub struct CardDef {
     pub name: &'static str,
     pub cost: u8,
+    /// Whether the cost includes a Potion (printed as "$2P").
+    pub potion: bool,
+    /// Potions produced when played as a Treasure (Potion: 1).
+    pub potions: u8,
     pub types: u8,
     /// Treasure value when played as a treasure, or +$ when played as an action.
     pub coins: u8,
@@ -206,7 +227,7 @@ pub enum OnPlay {
 }
 
 const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
-    CardDef { name, cost, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
+    CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
 }
 
 /// A Seaside card.
@@ -222,6 +243,21 @@ const fn prosperity(d: CardDef) -> CardDef {
 /// An Intrigue card.
 const fn intrigue(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Intrigue, ..d }
+}
+
+/// An Alchemy card.
+const fn alchemy(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Alchemy, ..d }
+}
+
+/// The card's cost includes a Potion.
+const fn with_p(d: CardDef) -> CardDef {
+    CardDef { potion: true, ..d }
+}
+
+/// Playing it as a Treasure gives one Potion.
+const fn potion_card(d: CardDef) -> CardDef {
+    CardDef { potions: 1, ..d }
 }
 
 const fn plays(d: CardDef, times: u8) -> CardDef {
@@ -357,6 +393,21 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     prosperity(choice_free(c("Peddler", 8, ACTION, 1, 0, 1, 1, 0))),
     prosperity(choice_free(c("Platinum", 9, TREASURE, 5, 0, 0, 0, 0))),
     prosperity(c("Colony", 11, VICTORY, 0, 10, 0, 0, 0)),
+    // ---- Alchemy. P = Potion in the cost (`with_p`). ----
+    alchemy(with_p(has_choice(c("Transmute", 0, ACTION, 0, 0, 0, 0, 0)))), // what to trash
+    alchemy(with_p(c("Vineyard", 0, VICTORY, 0, 0, 0, 0, 0))), // 1 VP per 3 Actions (`state::vp_of_cards`)
+    alchemy(choice_free(c("Herbalist", 2, ACTION, 1, 0, 0, 0, 1))), // the cleanup offer is not a play decision
+    alchemy(with_p(has_choice(c("Apothecary", 2, ACTION, 0, 0, 1, 1, 0)))), // reveals the top 4, reorders
+    alchemy(with_p(has_choice(c("Scrying Pool", 2, ACTION | ATTACK, 0, 0, 0, 1, 0)))), // discards or keeps tops, draws
+    alchemy(with_p(has_choice(c("University", 2, ACTION, 0, 0, 0, 2, 0)))), // what to gain
+    alchemy(with_p(choice_free(c("Alchemist", 3, ACTION, 0, 0, 2, 1, 0)))), // the cleanup offer is not a play decision
+    alchemy(with_p(choice_free(c("Familiar", 3, ACTION | ATTACK, 0, 0, 1, 1, 0)))), // only victims gain
+    // $1 per 5 cards in deck + discard: no choice-free Treasure changes those counts, so the
+    // order among choice-free Treasures never matters (has-choice Treasures stop auto-play anyway).
+    alchemy(with_p(choice_free(c("Philosopher's Stone", 3, TREASURE, 0, 0, 0, 0, 0)))),
+    alchemy(with_p(has_choice(c("Golem", 4, ACTION, 0, 0, 0, 0, 0)))), // order of the two Actions
+    alchemy(has_choice(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash
+    alchemy(potion_card(choice_free(c("Potion", 4, TREASURE, 0, 0, 0, 0, 0)))),
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -372,6 +423,15 @@ pub fn def(card: CardId) -> &'static CardDef {
 #[inline(always)]
 pub fn cost(card: CardId) -> u8 {
     CARDS[card as usize].cost
+}
+/// Whether the card's cost includes a Potion.
+#[inline(always)]
+pub fn potion_cost(card: CardId) -> bool {
+    CARDS[card as usize].potion
+}
+/// "$2P" / "$4": the cost as printed on the card.
+pub fn cost_string(card: CardId) -> String {
+    format!("${}{}", cost(card), if potion_cost(card) { "P" } else { "" })
 }
 #[inline(always)]
 pub fn is(card: CardId, flag: u8) -> bool {
@@ -445,6 +505,9 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::VictoryOrCurse => ("a", "Victory card or Curse"),
         Filter::ActionOrTreasure => ("an", "Action or Treasure card"),
         Filter::TreasureOrCurse => ("a", "Treasure"),
+        Filter::Either(..) => ("a", "card"),
+        Filter::NonAction => ("a", "non-Action card"),
+        Filter::ActionNot(_) => ("an", "Action"),
     }
 }
 
@@ -612,14 +675,14 @@ pub fn is_ready(card: CardId) -> bool {
 /// Whether `card` is a kingdom card (not a basic card: Copper..Curse, Platinum, Colony).
 #[inline(always)]
 pub fn is_kingdom(card: CardId) -> bool {
-    card >= FIRST_KINGDOM && card != id::PLATINUM && card != id::COLONY
+    card >= FIRST_KINGDOM && !is_optional_basic(card)
 }
 
-/// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony). A kingdom
-/// list may name them to include them.
+/// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
+/// Potion). A kingdom list may name them to include them.
 #[inline(always)]
 pub fn is_optional_basic(card: CardId) -> bool {
-    card == id::PLATINUM || card == id::COLONY
+    card == id::PLATINUM || card == id::COLONY || card == id::POTION
 }
 
 /// Every kingdom card of every set that can be played (implemented).
@@ -645,6 +708,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "intrigue" => Some(CardSet::Intrigue),
         "seaside" => Some(CardSet::Seaside),
         "prosperity" => Some(CardSet::Prosperity),
+        "alchemy" => Some(CardSet::Alchemy),
         _ => None,
     }
 }
@@ -662,7 +726,8 @@ pub fn random_kingdom(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> V
         }
     }
     let mut pool: Vec<CardId> = kingdom_cards().filter(|c| sets.contains(&set_of(*c)) && !out.contains(c)).collect();
-    while out.len() < 10 && !pool.is_empty() {
+    // Optional basics named in `required` (Platinum, Colony, Potion) don't take a kingdom slot.
+    while out.iter().filter(|&&c| is_kingdom(c)).count() < 10 && !pool.is_empty() {
         let i = rng.below(pool.len() as u32) as usize;
         out.push(pool.swap_remove(i));
     }
@@ -674,10 +739,12 @@ pub fn random_kingdom(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> V
 /// random; if it's from Prosperity, Platinum and Colony join the game (appended to the returned
 /// list). The chance of Colonies therefore grows with how many Prosperity cards the kingdom has.
 /// Used wherever a kingdom is randomized rather than named explicitly, so the rule stays
-/// reproducible by seed alongside the kingdom draw itself.
+/// reproducible by seed alongside the kingdom draw itself. Potion joins whenever any kingdom card
+/// has a Potion in its cost (no randomness involved).
 pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: &mut Rng) -> Vec<CardId> {
     let mut out = random_kingdom(sets, required, rng);
-    let revealed = out[rng.below(out.len() as u32) as usize];
+    let kingdom_only: Vec<CardId> = out.iter().copied().filter(|&c| is_kingdom(c)).collect();
+    let revealed = kingdom_only[rng.below(kingdom_only.len() as u32) as usize];
     if set_of(revealed) == CardSet::Prosperity {
         if !out.contains(&id::PLATINUM) {
             out.push(id::PLATINUM);
@@ -687,7 +754,16 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
         }
         out.sort_unstable();
     }
+    add_potion_if_needed(&mut out);
     out
+}
+
+/// Appends Potion to a kingdom list when any card in it has a Potion in its cost (re-sorted).
+pub fn add_potion_if_needed(k: &mut Vec<CardId>) {
+    if !k.contains(&id::POTION) && k.iter().any(|&c| potion_cost(c)) {
+        k.push(id::POTION);
+        k.sort_unstable();
+    }
 }
 
 #[cfg(test)]
@@ -715,6 +791,7 @@ mod tests {
                 "Merchant Ship", "Outpost", "Pirate", "Sea Witch", "Treasury", "Wharf",
                 "Clerk", "Monument", "Quarry", "Worker's Village", "Charlatan", "City", "Collection", "Rabble", "Grand Market",
                 "Hoard", "Peddler", "Platinum",
+                "Herbalist", "Alchemist", "Familiar", "Philosopher's Stone", "Potion",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );
@@ -735,6 +812,9 @@ mod set_tests {
         assert_eq!(in_set(CardSet::Intrigue), 26);
         assert_eq!(in_set(CardSet::Seaside), 27);
         assert_eq!(in_set(CardSet::Prosperity), 25);
+        assert_eq!(in_set(CardSet::Alchemy), 11);
+        assert!(!is_kingdom(id::POTION) && is_optional_basic(id::POTION) && potion_cost(id::GOLEM) && !potion_cost(id::APPRENTICE));
+        assert_eq!(cost_string(id::APOTHECARY), "$2P");
         assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
         assert_eq!(by_name("kings court"), Some(id::KINGS_COURT));
         assert_eq!(by_name("Worker's Village"), Some(id::WORKERS_VILLAGE));
@@ -750,6 +830,7 @@ mod set_tests {
         // All 27 Seaside and 25 Prosperity kingdom cards are implemented (`ready`) as of step 4.
         assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
         assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
+        assert_eq!(kingdom_cards_in(CardSet::Alchemy).count(), 11);
     }
 
     #[test]
@@ -760,7 +841,8 @@ mod set_tests {
         assert_eq!(set_by_name("intrigue"), Some(CardSet::Intrigue));
         assert_eq!(set_by_name("Seaside"), Some(CardSet::Seaside));
         assert_eq!(set_by_name("prosperity"), Some(CardSet::Prosperity));
-        assert_eq!(set_by_name("Alchemy"), None);
+        assert_eq!(set_by_name("Alchemy"), Some(CardSet::Alchemy));
+        assert_eq!(set_by_name("Dark Ages"), None);
     }
 
     #[test]

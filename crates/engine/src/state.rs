@@ -184,6 +184,17 @@ impl<const N: usize> SmallMultiset<N> {
     pub fn clear(&mut self) {
         self.len = 0;
     }
+    /// Remove one copy of `card`; false if there was none.
+    pub fn remove(&mut self, card: CardId) -> bool {
+        let Some(i) = self.entries[..self.len as usize].iter().position(|e| e.0 == card) else { return false };
+        if self.entries[i].1 > 1 {
+            self.entries[i].1 -= 1;
+        } else {
+            self.len -= 1;
+            self.entries[i] = self.entries[self.len as usize];
+        }
+        true
+    }
     /// Sum into a `Counts` (for `all_cards`/VP: the mats' cards count as owned).
     pub fn counts(&self) -> Counts {
         let mut c = Counts::EMPTY;
@@ -326,6 +337,10 @@ pub struct PlayerState {
     /// Masquerade's holding zone: the card this player has committed to pass, held until every
     /// passing player has chosen and all the cards move at once. At most one card at a time.
     pub passed: Counts,
+    /// Cards held aside while an effect resolves, to enter play (or move on) later in it: Golem's
+    /// second Action while the first resolves. Always empty between effects (not in the text
+    /// format), counted as owned by `all_cards` so cards are conserved at every step.
+    pub held: SmallMultiset<4>,
     pub turns_taken: u16,
     /// Victory point tokens (Monument, Bishop, ...), counted in the score.
     pub vp_tokens: u16,
@@ -373,6 +388,7 @@ impl PlayerState {
         c.add_all(&self.in_play);
         c.add_all(&self.set_aside);
         c.add_all(&self.passed);
+        c.add_all(&self.held.counts());
         c.add_all(&self.native_village_mat.counts());
         c.add_all(&self.island_mat.counts());
         c
@@ -391,6 +407,7 @@ pub fn vp_of_cards(all: &Counts) -> i32 {
             let per = match c {
                 id::GARDENS => total / 10,
                 id::DUKE => all.get(id::DUCHY) as i32,
+                id::VINEYARD => (all.count_type(cards::ACTION) / 3) as i32,
                 _ => cards::def(c).vp as i32,
             };
             per * n as i32
@@ -424,6 +441,9 @@ pub struct TurnState {
     pub actions: u8,
     pub buys: u8,
     pub coins: u16,
+    /// Potions available to spend this turn (Potion cards played; Alchemy). Buying a card with a
+    /// Potion in its cost spends one; unspent Potions are lost at the end of the turn.
+    pub potions: u8,
     /// Number of Merchant plays this turn (each gives +$1 on the first Silver).
     pub merchants: u8,
     pub silvers_played: u8,
@@ -491,10 +511,11 @@ pub struct TurnState {
     /// Treasury's "if you didn't gain a Victory card in it"), set by `GameState::gain`. Per-turn
     /// bookkeeping, not part of the text format (same gap as `treasures_done`).
     pub gained_victory_in_buy: bool,
-    /// Whether Treasury's end-of-Buy-phase "put this onto your deck?" offer has already been
-    /// pushed this turn (guards `GameState::push_treasury_offers` against re-offering to a
-    /// still-in-play, already-declined copy every time the effect stack empties out again before
-    /// cleanup runs). Per-turn bookkeeping, not part of the text format.
+    /// Whether the end-of-Buy-phase offers (Treasury's "put this onto your deck?", and the
+    /// discard-from-play offers of Alchemist and Herbalist) have already been pushed this turn
+    /// (guards `GameState::push_end_of_turn_offers` against re-offering to a still-in-play,
+    /// already-declined copy every time the effect stack empties out again before cleanup runs).
+    /// Per-turn bookkeeping, not part of the text format.
     pub treasury_offered: bool,
     /// Reentrancy guard for Blockade's "gain a copy of the blockaded card -> gain a Curse"
     /// cross-trigger (`GameState::run_seaside_gain_triggers`): true only while processing a
@@ -512,6 +533,7 @@ impl TurnState {
             actions: 1,
             buys: 1,
             coins: 0,
+            potions: 0,
             merchants: 0,
             silvers_played: 0,
             number,
@@ -589,6 +611,12 @@ pub enum Filter {
     /// frame-construction time by `GameState::treasure_filter` when Charlatan is in the game, so
     /// Anvil/Tiara/Mint's Treasure selections include Curse-as-Treasure; see `is_treasure`.
     TreasureOrCurse,
+    /// Either of two specific cards (Apothecary: Copper or Potion).
+    Either(CardId, CardId),
+    /// Any card that isn't an Action (Scrying Pool's "until revealing a non-Action").
+    NonAction,
+    /// An Action card other than the named card (Golem: "other than Golem cards").
+    ActionNot(CardId),
 }
 
 impl Filter {
@@ -604,6 +632,9 @@ impl Filter {
             Filter::VictoryOrCurse => cards::is(c, cards::VICTORY) || cards::is(c, cards::CURSE_T),
             Filter::ActionOrTreasure => cards::is(c, cards::ACTION) || cards::is(c, cards::TREASURE),
             Filter::TreasureOrCurse => cards::is(c, cards::TREASURE) || c == id::CURSE,
+            Filter::Either(a, b) => c == a || c == b,
+            Filter::NonAction => !cards::is(c, cards::ACTION),
+            Filter::ActionNot(x) => c != x && cards::is(c, cards::ACTION),
         }
     }
 }
@@ -713,6 +744,21 @@ pub enum Then {
     /// RevealTop (Sea Chart, max 1): if a card was revealed, put it into hand when its owner
     /// already has a copy of it in play, else leave it on top of the deck (now known).
     SeaChartCheck,
+    /// Select (trash from hand): gain a card for each type the trashed card has: `action` if it's
+    /// an Action, `treasure` if a Treasure, `victory` if a Victory card (0 = nothing for that
+    /// type). Transmute: Duchy / Transmute / Gold.
+    GainPerType { action: CardId, treasure: CardId, victory: CardId },
+    /// Select (trash from hand): draw one card per $1 the trashed card costs, plus
+    /// `potion_extra` more if its cost includes a Potion (Apprentice: +2).
+    DrawPerCost { potion_extra: u8 },
+    /// RevealTop/RevealUntil: discard every revealed card that does NOT match the frame's own
+    /// `filter` (Golem keeps the two Actions and discards the rest).
+    DiscardRevealedNotMatching,
+    /// Select (Zone::Revealed, `Act::Play`, one pick): play the picked card, then the other cards
+    /// left in the Revealed zone (which are Actions), one after the other (Golem: "play the Action
+    /// cards in either order"). The others are held in their `PlayEffects` frames meanwhile, so
+    /// nothing the first card does to the Revealed zone can disturb them.
+    PlayPickedThenRest,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -777,6 +823,12 @@ pub struct Frame {
     /// Select: using this pick reveals `source` from the player's hand (a Reaction such as
     /// Watchtower), so the first pick logs a Reaction event.
     pub reveal_source: bool,
+    /// Gain: the reference cost includes a Potion. Up to: Potion-cost cards may be gained;
+    /// `exact`: the gained card's Potion must match. False for "costing up to $5" style gains
+    /// (no Potion cards).
+    pub potion: bool,
+    /// Gain: may be declined (`Choice::Pass`), e.g. University's "you may gain".
+    pub optional: bool,
 }
 
 impl Frame {
@@ -805,6 +857,8 @@ impl Frame {
             gain_from_record: false,
             self_trashed: false,
             reveal_source: false,
+            potion: false,
+            optional: false,
         }
     }
 }
@@ -874,6 +928,10 @@ pub enum FrameKind {
     /// chance-aware like `Draw` (may need a `Step::Chance` sample), but the card goes to the
     /// player's `native_village_mat` instead of their hand.
     NativeVillageAdd,
+    /// Reveal cards from the top of `player`'s deck into the Revealed zone until `max` of them
+    /// match `filter` (`count` = matches so far) or the deck and discard run out, then run `then`
+    /// (Scrying Pool: until a non-Action; Golem: 2 Actions other than Golem).
+    RevealUntil,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1000,12 +1058,17 @@ impl GameState {
         put(id::DUCHY, victory_pile_size(n));
         put(id::PROVINCE, province_pile_size(n));
         put(id::CURSE, 10 * (n as u8 - 1));
+        let needs_potion = cfg.kingdom.iter().any(|&k| cards::potion_cost(k));
+        if needs_potion {
+            put(id::POTION, 16);
+        }
         for &k in &cfg.kingdom {
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
             let pile = match k {
                 id::PLATINUM => 12,
+                id::POTION => 16,
                 id::COLONY => province_pile_size(n),
                 _ if cards::is(k, cards::VICTORY) => victory_pile_size(n),
                 _ => 10,

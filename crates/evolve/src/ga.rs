@@ -54,7 +54,7 @@ fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
     }
     let mut out = Vec::new();
     for n in names {
-        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\" or \"Prosperity\")"))?;
+        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\", \"Prosperity\" or \"Alchemy\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
@@ -96,6 +96,7 @@ impl Setup {
                 if colonies_on {
                     add_colonies(&mut k);
                 }
+                cards::add_potion_if_needed(&mut k);
                 (Kingdoms::Fixed(k.clone()), k)
             }
             Track::Random { required, kingdoms_per_generation } => {
@@ -111,6 +112,8 @@ impl Setup {
                 if space_pool.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity) {
                     add_colonies(&mut space_pool);
                 }
+                // Likewise Potion, whenever an Alchemy card with a Potion cost can appear.
+                cards::add_potion_if_needed(&mut space_pool);
                 (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1) }, space_pool)
             }
         };
@@ -154,6 +157,7 @@ impl Setup {
                     if k.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity) {
                         add_colonies(&mut k);
                     }
+                    cards::add_potion_if_needed(&mut k);
                     Scenario { kingdom: k }
                 })
                 .collect(),

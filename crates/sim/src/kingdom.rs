@@ -45,7 +45,7 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
             continue;
         }
         let c = cards::by_name(name).ok_or_else(|| format!("unknown card {name:?} in --kingdom"))?;
-        if c < cards::FIRST_KINGDOM {
+        if c < cards::FIRST_KINGDOM || c == cards::id::POTION {
             return Err(format!("{name:?} is a basic card, not a kingdom card"));
         }
         if out.contains(&c) {
@@ -59,6 +59,7 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
             out.len()
         ));
     }
+    cards::add_potion_if_needed(&mut out);
     Ok(out)
 }
 
@@ -79,13 +80,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\" and/or \"prosperity\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\" and/or \"alchemy\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\" and/or \"prosperity\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\" and/or \"alchemy\")".into());
     }
     Ok(out)
 }
@@ -165,8 +166,8 @@ mod tests {
 
     #[test]
     fn random_rejects_unknown_set() {
-        // Seaside and Prosperity are recognized sets now (step 1/2); use a genuinely unknown one.
-        assert!(resolve("random:alchemy", &[], 1).is_err());
+        // Every shipped set is recognized; use a genuinely unknown one.
+        assert!(resolve("random:dark-ages", &[], 1).is_err());
     }
 
     #[test]

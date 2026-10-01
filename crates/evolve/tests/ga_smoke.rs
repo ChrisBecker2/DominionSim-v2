@@ -145,7 +145,7 @@ fn random_track_follows_the_official_colony_rule_per_scenario_and_is_reproducibl
 #[test]
 fn unknown_set_name_is_a_config_error() {
     let mut c = cfg();
-    c.sets = vec!["Alchemy".into()];
+    c.sets = vec!["Dark Ages".into()];
     assert!(Setup::new(&c).is_err());
 }
 

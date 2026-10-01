@@ -14,7 +14,11 @@ async function instance() {
   const rb = () => new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()).slice();
   const put = (b) => { const p = w.alloc(b.length); new Uint8Array(w.memory.buffer, p, b.length).set(b); return p; };
   const load = (text) => { const b = enc.encode(text); const p = put(b); const ok = w.load_state(p, b.length); w.dealloc(p, b.length); if (!ok) throw new Error(rd()); };
-  return { w, rd, rb, put, load };
+  // A loaded position that would auto-play something first is shown as loaded, paused at a
+  // "Continue" choice; the first action (resume / step / run) advances. `go` = that first action.
+  const paused = () => { w.get_view(); const v = JSON.parse(rd()); return !!(v.pending && v.pending.paused); };
+  const loadReady = (text) => { load(text); if (paused()) w.resume(); };
+  return { w, rd, rb, put, load, paused, loadReady };
 }
 
 const KINGDOM = "Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop";
@@ -39,6 +43,10 @@ const POSITIONS = [
   position("Silver=0, Estate=0, Duchy=2, Province=3", "Throne Room Gold Gold Remodel Village Village", "2 Copper, 3 Estate"),
   position("Province=8", "Cellar Market Estate Estate Copper", "6 Copper, 3 Estate, 2 Silver, Gold"),
   position("Province=2", "Militia Mine Silver Gold Copper", "5 Copper, 2 Silver, Gold, 2 Estate"),
+  // Loaded paused (nothing auto-played yet): a Buy phase holding Treasures, and an Action phase
+  // with no Action to play (two Buys, so the analysis top leaves the turn running).
+  position("Province=8", "4 Copper Silver Estate", "5 Copper, 2 Silver, Gold, 2 Estate").replace("phase: action", "phase: buy").replace("buys: 1", "buys: 2"),
+  position("Province=8", "3 Copper Estate Estate", "5 Copper, 2 Silver, Gold, 2 Estate").replace("buys: 1", "buys: 2"),
   position("Province=6", "Workshop Merchant Silver Silver Copper", "5 Copper, Estate, Smithy"),
   // Alchemy: Potions in hand (buying with a Potion), Golem's order, Scrying Pool, Transmute, University.
   position("Province=8", "Apothecary Potion 3 Copper", "4 Copper, Potion, 2 Silver, 3 Estate, Gold", ALCHEMY_KINGDOM),
@@ -56,13 +64,13 @@ for (const [pi, text] of POSITIONS.entries()) {
   for (let seat = 0; seat < BOTS.length; seat++) {
     const who = `pos ${pi + 1} / ${BOTS[seat]}`;
     // Serial analysis.
-    const A = await instance(); A.w.set_seat(0, seat); A.load(text);
+    const A = await instance(); A.w.set_seat(0, seat); A.loadReady(text);
     if (!A.w.analyze()) { console.log(`  FAIL ${who}: analyze: ${A.rd()}`); failed++; continue; }
     const serial = JSON.parse(A.rd());
     const top = serial.options[0];
 
     // Parallel analysis (plan in one instance, subtrees evaluated in another).
-    const P = await instance(), W = await instance(); P.w.set_seat(0, seat); W.w.set_seat(0, seat); P.load(text);
+    const P = await instance(), W = await instance(); P.w.set_seat(0, seat); W.w.set_seat(0, seat); P.loadReady(text);
     const plan = JSON.parse((P.w.plan_start(8), P.rd()));
     P.w.plan_root_bytes(); const root = P.rb();
     for (let i = 0; i < plan.tasks; i++) {
@@ -76,8 +84,8 @@ for (const [pi, text] of POSITIONS.entries()) {
     const par = JSON.parse((P.w.plan_finish(), P.rd()));
 
     // Auto-step vs choosing the analysis top; Run to end of turn from each.
-    const S = await instance(); S.w.set_seat(0, seat); S.load(text); S.w.step_auto(); const afterAuto = S.w.state_id() >>> 0;
-    const C = await instance(); C.w.set_seat(0, seat); C.load(text); C.w.choose(top.index); const afterTop = C.w.state_id() >>> 0;
+    const S = await instance(); S.w.set_seat(0, seat); S.load(text); if (S.paused()) S.w.step_auto(); S.w.step_auto(); const afterAuto = S.w.state_id() >>> 0;
+    const C = await instance(); C.w.set_seat(0, seat); C.loadReady(text); C.w.choose(top.index); const afterTop = C.w.state_id() >>> 0;
     const R = await instance(); R.w.set_seat(0, seat); R.load(text); R.w.run_to_end_of_turn(); const endRun = R.w.state_id() >>> 0;
     C.w.run_to_end_of_turn(); const endTop = C.w.state_id() >>> 0;
 

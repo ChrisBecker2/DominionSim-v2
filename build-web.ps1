@@ -31,6 +31,8 @@ node (Join-Path $repoRoot "web\test_bots.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test_bots.mjs reported failures (exit $LASTEXITCODE)" }
 node (Join-Path $repoRoot "web\test_consistency.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test_consistency.mjs reported failures (exit $LASTEXITCODE)" }
+node (Join-Path $repoRoot "web\test_log.mjs")
+if ($LASTEXITCODE -ne 0) { throw "web/test_log.mjs reported failures (exit $LASTEXITCODE)" }
 node (Join-Path $repoRoot "web\test_workers.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test_workers.mjs reported failures (exit $LASTEXITCODE)" }
 

@@ -4,6 +4,7 @@
 // Prerequisite: cargo build -p dominion-wasm --release --target wasm32-unknown-unknown
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -237,6 +238,99 @@ async function main() {
     check(p1.durations.length === 1 && p1.durations[0].card === "Wharf", `player 1 has a pending Wharf duration (got ${JSON.stringify(p1.durations)})`);
     check(p1.nativeVillageMat.length > 0, "player 1's Native Village mat is non-empty");
     check(p1.islandMat.length > 0, "player 1's Island mat is non-empty");
+  }
+
+  section("search_graph: positions, routes and transpositions");
+  {
+    // Village then Market and Market then Village reach the same position (two play orders).
+    loadState(
+      [
+        "players: 2",
+        "kingdom: Village, Market, Smithy, Cellar, Moat, Militia, Remodel, Workshop, Mine, Witch",
+        "turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0",
+        "",
+        "[player 1]",
+        "hand: Village, Market, Copper, Copper, Estate",
+        "deck: 4 Copper, 2 Estate, Silver",
+        "discard: 2 Copper",
+        "",
+        "[player 2]",
+        "hand: 3 Copper, 2 Estate",
+        "deck: 5 Copper, 2 Estate, Silver",
+        "",
+      ].join("\n")
+    );
+    check(typeof wasm.search_graph === "function", "exports search_graph()");
+    const g = JSON.parse(ok(wasm.search_graph(5000)));
+    check(g.nodes.length > 1 && g.edges.length >= g.nodes.length - 1, `graph has ${g.nodes.length} nodes, ${g.edges.length} edges`);
+    check(g.nodes[0].kind === "root" && g.nodes[0].depth === 0, "node 0 is the root at depth 0");
+    check(g.edges.every((e) => Number.isInteger(e.from) && Number.isInteger(e.to) && e.from >= 0 && e.to >= 0 && e.from < g.nodes.length && e.to < g.nodes.length), "every edge references valid nodes");
+    check(g.nodes.some((n) => n.inEdges > 1), "some positions are reached by more than one route");
+    const indeg = new Array(g.nodes.length).fill(0);
+    for (const e of g.edges) indeg[e.to]++;
+    check(g.nodes.every((n, i) => n.inEdges === indeg[i]), "inEdges matches the edges that point at each node");
+    check(g.nodes.every((n, i) => i === 0 || n.inEdges >= 1), "every non-root node has an incoming route");
+    const sums = new Map();
+    for (const e of g.edges) if (g.nodes[e.from].kind === "chance") sums.set(e.from, (sums.get(e.from) || 0) + (e.prob === null ? NaN : e.prob));
+    check(sums.size > 0, `graph has chance nodes (${sums.size})`);
+    check([...sums.values()].every((p) => Math.abs(p - 1) < 1e-3), "chance edges from each chance node sum to 1");
+    check(g.nodes.every((n) => Array.isArray(n.hand) && Array.isArray(n.inPlay) && Array.isArray(n.gained) && Number.isFinite(n.value)), "nodes carry hand/inPlay/gained/value");
+    check(g.edges.some((e) => e.best) && g.nodes[0].best, "a best line is marked from the root");
+
+    section("graph.js: index, visible sets, layout, route marks");
+    const SG = createRequire(import.meta.url)("./graph.js");
+    const idx = SG.buildIndex(g);
+    check(idx.n === g.nodes.length && idx.m === g.edges.length, "index sizes");
+    let outTotal = 0;
+    for (let v = 0; v < idx.n; v++) outTotal += idx.outStart[v + 1] - idx.outStart[v];
+    check(outTotal === idx.m, "CSR out lists cover every edge");
+    const stats = SG.depthStats(g);
+    check(stats.reduce((a, r) => a + r.total, 0) === g.nodes.length, "depth stats count every node");
+    check(stats.every((r) => r.merged <= r.total), "merged never exceeds total per depth");
+    check(stats[0].total === 1, "one position at depth 0");
+    const visBest = SG.visibleSet(g, idx, { mode: "best", cap: 800 });
+    check(visBest[0] === 1 && g.nodes.every((n, i) => !n.best || visBest[i]), "best-line mode shows the root and every best node");
+    const visAll = SG.visibleSet(g, idx, { mode: "all" });
+    check(visAll.every((x) => x === 1), "all mode shows everything");
+    const e0 = idx.outList[idx.outStart[0]];
+    const visUnder = SG.visibleSet(g, idx, { mode: "under", firstEdge: e0 });
+    check(visUnder[idx.eto[e0]] === 1 && visUnder[0] === 1, "under-one-choice mode includes that choice's target and the root");
+    const visRange = SG.visibleSet(g, idx, { mode: "all", minDepth: 1, maxDepth: 2 });
+    check(visRange.every((x, i) => !x || (g.nodes[i].depth >= 1 && g.nodes[i].depth <= 2)), "depth range filters");
+    const lay = SG.layout(g, idx, visAll);
+    check(lay.nodes.length === g.nodes.length && lay.edges.length === g.edges.length, "layout lists every visible node and edge");
+    check(g.nodes.every((n, i) => lay.x[i] === n.depth - lay.minDepth), "x column is the depth");
+    check(Array.from(lay.y).every(Number.isFinite), "every y is finite");
+    const seen = new Set();
+    let clash = false;
+    for (let v = 0; v < idx.n; v++) {
+      const key = lay.x[v] + "/" + lay.y[v].toFixed(4);
+      if (seen.has(key)) clash = true;
+      seen.add(key);
+    }
+    check(!clash, "no two nodes share a slot");
+    const deep = g.nodes.findIndex((n) => n.depth >= 2 && n.inEdges > 1);
+    if (deep >= 0) {
+      const marks = SG.routeMarks(g, idx, deep);
+      check(marks.nodes[0] === 1 && marks.nodes[deep] === 1, "route marks include the root and the node");
+      let ok2 = true;
+      for (let e = 0; e < idx.m; e++) if (marks.edges[e] === 1 && !marks.nodes[idx.eto[e]]) ok2 = false;
+      check(ok2, "marked route edges end at marked nodes");
+    }
+    // A tiny hand-made diamond: root -> a, b -> c merges.
+    const mk = (kind, depth, inEdges, best) => ({ kind, depth, inEdges, best: !!best, value: 0 });
+    const d = {
+      nodes: [mk("root", 0, 0, 1), mk("decision", 1, 1, 1), mk("decision", 1, 1), mk("leaf", 2, 2, 1)],
+      edges: [{ from: 0, to: 1, best: true }, { from: 0, to: 2 }, { from: 1, to: 3, best: true }, { from: 2, to: 3 }],
+    };
+    const di = SG.buildIndex(d);
+    const db = SG.layout(d, di, SG.visibleSet(d, di, { mode: "best" }));
+    check(db.nodes.length === 3 && db.edges.length === 2, "diamond: best + merges shows the best line only (3 nodes, 2 edges)");
+    const dl = SG.layout(d, di, SG.visibleSet(d, di, { mode: "all" }));
+    check(dl.nodes.length === 4 && dl.edges.length === 4, "diamond: all shows every node and edge");
+    check(dl.y[1] < dl.y[2], "diamond: best-line node is placed first in its column");
+    const dm = SG.routeMarks(d, di, 3);
+    check(dm.nodes[0] && dm.nodes[1] && dm.nodes[2] && dm.edges[1] === 1 && dm.edges[3] === 1, "diamond: every route to the merge is marked");
   }
 
   section("load_state + text round trip");

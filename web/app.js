@@ -144,6 +144,9 @@
     analyze() {
       return JSON.parse(ok(wasm.analyze()));
     },
+    searchGraph(maxNodes) {
+      return JSON.parse(ok(wasm.search_graph(maxNodes >>> 0)));
+    },
     stateId() {
       return wasm.state_id() >>> 0;
     },
@@ -818,6 +821,7 @@
     const tbody = $("analysis-table").querySelector("tbody");
     tbody.innerHTML = "";
     if (!result) {
+      closeSearchGraph(); // the graph describes a position that is no longer current
       panel.hidden = true;
       $("analysis-progress").hidden = true;
       return;
@@ -861,6 +865,658 @@
     });
   }
 
+  // ---- search graph ------------------------------------------------------------
+  // Every position the turn search valued, as a layered DAG (columns = steps from the decision).
+  // Pure helpers (index, visible set, layout, route marks) live in graph.js; this is the view.
+
+  const SG = window.SearchGraph;
+  const SG_CAP = 5000; // positions requested from the engine
+  const SG_BEST_CAP = 800; // positions drawn in "Best line + merges"
+  const SG_COLW = 100, SG_ROWH = 14; // world units per column / per row
+  const SG_PADX = 34, SG_PADY = 26;
+  let sg = null; // the open graph view, or null
+  let sgToken = 0; // bumped on close so an in-flight build is dropped
+  const SG_KIND = { root: "Decision (start)", decision: "Decision", chance: "Draw", leaf: "Turn end" };
+
+  function closeSearchGraph() {
+    sgToken++;
+    sg = null;
+    const panel = $("sg-panel");
+    if (panel) panel.hidden = true;
+  }
+
+  async function openSearchGraph() {
+    if (crashed) return;
+    if (lastView && lastView.pending && lastView.pending.paused) {
+      doAction(() => api.resume(), "Start turn");
+      if (crashed || !lastView.pending || lastView.pending.paused || lastView.gameOver) return;
+    }
+    const token = ++sgToken;
+    sg = null;
+    $("sg-panel").hidden = false;
+    $("sg-body").hidden = true;
+    $("sg-summary").textContent = "Building…";
+    // Let the browser paint "Building…" before the synchronous search blocks the thread.
+    await new Promise((resolve) => {
+      let done = false;
+      const go = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      requestAnimationFrame(() => setTimeout(go, 0));
+      setTimeout(go, 150);
+    });
+    if (token !== sgToken) return;
+    let g;
+    try {
+      g = api.searchGraph(SG_CAP);
+    } catch (e) {
+      if (reportCrash(e, "Search graph")) return;
+      $("sg-summary").textContent = "Search graph failed: " + String(e.message || e);
+      return;
+    }
+    showSearchGraph(g);
+  }
+
+  function readGraphColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (name, d) => cs.getPropertyValue(name).trim() || d;
+    return {
+      accent: v("--accent", "#8a5a2b"),
+      accent2: v("--accent-2", "#2b6b4a"),
+      muted: v("--sg-muted", "#b3ae9c"),
+      text: v("--text", "#23221d"),
+      dim: v("--text-dim", "#6b6a60"),
+      panel: v("--panel", "#ffffff"),
+    };
+  }
+
+  function showSearchGraph(g) {
+    const idx = SG.buildIndex(g);
+    const stats = SG.depthStats(g);
+    const sm = SG.summary(g);
+    const fmt = (n) => n.toLocaleString("en-US");
+    $("sg-summary").textContent =
+      `${fmt(sm.positions)} positions · ${fmt(sm.routes)} routes · ${fmt(sm.merged)} positions reached by more than one route ` +
+      `(${Math.round(sm.mergedPct)}%) · search valued ${fmt(g.searchedNodes)} nodes, ${Math.round(sm.ttPct)}% answered from the ` +
+      `transposition table` + (g.truncated ? ` (graph capped at ${fmt(SG_CAP)} positions)` : "");
+    const canvas = $("sg-canvas");
+    const ebest = new Uint8Array(idx.m);
+    for (let i = 0; i < idx.m; i++) ebest[i] = g.edges[i].best ? 1 : 0;
+    const maxDepth = stats.length - 1;
+    sg = {
+      g, idx, stats, ebest, maxDepth,
+      mode: "best", first: idx.outStart[1] > idx.outStart[0] ? idx.outList[idx.outStart[0]] : -1,
+      dmin: 0, dmax: maxDepth,
+      pin: -1, hover: -1, marks: null, lay: null, vis: null,
+      view: { k: 1, tx: 0, ty: 0 }, fx: 1, fy: 1, userMoved: false, drag: null,
+      w: 0, h: 0, dpr: 1, canvas, ctx: canvas.getContext("2d"), colors: readGraphColors(), raf: 0,
+      ecls: new Uint8Array(idx.m),
+    };
+    // First-choice select: the root's outgoing routes.
+    const sel = $("sg-first");
+    sel.textContent = "";
+    for (let k = idx.outStart[0]; k < idx.outStart[1]; k++) {
+      const e = idx.outList[k];
+      const o = document.createElement("option");
+      o.value = String(e);
+      o.textContent = `${g.edges[e].label} (${g.nodes[idx.eto[e]].value.toFixed(2)})`;
+      sel.appendChild(o);
+    }
+    $("sg-mode").value = "best";
+    sel.hidden = true;
+    $("sg-dmin").value = "0";
+    $("sg-dmin").max = $("sg-dmax").max = String(maxDepth);
+    $("sg-dmax").value = String(maxDepth);
+    $("sg-side").hidden = true;
+    $("sg-tip").hidden = true;
+    $("sg-body").hidden = false;
+    renderSgChart();
+    sizeGraphCanvas();
+    recomputeGraph(true, -1);
+  }
+
+  // ---- per-step chart (SVG) ----
+  function niceMax(v) {
+    const p = Math.pow(10, Math.floor(Math.log10(Math.max(1, v))));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+    return 10 * p;
+  }
+
+  function renderSgChart() {
+    const host = $("sg-chart");
+    host.textContent = "";
+    if (!sg) return;
+    const NS = "http://www.w3.org/2000/svg";
+    const rows = sg.stats;
+    const W = Math.max(260, host.clientWidth || 640), H = 150;
+    const padL = 40, padR = 6, padT = 8, padB = 34;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const top = niceMax(Math.max(1, ...rows.map((r) => r.total)));
+    const ticks = [0, top / 2, top];
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Positions per step from the decision, split by whether several routes reach them");
+    const add = (tag, attrs, text) => {
+      const e = document.createElementNS(NS, tag);
+      for (const k in attrs) e.setAttribute(k, attrs[k]);
+      if (text !== undefined) e.textContent = text;
+      svg.appendChild(e);
+      return e;
+    };
+    const yOf = (v) => padT + plotH - (v / top) * plotH;
+    for (const t of ticks) {
+      add("line", { class: "sg-grid", x1: padL, x2: W - padR, y1: yOf(t), y2: yOf(t) });
+      add("text", { x: padL - 6, y: yOf(t) + 4, "text-anchor": "end" }, Math.round(t).toLocaleString("en-US"));
+    }
+    const slot = plotW / rows.length;
+    const bw = Math.max(2, slot - Math.min(4, slot * 0.25));
+    const every = Math.max(1, Math.ceil(20 / slot));
+    const tip = document.createElement("div");
+    tip.className = "sg-tip";
+    tip.hidden = true;
+    rows.forEach((r, i) => {
+      const x = padL + i * slot + (slot - bw) / 2;
+      const single = r.total - r.merged;
+      const base = padT + plotH;
+      const hS = (single / top) * plotH, hM = (r.merged / top) * plotH;
+      const gap = single > 0 && r.merged > 0 ? 2 : 0; // 2px between the stacked segments
+      if (single > 0) add("rect", { class: "sg-bar-single", x, y: base - hS + gap, width: bw, height: Math.max(1, hS - gap) });
+      if (r.merged > 0) add("rect", { class: "sg-bar-multi", x, y: base - hS - Math.max(1, hM), width: bw, height: Math.max(1, hM) });
+      if (i % every === 0) add("text", { x: x + bw / 2, y: H - padB + 14, "text-anchor": "middle" }, String(r.depth));
+      const hit = add("rect", { class: "sg-hit", x: padL + i * slot, y: padT, width: slot, height: plotH });
+      const show = (ev) => {
+        const pct = r.total ? Math.round((100 * r.merged) / r.total) : 0;
+        tip.textContent = "";
+        tip.appendChild(el("b", null, `Step ${r.depth}`));
+        tip.appendChild(document.createTextNode(`: ${r.total.toLocaleString("en-US")} positions, ${r.merged.toLocaleString("en-US")} reached by several routes (${pct}%)`));
+        tip.hidden = false;
+        const box = host.getBoundingClientRect();
+        let lx = ev.clientX - box.left + 12;
+        if (lx + tip.offsetWidth > box.width) lx = Math.max(0, ev.clientX - box.left - tip.offsetWidth - 12);
+        tip.style.left = lx + "px";
+        tip.style.top = Math.max(0, ev.clientY - box.top - tip.offsetHeight - 10) + "px";
+      };
+      hit.addEventListener("mouseenter", show);
+      hit.addEventListener("mousemove", show);
+      hit.addEventListener("mouseleave", () => (tip.hidden = true));
+    });
+    add("text", { x: padL + plotW / 2, y: H - 4, "text-anchor": "middle" }, "steps from the decision");
+    host.appendChild(svg);
+    host.appendChild(tip);
+  }
+
+  // ---- layout, view transform ----
+  function sizeGraphCanvas() {
+    if (!sg) return false;
+    const wrap = $("sg-canvas-wrap");
+    const w = Math.max(100, wrap.clientWidth), h = Math.max(100, wrap.clientHeight);
+    const dpr = window.devicePixelRatio || 1;
+    if (w === sg.w && h === sg.h && dpr === sg.dpr) return false;
+    sg.w = w;
+    sg.h = h;
+    sg.dpr = dpr;
+    sg.canvas.width = Math.round(w * dpr);
+    sg.canvas.height = Math.round(h * dpr);
+    return true;
+  }
+
+  function computeFit() {
+    const s = sg, L = s.lay;
+    const ww = Math.max(1, L.cols - 1) * SG_COLW, wh = Math.max(1, L.rows) * SG_ROWH;
+    s.fx = Math.max(0.05, (s.w - 2 * SG_PADX) / ww);
+    s.fy = Math.max(0.05, (s.h - 2 * SG_PADY) / wh);
+  }
+
+  function fitView() {
+    const s = sg;
+    computeFit();
+    s.view.k = 1;
+    s.view.tx = SG_PADX;
+    s.view.ty = s.h / 2 + SG_PADY / 3;
+    s.userMoved = false;
+  }
+
+  const sgX = (s, v) => s.view.tx + s.lay.x[v] * SG_COLW * s.fx * s.view.k;
+  const sgY = (s, v) => s.view.ty + s.lay.y[v] * SG_ROWH * s.fy * s.view.k;
+
+  function recomputeGraph(fit, anchor) {
+    const s = sg;
+    const had = s.lay && anchor >= 0 && s.vis[anchor] ? [sgX(s, anchor), sgY(s, anchor)] : null;
+    s.vis = SG.visibleSet(s.g, s.idx, {
+      mode: s.mode, firstEdge: s.first, minDepth: s.dmin, maxDepth: s.dmax, cap: SG_BEST_CAP,
+      extra: s.marks ? s.marks.nodes : undefined,
+    });
+    s.lay = SG.layout(s.g, s.idx, s.vis);
+    computeFit();
+    if (fit) fitView();
+    else if (had && s.vis[anchor]) {
+      s.view.tx += had[0] - sgX(s, anchor);
+      s.view.ty += had[1] - sgY(s, anchor);
+    }
+    s.hover = -1;
+    $("sg-tip").hidden = true;
+    $("sg-shown").textContent =
+      `showing ${s.lay.nodes.length.toLocaleString("en-US")} of ${s.idx.n.toLocaleString("en-US")} positions, ` +
+      `${s.lay.edges.length.toLocaleString("en-US")} routes`;
+    requestGraphDraw();
+  }
+
+  function requestGraphDraw() {
+    if (!sg || sg.raf) return;
+    sg.raf = requestAnimationFrame(drawGraph);
+  }
+
+  function nodeRadius(s, v) {
+    const k0 = Math.min(4.5, Math.max(1.3, 1.5 * Math.sqrt(s.view.k)));
+    return Math.min(16, k0 * Math.sqrt(Math.max(1, s.g.nodes[v].inEdges)));
+  }
+
+  function nodePath(ctx, shape, X, Y, r) {
+    if (shape === 0) {
+      ctx.moveTo(X + r, Y);
+      ctx.arc(X, Y, r, 0, 6.2832);
+    } else if (shape === 1) {
+      const d = r * 1.25;
+      ctx.moveTo(X, Y - d);
+      ctx.lineTo(X + d, Y);
+      ctx.lineTo(X, Y + d);
+      ctx.lineTo(X - d, Y);
+      ctx.closePath();
+    } else {
+      const w = Math.max(1.5, r * 0.7), h = r * 1.5;
+      ctx.rect(X - w / 2, Y - h, w, 2 * h);
+    }
+  }
+
+  const shapeOf = (kind) => (kind === "chance" ? 1 : kind === "leaf" ? 2 : 0);
+
+  function drawGraph() {
+    const s = sg;
+    if (!s || !s.lay) return;
+    s.raf = 0;
+    const ctx = s.ctx, C = s.colors, L = s.lay, idx = s.idx, nodes = s.g.nodes;
+    const W = s.w, H = s.h;
+    ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const zx = s.fx * s.view.k, zy = s.fy * s.view.k, tx = s.view.tx, ty = s.view.ty;
+    if (!L.nodes.length) {
+      ctx.fillStyle = C.dim;
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("No positions in this selection.", W / 2, H / 2);
+      return;
+    }
+    // Column guides and step numbers.
+    const colPx = SG_COLW * zx;
+    const every = Math.max(1, Math.ceil(30 / colPx));
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = C.dim;
+    ctx.strokeStyle = C.dim;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.1;
+    ctx.beginPath();
+    for (let c = 0; c < L.cols; c += every) {
+      const X = Math.round(tx + c * colPx) + 0.5;
+      if (X < 0 || X > W) continue;
+      ctx.moveTo(X, 16);
+      ctx.lineTo(X, H);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (let c = 0; c < L.cols; c += every) {
+      const X = tx + c * colPx;
+      if (X >= 0 && X <= W) ctx.fillText(String(L.minDepth + c), X, 11);
+    }
+    // Classify edges: 0 normal, 1 best, 2 into the hovered node, 3 route to the pinned node,
+    // 4 best continuation from it; 255 = off screen.
+    const pinned = s.pin >= 0, em = s.marks ? s.marks.edges : null, hv = s.hover;
+    const ecls = s.ecls, ef = idx.efrom, et = idx.eto, ve = L.edges;
+    for (let i = 0; i < ve.length; i++) {
+      const e = ve[i];
+      const X1 = tx + L.x[ef[e]] * colPx, X2 = tx + L.x[et[e]] * colPx;
+      if ((X1 < 0 && X2 < 0) || (X1 > W && X2 > W)) { ecls[e] = 255; continue; }
+      const Y1 = ty + L.y[ef[e]] * SG_ROWH * zy, Y2 = ty + L.y[et[e]] * SG_ROWH * zy;
+      if ((Y1 < 0 && Y2 < 0) || (Y1 > H && Y2 > H)) { ecls[e] = 255; continue; }
+      ecls[e] = em && em[e] ? (em[e] === 1 ? 3 : 4) : et[e] === hv ? 2 : s.ebest[e] ? 1 : 0;
+    }
+    let nBest = 0;
+    for (let i = 0; i < ve.length; i++) if (ecls[ve[i]] === 1) nBest++;
+    const dense = nBest > 150; // thinner best-line edges when hundreds are drawn
+    const styles = [
+      [C.dim, 0.75, pinned ? 0.05 : 0.17],
+      [C.accent, dense ? 1 : 1.8, pinned ? 0.25 : dense ? 0.5 : 0.85],
+      [C.text, 1.6, 0.9],
+      [C.accent, 2, 0.95],
+      [C.accent2, 2.2, 0.95],
+    ];
+    for (let cls = 0; cls < 5; cls++) {
+      const st = styles[cls];
+      ctx.strokeStyle = st[0];
+      ctx.lineWidth = st[1];
+      ctx.globalAlpha = st[2];
+      ctx.beginPath();
+      for (let i = 0; i < ve.length; i++) {
+        const e = ve[i];
+        if (ecls[e] !== cls) continue;
+        const X1 = tx + L.x[ef[e]] * colPx, X2 = tx + L.x[et[e]] * colPx;
+        const Y1 = ty + L.y[ef[e]] * SG_ROWH * zy, Y2 = ty + L.y[et[e]] * SG_ROWH * zy;
+        const mx = (X1 + X2) / 2;
+        ctx.moveTo(X1, Y1);
+        ctx.bezierCurveTo(mx, Y1, mx, Y2, X2, Y2);
+      }
+      ctx.stroke();
+    }
+    // Nodes: neutral then accent (merged), each by shape; off-route nodes dimmed while pinned.
+    const nm = s.marks ? s.marks.nodes : null, vn = L.nodes;
+    for (let dim = pinned ? 1 : 0; dim >= 0; dim--) {
+      ctx.globalAlpha = dim ? 0.3 : 1;
+      for (let merged = 0; merged < 2; merged++) {
+        ctx.fillStyle = merged ? C.accent : C.muted;
+        for (let shape = 0; shape < 3; shape++) {
+          ctx.beginPath();
+          for (let i = 0; i < vn.length; i++) {
+            const v = vn[i], nd = nodes[v];
+            if ((nd.inEdges > 1 ? 1 : 0) !== merged || shapeOf(nd.kind) !== shape) continue;
+            if ((pinned && !(nm && nm[v]) ? 1 : 0) !== dim) continue;
+            const X = tx + L.x[v] * colPx, Y = ty + L.y[v] * SG_ROWH * zy;
+            const r = nodeRadius(s, v);
+            if (X < -r || X > W + r || Y < -r || Y > H + r) continue;
+            nodePath(ctx, shape, X, Y, r);
+          }
+          ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    // Rings on the pinned and hovered nodes.
+    ctx.strokeStyle = C.text;
+    for (const v of [s.pin, s.hover]) {
+      if (v < 0 || !s.vis[v]) continue;
+      ctx.lineWidth = v === s.pin ? 2.5 : 1.5;
+      ctx.beginPath();
+      nodePath(ctx, shapeOf(nodes[v].kind), sgX(s, v), sgY(s, v), nodeRadius(s, v) + 2);
+      ctx.stroke();
+    }
+  }
+
+  // ---- interaction ----
+  function hitNode(s, mx, my) {
+    const L = s.lay, nodes = s.g.nodes;
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < L.nodes.length; i++) {
+      const v = L.nodes[i];
+      const dx = sgX(s, v) - mx;
+      if (dx > 20 || dx < -20) continue;
+      const dy = sgY(s, v) - my;
+      const r = Math.max(4, nodeRadius(s, v) * (nodes[v].kind === "chance" ? 1.25 : 1)) + 2;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= r * r && d2 < bd) {
+        bd = d2;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  const pairsItems = (pairs) => pairs.map(([name, count]) => ({ name, count }));
+
+  function fillTip(tip, v) {
+    const s = sg, nd = s.g.nodes[v], idx = s.idx;
+    tip.textContent = "";
+    const head = el("span", "row");
+    head.appendChild(el("b", null, SG_KIND[nd.kind] || nd.kind));
+    head.appendChild(document.createTextNode(` · step ${nd.depth} · value ${nd.value.toFixed(2)}`));
+    if (!nd.exact) head.appendChild(el("span", "approx", " approx"));
+    tip.appendChild(head);
+    const nIn = idx.inStart[v + 1] - idx.inStart[v];
+    tip.appendChild(el("span", "row", `${nd.inEdges} route${nd.inEdges === 1 ? "" : "s"} in` + (nd.inEdges > 1 ? " (several orders reach this position)" : "")));
+    for (const [title, key] of [["Hand", "hand"], ["In play", "inPlay"], ["Gained", "gained"]]) {
+      if (!nd[key].length) continue;
+      const row = el("span", "row");
+      row.appendChild(el("span", "dim", title + ": "));
+      row.appendChild(cardItems(pairsItems(nd[key])));
+      tip.appendChild(row);
+    }
+    tip.appendChild(el("span", "row", `$${nd.coins} · ${nd.actions} action${nd.actions === 1 ? "" : "s"} · ${nd.buys} buy${nd.buys === 1 ? "" : "s"}`));
+    if (nIn) {
+      const shown = Math.min(6, nIn);
+      tip.appendChild(el("span", "row dim", "Routes in:"));
+      for (let k = 0; k < shown; k++) {
+        const row = el("span", "row");
+        row.appendChild(decorate(s.g.edges[idx.inList[idx.inStart[v] + k]].label));
+        tip.appendChild(row);
+      }
+      if (nIn > shown) tip.appendChild(el("span", "row dim", `… and ${nIn - shown} more`));
+    }
+  }
+
+  function placeTip(mx, my) {
+    const tip = $("sg-tip");
+    let lx = mx + 14, ly = my + 14;
+    if (lx + tip.offsetWidth > sg.w) lx = Math.max(0, mx - tip.offsetWidth - 14);
+    if (ly + tip.offsetHeight > sg.h) ly = Math.max(0, sg.h - tip.offsetHeight - 4);
+    tip.style.left = lx + "px";
+    tip.style.top = ly + "px";
+  }
+
+  function setHover(v, mx, my) {
+    const tip = $("sg-tip");
+    if (v !== sg.hover) {
+      sg.hover = v;
+      if (v >= 0) {
+        fillTip(tip, v);
+        tip.hidden = false;
+      } else tip.hidden = true;
+      requestGraphDraw();
+    }
+    if (v >= 0) placeTip(mx, my);
+  }
+
+  // Pin a node (or -1 to clear): its routes in and best continuation are forced visible and
+  // highlighted; the node stays where it is on screen.
+  function setPin(v) {
+    const s = sg;
+    const anchor = v >= 0 ? v : s.pin;
+    s.pin = v;
+    s.marks = v >= 0 ? SG.routeMarks(s.g, s.idx, v) : null;
+    recomputeGraph(false, anchor);
+    renderSgSide();
+  }
+
+  function renderSgSide() {
+    const s = sg, side = $("sg-side");
+    side.textContent = "";
+    if (s.pin < 0) {
+      side.hidden = true;
+      return;
+    }
+    side.hidden = false;
+    const v = s.pin, nd = s.g.nodes[v], idx = s.idx, edges = s.g.edges;
+    const head = el("div");
+    const clear = el("button", "small-btn", "Clear");
+    clear.style.float = "right";
+    clear.addEventListener("click", () => setPin(-1));
+    head.appendChild(clear);
+    head.appendChild(el("b", null, `${SG_KIND[nd.kind]} · step ${nd.depth} · value ${nd.value.toFixed(2)}`));
+    if (!nd.exact) head.appendChild(el("span", "approx", " approx"));
+    side.appendChild(head);
+    const list = (title, items) => {
+      side.appendChild(el("h3", null, title));
+      const ul = el("ul");
+      items.forEach((it) => ul.appendChild(it));
+      side.appendChild(ul);
+    };
+    const lab = (e, extra) => {
+      const li = el("li", edges[e].best ? "best" : null);
+      li.appendChild(decorate(edges[e].label));
+      if (edges[e].prob !== null) li.appendChild(el("span", "v", formatPct(edges[e].prob)));
+      if (extra) li.appendChild(el("span", "v", extra));
+      return li;
+    };
+    const ins = [];
+    const nIn = idx.inStart[v + 1] - idx.inStart[v];
+    for (let k = idx.inStart[v]; k < idx.inStart[v + 1] && ins.length < 25; k++) ins.push(lab(idx.inList[k], ""));
+    if (nIn > ins.length) ins.push(el("li", "sg-dim", `… and ${nIn - ins.length} more`));
+    if (nIn) list(`Routes in (${nIn})`, ins);
+    const outs = [];
+    const nOut = idx.outStart[v + 1] - idx.outStart[v];
+    for (let k = idx.outStart[v]; k < idx.outStart[v + 1] && outs.length < 30; k++) {
+      const e = idx.outList[k];
+      outs.push(lab(e, "→ " + s.g.nodes[idx.eto[e]].value.toFixed(2)));
+    }
+    if (nOut > outs.length) outs.push(el("li", "sg-dim", `… and ${nOut - outs.length} more`));
+    if (nOut) list(nd.kind === "chance" ? `Draws (${nOut})` : `Choices (${nOut})`, outs);
+    else side.appendChild(el("h3", null, nd.expanded ? "End of the turn." : "Not expanded (graph cap)."));
+  }
+
+  function zoomAbout(f, mx, my) {
+    const v = sg.view;
+    const k = Math.min(80, Math.max(0.5, v.k * f));
+    f = k / v.k;
+    v.tx = mx - (mx - v.tx) * f;
+    v.ty = my - (my - v.ty) * f;
+    v.k = k;
+    sg.userMoved = true;
+    requestGraphDraw();
+  }
+
+  function wireSearchGraph() {
+    $("btn-search-graph").addEventListener("click", () => openSearchGraph());
+    $("btn-close-sg").addEventListener("click", closeSearchGraph);
+    const relayout = () => {
+      if (!sg) return;
+      if (sg.pin >= 0) {
+        sg.pin = -1;
+        sg.marks = null;
+        renderSgSide();
+      }
+      recomputeGraph(true, -1);
+    };
+    $("sg-mode").addEventListener("change", () => {
+      if (!sg) return;
+      sg.mode = $("sg-mode").value;
+      $("sg-first").hidden = sg.mode !== "under";
+      relayout();
+    });
+    $("sg-first").addEventListener("change", () => {
+      if (!sg) return;
+      sg.first = parseInt($("sg-first").value, 10);
+      relayout();
+    });
+    const depthChanged = () => {
+      if (!sg) return;
+      let a = parseInt($("sg-dmin").value, 10), b = parseInt($("sg-dmax").value, 10);
+      if (!Number.isFinite(a)) a = 0;
+      if (!Number.isFinite(b)) b = sg.maxDepth;
+      a = Math.min(sg.maxDepth, Math.max(0, a));
+      b = Math.min(sg.maxDepth, Math.max(0, b));
+      if (a > b) [a, b] = [b, a];
+      $("sg-dmin").value = String(a);
+      $("sg-dmax").value = String(b);
+      sg.dmin = a;
+      sg.dmax = b;
+      relayout();
+    };
+    $("sg-dmin").addEventListener("change", depthChanged);
+    $("sg-dmax").addEventListener("change", depthChanged);
+    $("sg-reset").addEventListener("click", () => {
+      if (!sg) return;
+      fitView();
+      requestGraphDraw();
+    });
+    $("sg-zoom-in").addEventListener("click", () => sg && zoomAbout(1.5, sg.w / 2, sg.h / 2));
+    $("sg-zoom-out").addEventListener("click", () => sg && zoomAbout(1 / 1.5, sg.w / 2, sg.h / 2));
+
+    const canvas = $("sg-canvas");
+    const pos = (ev) => {
+      const r = canvas.getBoundingClientRect();
+      return [ev.clientX - r.left, ev.clientY - r.top];
+    };
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (!sg) return;
+      const [x, y] = pos(ev);
+      sg.drag = { x, y, tx: sg.view.tx, ty: sg.view.ty, moved: false };
+      canvas.setPointerCapture(ev.pointerId);
+    });
+    canvas.addEventListener("pointermove", (ev) => {
+      if (!sg) return;
+      const [x, y] = pos(ev);
+      const d = sg.drag;
+      if (d) {
+        if (Math.abs(x - d.x) + Math.abs(y - d.y) > 4) {
+          d.moved = true;
+          canvas.classList.add("dragging");
+        }
+        if (d.moved) {
+          sg.view.tx = d.tx + x - d.x;
+          sg.view.ty = d.ty + y - d.y;
+          sg.userMoved = true;
+          setHover(-1, 0, 0);
+          requestGraphDraw();
+        }
+        return;
+      }
+      setHover(hitNode(sg, x, y), x, y);
+    });
+    canvas.addEventListener("pointerup", (ev) => {
+      if (!sg || !sg.drag) return;
+      const d = sg.drag;
+      sg.drag = null;
+      canvas.classList.remove("dragging");
+      if (!d.moved) {
+        const [x, y] = pos(ev);
+        const v = hitNode(sg, x, y);
+        setPin(v === sg.pin ? -1 : v);
+      }
+    });
+    canvas.addEventListener("pointercancel", () => {
+      if (sg) sg.drag = null;
+      canvas.classList.remove("dragging");
+    });
+    canvas.addEventListener("pointerleave", () => {
+      if (sg && !sg.drag) setHover(-1, 0, 0);
+    });
+    canvas.addEventListener(
+      "wheel",
+      (ev) => {
+        if (!sg) return;
+        ev.preventDefault();
+        const [x, y] = pos(ev);
+        zoomAbout(Math.exp(-Math.max(-300, Math.min(300, ev.deltaY)) * 0.0016), x, y);
+      },
+      { passive: false }
+    );
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && sg && sg.pin >= 0) setPin(-1);
+    });
+    // The canvas follows its wrapper; the view is refitted unless the user has panned or zoomed.
+    const resized = () => {
+      if (!sg) return;
+      renderSgChart();
+      if (sizeGraphCanvas()) {
+        if (!sg.userMoved) fitView();
+        requestGraphDraw();
+      }
+    };
+    window.addEventListener("resize", resized);
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(resized).observe($("sg-canvas-wrap"));
+    if (window.matchMedia) {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const onScheme = () => {
+        if (!sg) return;
+        sg.colors = readGraphColors();
+        requestGraphDraw();
+      };
+      if (mq.addEventListener) mq.addEventListener("change", onScheme);
+      else if (mq.addListener) mq.addListener(onScheme);
+    }
+  }
+
   function render() {
     if (crashed) return;
     try {
@@ -883,6 +1539,7 @@
     renderLog(view);
     // At a turn boundary ("Start turn") Analyze starts the turn and analyzes its first decision.
     $("btn-analyze").disabled = !view.pending || view.gameOver;
+    $("btn-search-graph").disabled = !view.pending || view.gameOver;
     if (!stopRunGame) $("btn-run-bots").textContent = view.gameOver ? "New Game" : "Run Game";
     $("btn-undo").disabled = !api.canUndo();
     $("btn-redo").disabled = !api.canRedo();
@@ -1410,6 +2067,7 @@
       cancelAnalysis();
       $("btn-analyze").disabled = false;
     });
+    wireSearchGraph();
     $("btn-undo").addEventListener("click", () => doAction(() => api.undo(), "Undo"));
     $("btn-redo").addEventListener("click", () => doAction(() => api.redo(), "Redo"));
 
@@ -1513,6 +2171,29 @@
       $("state-text").value = decodeURIComponent(escape(atob(location.hash.slice("#selftest-load=".length))));
       $("btn-load").click();
       renderAnalysis(api.analyze()); // same-thread, so headless screenshots see the result
+    }
+    // Test hook: index.html#selftest-graph=<base64 state text> loads that state, analyzes it and
+    // opens the search graph (a bare #selftest-graph opens it on the current position).
+    if (location.hash.startsWith("#selftest-graph")) {
+      if (location.hash.startsWith("#selftest-graph=")) {
+        $("state-text").value = decodeURIComponent(escape(atob(location.hash.slice("#selftest-graph=".length).split("&")[0])));
+        $("btn-load").click();
+      }
+      renderAnalysis(api.analyze());
+      // Optional "&mode=all" / "&pin=<min depth>" (pins the first merged node at least that deep).
+      const opts = new URLSearchParams(location.hash.split("&").slice(1).join("&"));
+      openSearchGraph().then(() => {
+        if (!sg) return;
+        if (opts.get("mode")) {
+          $("sg-mode").value = opts.get("mode");
+          $("sg-mode").dispatchEvent(new Event("change"));
+        }
+        if (opts.get("pin")) {
+          const d = parseInt(opts.get("pin"), 10);
+          const v = sg.g.nodes.findIndex((n, i) => i > 0 && n.depth >= d && n.inEdges > 2 && sg.vis[i]);
+          if (v >= 0) setPin(v);
+        }
+      });
     }
     // Test hook: open index.html#selftest-chart to simulate in the page and draw the chart.
     if (location.hash.startsWith("#selftest-chart")) {

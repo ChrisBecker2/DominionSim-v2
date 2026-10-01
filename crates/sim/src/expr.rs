@@ -277,6 +277,24 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                     "not" => Tok::Not,
                     _ => Tok::Ident(word),
                 });
+                // A function call's argument is a card name, taken verbatim up to the `)`, so
+                // names with spaces or apostrophes work: `count(Throne Room)`, `count(King's Court)`.
+                let is_function = matches!(word.to_ascii_lowercase().as_str(), "count" | "supply" | "count_type");
+                let mut j = i;
+                while j < b.len() && (b[j] as char).is_ascii_whitespace() {
+                    j += 1;
+                }
+                if is_function && j < b.len() && b[j] == b'(' {
+                    if let Some(close) = src[j + 1..].find(')') {
+                        let arg = src[j + 1..j + 1 + close].trim();
+                        if !arg.is_empty() {
+                            out.push(Tok::LParen);
+                            out.push(Tok::Ident(arg));
+                            out.push(Tok::RParen);
+                            i = j + 1 + close + 1;
+                        }
+                    }
+                }
             }
             _ => return Err(format!("unexpected character {c:?} in condition {src:?}")),
         }
@@ -474,5 +492,12 @@ mod tests {
         let view = PlayerView::new(&g, 0);
         assert_eq!(Expr::parse("count(ThroneRoom)").unwrap().eval(&view), 0);
         assert_eq!(Expr::parse("count(Throne_Room)").unwrap().eval(&view), 0);
+        // Card names as printed, with spaces and apostrophes.
+        assert_eq!(Expr::parse("count(Throne Room) < 2").unwrap().eval(&view), 1);
+        assert_eq!(Expr::parse("count( King's Court ) < 1 and supply(Worker's Village) >= 0").unwrap().eval(&view), 1);
+        assert_eq!(Expr::parse("count(Copper) >= 7").unwrap().eval(&view), 1);
+        // Keywords followed by a parenthesis are still grouping, not calls.
+        assert_eq!(Expr::parse("not (count(Copper) < 7)").unwrap().eval(&view), 1);
+        assert!(Expr::parse("count(Nonsense Card) < 2").is_err());
     }
 }

@@ -146,6 +146,29 @@ order and Throne Room, text round trips, kingdom plumbing. Talisman (1st edition
 simulator, so its "ignores P cards" case does not apply. `gain_source.rs` and the wasm crate's
 `log_tests` cover Part A; `web/test.mjs` and `web/test_consistency.mjs` cover the page.
 
+## 5b. Potion in cost comparisons: the rules, and where each lives
+
+A cost is (coins, Potion). The engine compares costs in one place (`Then` gain filtering in
+`effects.rs`: `cost_ok`), driven by the gain frame's `max`, `exact` and `potion` fields, so a new
+card only has to say which kind of comparison it makes:
+
+| Kind (official rule) | How to build it | Cards here (tested in `alchemy_cards.rs`) | Future cards |
+|---|---|---|---|
+| "Up to $X more than the trashed/reference card": the limit keeps the reference's Potion; a Potion-free card always fits under it, a Potion card only if the reference had one | `Then::GainUpTo` (copies the trashed card's Potion into the frame) | Remodel, Expand, Replace, Mine (Treasures; Potion itself is $4 with no Potion) | Remake, Rebuild, Develop (+/-1), Changeling-like copies |
+| "Up to $X" with a fixed limit: never a Potion card | `gain_frame(.., X, ..)` (Potion off) | Workshop, Ironworks, Artisan, University, Blockade, Smugglers (Anvil, War Chest and Pirate use the same frame, untested) | Armory, Haggler, Talisman, Feast (1E), Ironmonger-style |
+| "Exactly the same cost" includes the Potion | `exact: true` with the Potion copied (Upgrade's `GainUpTo { exact }`, Swindler) | Upgrade, Swindler | Saboteur (1E), Replace-like exact gains, Taxman/Stonemason-style "costing exactly" |
+| Looks only at coins ("+$1 per $1 it costs", "half its cost in VP") | `GameState::cost` (coins only) | Salvager, Bishop, Apprentice (+2 Cards for a Potion is its own extra), Forge (sums coins; its gain is Potion-free) | Butcher, Taxman-style coin counts |
+| Reductions/increases change coins only; a Potion stays or stays absent | `GameState::cost` reductions | Bridge, Quarry, Peddler | Highway, Bridge Troll, Canal, Ferry token, Inventor, Princess; Debt-cost cards |
+| "$X or more" includes Potion cards whose coins reach $X | not built yet: compare `cost(c) >= X` and ignore the Potion | none in these sets | Patrician, Treasure Hunter-style checks |
+| A range "$X to $Y" excludes Potion cards | not built yet: `X <= cost(c) <= Y && !potion_cost(c)` | none in these sets | Rogue, Graverobber, Knights-like ranges |
+
+Buying: one Potion produced per Potion played (`TurnState::potions`), one spent per Potion card
+bought; unspent Potions are lost at end of turn (tested).
+
+When adding a card that compares costs: pick its row, add a test with a Potion card on each
+side of the comparison (Transmute $0P and Golem $4P are the usual references), and extend the
+table. Debt (below) will add a third column to every row.
+
 ## 6. Not done
 
 - **Possession**: not implemented (by decision); it is not in the card table.

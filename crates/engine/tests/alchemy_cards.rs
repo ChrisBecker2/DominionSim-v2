@@ -372,6 +372,76 @@ fn smugglers_cannot_copy_a_potion_cost_card() {
 }
 
 #[test]
+fn mine_keeps_the_potion_of_the_trashed_treasure() {
+    // Philosopher's Stone ($3P) -> a Treasure up to $6P: Gold, the Stone itself, Potion, Silver.
+    let k = [id::MINE, id::PHILOSOPHERS_STONE, id::PLATINUM, id::COLONY];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::MINE, id::PHILOSOPHERS_STONE]);
+    play(&mut g, id::MINE);
+    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    for c in [id::GOLD, id::PHILOSOPHERS_STONE, id::POTION, id::SILVER] {
+        assert!(o.contains(&c), "{}", cards::name(c));
+    }
+    assert!(!o.contains(&id::PLATINUM), "$9");
+
+    // Potion ($4, no Potion in its cost) -> up to $7: Gold, not the Stone ($3P).
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::MINE, id::POTION]);
+    play(&mut g, id::MINE);
+    choose(&mut g, Choice::Card(id::POTION));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 7, potion: false, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    assert!(o.contains(&id::GOLD) && !o.contains(&id::PHILOSOPHERS_STONE));
+}
+
+#[test]
+fn replace_on_a_potion_card_may_gain_potion_cost_cards() {
+    // Golem ($4P) -> up to $6P: Golem (onto the deck: it's an Action) and Gold, not Province.
+    let mut g = new_state(&[id::REPLACE, id::GOLEM, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::REPLACE, id::GOLEM]);
+    play(&mut g, id::REPLACE);
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    assert!(o.contains(&id::GOLEM) && o.contains(&id::FAMILIAR) && o.contains(&id::GOLD));
+    assert!(!o.contains(&id::PROVINCE));
+    choose(&mut g, Choice::Card(id::FAMILIAR));
+    assert_eq!(g.players[0].deck_known.iter_top_down().next(), Some(id::FAMILIAR), "an Action goes onto the deck");
+}
+
+#[test]
+fn fixed_up_to_gains_never_take_potion_cost_cards() {
+    // Ironworks (up to $4), Artisan (up to $5, to hand) and Blockade (up to $4): no $0P Transmute
+    // or $2P Apothecary, though they cost fewer coins.
+    let k = [id::IRONWORKS, id::ARTISAN, id::BLOCKADE, id::TRANSMUTE, id::APOTHECARY, id::SMITHY];
+    for card in [id::IRONWORKS, id::ARTISAN, id::BLOCKADE] {
+        let mut g = new_state(&k, 2);
+        set_hand(&mut g, 0, &[card, id::COPPER]);
+        play(&mut g, card);
+        let d = pending_or_next(&mut g);
+        assert!(matches!(d.kind, DecisionKind::Gain { potion: false, .. }), "{}: {:?}", cards::name(card), d.kind);
+        let o = offered(&g);
+        assert!(o.contains(&id::SMITHY) && o.contains(&id::SILVER), "{}", cards::name(card));
+        assert!(!o.contains(&id::TRANSMUTE) && !o.contains(&id::APOTHECARY), "{}", cards::name(card));
+    }
+}
+
+#[test]
+fn salvager_gives_coins_for_the_coin_part_only() {
+    let mut g = new_state(&[id::SALVAGER, id::GOLEM], 2);
+    set_hand(&mut g, 0, &[id::SALVAGER, id::GOLEM]);
+    play(&mut g, id::SALVAGER);
+    pending_or_next(&mut g);
+    assert!(g.trash.has(id::GOLEM));
+    assert_eq!(g.turn.coins, 4, "Golem costs $4P: +$4, nothing for the Potion");
+    assert_eq!(g.turn.buys, 2);
+}
+
+#[test]
 fn swindler_gives_a_card_with_the_same_cost_including_the_potion() {
     // Victim's top card Golem ($4P): the replacement must cost exactly $4P (only Golem here).
     let mut g = new_state(&[id::SWINDLER, id::GOLEM, id::SMITHY], 2);

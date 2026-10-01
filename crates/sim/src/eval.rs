@@ -66,8 +66,10 @@ impl GainListEvaluator<'_> {
         }
         for c in 0..NUM_CARDS as CardId {
             let gone = before.get(c) as i32 - after.get(c) as i32;
-            if gone > 0 && self.strategy.wants_trash(&view, c) {
-                p += 0.3 * gone as f64;
+            // Trashing what the trash rules want is a plus; losing anything else (a lone
+            // Treasure Map trashing itself, a forced trash) a small minus.
+            if gone > 0 {
+                p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
         p

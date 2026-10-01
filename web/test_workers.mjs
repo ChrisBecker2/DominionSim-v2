@@ -49,7 +49,7 @@ check("Double Witch beats Big Money Ultimate", p1 / games > 0.7);
 // an "add" message); seat ids must line up everywhere.
 const put = (inst, str) => { const b = enc.encode(str); const p = inst.alloc(b.length); new Uint8Array(inst.memory.buffer, p, b.length).set(b); return [p, b.length]; };
 const result = (inst) => dec.decode(new Uint8Array(inst.memory.buffer, inst.result_ptr(), inst.result_len()));
-const evolved = readFileSync(new URL("../strategies/evolved/sentry_merchant_vs_double_witch.toml", import.meta.url), "utf8");
+const evolved = readFileSync(new URL("../strategies/sentry_merchant.toml", import.meta.url), "utf8").replace('name = "Sentry Merchant"', 'name = "Sentry Merchant (loaded)"');
 check("add_strategy accepts a file", main.add_strategy(...put(main, evolved)) === 1);
 const added = JSON.parse(result(main));
 main.list_bots(); const lastId = JSON.parse(result(main)).length - 1; // ids: 0 = search, then shipped bots, then loaded ones

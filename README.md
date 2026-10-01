@@ -16,7 +16,7 @@ chart, hall of fame, log), and save or assess the results.
 
 ![Strategy Lab](docs/lab-screenshot.png)
 
-Example find: [`strategies/evolved/sentry_merchant_vs_double_witch.toml`](strategies/evolved/sentry_merchant_vs_double_witch.toml)
+Example find: [`strategies/sentry_merchant.toml`](strategies/sentry_merchant.toml) (shipped as the "Sentry Merchant" bot)
 beats Double Witch ~95% of the time without Witch (found in under a minute on the fixed track).
 
 ```

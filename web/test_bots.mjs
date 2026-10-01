@@ -12,7 +12,7 @@ const check = (name, cond) => { console.log((cond ? "  ok   " : "  FAIL ") + nam
 
 const bots = JSON.parse(call(w.list_bots()));
 check("player 1 defaults to Double Witch", bots[JSON.parse(call(w.get_seats()))[0]] === "Double Witch");
-check("bots listed", bots[0].startsWith("Search") && bots.length === 16 && bots.includes("Torturer-BM") && !bots.includes("Human"));
+check("bots listed", bots[0].startsWith("Search") && bots.length === 17 && bots.includes("Torturer-BM") && bots.includes("Sentry Merchant") && !bots.includes("Human"));
 {
   const k0 = JSON.parse(call(w.seat_kingdom(2)));
   check("default seats' kingdom is Witch", k0.kingdom === "Witch" && k0.strategySeats === 2);

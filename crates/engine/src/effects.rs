@@ -487,9 +487,10 @@ impl GameState {
                     self.trash.add(id::TREASURE_MAP, 1);
                     sink.event(Event::Trash { player: p, card: id::TREASURE_MAP });
                 }
+                // "Trash this and a Treasure Map from your hand": the second one is not optional.
                 self.stack.push(Frame {
                     self_trashed,
-                    ..select(p, card, Zone::Hand, Trash, Filter::Card(id::TREASURE_MAP), 0, 1, Then::TreasureMapGold)
+                    ..select(p, card, Zone::Hand, Trash, Filter::Card(id::TREASURE_MAP), 1, 1, Then::TreasureMapGold)
                 });
             }
             // Treasury: vanilla-only on play (+1 Card +1 Action +$1); its end-of-Buy-phase "you

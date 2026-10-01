@@ -70,13 +70,27 @@ fn post_cleanup_pool(ps: &PlayerState) -> Counts {
     c
 }
 
-/// Exact expected treasure value of the next 5-card hand. By linearity of expectation, drawing
-/// `k` of `N` cards without replacement gives each card marginal probability `k/N`, so
+/// Expected money of the next hand: 5 cards, plus what Durations played this turn add at the
+/// start of that turn (Tactician +5 cards, Wharf +2, Caravan +1; Merchant Ship +$2, Fishing
+/// Village +$1, ...; `cards::duration_bonus`). Without this, a Duration's next-turn half would be
+/// invisible to a search that ends with this turn.
+pub fn expected_next_hand_money(ps: &PlayerState) -> f64 {
+    let (mut extra_cards, mut extra_coins) = (0u32, 0u32);
+    for e in &ps.pending_durations[..ps.pending_durations_len as usize] {
+        let (c, _, _, coins) = cards::duration_bonus(e.card);
+        extra_cards += c as u32 * e.times as u32;
+        extra_coins += coins as u32 * e.times as u32;
+    }
+    extra_coins as f64 + expected_hand_money(ps, 5 + extra_cards)
+}
+
+/// Exact expected treasure value of the next `hand` cards drawn. By linearity of expectation,
+/// drawing `k` of `N` cards without replacement gives each card marginal probability `k/N`, so
 /// `E[value] = k * V / N` exactly. Applied to the known top cards (probability 1), the unknown
 /// remainder, and — if the deck runs short — the reshuffled discard (including this turn's
 /// hand, in-play cards and gains).
-pub fn expected_next_hand_money(ps: &PlayerState) -> f64 {
-    const HAND: u32 = 5;
+pub fn expected_hand_money(ps: &PlayerState, hand: u32) -> f64 {
+    let hand_n = hand;
     let known_len = ps.deck_known.len as u32;
     let unknown_total = ps.deck_unknown.total();
     let deck_total = known_len + unknown_total;
@@ -89,18 +103,18 @@ pub fn expected_next_hand_money(ps: &PlayerState) -> f64 {
             .sum()
     };
 
-    if deck_total >= HAND {
-        if known_len >= HAND {
-            return known_value(HAND);
+    if deck_total >= hand_n {
+        if known_len >= hand_n {
+            return known_value(hand_n);
         }
-        let need = HAND - known_len;
+        let need = hand_n - known_len;
         let unk_val = treasure_value(&ps.deck_unknown);
         return known_value(known_len) + need as f64 * (unk_val / unknown_total as f64);
     }
 
     // The whole deck is drawn for certain, then a reshuffle supplies the rest.
     let deck_val = known_value(known_len) + treasure_value(&ps.deck_unknown);
-    let need = HAND - deck_total;
+    let need = hand_n - deck_total;
     let pool = post_cleanup_pool(ps);
     let pool_total = pool.total();
     if pool_total == 0 {

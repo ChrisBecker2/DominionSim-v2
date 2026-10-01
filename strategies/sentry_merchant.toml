@@ -9,8 +9,8 @@
 # so four Merchants + Silver + Militia reach $8+ for a Province each turn, while Militia slows
 # the Witch player down.
 
-name = "Sentry Merchant (evolved vs Double Witch)"
-description = "Up to 5 Sentries, then Province; one Militia, one Silver, otherwise Merchants."
+name = "Sentry Merchant"
+description = "Evolved counter to Double Witch: up to 5 Sentries, then Province; one Militia, one Silver, otherwise Merchants."
 never_gain = ["Witch"]
 
 [[gain]]

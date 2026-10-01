@@ -1252,10 +1252,9 @@ fn treasure_map_alone_just_trashes_itself() {
 fn treasure_map_trashes_two_and_gains_four_golds() {
     let mut g = new_state(&[id::TREASURE_MAP], 2);
     set_hand(&mut g, 0, &[id::TREASURE_MAP, id::TREASURE_MAP, id::ESTATE, id::DUCHY]);
+    // "Trash this and a Treasure Map from your hand": with one in hand the pick is forced
+    // (applied automatically, no decision).
     play(&mut g, id::TREASURE_MAP);
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Select { from: Zone::Hand, act: Act::Trash, filter: Filter::Card(id::TREASURE_MAP), min: 0, max: 1, ordered: false });
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY]));
     assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
     let top_down: Vec<CardId> = g.players[0].deck_known.iter_top_down().collect();
@@ -1268,7 +1267,6 @@ fn treasure_map_gains_only_as_many_golds_as_the_pile_has() {
     set_hand(&mut g, 0, &[id::TREASURE_MAP, id::TREASURE_MAP]);
     set_supply(&mut g, id::GOLD, 2);
     play(&mut g, id::TREASURE_MAP);
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
     assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
     assert_eq!(g.players[0].deck_known.len as u32, 2);
     assert_eq!(g.supply.get(id::GOLD), 0);
@@ -1280,7 +1278,6 @@ fn treasure_map_gains_nothing_when_the_gold_pile_is_empty() {
     set_hand(&mut g, 0, &[id::TREASURE_MAP, id::TREASURE_MAP]);
     set_supply(&mut g, id::GOLD, 0);
     play(&mut g, id::TREASURE_MAP);
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
     assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
     assert!(g.players[0].deck_known.is_empty());
 }
@@ -1290,7 +1287,6 @@ fn treasure_map_with_three_in_hand_trashes_only_two() {
     let mut g = new_state(&[id::TREASURE_MAP], 2);
     set_hand(&mut g, 0, &[id::TREASURE_MAP, id::TREASURE_MAP, id::TREASURE_MAP, id::ESTATE, id::DUCHY]);
     play(&mut g, id::TREASURE_MAP);
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY, id::TREASURE_MAP]));
     assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
     assert_eq!(g.players[0].deck_known.len as u32, 4);
@@ -1315,8 +1311,7 @@ fn treasure_map_through_throne_room_with_one_hand_copy_gains_four_golds() {
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TREASURE_MAP, id::TREASURE_MAP, id::ESTATE, id::DUCHY]);
     play(&mut g, id::THRONE_ROOM);
     choose(&mut g, Choice::Card(id::TREASURE_MAP));
-    // 1st resolution: "this" + the one hand copy (a real, optional choice) -> 4 Golds.
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
+    // 1st resolution: "this" + the one hand copy (forced, applied automatically) -> 4 Golds.
     // 2nd resolution: "this" already gone; no hand copy left either -> auto-finishes.
     assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
     let top_down: Vec<CardId> = g.players[0].deck_known.iter_top_down().collect();
@@ -1329,11 +1324,9 @@ fn treasure_map_through_throne_room_with_two_hand_copies_still_gains_only_four()
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TREASURE_MAP, id::TREASURE_MAP, id::TREASURE_MAP, id::ESTATE, id::DUCHY]);
     play(&mut g, id::THRONE_ROOM);
     choose(&mut g, Choice::Card(id::TREASURE_MAP));
-    // 1st resolution: "this" + one hand copy -> 4 Golds.
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
-    // 2nd resolution: "this" already gone, but the 2nd hand copy can still be trashed — it just
+    // 1st resolution: "this" + one hand copy -> 4 Golds (forced picks apply automatically).
+    // 2nd resolution: "this" already gone, but the 2nd hand copy must still be trashed — it just
     // doesn't grant more gold, since this resolution didn't also trash "this".
-    choose(&mut g, Choice::Card(id::TREASURE_MAP));
     assert_eq!(g.trash.get(id::TREASURE_MAP), 3, "this + both hand copies, across both resolutions");
     let top_down: Vec<CardId> = g.players[0].deck_known.iter_top_down().collect();
     assert_eq!(top_down, vec![id::GOLD, id::GOLD, id::GOLD, id::GOLD], "only the 1st resolution grants gold");

@@ -517,7 +517,26 @@ impl Strategy {
         }
         iter_cards(choices)
             .filter(|&c| cards::def(c).plays == 0 || multiplier_ok)
+            .filter(|&c| for_multiplier || self.default_worth_playing(view, c))
             .min_by_key(|&c| (self.play_rank_of(c), c))
+    }
+
+    /// Default (unstated) check for Actions that can cost more than they give: Tactician only
+    /// when the hand couldn't buy anything on the gain list anyway (it discards the hand for
+    /// next turn's +5 Cards), Treasure Map only with a second Map in hand (alone it just trashes
+    /// itself). Everything else is worth playing.
+    fn default_worth_playing(&self, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::TACTICIAN => {
+                let hand = view.hand();
+                let money: u32 = view.turn().coins as u32
+                    + hand.iter().filter(|&(c, _)| view.is_treasure(c)).map(|(c, n)| cards::def(c).coins as u32 * n as u32).sum::<u32>();
+                let potion = hand.has(id::POTION) || view.turn().potions > 0;
+                self.best_gain_rank(view, money.min(u8::MAX as u32) as u8, Filter::Any, false, potion).is_none()
+            }
+            id::TREASURE_MAP => view.hand().get(id::TREASURE_MAP) >= 2,
+            _ => true,
+        }
     }
 
     /// Which action to play (or what a Throne Room plays). With a real choice, the bot searches
@@ -538,7 +557,15 @@ impl Strategy {
                 }
             }
         }
-        if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
+        // Search when there's more than one card to choose from, or when the only one isn't
+        // choice-free: playing it can be worse than not (Tactician discards the hand, a lone
+        // Treasure Map trashes itself, Remodel must trash something).
+        let cards_offered = iter_cards(choices).count();
+        let lone_risky = cards_offered == 1
+            && choices.contains(&Choice::Pass)
+            && matches!(decision.kind, DecisionKind::PlayAction)
+            && iter_cards(choices).all(|c| !cards::is_choice_free(c));
+        if self.search_play && (cards_offered >= 2 || lone_risky) && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;

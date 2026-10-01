@@ -218,10 +218,11 @@ fn phase_str(p: Phase) -> &'static str {
 
 fn parse_phase(s: &str) -> Result<Phase, String> {
     match s.to_lowercase().as_str() {
+        "setup" => Ok(Phase::Setup),
         "action" => Ok(Phase::Action),
         "buy" => Ok(Phase::Buy),
         "gameover" | "game_over" | "game-over" => Ok(Phase::GameOver),
-        other => Err(format!("unknown phase '{other}' (expected action, buy, or gameover)")),
+        other => Err(format!("unknown phase '{other}' (expected setup, action, buy, or gameover)")),
     }
 }
 
@@ -717,6 +718,13 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).
     state.turn.played = state.players[state.turn.player as usize].in_play;
+    // "phase: setup" is a new game before the deal: the opening hands are drawn on advancing.
+    if state.turn.phase == Phase::Setup {
+        if (0..num_players).any(|p| !state.players[p].hand.is_empty()) {
+            return Err("phase: setup is before the deal, so every hand must be empty".into());
+        }
+        state.push_opening_deal();
+    }
     Ok(state)
 }
 

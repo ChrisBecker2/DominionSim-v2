@@ -246,3 +246,26 @@ fn throne_room_reports_each_resolution_and_play_times() {
     assert_eq!(g.players[0].hand.get(id::ESTATE), 1);
     assert_eq!(g.players[0].in_play.get(id::COPPER), 1);
 }
+
+#[test]
+fn a_new_game_before_the_deal_round_trips_as_text_and_deals_on_advance() {
+    use dominion_engine::text::{format_state, parse_state};
+    let g = GameState::new(&GameConfig::default());
+    let text = format_state(&g);
+    assert!(text.contains("phase: setup"), "{text}");
+    let mut loaded = parse_state(&text).unwrap();
+    assert!(loaded.players.iter().take(2).all(|p| p.hand.is_empty()));
+    assert!(matches!(loaded.advance(&mut NoEvents), Step::Decision(_)));
+    // (Treasures may already be in play: with no Actions, turn 1 starts in the Buy phase.)
+    assert!(loaded.players.iter().take(2).all(|p| p.hand.total() + p.in_play.total() == 5), "both opening hands dealt");
+    // Different random streams deal different openings (the point of waiting before the deal).
+    let mut openings = std::collections::HashSet::new();
+    for seed in 0..40u64 {
+        let mut s = g;
+        s.rng = dominion_engine::rng::Rng::new(seed);
+        s.advance(&mut NoEvents);
+        let p = &s.players[0];
+        openings.insert(p.hand.get(id::COPPER) + p.in_play.get(id::COPPER));
+    }
+    assert!(openings.contains(&5) && openings.contains(&4) && openings.contains(&3), "{openings:?}");
+}

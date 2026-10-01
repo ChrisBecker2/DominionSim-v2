@@ -170,3 +170,21 @@ fn assess_measures_any_file_and_reports_errors() {
     bad.opponents.clear();
     assert!(run(&bad, &Control::default(), &mut |_| {}).is_err());
 }
+
+#[test]
+fn the_opponents_cards_are_always_in_the_kingdom() {
+    // A fixed kingdom without Witch: Double Witch would play Big Money there, and a strategy
+    // that beats that loses to the real Double Witch. Witch is added (and named in the header).
+    let mut c = cfg();
+    c.forbidden = vec!["Witch".into()];
+    c.track = Track::Fixed { kingdom: vec!["Village".into(), "Smithy".into(), "Market".into()] };
+    let setup = Setup::new(&c).unwrap();
+    assert_eq!(setup.added_for_opponents, vec![cards::id::WITCH]);
+    let mut rng = dominion_engine::rng::Rng::new(1);
+    assert!(setup.scenarios(&mut rng, 1)[0].kingdom.contains(&cards::id::WITCH));
+    assert!(!setup.space.gainable.contains(&cards::id::WITCH), "still forbidden for the evolving side");
+    // Random track: Witch becomes a required card of every drawn kingdom.
+    c.track = Track::Random { required: vec![], kingdoms_per_generation: 4 };
+    let setup = Setup::new(&c).unwrap();
+    assert!(setup.scenarios(&mut rng, 1).iter().all(|s| s.kingdom.contains(&cards::id::WITCH)));
+}

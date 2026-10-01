@@ -280,7 +280,7 @@ struct App {
     /// Parallel analysis in progress: the split tree, results received so far, and the
     /// strategy index whose priorities score it (`u32::MAX` = general evaluator).
     plan: Option<(Plan, Vec<Option<TaskResult>>, u32)>,
-    /// State text at the start of turn 1 of the current game (opening hands dealt).
+    /// State text at the start of the current game (phase: setup, before the opening deal).
     start_text: String,
     /// Turn-by-turn record of the current game (reset by New game / Load state).
     record: GameRecord,
@@ -293,10 +293,8 @@ impl App {
     fn new() -> Self {
         let cfg = GameConfig::default();
         let mut state = GameState::new(&cfg);
-        let mut sink = LogSink::default();
-        state.deal_opening_hands(&mut sink);
         let start_text = dominion_engine::format_state(&state);
-        // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
+        // Wait before the deal ("Deal"): Simulate from here deals fresh opening hands per game.
         state.pause_at_turn_start = true;
         let strategies = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
@@ -319,9 +317,7 @@ impl App {
             last_played: None,
         };
         app.record = GameRecord::new(&app.state);
-        for (e, depth) in &sink.events {
-            app.push_log_event(e, *depth);
-        }
+        app.log.push("New game: shuffled, opening hands not dealt yet.".to_string());
         app
     }
 
@@ -496,19 +492,16 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         let cfg =
             GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 } };
         let mut state = GameState::new(&cfg);
-        let mut sink = LogSink::default();
-        state.deal_opening_hands(&mut sink);
+        // The game waits before the deal ("Deal"): the opening hands aren't drawn yet, so
+        // Simulate from here deals fresh ones in every game (not one fixed 5/2 or 4/3 split).
         app.start_text = dominion_engine::format_state(&state);
-        // Wait at the start of turn 1 ("Start turn"), like every other turn boundary.
         state.pause_at_turn_start = true;
         app.state = state;
         app.history.clear();
         app.record = GameRecord::new(&app.state);
         app.redo.clear();
         app.log.clear();
-        for (e, depth) in &sink.events {
-            app.push_log_event(e, *depth);
-        }
+        app.log.push("New game: shuffled, opening hands not dealt yet.".to_string());
         app.set_result(String::new());
         1
     })
@@ -1260,8 +1253,8 @@ pub extern "C" fn plan_finish() -> i32 {
     result_of(r)
 }
 
-/// State text at the start of turn 1 of the current game (action phase, opening hands dealt,
-/// nothing played). Loading it reproduces the game from its first decision.
+/// State text at the start of the current game: phase setup, before the opening deal (the
+/// text's seed reproduces the same deal). Loading it replays the game from the start.
 #[no_mangle]
 pub extern "C" fn get_start_text() -> i32 {
     let t = APP.with(|cell| cell.borrow().start_text.clone());
@@ -1985,9 +1978,17 @@ fn player_json(state: &GameState, p: usize) -> String {
 
 fn pending_json(state: &GameState) -> String {
     if state.pending_decision().is_none() && state.turn.phase != Phase::GameOver {
-        // A real turn boundary says "Start turn"; a loaded or mid-turn position says "Continue".
-        let label = if state.turn.announced { "Continue" } else { "Start turn" };
-        let what = if state.turn.announced { "Position loaded; the next step plays on from here." } else { "" };
+        // A new game says "Deal"; a real turn boundary "Start turn"; a loaded or mid-turn
+        // position "Continue".
+        let setup = state.turn.phase == Phase::Setup;
+        let label = if setup { "Deal" } else if state.turn.announced { "Continue" } else { "Start turn" };
+        let what = if setup {
+            "Opening hands not dealt yet; Simulate from here deals fresh ones in every game."
+        } else if state.turn.announced {
+            "Position loaded; the next step plays on from here."
+        } else {
+            ""
+        };
         return format!(
             "{{\"player\":{},\"source\":null,\"paused\":true,\"description\":{},\"choices\":[{{\"index\":-1,\"label\":\"{label}\"}}]}}",
             state.turn.player,

@@ -70,6 +70,9 @@ pub struct Setup {
     pub space: SearchSpace,
     kingdoms: Kingdoms,
     pub opponent_names: Vec<String>,
+    /// Kingdom cards the opponents' strategies use that the configured track lacked, added so
+    /// each opponent can follow its own plan (Double Witch needs Witch). Named in the header.
+    pub added_for_opponents: Vec<CardId>,
 }
 
 enum Kingdoms {
@@ -82,9 +85,30 @@ impl Setup {
         let forbidden = card_list(&cfg.forbidden, "forbidden cards")?;
         let sets = resolve_sets(&cfg.sets)?;
         let selected = || cards::kingdom_cards().filter(|&c| sets.contains(&cards::set_of(c)));
+        // Every kingdom card an opponent's rules use is always in the kingdom: an opponent missing
+        // its key card (Double Witch without Witch) plays a different, weaker strategy, and
+        // whatever beats that doesn't beat the real one. The evolving side still can't gain
+        // `forbidden` cards.
+        let mut opp_cards: Vec<CardId> = Vec::new();
+        for o in &cfg.opponents {
+            let s = Strategy::parse(&o.toml).map_err(|e| format!("opponent {}: {e}", o.name))?;
+            for c in s.kingdom_refs() {
+                if cards::is_kingdom(c) && !opp_cards.contains(&c) {
+                    opp_cards.push(c);
+                }
+            }
+        }
+        let mut added_for_opponents: Vec<CardId> = Vec::new();
         let (kingdoms, pool) = match &cfg.track {
             Track::Fixed { kingdom } => {
-                let mut k = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
+                let mut k: Vec<CardId> = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
+                for &c in &opp_cards {
+                    if !k.contains(&c) {
+                        k.push(c);
+                        added_for_opponents.push(c);
+                    }
+                }
+                k.sort_unstable();
                 if let Some(&c) = k.iter().find(|&&c| c < cards::FIRST_KINGDOM) {
                     return Err(format!("{} is not a kingdom card", cards::name(c)));
                 }
@@ -100,7 +124,13 @@ impl Setup {
                 (Kingdoms::Fixed(k.clone()), k)
             }
             Track::Random { required, kingdoms_per_generation } => {
-                let required = card_list(required, "required cards")?;
+                let mut required = card_list(required, "required cards")?;
+                for &c in &opp_cards {
+                    if !required.contains(&c) {
+                        required.push(c);
+                        added_for_opponents.push(c);
+                    }
+                }
                 if required.len() > 10 {
                     return Err("at most 10 required cards".into());
                 }
@@ -138,7 +168,7 @@ impl Setup {
         space.max_play_rules = cfg.max_play_rules;
         space.max_trash_rules = cfg.max_trash_rules;
         space.max_conds = cfg.max_conds;
-        Ok(Setup { arena, val_arena, space, kingdoms, opponent_names: cfg.opponents.iter().map(|o| o.name.clone()).collect() })
+        Ok(Setup { arena, val_arena, space, kingdoms, opponent_names: cfg.opponents.iter().map(|o| o.name.clone()).collect(), added_for_opponents })
     }
 
     /// Kingdoms for one round; random kingdoms are drawn from `rng`.
@@ -257,6 +287,12 @@ fn meta_for(cfg: &EvolveConfig, setup: &Setup, generation: usize, score: &Score,
         Track::Fixed { kingdom } if kingdom.is_empty() => "every kingdom card available".to_string(),
         Track::Fixed { kingdom } => format!("kingdom {}", kingdom.join(", ")),
         Track::Random { required, .. } => format!("random kingdoms containing {}", required.join(", ")),
+    };
+    let track = if setup.added_for_opponents.is_empty() {
+        track
+    } else {
+        let names: Vec<&str> = setup.added_for_opponents.iter().map(|&c| cards::name(c)).collect();
+        format!("{track}, plus {} (the opponents' cards)", names.join(", "))
     };
     TomlMeta {
         name: format!("Evolved vs {} (gen {generation})", setup.opponent_names.join(" + ")),

@@ -1094,11 +1094,17 @@ impl GameState {
             s.players[p].deck_unknown.set(id::COPPER, 7);
             s.players[p].deck_unknown.set(id::ESTATE, 3);
         }
-        // Push in reverse so player 0 draws first.
-        for p in (0..n).rev() {
-            s.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
-        }
+        s.push_opening_deal();
         s
+    }
+
+    /// The `Phase::Setup` stack: every player's opening 5-card draw (player 0 first). Advancing
+    /// deals them (randomly from each shuffled deck), then turn 1 starts.
+    pub fn push_opening_deal(&mut self) {
+        // Push in reverse so player 0 draws first.
+        for p in (0..self.num_players as usize).rev() {
+            self.stack.push(Frame { max: 5, ..Frame::new(FrameKind::Draw, p as u8, 0) });
+        }
     }
 
     /// What `c` costs right now: its printed cost less this turn's reductions, min 0. Bridge is a

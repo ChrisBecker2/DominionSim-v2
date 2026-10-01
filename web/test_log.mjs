@@ -180,5 +180,25 @@ deck: 5 Copper, 3 Estate, 2 Copper
   check("light and dark tokens exist for duration, treasure, reaction", ["--c-duration", "--c-treasure", "--c-reaction"].every((t) => css.includes(t + ":") && dark.includes(t + ":")));
 }
 
+// New game waits before the deal: Simulate from here deals fresh opening hands per game.
+{
+  const { w, view } = await instance();
+  const k = enc.encode("Village, Smithy");
+  const p = w.alloc(k.length);
+  new Uint8Array(w.memory.buffer, p, k.length).set(k);
+  w.new_game(2, p, k.length, 5n, 0);
+  let v = view();
+  const handSize = (pl) => pl.hand.reduce((n, c) => n + c.count, 0);
+  check("new game waits before the deal ('Deal')", v.pending && v.pending.paused && v.pending.choices[0].label === "Deal",
+    JSON.stringify(v.pending));
+  check("no opening hands yet", v.players.every((pl) => handSize(pl) === 0));
+  w.resume();
+  v = view();
+  // (Treasures may already be in play: with no Actions, turn 1 starts in the Buy phase.)
+  const dealt = (pl) => handSize(pl) + pl.inPlay.reduce((n, c) => n + c.count, 0);
+  check("Deal draws 5 cards each and starts turn 1", v.players.every((pl) => dealt(pl) === 5) && !(v.pending && v.pending.paused),
+    JSON.stringify(v.players.map(dealt)));
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

@@ -23,9 +23,14 @@
 //! `push_duration_pending`, called generically at the tail of `resolve_effects_inner` for every
 //! Duration card except Haven/Blockade/Tactician, which schedule themselves once their own
 //! argument — the set-aside/gained card, or whether the discard condition held — is known) and
-//! resolved by `GameState::resolve_duration_start` as a `FrameKind::DurationStart` frame, pushed
-//! for every pending entry at the very start of the owner's next turn
-//! (`GameState::push_turn_start_frames`, called from `engine::run_phase`'s `Phase::Action` arm).
+//! resolved by `GameState::resolve_duration_start` at the very start of the owner's next turn.
+//! `GameState::push_turn_start_frames` (called from `engine::run_phase`'s `Phase::Action` arm)
+//! moves every pending entry, plus Clerk's play and each Prince's card (Promo), into
+//! `TurnState::start_pending` and pushes one `FrameKind::StartOrder` frame over them. Each time it
+//! runs it takes the next effect (`run_start_order`): the player is asked which only when two or
+//! more different effects remain and one is order-sensitive (`cards::start_order_sensitive`:
+//! acts on the hand, adds to the hand, or plays a card), otherwise the first one goes. The chosen
+//! effect resolves fully (its frames sit above `StartOrder`) before the next is taken.
 //!
 //! The card stays in play (not discarded at cleanup) via a *separate* mechanism,
 //! `TurnState::duration_held`: a running count, incremented wherever a card is actually placed
@@ -72,6 +77,21 @@ fn mode_frame(p: u8, source: CardId, picks: u8) -> Frame {
 }
 
 const ALL: u8 = u8::MAX;
+
+/// The card choices of a `Select`: every eligible card when `ordered`, else the canonical
+/// (non-decreasing) picks from `lo` that leave `need` more available.
+#[inline(always)]
+fn select_choices(z: &Counts, ordered: bool, lo: CardId, need: u32, ok: impl Fn(CardId) -> bool, out: &mut ChoiceBuf) {
+    if ordered {
+        for (c, _) in z.iter() {
+            if ok(c) {
+                out.push(Choice::Card(c));
+            }
+        }
+    } else {
+        canonical_picks(z, lo, need, ok, out);
+    }
+}
 
 impl GameState {
     /// Resolve the on-play effects of `card` for `player` (card already in play). `depth` is the
@@ -513,6 +533,13 @@ impl GameState {
                     self.push_duration_pending(p, card, 1, 0);
                 }
             }
+            // ---- Promo. "You may set this aside": a YesNo over the Prince in play (declined
+            // automatically when it's no longer there: Throne Room's second play). Yes sets it
+            // aside and picks an Action from hand costing up to $4 (`Then::PrinceHold`). ----
+            id::PRINCE => self.stack.push(Frame {
+                zone: Zone::InPlay, act: Act::SetAside, subject: card, then: Then::PrinceSetAside,
+                ..Frame::new(K::YesNo, p, card)
+            }),
             // ---- Hidden information (step 4) ----
             id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
             id::SWINDLER => {
@@ -613,6 +640,14 @@ impl GameState {
         }
     }
 
+    /// An Action costing up to `n` now (Prince's pick: Bridge and Quarry count) with no Potion.
+    /// `Filter::matches` can only use the printed cost, so selections with this filter test it
+    /// here. The selection helpers are generic over the test so every other filter keeps its
+    /// plain `Filter::matches` loop.
+    fn action_cost_ok(&self, n: u8, c: CardId) -> bool {
+        cards::is(c, ACTION) && self.cost(c) <= n && !cards::potion_cost(c)
+    }
+
     fn zone(&self, p: u8, z: Zone) -> &Counts {
         match z {
             Zone::Supply => &self.supply,
@@ -649,12 +684,20 @@ impl GameState {
 
     /// (remaining min, remaining max, eligible cards at/above the canonical bound) for a Select.
     fn select_bounds(&self, f: &Frame) -> (u8, u8, u32) {
+        match f.filter {
+            Filter::ActionCostUpTo(n) => self.select_bounds_by(f, |c| self.action_cost_ok(n, c)),
+            filter => self.select_bounds_by(f, |c| filter.matches(c)),
+        }
+    }
+
+    #[inline(always)]
+    fn select_bounds_by(&self, f: &Frame, ok: impl Fn(CardId) -> bool) -> (u8, u8, u32) {
         let z = self.zone(f.player, f.zone);
         let lo = if f.ordered || f.count == 0 { 0 } else { f.last };
         let mut avail_all = 0u32;
         let mut avail_from = 0u32;
         for (c, n) in z.iter() {
-            if f.filter.matches(c) {
+            if ok(c) {
                 avail_all += n as u32;
                 if c >= lo {
                     avail_from += n as u32;
@@ -776,7 +819,10 @@ impl GameState {
                     // any reaction that resolves first (Diplomat) already ran, so the zone's
                     // current size is the right one to compute the mandatory count from.
                     let z = self.zone(p, f.zone);
-                    let avail: u32 = z.iter().filter(|&(c, _)| f.filter.matches(c)).map(|(_, n)| n as u32).sum();
+                    let avail: u32 = match f.filter {
+                        Filter::ActionCostUpTo(n) => z.iter().filter(|&(c, _)| self.action_cost_ok(n, c)).map(|(_, n)| n as u32).sum(),
+                        filter => z.iter().filter(|&(c, _)| filter.matches(c)).map(|(_, n)| n as u32).sum(),
+                    };
                     let excess = avail.saturating_sub(f.max as u32) as u8;
                     f.min = excess;
                     f.max = excess;
@@ -943,12 +989,7 @@ impl GameState {
                 self.deliver_left_passes(sink);
                 Run::Continue
             }
-            K::DurationStart => {
-                self.stack.pop();
-                let entry = crate::state::PendingDuration { card: f.source, times: f.count, arg: f.subject, used: false };
-                self.resolve_duration_start(p, entry, sink);
-                Run::Continue
-            }
+            K::StartOrder => self.run_start_order(sink),
             K::MultiplierFinalize => {
                 self.stack.pop();
                 // Throne Room / King's Court stays in play with the Duration it played if *any*
@@ -1034,15 +1075,10 @@ impl GameState {
                 // All-or-nothing: a first pick must leave enough cards (in canonical order) to
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
-                if f.ordered {
-                    for (c, _) in z.iter() {
-                        if f.filter.matches(c) {
-                            out.push(Choice::Card(c));
-                        }
-                    }
-                } else {
-                    let lo = if f.count == 0 { 0 } else { f.last };
-                    canonical_picks(z, lo, need, |c| f.filter.matches(c), out);
+                let lo = if f.count == 0 { 0 } else { f.last };
+                match f.filter {
+                    Filter::ActionCostUpTo(n) => select_choices(z, f.ordered, lo, need, |c| self.action_cost_ok(n, c), out),
+                    filter => select_choices(z, f.ordered, lo, need, |c| filter.matches(c), out),
                 }
                 if rem_min == 0 {
                     out.push(Choice::Pass);
@@ -1088,7 +1124,8 @@ impl GameState {
                     out.push(Choice::Position(255));
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::DurationStart | K::MultiplierFinalize | K::NativeVillageAdd | K::RevealUntil => {}
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::NativeVillageAdd | K::RevealUntil => {}
+            K::StartOrder => self.start_order_choices(out),
         }
     }
 
@@ -1173,6 +1210,8 @@ impl GameState {
                 self.stack.pop();
             }
             (K::Select, _) => self.finish_select(f, sink),
+            (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
+            (K::YesNo, Choice::Yes) if f.then == Then::PrinceSetAside => self.prince_set_aside(f, sink),
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
                 if f.act != Act::Reveal {
@@ -1233,6 +1272,24 @@ impl GameState {
                 }
             }
             (kind, ch) => unreachable!("choice {ch:?} not valid for frame {kind:?}"),
+        }
+    }
+
+    /// Prince, "set this aside": the Prince in play is set aside (empty for now), then an Action
+    /// from hand costing up to $4 is picked for it to hold.
+    #[cold]
+    #[inline(never)]
+    fn prince_set_aside<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
+        self.stack.pop();
+        let p = f.player;
+        let ps = &mut self.players[p as usize];
+        if ps.in_play.remove(f.subject) {
+            ps.princes_empty += 1;
+            sink.event(Event::SetAside { player: p, card: f.subject });
+            self.stack.push(Frame {
+                depth: f.depth,
+                ..select(p, f.source, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 1, 1, Then::PrinceHold)
+            });
         }
     }
 
@@ -1450,6 +1507,16 @@ impl GameState {
                     self.stack.push(Frame { subject: f.last, count: 1, ..Frame::new(K::PlayEffects, p, f.source) });
                 }
             }
+            Then::PrinceHold => {
+                // The picked card moves from `set_aside` to the Prince just set aside (empty).
+                if f.count > 0 {
+                    let ps = &mut self.players[p as usize];
+                    if ps.princes_empty > 0 && ps.set_aside.remove(f.last) {
+                        ps.princes_empty -= 1;
+                        ps.prince_cards.add(f.last, 1);
+                    }
+                }
+            }
             Then::TreasureMapGold => {
                 if f.count > 0 && f.self_trashed {
                     for _ in 0..4 {
@@ -1465,6 +1532,7 @@ impl GameState {
             | Then::MoveMatchingToDiscard(_)
             | Then::ReactDrawDiscard { .. }
             | Then::SeaChartCheck
+            | Then::PrinceSetAside
             | Then::DiscardRevealedNotMatching => {}
         }
         // Frames spawned by finishing a selection belong to the same card effect.
@@ -1662,36 +1730,144 @@ impl GameState {
         ps.pending_durations_len += 1;
     }
 
-    /// Push a `FrameKind::DurationStart` frame (and, for Clerk, a start-of-turn reaction YesNo
-    /// per copy in hand) for `self.turn.player`'s turn, which has just begun. Called once, from
-    /// `engine::run_phase`'s `Phase::Action` arm, before any `PlayAction` decision. Cheaply
-    /// gated: Base-only games (no Clerk, no pending Duration entries) do nothing here beyond two
-    /// field reads.
+    /// Collect the start-of-turn effects of `self.turn.player`'s turn, which has just begun, into
+    /// `TurnState::start_pending` and push the `FrameKind::StartOrder` frame that resolves them.
+    /// The effects are: each pending Duration entry (moved out of `pending_durations`, so what
+    /// the turn schedules for the next one doesn't mix with them), one Prince entry per set-aside
+    /// card (`arg` = the card it plays; the card stays in `prince_cards` until it is played) and
+    /// Clerk ("you may play this from your hand", one merged entry for the copies in hand, which
+    /// only counts those still in hand when it resolves). Called once, from `engine::run_phase`'s
+    /// `Phase::Action` arm, before any `PlayAction` decision. Cheaply gated: games with none of
+    /// these do nothing here beyond three field reads.
     pub(crate) fn push_turn_start_frames<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player;
         let pi = p as usize;
-        // Duration effects resolve first, in the order their cards were played (pushed
-        // last-first so entry 0 ends up on top and resolves first); Clerk's own reaction is
-        // pushed on top of those (documented choice: Clerk is offered before durations resolve).
-        let len = self.players[pi].pending_durations_len;
+        let len = self.players[pi].pending_durations_len as usize;
         if len > 0 {
-            let entries = self.players[pi].pending_durations;
-            self.players[pi].pending_durations_len = 0;
-            for i in (0..len as usize).rev() {
-                let e = entries[i];
-                self.stack.push(Frame { count: e.times, subject: e.arg, ..Frame::new(K::DurationStart, p, e.card) });
+            let ps = &mut self.players[pi];
+            for i in 0..len {
+                self.turn.start_pending.push(ps.pending_durations[i]);
+                ps.pending_durations[i] = Default::default();
             }
+            ps.pending_durations_len = 0;
+        }
+        for (c, k) in self.players[pi].prince_cards.iter() {
+            self.turn.start_pending.push(crate::state::PendingDuration { card: id::PRINCE, times: k, arg: c, used: false });
         }
         if self.in_supply(id::CLERK) {
-            let n = self.players[pi].hand.get(id::CLERK);
-            for _ in 0..n {
-                self.stack.push(Frame {
-                    zone: Zone::Hand, act: Act::Play, subject: id::CLERK,
-                    ..Frame::new(K::YesNo, p, id::CLERK)
-                });
+            let k = self.players[pi].hand.get(id::CLERK);
+            if k > 0 {
+                self.turn.start_pending.push(crate::state::PendingDuration { card: id::CLERK, times: k, arg: 0, used: false });
             }
         }
+        if !self.turn.start_pending.is_empty() {
+            self.stack.push(Frame::new(K::StartOrder, p, 0));
+        }
         let _ = sink;
+    }
+
+    /// The card a pending start-of-turn effect is offered under in `DecisionKind::StartOrder`: its
+    /// own card, except that a Prince is named by the card it plays (two Princes holding different
+    /// cards are different effects). Entries with the same name are interchangeable here (one
+    /// choice; the first of them resolves).
+    fn start_effect_name(e: &crate::state::PendingDuration) -> CardId {
+        if e.card == id::PRINCE { e.arg } else { e.card }
+    }
+
+    /// An effect no other effect's order can matter to: nothing to decide, no cards drawn or put
+    /// into or taken out of the hand (the +Actions/+Buys/+$ bonuses, Outpost, a Throne Room kept
+    /// in play). Resolved first, without a question.
+    fn start_effect_inert(e: &crate::state::PendingDuration) -> bool {
+        !cards::start_order_sensitive(e.card) && cards::duration_bonus(e.card).0 == 0
+    }
+
+    /// One step of `FrameKind::StartOrder`: resolve the next pending start-of-turn effect, or ask
+    /// which. Inert effects (`start_effect_inert`) resolve first without asking. The player is
+    /// asked (`DecisionKind::StartOrder`) only when two or more different effects remain and one
+    /// is order-sensitive (`cards::start_order_sensitive`); otherwise the first resolves.
+    #[inline(never)]
+    fn run_start_order<S: EventSink>(&mut self, sink: &mut S) -> Run {
+        let list = self.turn.start_pending.as_slice();
+        if list.is_empty() {
+            self.stack.pop();
+            return Run::Continue;
+        }
+        if let Some(i) = list.iter().position(Self::start_effect_inert) {
+            self.take_start_effect_at(i, sink);
+            return Run::Continue;
+        }
+        let mut sensitive = false;
+        let mut distinct = 0;
+        for (i, e) in list.iter().enumerate() {
+            sensitive |= cards::start_order_sensitive(e.card);
+            let name = Self::start_effect_name(e);
+            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name) {
+                distinct += 1;
+            }
+        }
+        if sensitive && distinct >= 2 {
+            return Run::Decide(DecisionKind::StartOrder, 0);
+        }
+        self.take_start_effect_at(0, sink);
+        Run::Continue
+    }
+
+    /// Legal choices of `DecisionKind::StartOrder`: each distinct pending effect, by name.
+    #[inline(never)]
+    fn start_order_choices(&self, out: &mut ChoiceBuf) {
+        let list = self.turn.start_pending.as_slice();
+        for (i, e) in list.iter().enumerate() {
+            let name = Self::start_effect_name(e);
+            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name) {
+                out.push(Choice::Card(name));
+            }
+        }
+    }
+
+    /// Resolve the pending effect named `name` (the first one with that name).
+    #[inline(never)]
+    fn take_start_effect<S: EventSink>(&mut self, name: CardId, sink: &mut S) {
+        let i = self.turn.start_pending.as_slice().iter().position(|e| Self::start_effect_name(e) == name).expect("pending start-of-turn effect");
+        self.take_start_effect_at(i, sink);
+    }
+
+    /// Take pending effect `i` off the list and resolve it. Clerk and Prince entries stand for
+    /// several identical effects (`times`) and resolve one at a time, so the rest stay pending.
+    fn take_start_effect_at<S: EventSink>(&mut self, i: usize, sink: &mut S) {
+        let p = self.turn.player;
+        let mut e = self.turn.start_pending.as_slice()[i];
+        if matches!(e.card, id::CLERK | id::PRINCE) && e.times > 1 {
+            self.turn.start_pending.as_mut_slice()[i].times -= 1;
+            e.times = 1;
+        } else {
+            self.turn.start_pending.remove(i);
+        }
+        match e.card {
+            id::CLERK => {
+                // "You may play this from your hand": only if it's still there.
+                if self.players[p as usize].hand.has(id::CLERK) {
+                    self.stack.push(Frame {
+                        zone: Zone::Hand, act: Act::Play, subject: id::CLERK,
+                        ..Frame::new(K::YesNo, p, id::CLERK)
+                    });
+                }
+            }
+            id::PRINCE => {
+                // "Play that Action": it leaves the Prince's hold for play (the Prince stays set
+                // aside, empty, until the card is set aside again at cleanup) and resolves like
+                // any other play, without using an Action.
+                let ps = &mut self.players[p as usize];
+                if ps.prince_cards.remove(e.arg) {
+                    ps.princes_empty += 1;
+                    ps.in_play.add(e.arg, 1);
+                    self.turn.prince_played.add(e.arg, 1);
+                    sink.depth(0);
+                    sink.event(Event::StartPlay { player: p, source: id::PRINCE, card: e.arg });
+                    self.resolve_effects(e.arg, p, 0, sink);
+                }
+            }
+            _ => self.resolve_duration_start(p, e, sink),
+        }
     }
 
     /// Resolve one pending Duration effect at the start of its owner's turn: the generic
@@ -1723,14 +1899,21 @@ impl GameState {
                     }
                 }
             }
+            // Once per play: a Throne Room'd (or King's Court'd) card does it `times` times.
             id::TIDE_POOLS | id::SEA_WITCH => {
-                self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Discard, Filter::Any, 2, 2, Then::Nothing) });
+                for _ in 0..times {
+                    self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Discard, Filter::Any, 2, 2, Then::Nothing) });
+                }
             }
             id::SAILOR => {
-                self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing) });
+                for _ in 0..times {
+                    self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing) });
+                }
             }
             id::PIRATE => {
-                self.stack.push(Frame { depth: 1, ..gain_frame(p, e.card, 6, self.treasure_filter(), Dest::Hand) });
+                for _ in 0..times {
+                    self.stack.push(Frame { depth: 1, ..gain_frame(p, e.card, 6, self.treasure_filter(), Dest::Hand) });
+                }
             }
             _ => {} // Outpost: no start-of-turn effect (handled at cleanup/turn transition).
         }

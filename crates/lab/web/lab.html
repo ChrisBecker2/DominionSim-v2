@@ -135,6 +135,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
           <label class="checkbox-row"><input type="checkbox" id="set-seaside" checked> Seaside</label>
           <label class="checkbox-row"><input type="checkbox" id="set-prosperity" checked> Prosperity</label>
           <label class="checkbox-row"><input type="checkbox" id="set-alchemy"> Alchemy</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-promo"> Promo</label>
         </div>
         <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
 
@@ -341,8 +342,8 @@ function renderChips(container, cardsList, selected) {
 // Form state
 // ---------------------------------------------------------------------------------------------
 
-var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy"];
-// Alchemy is opt-in: the shipped strategies know nothing about Potions.
+var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo"];
+// Alchemy and Promo are opt-in: the shipped strategies know nothing about Potions.
 var DEFAULT_SETS = ["Base", "Intrigue", "Seaside", "Prosperity"];
 
 var form = {

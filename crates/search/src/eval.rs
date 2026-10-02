@@ -81,6 +81,11 @@ pub fn expected_next_hand_money(ps: &PlayerState) -> f64 {
         extra_cards += c as u32 * e.times as u32;
         extra_coins += coins as u32 * e.times as u32;
     }
+    // Prince (Promo): each card a Prince holds is played at the start of that turn.
+    for (c, n) in ps.prince_cards.iter() {
+        extra_cards += cards::def(c).cards as u32 * n as u32;
+        extra_coins += cards::def(c).coins as u32 * n as u32;
+    }
     extra_coins as f64 + expected_hand_money(ps, 5 + extra_cards)
 }
 

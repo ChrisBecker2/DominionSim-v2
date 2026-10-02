@@ -57,6 +57,11 @@ pub enum DecisionKind {
     /// below the Nth known top card, `255` = the very bottom — Secret Passage. Choices:
     /// `Choice::Position(..)`.
     DeckPosition { max_known: u8 },
+    /// The start of a turn, with two or more start-of-turn effects pending whose order can matter
+    /// (see `cards::start_order_sensitive`): choose which resolves next; it resolves fully, then
+    /// the rest are asked again. Choices: `Choice::Card(card)`, one per distinct pending effect: the
+    /// Duration (or Clerk) card whose effect it is, or for a Prince the card it plays.
+    StartOrder,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -193,6 +198,8 @@ pub enum Event {
     Topdeck { player: u8, card: CardId },
     Reveal { player: u8, card: CardId },
     SetAside { player: u8, card: CardId },
+    /// `source` (a Prince) plays the card it holds at the start of `player`'s turn.
+    StartPlay { player: u8, source: CardId, card: CardId },
     Reaction { player: u8, card: CardId },
     /// Masquerade: `player` passes `card` to `to`, once every passing player has chosen.
     Pass { player: u8, card: CardId, to: u8 },
@@ -687,6 +694,26 @@ impl GameState {
         self.cleanup(sink);
     }
 
+    /// Cleanup, Prince (see the comment where it is called): `discard_part` is what would be
+    /// discarded from play; the cards going back to their Princes come out of it.
+    #[cold]
+    #[inline(never)]
+    fn prince_cleanup<S: EventSink>(&mut self, discard_part: &mut Counts, sink: &mut S) {
+        let p = self.turn.player;
+        let ps = &mut self.players[p as usize];
+        for (c, n) in self.turn.prince_played.iter() {
+            let back = n.min(discard_part.get(c)).min(ps.princes_empty);
+            if back > 0 {
+                discard_part.set(c, discard_part.get(c) - back);
+                ps.princes_empty -= back;
+                ps.prince_cards.add(c, back);
+                for _ in 0..back {
+                    sink.event(Event::SetAside { player: p, card: c });
+                }
+            }
+        }
+    }
+
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
         sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
@@ -737,9 +764,8 @@ impl GameState {
             ps.pending_durations_len = kept as u8;
         }
 
-        let ps = &mut self.players[p];
-        let hand = ps.hand;
-        let play = ps.in_play;
+        let hand = self.players[p].hand;
+        let play = self.players[p].in_play;
         // Duration cards (and any Throne Room/King's Court that multiplied one) held for next
         // turn stay in play; everything else in play, plus the whole hand, discards as usual.
         let mut kept = Counts::EMPTY;
@@ -750,6 +776,14 @@ impl GameState {
         for (c, _) in kept.iter() {
             discard_part.set(c, play.get(c) - kept.get(c));
         }
+        // Prince: a card it played at the start of the turn and that is still in play (and isn't
+        // a Duration staying in play) is set aside with its Prince again, not discarded. One
+        // that left play some other way (trashed, on a mat) or stays as a Duration leaves its
+        // Prince holding nothing.
+        if !self.turn.prince_played.is_empty() {
+            self.prince_cleanup(&mut discard_part, sink);
+        }
+        let ps = &mut self.players[p];
         ps.discard.add_all(&hand);
         ps.discard.add_all(&discard_part);
         ps.hand.clear();
@@ -878,7 +912,10 @@ impl GameState {
                 cards::GainTrigger::CollectionAction => {
                     if cards::is(c, cards::ACTION) {
                         self.players[pi].vp_tokens += count as u16;
-                        sink.bonus(p, watcher, 0, 0, 0, count as u16);
+                        // One event per copy, so the log can say how many Collections paid.
+                        for _ in 0..count {
+                            sink.bonus(p, watcher, 0, 0, 0, 1);
+                        }
                     }
                 }
                 // Decision-based: handled below (a frame per copy, not an immediate effect).
@@ -1054,7 +1091,7 @@ impl GameState {
     }
 
     fn decision_source(&self) -> Option<CardId> {
-        self.stack.top().map(|f| f.source)
+        self.stack.top().filter(|f| f.kind != FrameKind::StartOrder).map(|f| f.source)
     }
 }
 

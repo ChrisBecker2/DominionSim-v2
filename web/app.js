@@ -474,6 +474,16 @@
       if (p.durations.length) panel.appendChild(durationsZone(p.durations));
       if (p.nativeVillageMat.length) panel.appendChild(zoneRow("Native Village mat", p.nativeVillageMat));
       if (p.islandMat.length) panel.appendChild(zoneRow("Island mat", p.islandMat));
+      if (p.princeCards.length || p.princesEmpty) {
+        // Set-aside Princes (public): each plays the card it holds at the start of the owner's turns.
+        const princes = zoneRow("Princes (set aside)", p.princeCards);
+        if (p.princesEmpty) {
+          const none = el("span", "empty", ` ${p.princeCards.length ? "+ " : ""}${p.princesEmpty} holding nothing`);
+          const e = princes.querySelector(".empty");
+          if (e) e.replaceWith(none); else princes.appendChild(none);
+        }
+        panel.appendChild(princes);
+      }
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 
       row.appendChild(panel);
@@ -765,9 +775,9 @@
   let gameRequiredKingdom = null;
 
   const SETS_KEY = "dominion.cardSets";
-  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy (matches
+  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo (matches
   // `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16 };
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

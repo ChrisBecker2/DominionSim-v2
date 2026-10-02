@@ -15,6 +15,11 @@ pub const STACK_CAP: usize = 48;
 /// generous for realistic turns (a handful of distinct Duration cards, plus Haven/Blockade/Sailor
 /// copies, which don't merge since each carries its own argument).
 pub const PENDING_DURATIONS_CAP: usize = 12;
+/// Max distinct Action cards the player's Princes hold at once (`PlayerState::prince_cards`).
+pub const PRINCE_CAP: usize = 8;
+/// Max start-of-turn effects pending at once (`TurnState::start_pending`): every pending
+/// Duration entry, one per Prince'd card, and Clerk (one merged entry).
+pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + 1;
 /// Max distinct cards `DurationHeld` tracks in one turn (see its doc comment): generous for a
 /// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
 /// multiplied one).
@@ -322,6 +327,64 @@ pub struct PendingDuration {
     pub used: bool,
 }
 
+/// The start-of-turn effects not yet resolved (`TurnState::start_pending`): a short fixed list.
+/// `PartialEq`/`Hash` look only at the live prefix, so stale slots never matter and the search's
+/// state hash (which walks `TurnState`) stays cheap.
+#[derive(Clone, Copy, Debug)]
+pub struct StartList {
+    entries: [PendingDuration; START_PENDING_CAP],
+    len: u8,
+}
+
+impl StartList {
+    pub const EMPTY: StartList =
+        StartList { entries: [PendingDuration { card: 0, times: 0, arg: 0, used: false }; START_PENDING_CAP], len: 0 };
+
+    #[inline]
+    pub fn as_slice(&self) -> &[PendingDuration] {
+        &self.entries[..self.len as usize]
+    }
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [PendingDuration] {
+        &mut self.entries[..self.len as usize]
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    pub fn push(&mut self, e: PendingDuration) {
+        assert!((self.len as usize) < START_PENDING_CAP, "start-of-turn effect list overflow");
+        self.entries[self.len as usize] = e;
+        self.len += 1;
+    }
+    /// Remove entry `i`, keeping the order of the rest.
+    pub fn remove(&mut self, i: usize) {
+        let n = self.len as usize;
+        for j in i..n - 1 {
+            self.entries[j] = self.entries[j + 1];
+        }
+        self.entries[n - 1] = PendingDuration::default();
+        self.len -= 1;
+    }
+}
+
+impl Default for StartList {
+    fn default() -> Self {
+        StartList::EMPTY
+    }
+}
+impl PartialEq for StartList {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+impl Eq for StartList {}
+impl std::hash::Hash for StartList {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state);
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PlayerState {
     pub hand: Counts,
@@ -367,6 +430,13 @@ pub struct PlayerState {
     /// Outpost turn, so it can't grant a 3rd turn in a row) and any Throne Room / King's Court
     /// that played it ("If Outpost fails, you discard it during Clean-up of the next turn").
     pub discard_next_cleanup: DurationHeld,
+    /// Prince (Promo): the Action cards held by this player's set-aside Princes, one per Prince
+    /// (played at the start of each of their turns, `GameState::run_start_order`). Public; the
+    /// cards (and the Princes themselves) count as owned (`all_cards`/VP).
+    pub prince_cards: SmallMultiset<PRINCE_CAP>,
+    /// Set-aside Princes holding nothing: set aside with no Action to take, or whose card left
+    /// play some other way, so the Prince stopped playing it.
+    pub princes_empty: u8,
 }
 
 impl PlayerState {
@@ -391,6 +461,11 @@ impl PlayerState {
         c.add_all(&self.held.counts());
         c.add_all(&self.native_village_mat.counts());
         c.add_all(&self.island_mat.counts());
+        let princes = self.prince_cards.total() + self.princes_empty as u32;
+        if princes > 0 {
+            c.add(id::PRINCE, princes.min(u8::MAX as u32) as u8);
+            c.add_all(&self.prince_cards.counts());
+        }
         c
     }
     pub fn vp(&self) -> i32 {
@@ -523,6 +598,15 @@ pub struct TurnState {
     /// itself. Transient mid-resolution bookkeeping (never a text-format rest state, like
     /// `multiplier_card`): always false at any point the text format could observe.
     pub blockading_curse: bool,
+    /// The start-of-turn effects not yet resolved, `GameState::run_start_order`: this turn's
+    /// player's `pending_durations` (moved here at turn start so effects scheduled during the
+    /// turn, for the next one, don't mix with them), their Clerks in hand, and Prince's set-aside
+    /// cards. Transient: only non-empty while `FrameKind::StartOrder` is on the stack, and shown in
+    /// the text format's `durations:` line (see `text.rs`).
+    pub start_pending: StartList,
+    /// Cards played this turn by a Prince at the start of the turn: at cleanup each one still in
+    /// play (and not held by a Duration) is set aside with its Prince again.
+    pub prince_played: DurationHeld,
 }
 
 impl TurnState {
@@ -554,6 +638,8 @@ impl TurnState {
             gained_victory_in_buy: false,
             treasury_offered: false,
             blockading_curse: false,
+            start_pending: StartList::EMPTY,
+            prince_played: DurationHeld::EMPTY,
         }
     }
 }
@@ -613,6 +699,9 @@ pub enum Filter {
     TreasureOrCurse,
     /// Either of two specific cards (Apothecary: Copper or Potion).
     Either(CardId, CardId),
+    /// An Action card costing up to `n` coins and no Potion (Prince). The Select/Gain code checks
+    /// the *current* cost (`GameState::filter_ok`); `matches` can only use the printed cost.
+    ActionCostUpTo(u8),
     /// Any card that isn't an Action (Scrying Pool's "until revealing a non-Action").
     NonAction,
     /// An Action card other than the named card (Golem: "other than Golem cards").
@@ -635,6 +724,7 @@ impl Filter {
             Filter::Either(a, b) => c == a || c == b,
             Filter::NonAction => !cards::is(c, cards::ACTION),
             Filter::ActionNot(x) => c != x && cards::is(c, cards::ACTION),
+            Filter::ActionCostUpTo(n) => cards::is(c, cards::ACTION) && cards::cost(c) <= n && !cards::potion_cost(c),
         }
     }
 }
@@ -759,6 +849,12 @@ pub enum Then {
     /// cards in either order"). The others are held in their `PlayEffects` frames meanwhile, so
     /// nothing the first card does to the Revealed zone can disturb them.
     PlayPickedThenRest,
+    /// YesNo (Prince, `Act::SetAside`, zone `InPlay`): if yes, the Prince in play is set aside
+    /// (`PlayerState::princes_empty`) and a `Select` of an Action from hand costing up to $4 follows.
+    PrinceSetAside,
+    /// Select (Prince, `Act::SetAside`): the picked card, already in `set_aside`, is held by the
+    /// Prince just set aside (`PlayerState::prince_cards`); picking nothing leaves it empty.
+    PrinceHold,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -913,12 +1009,6 @@ pub enum FrameKind {
     /// Masquerade is the only card that uses `PassLeftBegin`/`PassLeftDeliver` today, but the
     /// mechanism ("each player with X passes one to the next such player") isn't specific to it.
     PassLeftDeliver,
-    /// Resolve one pending start-of-turn Duration effect (Seaside): `source` = the card, `count`
-    /// = how many times, `subject` = its argument (Haven/Blockade). Pushed for every entry in
-    /// `PlayerState::pending_durations` at the start of the owner's turn (see
-    /// `GameState::push_turn_start_frames`), which clears the list up front since every entry's
-    /// data is already captured in the pushed frames. See `GameState::resolve_duration_start`.
-    DurationStart,
     /// Sits below a Throne Room/King's Court's `times` `PlayEffects` resolutions of a Duration
     /// target (and everything they push): once every one of them has fully unwound, checks
     /// whether all `times` actually scheduled a next-turn effect (`TurnState::multiplier_*`) and,
@@ -932,6 +1022,12 @@ pub enum FrameKind {
     /// match `filter` (`count` = matches so far) or the deck and discard run out, then run `then`
     /// (Scrying Pool: until a non-Action; Golem: 2 Actions other than Golem).
     RevealUntil,
+    /// Sits at the bottom of the stack for the start of a turn, over `TurnState::start_pending`
+    /// (the start-of-turn effects not yet resolved). Each run it takes the next effect: the only
+    /// one left, or the first when order can't matter, otherwise it asks the player which
+    /// resolves next (`DecisionKind::StartOrder`). Pops once none are left. See
+    /// `GameState::run_start_order`.
+    StartOrder,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

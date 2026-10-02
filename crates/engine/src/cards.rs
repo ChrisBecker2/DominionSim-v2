@@ -5,7 +5,7 @@ use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 125;
+pub const NUM_CARDS: usize = 126;
 
 // Type flags.
 pub const ACTION: u8 = 1;
@@ -149,6 +149,8 @@ pub mod id {
     pub const GOLEM: CardId = 122;
     pub const APPRENTICE: CardId = 123;
     pub const POTION: CardId = 124;
+    // Promo
+    pub const PRINCE: CardId = 125;
 }
 
 /// The expansion a card comes from.
@@ -164,10 +166,13 @@ pub enum CardSet {
     Prosperity,
     /// Alchemy (Potion costs). Possession is not implemented.
     Alchemy,
+    /// Promo cards (Prince).
+    Promo,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 5] = [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy];
+    pub const ALL: [CardSet; 6] =
+        [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -176,6 +181,7 @@ impl CardSet {
             CardSet::Seaside => "Seaside",
             CardSet::Prosperity => "Prosperity",
             CardSet::Alchemy => "Alchemy",
+            CardSet::Promo => "Promo",
         }
     }
 }
@@ -265,6 +271,11 @@ const fn intrigue(d: CardDef) -> CardDef {
 /// An Alchemy card.
 const fn alchemy(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Alchemy, ..d }
+}
+
+/// A Promo card.
+const fn promo(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Promo, ..d }
 }
 
 /// The card's cost includes a Potion.
@@ -430,6 +441,8 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     alchemy(with_p(order_sensitive(c("Golem", 4, ACTION, 0, 0, 0, 0, 0)))), // plays Actions from the deck for free; a draw first changes what it finds
     alchemy(order_sensitive(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash (may be the +Actions card in hand)
     alchemy(potion_card(choice_free(c("Potion", 4, TREASURE, 0, 0, 0, 0, 0)))),
+    // ---- Promo. ----
+    promo(order_sensitive(c("Prince", 8, ACTION, 0, 0, 0, 0, 0))), // sets itself and an Action costing up to $4 aside (may be the +Actions card in hand)
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -546,6 +559,7 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::Either(..) => ("a", "card"),
         Filter::NonAction => ("a", "non-Action card"),
         Filter::ActionNot(_) => ("an", "Action"),
+        Filter::ActionCostUpTo(_) => ("an", "Action"),
     }
 }
 
@@ -690,6 +704,20 @@ pub fn duration_bonus(card: CardId) -> (u8, u8, u8, u8) {
     }
 }
 
+/// Whether `card`'s start-of-turn effect is order-sensitive: it acts on the hand (Sea Witch and
+/// Tide Pools discard 2, Sailor may trash a card), adds to the hand (Haven and Blockade return a
+/// card, Pirate gains a Treasure to hand), or plays a card (Prince's set-aside Action, Clerk's
+/// "play this from your hand"). The other start-of-turn effects are plain bonuses
+/// (`duration_bonus`: +Cards/+Actions/+Buys/+$) that never change what another effect can do.
+/// When no pending start-of-turn effect is order-sensitive, or only one is pending, the engine
+/// doesn't ask for an order (`GameState::run_start_order`).
+pub fn start_order_sensitive(card: CardId) -> bool {
+    matches!(
+        card,
+        id::HAVEN | id::BLOCKADE | id::PIRATE | id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR | id::PRINCE | id::CLERK
+    )
+}
+
 /// Duration cards (and Seaside cards generally) that need `GameState::run_gain_triggers`'s
 /// cross-player checks (Monkey, Blockade, Pirate, Sailor): the analogue of
 /// `GAIN_TRIGGER_CARDS_MASK`, gating `GameState::run_seaside_gain_triggers`'s whole body behind
@@ -747,6 +775,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "seaside" => Some(CardSet::Seaside),
         "prosperity" => Some(CardSet::Prosperity),
         "alchemy" => Some(CardSet::Alchemy),
+        "promo" => Some(CardSet::Promo),
         _ => None,
     }
 }
@@ -842,7 +871,7 @@ mod tests {
                 "Mill", "Secret Passage", "Courtier", "Minion", "Patrol", "Replace", "Trading Post", "Upgrade",
                 "Haven", "Native Village", "Lookout", "Sea Chart", "Warehouse", "Island", "Salvager", "Treasure Map",
                 "Watchtower", "Bishop", "Vault", "Expand", "Forge", "King's Court",
-                "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice",
+                "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice", "Prince",
             ],
             "the order-sensitive set changed: a card belongs here if playing a choice-free +Actions card before it can make it worse"
         );
@@ -864,6 +893,7 @@ mod set_tests {
         assert_eq!(in_set(CardSet::Seaside), 27);
         assert_eq!(in_set(CardSet::Prosperity), 25);
         assert_eq!(in_set(CardSet::Alchemy), 11);
+        assert_eq!(in_set(CardSet::Promo), 1);
         assert!(!is_kingdom(id::POTION) && is_optional_basic(id::POTION) && potion_cost(id::GOLEM) && !potion_cost(id::APPRENTICE));
         assert_eq!(cost_string(id::APOTHECARY), "$2P");
         assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
@@ -882,6 +912,7 @@ mod set_tests {
         assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
         assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
         assert_eq!(kingdom_cards_in(CardSet::Alchemy).count(), 11);
+        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 1);
     }
 
     #[test]
@@ -893,6 +924,7 @@ mod set_tests {
         assert_eq!(set_by_name("Seaside"), Some(CardSet::Seaside));
         assert_eq!(set_by_name("prosperity"), Some(CardSet::Prosperity));
         assert_eq!(set_by_name("Alchemy"), Some(CardSet::Alchemy));
+        assert_eq!(set_by_name("promo"), Some(CardSet::Promo));
         assert_eq!(set_by_name("Dark Ages"), None);
     }
 

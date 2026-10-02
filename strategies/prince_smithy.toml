@@ -1,0 +1,30 @@
+# Prince + Smithy: the first Prince sets a Smithy aside, which is then played at the start of
+# every turn without using an Action (+3 Cards before the turn's own Smithy or any other card).
+# After that, Big Money with a second Smithy. Needs Prince and Smithy in the kingdom (Prince is a
+# Promo card: pick "promo" in the card sets, or name them with --kingdom).
+
+name = "Prince-Smithy"
+description = "One Prince holding a Smithy, then Big Money with a Smithy of its own."
+
+[[gain]]
+card = "Prince"
+if = "count(Prince) < 1 and count(Smithy) >= 1"
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Smithy"
+if = "count(Smithy) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Prince"
+
+[[play]]
+card = "Smithy"

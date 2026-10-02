@@ -301,6 +301,23 @@ impl Strategy {
                 }
             }
         }
+        // The order of the start-of-turn effects, and Prince's set-aside choices, are searched too:
+        // they decide what the turn starts with. Orders of draws, returns and discards are left to
+        // the rules (see `START_ORDER_SEARCH_ALL`); only an order with a play in it (Prince, Clerk)
+        // is a real trade-off.
+        if decision.kind == DecisionKind::StartOrder
+            && self.search_play
+            && view.is_my_turn()
+            && choices.len() > 1
+            && crate::eval::is_start_effect_decision(view.me(), decision)
+            && (START_ORDER_SEARCH_ALL || start_order_has_play(choices))
+        {
+            if let Some(c) = crate::eval::search_start_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
         self.decide_by_rules(view, decision, choices)
     }
 
@@ -327,6 +344,9 @@ impl Strategy {
                 if act == Act::Discard && from == Zone::Revealed && decision.source == Some(id::SCRYING_POOL) {
                     return self.choose_scry(view, decision, choices);
                 }
+                if act == Act::SetAside && decision.source == Some(id::PRINCE) {
+                    return self.choose_prince_card(view, choices);
+                }
                 match act {
                     Act::Discard => self.choose_discard(view, from, filter, choices, min, max, ordered),
                     Act::Trash => self.choose_trash(view, decision, choices, from, filter, min, max, ordered),
@@ -344,6 +364,12 @@ impl Strategy {
                 Act::Play => Choice::Yes,
                 // Library: skip (set aside) an Action only when there's no room left to play
                 // more actions this turn; otherwise keep it.
+                Act::SetAside if decision.subject == id::PRINCE => {
+                    // Prince: set it aside when there is an Action costing up to $4 in hand for it
+                    // to hold (it is then played at the start of every turn); else keep it in play.
+                    let eligible = view.hand().iter().any(|(c, _)| prince_can_hold(view, c));
+                    if eligible { Choice::Yes } else { Choice::No }
+                }
                 Act::SetAside => {
                     if view.turn().actions == 0 { Choice::Yes } else { Choice::No }
                 }
@@ -364,7 +390,44 @@ impl Strategy {
             DecisionKind::Name => self.choose_name(view, decision, choices),
             DecisionKind::DeckPosition { .. } => self.choose_deck_position(view, decision, choices),
             DecisionKind::PlayTreasure => self.play_treasure_decision(view, decision, choices),
+            DecisionKind::StartOrder => self.choose_start_order(choices),
         }
+    }
+
+    /// Which pending start-of-turn effect resolves first. Cards put into the hand come first
+    /// (Haven and Blockade returning their card, Pirate's Treasure), so the discards and trashes
+    /// below pick from the fullest hand; then the plain bonuses and draws; then plays (Clerk, and
+    /// a card a Prince plays: the choice names that card); and last the effects that discard or
+    /// trash from the hand (Sea Witch and Tide Pools discarding, Sailor trashing). Within a
+    /// group, by card.
+    fn choose_start_order(&self, choices: &[Choice]) -> Choice {
+        let group = |c: CardId| -> u8 {
+            match c {
+                id::HAVEN | id::BLOCKADE | id::PIRATE => 0,
+                id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR => 3,
+                id::CLERK => 2,
+                // Any other Action is a Prince's card, unless it is a plain bonus Duration.
+                _ if cards::is(c, cards::DURATION) => 1,
+                _ if cards::is(c, ACTION) => 2,
+                _ => 1,
+            }
+        };
+        iter_cards(choices).min_by_key(|&c| (group(c), c)).map(Choice::Card).unwrap_or(choices[0])
+    }
+
+    /// The Action costing up to $4 in hand for a Prince to hold: the strategy's own [[play]]
+    /// rules first, in their order; else the most useful card (`prince_card_score`). It is played
+    /// at the start of every turn without using an Action, so being a terminal costs nothing.
+    fn choose_prince_card(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        for (card, cond) in &self.play {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+                return Choice::Card(*card);
+            }
+        }
+        iter_cards(choices)
+            .max_by_key(|&c| (prince_card_score(c), std::cmp::Reverse(c)))
+            .map(Choice::Card)
+            .unwrap_or(choices[0])
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1240,6 +1303,40 @@ pub fn empty_pile_risk(view: &PlayerView) -> bool {
     let attack = hand.iter().any(|(c, _)| cards::is(c, cards::ATTACK));
     let gainer = hand.iter().any(|(c, _)| cards::is(c, ACTION) && !cards::is_choice_free(c));
     attack || (gainer && view.supply_cards().any(|c| view.supply(c) <= 3))
+}
+
+/// Whether the bot searches every `DecisionKind::StartOrder` decision (as it does the play order)
+/// or only those with a play among the options. The rules' order (cards back into the hand first,
+/// then draws, then plays, then discards and trashes) is right in nearly every position: on a
+/// Seaside Duration pairing, searching all of them made games 5x slower for under 1 point of win
+/// rate, so the default searches only the order with a Prince's card or Clerk in it.
+const START_ORDER_SEARCH_ALL: bool = false;
+
+/// Whether a start-of-turn order decision offers a play: Clerk, or a card a Prince plays (any
+/// Action that isn't a Duration, which are the effects' own cards).
+fn start_order_has_play(choices: &[Choice]) -> bool {
+    iter_cards(choices).any(|c| c == id::CLERK || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
+}
+
+/// Whether a Prince could set aside `c` from the hand now: an Action costing up to $4 (current
+/// cost) with no Potion.
+fn prince_can_hold(view: &PlayerView, c: CardId) -> bool {
+    cards::is(c, ACTION) && view.cost(c) <= 4 && !cards::potion_cost(c)
+}
+
+/// How good a card is to have played free at the start of every turn: cards, actions, buys and
+/// coins it gives, a little for an Attack; a Duration stops after one play (it stays in play
+/// through its next turn instead of returning to its Prince), so those come last.
+fn prince_card_score(c: CardId) -> i32 {
+    let d = cards::def(c);
+    let mut s = 3 * d.cards as i32 + 2 * d.coins as i32 + 2 * d.actions as i32 + 2 * d.buys as i32;
+    if cards::is(c, cards::ATTACK) {
+        s += 3;
+    }
+    if cards::is(c, cards::DURATION) {
+        s -= 50;
+    }
+    s
 }
 
 fn iter_cards(choices: &[Choice]) -> impl Iterator<Item = CardId> + '_ {

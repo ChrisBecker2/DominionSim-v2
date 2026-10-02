@@ -108,6 +108,30 @@ async function play(text, label) {
   check("Merchant's +$1 appears under the first Silver, once", log.filter((l) => l === IND + "Merchant: +$1").length === 1, log.join(" | "));
   check("Silver's printed value is not printed as a bonus", !log.some((l) => /^ *\+\$2/.test(l)));
 
+  // Three Collections in play, then an Action bought: one line naming them and the count.
+  {
+    const text = `players: 2
+kingdom: Collection, Witch, Village, Smithy, Market, Moat, Cellar, Festival, Laboratory, Mine
+turn: 1  player: 1  phase: buy  actions: 0  buys: 1  coins: 0
+
+[player 1]
+hand: 3 Collection, Copper, Copper
+deck: 5 Copper
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+`;
+    const C = await instance();
+    C.load(text);
+    if (C.view().pending.paused) C.w.resume();
+    const buy = C.view().pending.choices.find((x) => x.label === "Buy Witch");
+    C.w.choose(buy.index);
+    const clog = C.view().log;
+    check("3 Collections' VP on one line naming them", clog.includes(IND + "Collection ×3: +3 VP"), clog.join(" | "));
+    check("no bare +3 VP line", !clog.some((l) => l.trim() === "+3 VP"));
+  }
+
   ({ log } = await play(state("action", `hand: Monument, Estate\n${filler}`), "Play Monument"));
   check("Monument shows +$2 and +1 VP", log.includes(IND + "+$2") && log.includes(IND + "+1 VP"), log.join(" | "));
 
@@ -227,6 +251,41 @@ deck: 5 Copper, 3 Estate, 2 Copper
   const fromDealt = sim();
   check("mirror from a new game: about 50/50 (random seating)", Math.abs(fromNew - 0.5) < 0.04, fromNew.toFixed(3));
   check("mirror after the deal: player 1 moves first and wins more", fromDealt > fromNew, `${fromDealt.toFixed(3)} vs ${fromNew.toFixed(3)}`);
+}
+
+// --- Prince: the start-of-turn play is logged under its Prince and the mat is in the view -------
+{
+  const I = await instance();
+  I.load(`players: 2
+kingdom: Prince, Smithy, Village, Sea Witch, Haven
+turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+[player 1]
+hand: Estate, Estate
+deck top: Copper, Copper, Copper
+deck: 3 Estate
+set aside: Gold
+durations: Haven (Gold), Sea Witch
+prince: Smithy, nothing
+
+[player 2]
+hand: 5 Copper
+deck: 2 Copper, 3 Estate
+`);
+  let v = I.view();
+  check("view shows the Prince mat", v.players[0].princeCards.length === 1 && v.players[0].princeCards[0].name === "Smithy" && v.players[0].princesEmpty === 1,
+    JSON.stringify(v.players[0].princeCards));
+  I.w.resume();
+  v = I.view();
+  const asked = v.pending && /start-of-turn effect resolves next/.test(v.pending.description);
+  check("start of turn: asks which effect resolves next", asked, v.pending && v.pending.description);
+  const labels = (v.pending ? v.pending.choices : []).map((c) => c.label);
+  check("the choices name each effect", labels.includes("Haven: put Gold into your hand") && labels.includes("Prince: play Smithy") &&
+    labels.some((l) => l.startsWith("Sea Witch: +2 Cards, then discard 2")), labels.join(" | "));
+  const smithy = v.pending.choices.find((c) => c.label === "Prince: play Smithy");
+  I.w.choose(smithy.index);
+  v = I.view();
+  check("log: Prince plays its card at the start of the turn", v.log.some((l) => l === "Player 1's Prince plays Smithy"), v.log.join(" | "));
 }
 
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");

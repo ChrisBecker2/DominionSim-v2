@@ -138,6 +138,15 @@ impl<'a> PlayerView<'a> {
     pub fn island_mat_of(&self, p: u8) -> Counts {
         self.state.players[p as usize].island_mat.counts()
     }
+    /// The Action cards held by `p`'s set-aside Princes (Promo): public. Each is played at the
+    /// start of `p`'s turns.
+    pub fn prince_cards_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].prince_cards.counts()
+    }
+    /// How many of `p`'s set-aside Princes hold no card.
+    pub fn princes_empty_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].princes_empty
+    }
 
     /// If gaining `card` now would end the game at the end of this turn (last Province, or the
     /// final empty pile), the winners bitmask it would end with; otherwise `None`. Uses only
@@ -218,6 +227,18 @@ impl<'a> PlayerView<'a> {
                     haven_slots[i] = true;
                 }
             }
+            // The same for a Haven whose return is still waiting at the start of this player's
+            // own turn (`TurnState::start_pending`).
+            let mut start_haven_slots = [false; crate::state::START_PENDING_CAP];
+            if s.turn.player == p {
+                for i in 0..s.turn.start_pending.as_slice().len() {
+                    let e = s.turn.start_pending.as_slice()[i];
+                    if e.card == crate::cards::id::HAVEN && e.arg != 0 && ps.set_aside.remove(e.arg) {
+                        pool.add(e.arg, 1);
+                        start_haven_slots[i] = true;
+                    }
+                }
+            }
             // Native Village mat (Seaside): private to its owner, so as hidden from me as the
             // hand/deck it's pooled with; only its *size* is public (unlike Blockade's set-aside
             // card, already publicly gained, or Island's mat, public outright). Pool it in, then
@@ -238,6 +259,14 @@ impl<'a> PlayerView<'a> {
                     pool.remove(c);
                     ps.set_aside.add(c, 1);
                     ps.pending_durations[i].arg = c;
+                }
+            }
+            for i in 0..start_haven_slots.len() {
+                if start_haven_slots[i] {
+                    let c = pool.nth(rng.below(pool.total()));
+                    pool.remove(c);
+                    ps.set_aside.add(c, 1);
+                    s.turn.start_pending.as_mut_slice()[i].arg = c;
                 }
             }
             ps.native_village_mat.clear();

@@ -287,6 +287,12 @@ struct App {
     /// The card most recently played in the log: a bonus from the same card is printed bare
     /// ("+2 Actions"), one from another card names its source ("Merchant: +$1").
     last_played: Option<u8>,
+    /// The bonus line just logged, so identical bonuses from several copies of one card in a row
+    /// merge into one line ("Collection ×3: +3 VP"): (player, source, depth, one copy's
+    /// (actions, buys, coins, vp), copies, log index). Only an identical bonus merges, so one
+    /// card's two different bonuses (Monument's +$2, then +1 VP) stay one card. Cleared by any
+    /// other event.
+    last_bonus: Option<(u8, u8, u8, (u16, u16, u16, u16), u16, usize)>,
 }
 
 impl App {
@@ -315,6 +321,7 @@ impl App {
             start_text,
             record: GameRecord::default(),
             last_played: None,
+            last_bonus: None,
         };
         app.record = GameRecord::new(&app.state);
         app.log.push("New game: shuffled, opening hands not dealt yet.".to_string());
@@ -336,21 +343,45 @@ impl App {
         self.record.on_event(e);
         // Effects are indented under the card that caused them (non-breaking spaces survive HTML).
         let indent = "\u{a0}\u{a0}\u{a0}".repeat(depth as usize);
+        let last_bonus = self.last_bonus.take();
         match *e {
             Event::TurnStart { .. } => self.last_played = None,
-            Event::Play { card, .. } | Event::PlayAgain { card, .. } => self.last_played = Some(card),
+            Event::Play { card, .. } | Event::PlayAgain { card, .. } | Event::StartPlay { card, .. } => self.last_played = Some(card),
+            // A buy (and what it triggers) isn't the last played card's doing.
+            Event::Buy { .. } => self.last_played = None,
             Event::Bonus { player, source, actions, buys, coins, vp } => {
-                let text = bonus_text(actions, buys, coins, vp, cards::is(source, cards::TREASURE));
+                let unit = (actions as u16, buys as u16, coins, vp);
+                // The same bonus again from another copy of the same card: merge into its line.
+                let (copies, at) = match last_bonus {
+                    Some((pl, src, d, u, n, at)) if pl == player && src == source && d == depth && u == unit && at + 1 == self.log.len() => {
+                        (n + 1, Some(at))
+                    }
+                    _ => (1, None),
+                };
+                let (a, b, c, v) = (unit.0 * copies, unit.1 * copies, unit.2 * copies, unit.3 * copies);
+                let text = bonus_text(a.min(255) as u8, b.min(255) as u8, c, v, cards::is(source, cards::TREASURE));
+                let name = if copies > 1 { format!("{} \u{d7}{copies}", cards::name(source)) } else { cards::name(source).to_string() };
                 let line = if depth == 0 {
                     // A Duration firing at the start of its owner's turn.
                     let sep = if text.is_empty() { "" } else { ": " };
-                    format!("Player {}'s {} (duration){sep}{text}", player + 1, cards::name(source))
-                } else if self.last_played == Some(source) {
+                    format!("Player {}'s {name} (duration){sep}{text}", player + 1)
+                } else if copies == 1 && self.last_played == Some(source) {
                     text
                 } else {
-                    format!("{}: {text}", cards::name(source))
+                    format!("{name}: {text}")
                 };
-                self.log.push(format!("{indent}{line}"));
+                let line = format!("{indent}{line}");
+                let at = match at {
+                    Some(i) => {
+                        self.log[i] = line;
+                        i
+                    }
+                    None => {
+                        self.log.push(line);
+                        self.log.len() - 1
+                    }
+                };
+                self.last_bonus = Some((player, source, depth, unit, copies, at));
                 self.log_group = None;
                 return;
             }
@@ -1068,7 +1099,7 @@ fn analysis_json(app: &App, d: &Decision, a: &dominion_search::Analysis, scoring
                 o.outcomes.iter().map(|(l, p)| format!("{{\"label\":{},\"p\":{:.5}}}", jstr(l), p)).collect();
             format!(
                 "{{\"label\":{},\"index\":{index},\"ev\":{:.4},\"exact\":{},\"rulesPick\":{},\"analysisPick\":{},\"better\":{better},\"pv\":{},\"outcomes\":[{}]}}",
-                jstr(&choice_label(d, o.choice)),
+                jstr(&choice_label(&app.state, d, o.choice)),
                 o.ev,
                 o.exact,
                 Some(o.choice) == pick,
@@ -1377,12 +1408,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 16 != 0 {
         v.push(cards::CardSet::Alchemy);
     }
+    if sets_mask & 32 != 0 {
+        v.push(cards::CardSet::Promo);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1617,6 +1651,7 @@ fn render_event(e: &Event) -> String {
         Event::Topdeck { player, card } => format!("Player {} puts {} on top of their deck", player + 1, cards::name(card)),
         Event::Reveal { player, card } => format!("Player {} reveals {}", player + 1, cards::name(card)),
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
+        Event::StartPlay { player, source, card } => format!("Player {}'s {} plays {}", player + 1, cards::name(source), cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
         Event::Pass { player, card, to } => format!("Player {} passes {} to Player {}", player + 1, cards::name(card), to + 1),
         Event::GameOver => "--- Game over ---".to_string(),
@@ -1696,6 +1731,7 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::Either(a, b) => (format!("a {} or {}", cards::name(a), cards::name(b)), format!("{}s and {}s", cards::name(a), cards::name(b))),
         Filter::NonAction => ("a non-Action card".into(), "non-Action cards".into()),
         Filter::ActionNot(c) => (format!("an Action card other than {}", cards::name(c)), format!("Action cards other than {}", cards::name(c))),
+        Filter::ActionCostUpTo(n) => (format!("an Action card costing up to ${n}"), format!("Action cards costing up to ${n}")),
     }
 }
 
@@ -1781,6 +1817,9 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Trash => format!("Trash {card}?"),
                 Act::Topdeck => format!("Put {card} onto your deck?"),
                 Act::Play => format!("You may play {card}. Play it?"),
+                Act::SetAside if d.subject == id::PRINCE => {
+                    "You may set Prince aside, with an Action card from your hand costing up to $4 that it plays at the start of each of your turns. Set it aside?".to_string()
+                }
                 Act::SetAside => format!("You may set aside {card} (skip drawing it). Set it aside?"),
                 Act::Gain => format!("Gain {card}?"),
                 Act::Reveal => format!("Reveal {card}?"),
@@ -1797,6 +1836,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
             };
             format!("Choose {what}:")
         }
+        DecisionKind::StartOrder => "Choose which start-of-turn effect resolves next.".to_string(),
         DecisionKind::Name => "Name a card.".to_string(),
         DecisionKind::DeckPosition { max_known } => {
             if max_known == 0 {
@@ -1817,7 +1857,40 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-fn choice_label(d: &Decision, c: Choice) -> String {
+/// The label of one start-of-turn effect in a `DecisionKind::StartOrder` choice ("Sea Witch: +2
+/// Cards, then discard 2", "Haven: put Gold into your hand", "Prince: play Smithy"). `name` is
+/// the choice's card; the pending effect it stands for is looked up in the turn's list.
+fn start_effect_label(state: &GameState, name: cards::CardId) -> String {
+    let list = state.turn.start_pending.as_slice();
+    let entry = list.iter().find(|e| if e.card == id::PRINCE { e.arg == name } else { e.card == name });
+    if entry.is_some_and(|e| e.card == id::PRINCE) {
+        return format!("Prince: play {}", cards::name(name));
+    }
+    let card = cards::name(name);
+    let arg = entry.map(|e| e.arg).filter(|&a| a != 0).map(cards::name).unwrap_or("its card");
+    match name {
+        id::HAVEN | id::BLOCKADE => format!("{card}: put {arg} into your hand"),
+        id::PIRATE => format!("{card}: gain a Treasure costing up to $6 to your hand"),
+        id::SEA_WITCH => format!("{card}: +2 Cards, then discard 2"),
+        id::TIDE_POOLS => format!("{card}: discard 2 cards"),
+        id::SAILOR => format!("{card}: +$2, then you may trash a card from your hand"),
+        id::CLERK => format!("{card}: you may play it from your hand"),
+        _ => {
+            let (cards_n, actions, buys, coins) = cards::duration_bonus(name);
+            let mut parts: Vec<String> = Vec::new();
+            if cards_n > 0 {
+                parts.push(format!("+{cards_n} Card{}", if cards_n == 1 { "" } else { "s" }));
+            }
+            let bonus = bonus_text(actions, buys, coins as u16, 0, false);
+            if !bonus.is_empty() {
+                parts.push(bonus);
+            }
+            if parts.is_empty() { card.to_string() } else { format!("{card}: {}", parts.join(", ")) }
+        }
+    }
+}
+
+fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
     if let Some((src, card, act)) = gain_reaction(d) {
         return match c {
             Choice::Card(_) if act == Act::Trash => format!("Reveal {}: trash {}", cards::name(src), cards::name(card)),
@@ -1857,6 +1930,7 @@ fn choice_label(d: &Decision, c: Choice) -> String {
                 DecisionKind::YesNo { .. } => name.to_string(),
                 DecisionKind::Mode { .. } => name.to_string(),
                 DecisionKind::Name => format!("Name {name}"),
+                DecisionKind::StartOrder => start_effect_label(state, card),
                 DecisionKind::DeckPosition { .. } => name.to_string(),
             }
         }
@@ -1967,6 +2041,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
+            "\"princeCards\":{prince_cards},\"princesEmpty\":{princes_empty},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         p = p,
@@ -1983,6 +2058,8 @@ fn player_json(state: &GameState, p: usize) -> String {
         durations = durations_json(state, p),
         nv_mat = counts_json(&ps.native_village_mat.counts()),
         island_mat = counts_json(&ps.island_mat.counts()),
+        prince_cards = counts_json(&ps.prince_cards.counts()),
+        princes_empty = ps.princes_empty,
         vp = ps.vp(),
         vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,
@@ -2018,7 +2095,7 @@ fn pending_json(state: &GameState) -> String {
         .as_slice()
         .iter()
         .enumerate()
-        .map(|(i, &c)| format!("{{\"index\":{i},\"label\":{}}}", jstr(&choice_label(&d, c))))
+        .map(|(i, &c)| format!("{{\"index\":{i},\"label\":{}}}", jstr(&choice_label(state, &d, c))))
         .collect();
     format!(
         "{{\"player\":{},\"source\":{},\"description\":{},\"choices\":[{}]}}",

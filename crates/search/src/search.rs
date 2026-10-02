@@ -705,6 +705,8 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::DeckPosition { .. }, Choice::Position(0)) => "on top".to_string(),
         (DecisionKind::DeckPosition { .. }, Choice::Position(k)) => format!("below the {k}th known card"),
         (DecisionKind::DeckPosition { .. }, _) => "?".to_string(),
+        (DecisionKind::StartOrder, Choice::Card(c)) => format!("Start of turn: resolve {} first", cards::name(c)),
+        (DecisionKind::StartOrder, _) => "?".to_string(),
     };
     let choice_card = match choice {
         Choice::Card(c) => Some(c),

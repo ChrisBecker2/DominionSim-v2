@@ -230,6 +230,19 @@ pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
             | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
     ) || (matches!(d.kind, DecisionKind::Mode { .. }) && d.player == turn_player)
         || is_treasure_effect_decision(turn_player, d)
+        || is_start_effect_decision(turn_player, d)
+}
+
+/// A choice the turn player makes about the start of their own turn: the order the start-of-turn
+/// effects resolve in (`DecisionKind::StartOrder`: a Haven's card returned before a Sea Witch
+/// discards keeps it, a Sailor trashes after the draws). Searched like the play order.
+///
+/// Prince's own choices (set it aside, and which Action it holds) are not: a search that ends with
+/// this turn can't see what a card played at the start of every later turn is worth, so it
+/// would pick on this turn's tie-breaks alone. The bot follows its rules for them
+/// (`Strategy::choose_prince_card`).
+pub fn is_start_effect_decision(turn_player: u8, d: &Decision) -> bool {
+    d.player == turn_player && d.kind == DecisionKind::StartOrder
 }
 
 /// A choice the turn player makes while one of their Treasures resolves (Investment's trash and
@@ -276,6 +289,22 @@ pub fn search_play_choice(strategy: &Strategy, view: &PlayerView) -> Option<Choi
             }
         }
         last
+    })
+}
+
+/// `search_play_choice` for the start-of-turn decisions (the order of the start-of-turn effects,
+/// Prince's choices): only the small node budget, and only an exact answer counts. The rules'
+/// default order (cards back into the hand first, discards and trashes last) is right in nearly
+/// every position, so a turn too big to solve within the small budget is not worth the larger one.
+pub fn search_start_choice(strategy: &Strategy, view: &PlayerView) -> Option<Choice> {
+    let world = view.determinize(&mut Rng::new(view.stable_seed()));
+    let eval = GainListEvaluator::new(strategy);
+    PLAY_SEARCHER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let searcher = slot.get_or_insert_with(|| Searcher::new(PLAY_TT_BITS));
+        let cfg = SearchConfig { node_budget: PLAY_BUDGETS[0], tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
+        let (choice, _, exact) = searcher.best_choice(&world, view.me(), &cfg, &eval)?;
+        exact.then_some(choice)
     })
 }
 

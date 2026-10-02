@@ -91,6 +91,8 @@ pub struct EvolveConfig {
     pub max_gain_rules: usize,
     pub max_play_rules: usize,
     pub max_trash_rules: usize,
+    /// Most `[[mode]]` rules (a choose-one card's stated option, e.g. Investment's trash-for-VP).
+    pub max_mode_rules: usize,
     pub max_conds: usize,
     pub hall_of_fame: usize,
 }
@@ -125,6 +127,7 @@ impl Default for EvolveConfig {
             max_gain_rules: 10,
             max_play_rules: 5,
             max_trash_rules: 4,
+            max_mode_rules: 3,
             max_conds: 2,
             hall_of_fame: 20,
         }

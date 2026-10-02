@@ -12,9 +12,13 @@ pub struct SearchSpace {
     pub trashable: Vec<CardId>,
     /// Cards the candidate must never gain (written as `never_gain` so forced gains respect it too).
     pub forbidden: Vec<CardId>,
+    /// Cards with a choose-one effect (`cards::modes` non-empty) in the kingdom pool: the only
+    /// cards a `[[mode]]` rule may name.
+    pub modal: Vec<CardId>,
     pub max_gain_rules: usize,
     pub max_play_rules: usize,
     pub max_trash_rules: usize,
+    pub max_mode_rules: usize,
     pub max_conds: usize,
 }
 
@@ -27,9 +31,11 @@ impl SearchSpace {
             gainable,
             trashable: vec![id::CURSE, id::ESTATE, id::COPPER, id::SILVER],
             forbidden: forbidden.to_vec(),
+            modal: kingdom_pool.iter().copied().filter(|&c| !cards::modes(c).is_empty() && !forbidden.contains(&c)).collect(),
             max_gain_rules: 10,
             max_play_rules: 5,
             max_trash_rules: 4,
+            max_mode_rules: 3,
             max_conds: 2,
         }
     }
@@ -44,6 +50,7 @@ impl SearchSpace {
             List::Gain => self.max_gain_rules,
             List::Play => self.max_play_rules,
             List::Trash => self.max_trash_rules,
+            List::Mode => self.max_mode_rules,
         }
     }
 
@@ -55,7 +62,9 @@ impl SearchSpace {
         let gained: Vec<CardId> = g.gain.iter().map(|r| r.card).collect();
         g.play.retain(|r| cards::is(r.card, ACTION) && gained.contains(&r.card));
         g.trash.retain(|r| self.trashable.contains(&r.card));
-        for list in [List::Gain, List::Play, List::Trash] {
+        // A mode rule needs a card the strategy gains, offered in this kingdom pool, and a real option.
+        g.mode.retain(|r| self.modal.contains(&r.card) && gained.contains(&r.card) && (r.opt as usize) < cards::modes(r.card).len());
+        for list in List::ALL {
             let max = self.max_rules(list);
             let rules = g.list_mut(list);
             for r in rules.iter_mut() {

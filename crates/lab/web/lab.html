@@ -205,6 +205,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
             <label>Max gain rules <input type="number" id="cfg-max_gain_rules" min="1"></label>
             <label>Max play rules <input type="number" id="cfg-max_play_rules" min="0"></label>
             <label>Max trash rules <input type="number" id="cfg-max_trash_rules" min="0"></label>
+            <label>Max mode rules <input type="number" id="cfg-max_mode_rules" min="0"></label>
             <label>Max conditions/rule <input type="number" id="cfg-max_conds" min="0"></label>
             <label>Max turns <input type="number" id="cfg-max_turns" min="1"></label>
             <label>Hall of fame size <input type="number" id="cfg-hall_of_fame" min="1"></label>
@@ -359,7 +360,7 @@ var form = {
     generations: 100, islands: 4, island_size: 32, stall_generations: 30, parsimony: 0.2, seed: 1,
     race_games: "1000,4000,16000", race_keep: 0.25, elite: 3, tournament: 3, crossover_rate: 0.2,
     migration_interval: 10, validate_every: 10, validate_games: 20000, polish_games: 20000,
-    max_gain_rules: 10, max_play_rules: 5, max_trash_rules: 4, max_conds: 2, max_turns: 60,
+    max_gain_rules: 10, max_play_rules: 5, max_trash_rules: 4, max_mode_rules: 3, max_conds: 2, max_turns: 60,
     hall_of_fame: 20,
   },
   validate_full: false,
@@ -400,6 +401,7 @@ function applyRequestToForm(req) {
   n.max_gain_rules = cfg.max_gain_rules != null ? cfg.max_gain_rules : n.max_gain_rules;
   n.max_play_rules = cfg.max_play_rules != null ? cfg.max_play_rules : n.max_play_rules;
   n.max_trash_rules = cfg.max_trash_rules != null ? cfg.max_trash_rules : n.max_trash_rules;
+  n.max_mode_rules = cfg.max_mode_rules != null ? cfg.max_mode_rules : n.max_mode_rules;
   n.max_conds = cfg.max_conds != null ? cfg.max_conds : n.max_conds;
   n.max_turns = cfg.max_turns != null ? cfg.max_turns : n.max_turns;
   n.hall_of_fame = cfg.hall_of_fame != null ? cfg.hall_of_fame : n.hall_of_fame;
@@ -533,6 +535,7 @@ function buildRequest() {
     max_gain_rules: Math.max(1, Math.round(n.max_gain_rules)),
     max_play_rules: Math.max(0, Math.round(n.max_play_rules)),
     max_trash_rules: Math.max(0, Math.round(n.max_trash_rules)),
+    max_mode_rules: Math.max(0, Math.round(n.max_mode_rules)),
     max_conds: Math.max(0, Math.round(n.max_conds)),
     hall_of_fame: Math.max(1, Math.round(n.hall_of_fame)),
   };

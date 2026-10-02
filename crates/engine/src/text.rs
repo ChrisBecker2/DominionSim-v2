@@ -611,6 +611,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         gained_victory_in_buy: false,
         treasury_offered: false,
         blockading_curse: false,
+        used_up: SmallMultiset::EMPTY,
     };
 
     // Player blocks.

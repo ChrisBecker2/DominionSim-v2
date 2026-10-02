@@ -292,6 +292,10 @@ impl Strategy {
                 return c;
             }
         }
+        // Stated rules come before any search.
+        if let Some(c) = self.stated_effect_choice(view, decision, choices) {
+            return c;
+        }
         // Choices inside a Treasure being played (Investment, Crystal Ball, Anvil) change which
         // Treasures are left to play: searched like the play order when `search_play` is on.
         if self.search_play && view.is_my_turn() && crate::eval::is_treasure_effect_decision(view.me(), decision) && choices.len() > 1 {
@@ -967,6 +971,26 @@ impl Strategy {
             }
         }
         self.default_mode(view, card, choices)
+    }
+
+    /// A choice dictated by a stated rule, for decisions a search would otherwise take over:
+    /// a matching `[[mode]]` rule, or (inside a Treasure's effect: Investment, Crystal Ball) a
+    /// hand trash when the `[[trash]]` rules want one of the offered cards gone.
+    pub fn stated_effect_choice(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        match decision.kind {
+            DecisionKind::Mode { .. } => self.stated_mode_rule(view, decision.source?, choices),
+            DecisionKind::Select { from: Zone::Hand, act: Act::Trash, filter, min, max, ordered }
+                if decision.source.is_some_and(|c| cards::is(c, TREASURE)) && iter_cards(choices).any(|c| self.wants_trash(view, c)) =>
+            {
+                Some(self.choose_trash(view, decision, choices, Zone::Hand, filter, min, max, ordered))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a `[[mode]]` rule names `card`.
+    pub fn states_mode(&self, card: CardId) -> bool {
+        self.mode.iter().any(|(c, _, _)| *c == card)
     }
 
     /// A matching stated `[[mode]]` rule, if any, in priority order.

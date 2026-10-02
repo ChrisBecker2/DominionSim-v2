@@ -523,6 +523,11 @@ pub struct TurnState {
     /// itself. Transient mid-resolution bookkeeping (never a text-format rest state, like
     /// `multiplier_card`): always false at any point the text format could observe.
     pub blockading_curse: bool,
+    /// Cards that trashed themselves as part of their own effect this turn (Investment's
+    /// trash-for-VP, Mining Village's +$2, Treasure Map): used, not lost. Lets a scoring
+    /// function (the bots' `GainListEvaluator`) tell "used up" from "had a card taken". Tiny
+    /// fixed record, per-turn bookkeeping, not part of the text format (reset on load).
+    pub used_up: SmallMultiset<4>,
 }
 
 impl TurnState {
@@ -554,6 +559,7 @@ impl TurnState {
             gained_victory_in_buy: false,
             treasury_offered: false,
             blockading_curse: false,
+            used_up: SmallMultiset::EMPTY,
         }
     }
 }

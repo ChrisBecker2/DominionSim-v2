@@ -47,6 +47,8 @@ pub struct Atom {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Rule {
     pub card: CardId,
+    /// Which of `cards::modes(card)` a `[[mode]]` rule chooses (0 and unused in other lists).
+    pub opt: u8,
     pub conds: Vec<Atom>,
 }
 
@@ -56,6 +58,12 @@ pub enum List {
     Gain,
     Play,
     Trash,
+    /// `[[mode]]` rules: which option a choose-one card (Investment, Steward, Pawn...) takes.
+    Mode,
+}
+
+impl List {
+    pub const ALL: [List; 4] = [List::Gain, List::Play, List::Trash, List::Mode];
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -64,6 +72,8 @@ pub struct Genome {
     pub play: Vec<Rule>,
     /// Stated trash rules; the engine appends its defaults (Curse, Estate, Copper) after them.
     pub trash: Vec<Rule>,
+    /// Stated mode rules: the card, the option to choose (`Rule::opt`), and when.
+    pub mode: Vec<Rule>,
     pub keep_treasure: u8,
 }
 
@@ -176,7 +186,7 @@ impl Atom {
 
 impl Rule {
     pub fn new(card: CardId) -> Rule {
-        Rule { card, conds: Vec::new() }
+        Rule { card, opt: 0, conds: Vec::new() }
     }
 
     pub fn cond_text(&self) -> Option<String> {
@@ -191,7 +201,7 @@ impl Rule {
                 conds.push(Atom::parse(part)?);
             }
         }
-        Ok(Rule { card, conds })
+        Ok(Rule { card, opt: 0, conds })
     }
 }
 
@@ -217,6 +227,18 @@ struct RawRule {
 }
 
 #[derive(Deserialize)]
+struct RawMode {
+    card: String,
+    choose: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
+fn norm_label(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect()
+}
+
+#[derive(Deserialize)]
 #[serde(untagged)]
 enum RawRules {
     Names(Vec<String>),
@@ -232,6 +254,8 @@ struct RawFile {
     play: Option<RawRules>,
     #[serde(default)]
     trash: Vec<RawRule>,
+    #[serde(default)]
+    mode: Vec<RawMode>,
     trash_priority: Option<Vec<String>>,
     keep_treasure: Option<u8>,
 }
@@ -251,7 +275,17 @@ impl Genome {
             Some(names) => names.iter().map(|n| Rule::parse(n, None)).collect::<Result<_, _>>()?,
             None => rules(&raw.trash)?,
         };
-        Ok(Genome { gain, play, trash, keep_treasure: raw.keep_treasure.unwrap_or(2) })
+        let mut mode = Vec::new();
+        for m in &raw.mode {
+            let mut r = Rule::parse(&m.card, m.cond.as_deref())?;
+            let want = norm_label(&m.choose);
+            r.opt = cards::modes(r.card)
+                .iter()
+                .position(|o| norm_label(&o.label()) == want)
+                .ok_or_else(|| format!("unknown mode choice {:?} for {}", m.choose, m.card))? as u8;
+            mode.push(r);
+        }
+        Ok(Genome { gain, play, trash, mode, keep_treasure: raw.keep_treasure.unwrap_or(2) })
     }
 
     /// Rules plus condition atoms: the complexity charged by the parsimony penalty.
@@ -260,7 +294,7 @@ impl Genome {
     }
 
     pub fn lists(&self) -> impl Iterator<Item = (List, &Vec<Rule>)> {
-        [(List::Gain, &self.gain), (List::Play, &self.play), (List::Trash, &self.trash)].into_iter()
+        [(List::Gain, &self.gain), (List::Play, &self.play), (List::Trash, &self.trash), (List::Mode, &self.mode)].into_iter()
     }
 
     pub fn list_mut(&mut self, list: List) -> &mut Vec<Rule> {
@@ -268,6 +302,7 @@ impl Genome {
             List::Gain => &mut self.gain,
             List::Play => &mut self.play,
             List::Trash => &mut self.trash,
+            List::Mode => &mut self.mode,
         }
     }
 
@@ -281,9 +316,12 @@ impl Genome {
         let fmt = |rules: &[Rule]| {
             rules
                 .iter()
-                .map(|r| match r.cond_text() {
-                    Some(c) => format!("{} [{c}]", cards::name(r.card)),
-                    None => cards::name(r.card).to_string(),
+                .map(|r| {
+                    let name = cards::name(r.card);
+                    match r.cond_text() {
+                        Some(c) => format!("{name} [{c}]"),
+                        None => name.to_string(),
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join(" > ")
@@ -294,6 +332,21 @@ impl Genome {
         }
         if !self.trash.is_empty() {
             let _ = write!(s, " | trash {}", fmt(&self.trash));
+        }
+        if !self.mode.is_empty() {
+            let modes = self
+                .mode
+                .iter()
+                .map(|r| {
+                    let label = mode_label(r);
+                    match r.cond_text() {
+                        Some(c) => format!("{}: {label} [{c}]", cards::name(r.card)),
+                        None => format!("{}: {label}", cards::name(r.card)),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" > ");
+            let _ = write!(s, " | mode {modes}");
         }
         s
     }
@@ -323,6 +376,7 @@ impl Genome {
                 List::Gain => "gain",
                 List::Play => "play",
                 List::Trash => "trash",
+                List::Mode => "mode",
             };
             for (i, r) in rules.iter().enumerate() {
                 s.push('\n');
@@ -331,6 +385,9 @@ impl Genome {
                 }
                 let _ = writeln!(s, "[[{table}]]");
                 let _ = writeln!(s, "card = {}", quote(cards::name(r.card)));
+                if list == List::Mode {
+                    let _ = writeln!(s, "choose = {}", quote(&mode_label(r)));
+                }
                 if let Some(c) = r.cond_text() {
                     let _ = writeln!(s, "if = {}", quote(&c));
                 }
@@ -338,6 +395,11 @@ impl Genome {
         }
         s
     }
+}
+
+/// The label of the option a mode rule chooses (as `choose = "..."` writes it).
+fn mode_label(r: &Rule) -> String {
+    cards::modes(r.card).get(r.opt as usize).map(|o| o.label()).unwrap_or_default()
 }
 
 fn quote(s: &str) -> String {
@@ -354,22 +416,27 @@ mod tests {
         let g = Genome {
             gain: vec![
                 Rule::new(id::PROVINCE),
-                Rule { card: id::DUCHY, conds: vec![Atom { var: Var::ProvincesLeft, op: Op::Lt, n: 5 }] },
-                Rule { card: id::MOAT, conds: vec![Atom { var: Var::Count(id::MOAT), op: Op::Lt, n: 2 }, Atom { var: Var::MyTurn, op: Op::Ge, n: 3 }] },
+                Rule { card: id::DUCHY, opt: 0, conds: vec![Atom { var: Var::ProvincesLeft, op: Op::Lt, n: 5 }] },
+                Rule { card: id::MOAT, opt: 0, conds: vec![Atom { var: Var::Count(id::MOAT), op: Op::Lt, n: 2 }, Atom { var: Var::MyTurn, op: Op::Ge, n: 3 }] },
                 Rule::new(id::GOLD),
                 Rule::new(id::SILVER),
             ],
             play: vec![Rule::new(id::MOAT)],
             trash: vec![],
+            mode: vec![
+                Rule { card: id::INVESTMENT, opt: 1, conds: vec![Atom { var: Var::ProvincesLeft, op: Op::Lt, n: 4 }] },
+                Rule { card: id::STEWARD, opt: 1, conds: vec![] },
+            ],
             keep_treasure: 3,
         };
         let meta = TomlMeta { name: "Test".into(), never_gain: vec![id::WITCH], header: vec!["hello".into()], ..Default::default() };
         let text = g.to_toml(&meta);
         assert!(text.contains("if = \"provinces_left <= 4\""), "{text}");
         assert!(text.contains("if = \"count(Moat) < 2 and my_turn >= 3\""), "{text}");
+        assert!(text.contains("[[mode]]\ncard = \"Investment\"\nchoose = \"Trash this for +1 VP per Treasure type in hand\"\nif = \"provinces_left <= 3\""), "{text}");
         dominion_sim::Strategy::parse(&text).unwrap();
         assert_eq!(Genome::from_toml(&text).unwrap(), g);
-        assert_eq!(g.size(), 5 + 1 + 3);
+        assert_eq!(g.size(), 5 + 1 + 3 + 2 + 1);
     }
 
     #[test]

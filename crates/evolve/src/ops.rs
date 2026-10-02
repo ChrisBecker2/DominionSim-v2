@@ -19,9 +19,9 @@ pub fn big_money() -> Genome {
     Genome {
         gain: vec![
             Rule::new(id::PROVINCE),
-            Rule { card: id::DUCHY, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 5)] },
+            Rule { card: id::DUCHY, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 5)] },
             Rule::new(id::GOLD),
-            Rule { card: id::ESTATE, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 3)] },
+            Rule { card: id::ESTATE, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 3)] },
             Rule::new(id::SILVER),
         ],
         keep_treasure: 2,
@@ -35,7 +35,7 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
     let mut g = big_money();
     let gold = g.gain.iter().position(|r| r.card == id::GOLD).unwrap_or(1);
     for (k, &(c, n)) in xs.iter().enumerate() {
-        g.gain.insert(gold + k, Rule { card: c, conds: vec![cond(Var::Count(c), Op::Lt, n)] });
+        g.gain.insert(gold + k, Rule { card: c, opt: 0, conds: vec![cond(Var::Count(c), Op::Lt, n)] });
         if cards::is(c, ACTION) {
             g.play.push(Rule::new(c));
         }
@@ -101,9 +101,18 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
             pick(rng, &actions)
         }
         List::Trash => pick(rng, &space.trashable),
+        List::Mode => {
+            if space.modal.is_empty() {
+                return None;
+            }
+            pick(rng, &space.modal)
+        }
     };
     let mut r = Rule::new(card);
-    let p_cond = if list == List::Gain && card >= cards::FIRST_KINGDOM { 0.8 } else { 0.3 };
+    if list == List::Mode {
+        r.opt = rng.below(cards::modes(card).len() as u32) as u8;
+    }
+    let p_cond = if list == List::Gain && card >= cards::FIRST_KINGDOM { 0.8 } else if list == List::Mode { 0.6 } else { 0.3 };
     if rng.chance(p_cond) {
         r.conds.push(random_atom(space, rng, card));
     }
@@ -113,10 +122,12 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
 /// Apply one random mutation. Returns a short description (for logs).
 pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'static str {
     // The gain list carries most of a strategy, so it gets most of the attention.
-    let list = match rng.below(10) {
-        0..=6 => List::Gain,
-        7..=8 => List::Play,
-        _ => List::Trash,
+    let list = match rng.below(20) {
+        0..=13 => List::Gain,
+        14..=16 => List::Play,
+        17..=18 => List::Trash,
+        _ if !space.modal.is_empty() => List::Mode,
+        _ => List::Gain,
     };
     let max = space.max_rules(list);
     let len = g.list_mut(list).len();
@@ -149,6 +160,7 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
                 let rule = &mut g.list_mut(list)[at];
                 let old = rule.card;
                 rule.card = r.card;
+                rule.opt = r.opt;
                 // Conditions on the rule's own count follow the card.
                 for a in rule.conds.iter_mut() {
                     if a.var == Var::Count(old) {
@@ -157,6 +169,13 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
                 }
                 return "change card";
             }
+        }
+        // change a mode rule's option
+        4 if list == List::Mode && len > 0 => {
+            let at = rng.below(len as u32) as usize;
+            let rule = &mut g.mode[at];
+            rule.opt = rng.below(cards::modes(rule.card).len() as u32) as u8;
+            return "change mode option";
         }
         4 if list != List::Gain => {
             if list == List::Trash || rng.chance(0.5) {
@@ -227,6 +246,7 @@ pub fn crossover(a: &Genome, b: &Genome, space: &SearchSpace, rng: &mut Rng) -> 
         gain,
         play: if rng.chance(0.5) { a.play.clone() } else { b.play.clone() },
         trash: if rng.chance(0.5) { a.trash.clone() } else { b.trash.clone() },
+        mode: if rng.chance(0.5) { a.mode.clone() } else { b.mode.clone() },
         keep_treasure: if rng.chance(0.5) { a.keep_treasure } else { b.keep_treasure },
     };
     // Keep play rules for any action the child now gains but neither list mentions.

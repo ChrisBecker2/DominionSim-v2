@@ -266,14 +266,16 @@ deck top: Copper, Copper, Copper
 deck: 3 Estate
 set aside: Gold
 durations: Haven (Gold), Sea Witch
-prince: Smithy, nothing
+prince: Smithy
+in play: Prince
+prince stays: Prince
 
 [player 2]
 hand: 5 Copper
 deck: 2 Copper, 3 Estate
 `);
   let v = I.view();
-  check("view shows the Prince mat", v.players[0].princeCards.length === 1 && v.players[0].princeCards[0].name === "Smithy" && v.players[0].princesEmpty === 1,
+  check("view shows the Prince mat", v.players[0].princeCards.length === 1 && v.players[0].princeCards[0].name === "Smithy",
     JSON.stringify(v.players[0].princeCards));
   I.w.resume();
   v = I.view();

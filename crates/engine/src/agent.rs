@@ -138,14 +138,10 @@ impl<'a> PlayerView<'a> {
     pub fn island_mat_of(&self, p: u8) -> Counts {
         self.state.players[p as usize].island_mat.counts()
     }
-    /// The Action cards held by `p`'s set-aside Princes (Promo): public. Each is played at the
-    /// start of `p`'s turns.
+    /// The Action cards set aside by `p`'s Princes (Promo): public. Each is played at the start of
+    /// `p`'s turns.
     pub fn prince_cards_of(&self, p: u8) -> Counts {
         self.state.players[p as usize].prince_cards.counts()
-    }
-    /// How many of `p`'s set-aside Princes hold no card.
-    pub fn princes_empty_of(&self, p: u8) -> u8 {
-        self.state.players[p as usize].princes_empty
     }
 
     /// If gaining `card` now would end the game at the end of this turn (last Province, or the

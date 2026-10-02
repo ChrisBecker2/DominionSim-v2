@@ -364,12 +364,6 @@ impl Strategy {
                 Act::Play => Choice::Yes,
                 // Library: skip (set aside) an Action only when there's no room left to play
                 // more actions this turn; otherwise keep it.
-                Act::SetAside if decision.subject == id::PRINCE => {
-                    // Prince: set it aside when there is an Action costing up to $4 in hand for it
-                    // to hold (it is then played at the start of every turn); else keep it in play.
-                    let eligible = view.hand().iter().any(|(c, _)| prince_can_hold(view, c));
-                    if eligible { Choice::Yes } else { Choice::No }
-                }
                 Act::SetAside => {
                     if view.turn().actions == 0 { Choice::Yes } else { Choice::No }
                 }
@@ -1318,23 +1312,13 @@ fn start_order_has_play(choices: &[Choice]) -> bool {
     iter_cards(choices).any(|c| c == id::CLERK || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
 }
 
-/// Whether a Prince could set aside `c` from the hand now: an Action costing up to $4 (current
-/// cost) with no Potion.
-fn prince_can_hold(view: &PlayerView, c: CardId) -> bool {
-    cards::is(c, ACTION) && view.cost(c) <= 4 && !cards::potion_cost(c)
-}
-
 /// How good a card is to have played free at the start of every turn: cards, actions, buys and
-/// coins it gives, a little for an Attack; a Duration stops after one play (it stays in play
-/// through its next turn instead of returning to its Prince), so those come last.
+/// coins it gives, a little for an Attack.
 fn prince_card_score(c: CardId) -> i32 {
     let d = cards::def(c);
     let mut s = 3 * d.cards as i32 + 2 * d.coins as i32 + 2 * d.actions as i32 + 2 * d.buys as i32;
     if cards::is(c, cards::ATTACK) {
         s += 3;
-    }
-    if cards::is(c, cards::DURATION) {
-        s -= 50;
     }
     s
 }

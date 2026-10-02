@@ -430,13 +430,15 @@ pub struct PlayerState {
     /// Outpost turn, so it can't grant a 3rd turn in a row) and any Throne Room / King's Court
     /// that played it ("If Outpost fails, you discard it during Clean-up of the next turn").
     pub discard_next_cleanup: DurationHeld,
-    /// Prince (Promo): the Action cards held by this player's set-aside Princes, one per Prince
-    /// (played at the start of each of their turns, `GameState::run_start_order`). Public; the
-    /// cards (and the Princes themselves) count as owned (`all_cards`/VP).
+    /// Prince (Promo): the Action cards set aside by this player's Princes (a Prince played with
+    /// Throne Room sets aside two). Each is played, without entering play, at the start of every
+    /// one of their turns after the one it was set aside on (`GameState::run_start_order`) and
+    /// never leaves. Public; they count as owned (`all_cards`/VP).
     pub prince_cards: SmallMultiset<PRINCE_CAP>,
-    /// Set-aside Princes holding nothing: set aside with no Action to take, or whose card left
-    /// play some other way, so the Prince stopped playing it.
-    pub princes_empty: u8,
+    /// The Princes (and Throne Rooms / King's Courts that played one) that hold cards and so stay
+    /// in play for the rest of the game: cleanup keeps this many of each in play. A Prince that
+    /// set nothing aside is discarded as usual.
+    pub prince_stays: SmallMultiset<3>,
 }
 
 impl PlayerState {
@@ -461,11 +463,7 @@ impl PlayerState {
         c.add_all(&self.held.counts());
         c.add_all(&self.native_village_mat.counts());
         c.add_all(&self.island_mat.counts());
-        let princes = self.prince_cards.total() + self.princes_empty as u32;
-        if princes > 0 {
-            c.add(id::PRINCE, princes.min(u8::MAX as u32) as u8);
-            c.add_all(&self.prince_cards.counts());
-        }
+        c.add_all(&self.prince_cards.counts());
         c
     }
     pub fn vp(&self) -> i32 {
@@ -604,9 +602,10 @@ pub struct TurnState {
     /// cards. Transient: only non-empty while `FrameKind::StartOrder` is on the stack, and shown in
     /// the text format's `durations:` line (see `text.rs`).
     pub start_pending: StartList,
-    /// Cards played this turn by a Prince at the start of the turn: at cleanup each one still in
-    /// play (and not held by a Duration) is set aside with its Prince again.
-    pub prince_played: DurationHeld,
+    /// True only while a card held by a Prince is being played at the start of the turn: it is not
+    /// in play, so its effects that move "this" (Mining Village trashing itself, Treasure Map,
+    /// Island) fail instead of moving a copy that happens to be in play.
+    pub prince_play: bool,
 }
 
 impl TurnState {
@@ -639,7 +638,7 @@ impl TurnState {
             treasury_offered: false,
             blockading_curse: false,
             start_pending: StartList::EMPTY,
-            prince_played: DurationHeld::EMPTY,
+            prince_play: false,
         }
     }
 }
@@ -699,7 +698,7 @@ pub enum Filter {
     TreasureOrCurse,
     /// Either of two specific cards (Apothecary: Copper or Potion).
     Either(CardId, CardId),
-    /// An Action card costing up to `n` coins and no Potion (Prince). The Select/Gain code checks
+    /// A non-Duration Action card costing up to `n` coins and no Potion (Prince). The Select code checks
     /// the *current* cost (`GameState::filter_ok`); `matches` can only use the printed cost.
     ActionCostUpTo(u8),
     /// Any card that isn't an Action (Scrying Pool's "until revealing a non-Action").
@@ -724,7 +723,9 @@ impl Filter {
             Filter::Either(a, b) => c == a || c == b,
             Filter::NonAction => !cards::is(c, cards::ACTION),
             Filter::ActionNot(x) => c != x && cards::is(c, cards::ACTION),
-            Filter::ActionCostUpTo(n) => cards::is(c, cards::ACTION) && cards::cost(c) <= n && !cards::potion_cost(c),
+            Filter::ActionCostUpTo(n) => {
+                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c)
+            }
         }
     }
 }
@@ -849,11 +850,9 @@ pub enum Then {
     /// cards in either order"). The others are held in their `PlayEffects` frames meanwhile, so
     /// nothing the first card does to the Revealed zone can disturb them.
     PlayPickedThenRest,
-    /// YesNo (Prince, `Act::SetAside`, zone `InPlay`): if yes, the Prince in play is set aside
-    /// (`PlayerState::princes_empty`) and a `Select` of an Action from hand costing up to $4 follows.
-    PrinceSetAside,
-    /// Select (Prince, `Act::SetAside`): the picked card, already in `set_aside`, is held by the
-    /// Prince just set aside (`PlayerState::prince_cards`); picking nothing leaves it empty.
+    /// Select (Prince, `Act::SetAside`, optional): the picked card, already in `set_aside`, is held
+    /// by the Prince (`PlayerState::prince_cards`), which then stays in play for the rest of the
+    /// game (`PlayerState::prince_stays`, with the Throne Room / King's Court playing it).
     PrinceHold,
 }
 

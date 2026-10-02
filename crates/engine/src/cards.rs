@@ -442,7 +442,7 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     alchemy(order_sensitive(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash (may be the +Actions card in hand)
     alchemy(potion_card(choice_free(c("Potion", 4, TREASURE, 0, 0, 0, 0, 0)))),
     // ---- Promo. ----
-    promo(order_sensitive(c("Prince", 8, ACTION, 0, 0, 0, 0, 0))), // sets itself and an Action costing up to $4 aside (may be the +Actions card in hand)
+    promo(order_sensitive(c("Prince", 8, ACTION, 0, 0, 0, 0, 0))), // sets a non-Duration Action costing up to $4 aside (may be the +Actions card in hand)
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.

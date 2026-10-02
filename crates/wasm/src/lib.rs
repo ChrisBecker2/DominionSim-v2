@@ -1817,9 +1817,6 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Trash => format!("Trash {card}?"),
                 Act::Topdeck => format!("Put {card} onto your deck?"),
                 Act::Play => format!("You may play {card}. Play it?"),
-                Act::SetAside if d.subject == id::PRINCE => {
-                    "You may set Prince aside, with an Action card from your hand costing up to $4 that it plays at the start of each of your turns. Set it aside?".to_string()
-                }
                 Act::SetAside => format!("You may set aside {card} (skip drawing it). Set it aside?"),
                 Act::Gain => format!("Gain {card}?"),
                 Act::Reveal => format!("Reveal {card}?"),
@@ -2041,7 +2038,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
-            "\"princeCards\":{prince_cards},\"princesEmpty\":{princes_empty},",
+            "\"princeCards\":{prince_cards},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         p = p,
@@ -2059,7 +2056,6 @@ fn player_json(state: &GameState, p: usize) -> String {
         nv_mat = counts_json(&ps.native_village_mat.counts()),
         island_mat = counts_json(&ps.island_mat.counts()),
         prince_cards = counts_json(&ps.prince_cards.counts()),
-        princes_empty = ps.princes_empty,
         vp = ps.vp(),
         vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,

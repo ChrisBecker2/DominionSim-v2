@@ -25,8 +25,10 @@
 //! start-of-turn resolution again with just those. What was already resolved before the save is
 //! not replayed. Gap: effects scheduled for the *next* turn during this one share that line, so a
 //! state saved mid-turn and reloaded fires them at the start of the reloaded turn (the same gap
-//! as for any Duration played earlier in the turn). `prince played:` (the cards a Prince played
-//! this turn, which go back to it at cleanup) is saved so a mid-turn save keeps it.
+//! as for any Duration played earlier in the turn). The Prince's holdings are saved per player:
+//! `prince:` lists the Action cards its Princes set aside, `prince stays:` the Princes (and Throne
+//! Rooms / King's Courts) that hold cards and so stay in play (cleanup keeps them). If a
+//! hand-written state has `prince:` but no `prince stays:`, one Prince in play is taken to hold them.
 //!
 //! `GameState`'s RNG (`rng: Rng`) cannot be read back out (its internal words are private to
 //! `rng.rs`), so the `seed:` line is not a faithful memento of prior randomness: parsing always
@@ -373,15 +375,6 @@ pub fn format_state(state: &GameState) -> String {
         }
         out.push_str(&format!("held: {}\n", format_counts(&held)));
     }
-    // Prince (Promo): the cards a Prince played at the start of this turn, which return to their
-    // Princes at cleanup; only while relevant.
-    if !state.turn.prince_played.is_empty() {
-        let mut played = Counts::EMPTY;
-        for (c, n) in state.turn.prince_played.iter() {
-            played.set(c, n);
-        }
-        out.push_str(&format!("prince played: {}\n", format_counts(&played)));
-    }
 
     for p in 0..n {
         out.push('\n');
@@ -420,17 +413,11 @@ pub fn format_state(state: &GameState) -> String {
         if !list.is_empty() {
             out.push_str(&format!("durations: {}\n", format_pending_durations(&list)));
         }
-        if ps.prince_cards.total() + ps.princes_empty as u32 > 0 {
-            let mut parts: Vec<String> = Vec::new();
-            if !ps.prince_cards.is_empty() {
-                parts.push(format_counts(&ps.prince_cards.counts()));
-            }
-            match ps.princes_empty {
-                0 => {}
-                1 => parts.push("nothing".to_string()),
-                n => parts.push(format!("{n} nothing")),
-            }
-            out.push_str(&format!("prince: {}\n", parts.join(", ")));
+        if !ps.prince_cards.is_empty() {
+            out.push_str(&format!("prince: {}\n", format_counts(&ps.prince_cards.counts())));
+        }
+        if !ps.prince_stays.is_empty() {
+            out.push_str(&format!("prince stays: {}\n", format_counts(&ps.prince_stays.counts())));
         }
         // Seaside step 4 mats/records: only while relevant, so Base-only (and most Seaside)
         // saves are unaffected.
@@ -506,7 +493,6 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut supply_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
     let mut held_val: Option<(usize, String)> = None;
-    let mut prince_played_val: Option<(usize, String)> = None;
     let mut seed_val: Option<(usize, String)> = None;
     let mut max_turns_val: Option<(usize, String)> = None;
     let mut turn_fields: Option<(usize, TurnFields)> = None;
@@ -536,7 +522,6 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
             "held" => held_val = Some((lineno, rest.to_string())),
-            "prince played" => prince_played_val = Some((lineno, rest.to_string())),
             "seed" => seed_val = Some((lineno, rest.to_string())),
             "max_turns" | "max turns" => max_turns_val = Some((lineno, rest.to_string())),
             "turn" => turn_fields = Some((lineno, parse_turn_line(line, lineno)?)),
@@ -658,20 +643,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // Transient (the start-of-turn effects are rebuilt when the turn starts, see
         // `push_turn_start_frames`).
         start_pending: StartList::EMPTY,
-        prince_played: match &prince_played_val {
-            Some((ln, s)) => {
-                let counts = parse_counts(s).map_err(|e| format!("line {ln}: {e}"))?;
-                if counts.iter().count() > 8 {
-                    return Err(format!("line {ln}: too many distinct cards in 'prince played'"));
-                }
-                let mut played = DurationHeld::EMPTY;
-                for (c, n) in counts.iter() {
-                    played.add(c, n);
-                }
-                played
-            }
-            None => DurationHeld::EMPTY,
-        },
+        prince_play: false,
     };
 
     // Player blocks.
@@ -762,21 +734,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         ps.pending_durations[i] = e;
                     }
                 }
-                "prince" => {
-                    // Cards held by set-aside Princes; `nothing` (or `2 nothing`) = Princes holding none.
-                    let mut cards_part: Vec<&str> = Vec::new();
-                    for part in split_parts(val) {
-                        let lower = part.to_lowercase();
-                        if let Some(count) = lower.strip_suffix("nothing") {
-                            let count = count.trim().trim_end_matches('x').trim();
-                            let k: u32 = if count.is_empty() { 1 } else { count.parse().map_err(|_| format!("line {ln2}: invalid prince entry '{part}'"))? };
-                            ps.princes_empty = (ps.princes_empty as u32 + k).min(u8::MAX as u32) as u8;
-                        } else {
-                            cards_part.push(part);
-                        }
-                    }
-                    ps.prince_cards = parse_small_multiset::<PRINCE_CAP>(&cards_part.join(", "), "prince").map_err(|e| format!("line {ln2}: {e}"))?;
-                }
+                "prince" => ps.prince_cards = parse_small_multiset::<PRINCE_CAP>(val, "prince").map_err(|e| format!("line {ln2}: {e}"))?,
+                "prince stays" => ps.prince_stays = parse_small_multiset::<3>(val, "prince stays").map_err(|e| format!("line {ln2}: {e}"))?,
                 "native village" => ps.native_village_mat = parse_small_multiset(val, "native village").map_err(|e| format!("line {ln2}: {e}"))?,
                 "island" => ps.island_mat = parse_small_multiset(val, "island").map_err(|e| format!("line {ln2}: {e}"))?,
                 "last turn gains" => ps.last_turn_gains = parse_small_multiset(val, "last turn gains").map_err(|e| format!("line {ln2}: {e}"))?,
@@ -790,6 +749,11 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         return Err(format!("expected {num_players} '[player N]' blocks, found {seen}"));
     }
 
+    for ps in state.players[..num_players].iter_mut() {
+        if ps.prince_stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
+            ps.prince_stays.add(cards::id::PRINCE, 1);
+        }
+    }
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).
     state.turn.played = state.players[state.turn.player as usize].in_play;

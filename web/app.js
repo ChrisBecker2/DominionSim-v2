@@ -474,16 +474,8 @@
       if (p.durations.length) panel.appendChild(durationsZone(p.durations));
       if (p.nativeVillageMat.length) panel.appendChild(zoneRow("Native Village mat", p.nativeVillageMat));
       if (p.islandMat.length) panel.appendChild(zoneRow("Island mat", p.islandMat));
-      if (p.princeCards.length || p.princesEmpty) {
-        // Set-aside Princes (public): each plays the card it holds at the start of the owner's turns.
-        const princes = zoneRow("Princes (set aside)", p.princeCards);
-        if (p.princesEmpty) {
-          const none = el("span", "empty", ` ${p.princeCards.length ? "+ " : ""}${p.princesEmpty} holding nothing`);
-          const e = princes.querySelector(".empty");
-          if (e) e.replaceWith(none); else princes.appendChild(none);
-        }
-        panel.appendChild(princes);
-      }
+      // Cards set aside by Princes (public): each is played at the start of the owner's turns.
+      if (p.princeCards.length) panel.appendChild(zoneRow("Set aside by Prince", p.princeCards));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 
       row.appendChild(panel);

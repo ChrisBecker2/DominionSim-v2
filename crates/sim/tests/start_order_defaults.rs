@@ -158,9 +158,10 @@ fn prince_sets_aside_the_strongest_action_it_can_hold() {
 }
 
 #[test]
-fn prince_stays_in_play_without_an_action_to_hold() {
+fn prince_never_offers_a_duration_and_holds_the_best_other_action() {
     let strat = load("big_money_ultimate.toml");
-    let text = state("hand: Prince, Gold, Estate");
+    // Caravan is a Duration: not eligible, so the Village is the card.
+    let text = state("hand: Prince, Caravan, Village, Gold");
     let mut g = parse_state(&text).unwrap();
     assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
     g.apply(Choice::Card(id::PRINCE), &mut NoEvents).unwrap();
@@ -168,10 +169,10 @@ fn prince_stays_in_play_without_an_action_to_hold() {
         Step::Decision(d) => d,
         s => panic!("{s:?}"),
     };
-    // Setting it aside would hold nothing: the bot keeps the Prince in play.
     let mut buf = ChoiceBuf::default();
     g.legal_choices(&mut buf);
-    assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::No);
+    assert_eq!(buf.as_slice(), &[Choice::Card(id::VILLAGE), Choice::Pass]);
+    assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Card(id::VILLAGE));
 }
 
 #[test]
@@ -195,7 +196,8 @@ fn a_prince_smithy_strategy_plays_whole_games() {
             assert!(g.is_game_over() && r.winners != 0);
             let me = if swap { 1 } else { 0 };
             let ps_ = &g.players[me];
-            if ps_.prince_cards.total() + ps_.princes_empty as u32 > 0 {
+            if ps_.prince_cards.total() > 0 {
+                assert!(ps_.in_play.has(id::PRINCE), "a Prince holding a card stays in play");
                 games_with_a_held_card += 1;
             }
             prince_turns += ps_.turns_taken as u32;

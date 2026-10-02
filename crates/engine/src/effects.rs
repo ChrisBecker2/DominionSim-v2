@@ -261,7 +261,8 @@ impl GameState {
                 zone: Zone::Hand, act: Discard, subject: id::ESTATE, then: Then::YesCoinsElseGainSubject(4),
                 ..Frame::new(K::YesNo, p, card)
             }),
-            id::MINING_VILLAGE => self.stack.push(Frame {
+            // A card a Prince plays isn't in play: it can't trash itself, so no +$2 either.
+            id::MINING_VILLAGE if !self.turn.prince_play => self.stack.push(Frame {
                 zone: Zone::InPlay, act: Trash, subject: card, then: Then::CoinsPerPick(2),
                 ..Frame::new(K::YesNo, p, card)
             }),
@@ -491,7 +492,7 @@ impl GameState {
                 // skips this part, matching the ruling ("the second play can't move Island
                 // again, but still moves another card").
                 let ps = &mut self.players[p as usize];
-                if ps.in_play.remove(id::ISLAND) {
+                if !self.turn.prince_play && ps.in_play.remove(id::ISLAND) {
                     ps.island_mat.add(id::ISLAND, 1);
                     sink.event(Event::SetAside { player: p, card: id::ISLAND });
                 }
@@ -502,7 +503,7 @@ impl GameState {
                 // 2nd edition: "this" (the physical copy in play) is trashed only if it's still
                 // in play — a 2nd Throne Room/King's Court resolution finds it already gone.
                 let ps = &mut self.players[p as usize];
-                let self_trashed = ps.in_play.remove(id::TREASURE_MAP);
+                let self_trashed = !self.turn.prince_play && ps.in_play.remove(id::TREASURE_MAP);
                 if self_trashed {
                     self.trash.add(id::TREASURE_MAP, 1);
                     sink.event(Event::Trash { player: p, card: id::TREASURE_MAP });
@@ -533,13 +534,12 @@ impl GameState {
                     self.push_duration_pending(p, card, 1, 0);
                 }
             }
-            // ---- Promo. "You may set this aside": a YesNo over the Prince in play (declined
-            // automatically when it's no longer there: Throne Room's second play). Yes sets it
-            // aside and picks an Action from hand costing up to $4 (`Then::PrinceHold`). ----
-            id::PRINCE => self.stack.push(Frame {
-                zone: Zone::InPlay, act: Act::SetAside, subject: card, then: Then::PrinceSetAside,
-                ..Frame::new(K::YesNo, p, card)
-            }),
+            // ---- Promo. "You may set aside a non-Duration Action from your hand costing $4 or
+            // less": an optional pick (`Then::PrinceHold`); a Prince that holds one stays in play.
+            // With Throne Room each play picks another. ----
+            id::PRINCE => self.stack.push(select(
+                p, card, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 0, 1, Then::PrinceHold,
+            )),
             // ---- Hidden information (step 4) ----
             id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
             id::SWINDLER => {
@@ -640,12 +640,12 @@ impl GameState {
         }
     }
 
-    /// An Action costing up to `n` now (Prince's pick: Bridge and Quarry count) with no Potion.
+    /// A non-Duration Action costing up to `n` now (Prince's pick: Bridge and Quarry count), no Potion.
     /// `Filter::matches` can only use the printed cost, so selections with this filter test it
     /// here. The selection helpers are generic over the test so every other filter keeps its
     /// plain `Filter::matches` loop.
     fn action_cost_ok(&self, n: u8, c: CardId) -> bool {
-        cards::is(c, ACTION) && self.cost(c) <= n && !cards::potion_cost(c)
+        cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.cost(c) <= n && !cards::potion_cost(c)
     }
 
     fn zone(&self, p: u8, z: Zone) -> &Counts {
@@ -995,7 +995,14 @@ impl GameState {
                 // Throne Room / King's Court stays in play with the Duration it played if *any*
                 // of its plays keeps that Duration in play ("even if only one play of the
                 // Duration card is keeping it in play, Throne Room stays in play with it").
-                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
+                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 && f.subject == id::PRINCE {
+                    // A Throne Room / King's Court whose Prince set cards aside stays in play with
+                    // it for the rest of the game ("both will stay in play").
+                    let ps = &mut self.players[p as usize];
+                    if ps.prince_stays.get(f.source) < ps.in_play.get(f.source) {
+                        ps.prince_stays.add(f.source, 1);
+                    }
+                } else if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
                     self.turn.duration_held.add(f.source, 1);
                     // An Outpost played during an Outpost turn fails (no 3rd turn in a row): the
                     // multiplier stays in play with it until the next turn's cleanup (`cleanup`).
@@ -1211,7 +1218,6 @@ impl GameState {
             }
             (K::Select, _) => self.finish_select(f, sink),
             (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
-            (K::YesNo, Choice::Yes) if f.then == Then::PrinceSetAside => self.prince_set_aside(f, sink),
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
                 if f.act != Act::Reveal {
@@ -1275,21 +1281,24 @@ impl GameState {
         }
     }
 
-    /// Prince, "set this aside": the Prince in play is set aside (empty for now), then an Action
-    /// from hand costing up to $4 is picked for it to hold.
+    /// Prince: the card just picked (in `set_aside`) is now held by the Prince, which stays in
+    /// play for good; the same for a Throne Room / King's Court playing it (counted in the
+    /// multiplier tally, see `FrameKind::MultiplierFinalize`).
     #[cold]
     #[inline(never)]
-    fn prince_set_aside<S: EventSink>(&mut self, f: Frame, sink: &mut S) {
-        self.stack.pop();
-        let p = f.player;
-        let ps = &mut self.players[p as usize];
-        if ps.in_play.remove(f.subject) {
-            ps.princes_empty += 1;
-            sink.event(Event::SetAside { player: p, card: f.subject });
-            self.stack.push(Frame {
-                depth: f.depth,
-                ..select(p, f.source, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 1, 1, Then::PrinceHold)
-            });
+    fn prince_hold(&mut self, f: Frame) {
+        let ps = &mut self.players[f.player as usize];
+        if !ps.set_aside.remove(f.last) {
+            return;
+        }
+        ps.prince_cards.add(f.last, 1);
+        // One slot per Prince physically in play: a Throne Room'd Prince holds two cards but is
+        // one card.
+        if ps.prince_stays.get(f.source) < ps.in_play.get(f.source) {
+            ps.prince_stays.add(f.source, 1);
+        }
+        if self.turn.multiplier_card != 0 {
+            self.turn.multiplier_successes += 1;
         }
     }
 
@@ -1366,7 +1375,7 @@ impl GameState {
                     // resolutions; one is enough). `MultiplierFinalize` sits below all `times`
                     // resolutions (and everything they push) and checks the tally once they've
                     // all unwound.
-                    if cards::is(f.last, cards::DURATION) {
+                    if cards::is(f.last, cards::DURATION) || f.last == id::PRINCE {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = times;
                         self.turn.multiplier_successes = 0;
@@ -1508,13 +1517,8 @@ impl GameState {
                 }
             }
             Then::PrinceHold => {
-                // The picked card moves from `set_aside` to the Prince just set aside (empty).
                 if f.count > 0 {
-                    let ps = &mut self.players[p as usize];
-                    if ps.princes_empty > 0 && ps.set_aside.remove(f.last) {
-                        ps.princes_empty -= 1;
-                        ps.prince_cards.add(f.last, 1);
-                    }
+                    self.prince_hold(f);
                 }
             }
             Then::TreasureMapGold => {
@@ -1532,7 +1536,6 @@ impl GameState {
             | Then::MoveMatchingToDiscard(_)
             | Then::ReactDrawDiscard { .. }
             | Then::SeaChartCheck
-            | Then::PrinceSetAside
             | Then::DiscardRevealedNotMatching => {}
         }
         // Frames spawned by finishing a selection belong to the same card effect.
@@ -1733,8 +1736,8 @@ impl GameState {
     /// Collect the start-of-turn effects of `self.turn.player`'s turn, which has just begun, into
     /// `TurnState::start_pending` and push the `FrameKind::StartOrder` frame that resolves them.
     /// The effects are: each pending Duration entry (moved out of `pending_durations`, so what
-    /// the turn schedules for the next one doesn't mix with them), one Prince entry per set-aside
-    /// card (`arg` = the card it plays; the card stays in `prince_cards` until it is played) and
+    /// the turn schedules for the next one doesn't mix with them), one Prince entry per card its
+    /// Princes hold (`arg` = the card it plays; the card stays in `prince_cards` for good) and
     /// Clerk ("you may play this from your hand", one merged entry for the copies in hand, which
     /// only counts those still in hand when it resolves). Called once, from `engine::run_phase`'s
     /// `Phase::Action` arm, before any `PlayAction` decision. Cheaply gated: games with none of
@@ -1853,17 +1856,14 @@ impl GameState {
                 }
             }
             id::PRINCE => {
-                // "Play that Action": it leaves the Prince's hold for play (the Prince stays set
-                // aside, empty, until the card is set aside again at cleanup) and resolves like
-                // any other play, without using an Action.
-                let ps = &mut self.players[p as usize];
-                if ps.prince_cards.remove(e.arg) {
-                    ps.princes_empty += 1;
-                    ps.in_play.add(e.arg, 1);
-                    self.turn.prince_played.add(e.arg, 1);
+                // "Play that Action": mandatory, uses no Action, and the card isn't put into play
+                // (it stays set aside, so a card that moves itself fails to: `prince_play`).
+                if self.players[p as usize].prince_cards.has(e.arg) {
                     sink.depth(0);
                     sink.event(Event::StartPlay { player: p, source: id::PRINCE, card: e.arg });
+                    self.turn.prince_play = true;
                     self.resolve_effects(e.arg, p, 0, sink);
+                    self.turn.prince_play = false;
                 }
             }
             _ => self.resolve_duration_start(p, e, sink),

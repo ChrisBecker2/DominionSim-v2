@@ -694,23 +694,13 @@ impl GameState {
         self.cleanup(sink);
     }
 
-    /// Cleanup, Prince (see the comment where it is called): `discard_part` is what would be
-    /// discarded from play; the cards going back to their Princes come out of it.
+    /// Cleanup, Prince: a Prince holding a card (and a Throne Room / King's Court that played it)
+    /// stays in play for the rest of the game; `kept` is what stays.
     #[cold]
     #[inline(never)]
-    fn prince_cleanup<S: EventSink>(&mut self, discard_part: &mut Counts, sink: &mut S) {
-        let p = self.turn.player;
-        let ps = &mut self.players[p as usize];
-        for (c, n) in self.turn.prince_played.iter() {
-            let back = n.min(discard_part.get(c)).min(ps.princes_empty);
-            if back > 0 {
-                discard_part.set(c, discard_part.get(c) - back);
-                ps.princes_empty -= back;
-                ps.prince_cards.add(c, back);
-                for _ in 0..back {
-                    sink.event(Event::SetAside { player: p, card: c });
-                }
-            }
+    fn prince_keep(&self, kept: &mut Counts, play: &Counts) {
+        for (c, n) in self.players[self.turn.player as usize].prince_stays.iter() {
+            kept.set(c, kept.get(c).saturating_add(n).min(play.get(c)));
         }
     }
 
@@ -772,16 +762,14 @@ impl GameState {
         for (c, n) in self.turn.duration_held.iter() {
             kept.set(c, n.min(play.get(c)));
         }
+        // Prince: a Prince holding a card (and the Throne Room / King's Court that played it)
+        // stays in play for the rest of the game.
+        if !self.players[p].prince_stays.is_empty() {
+            self.prince_keep(&mut kept, &play);
+        }
         let mut discard_part = play;
         for (c, _) in kept.iter() {
             discard_part.set(c, play.get(c) - kept.get(c));
-        }
-        // Prince: a card it played at the start of the turn and that is still in play (and isn't
-        // a Duration staying in play) is set aside with its Prince again, not discarded. One
-        // that left play some other way (trashed, on a mat) or stays as a Duration leaves its
-        // Prince holding nothing.
-        if !self.turn.prince_played.is_empty() {
-            self.prince_cleanup(&mut discard_part, sink);
         }
         let ps = &mut self.players[p];
         ps.discard.add_all(&hand);

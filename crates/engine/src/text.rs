@@ -644,6 +644,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // `push_turn_start_frames`).
         start_pending: StartList::EMPTY,
         prince_play: false,
+        used_up: SmallMultiset::EMPTY,
     };
 
     // Player blocks.

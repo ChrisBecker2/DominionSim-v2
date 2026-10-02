@@ -606,6 +606,11 @@ pub struct TurnState {
     /// in play, so its effects that move "this" (Mining Village trashing itself, Treasure Map,
     /// Island) fail instead of moving a copy that happens to be in play.
     pub prince_play: bool,
+    /// Cards that trashed themselves as part of their own effect this turn (Investment's
+    /// trash-for-VP, Mining Village's +$2, Treasure Map): used, not lost. Lets a scoring
+    /// function (the bots' `GainListEvaluator`) tell "used up" from "had a card taken". Tiny
+    /// fixed record, per-turn bookkeeping, not part of the text format (reset on load).
+    pub used_up: SmallMultiset<4>,
 }
 
 impl TurnState {
@@ -639,6 +644,7 @@ impl TurnState {
             blockading_curse: false,
             start_pending: StartList::EMPTY,
             prince_play: false,
+            used_up: SmallMultiset::EMPTY,
         }
     }
 }

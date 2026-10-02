@@ -167,6 +167,7 @@ impl Setup {
         space.max_gain_rules = cfg.max_gain_rules.max(1);
         space.max_play_rules = cfg.max_play_rules;
         space.max_trash_rules = cfg.max_trash_rules;
+        space.max_mode_rules = cfg.max_mode_rules;
         space.max_conds = cfg.max_conds;
         Ok(Setup { arena, val_arena, space, kingdoms, opponent_names: cfg.opponents.iter().map(|o| o.name.clone()).collect(), added_for_opponents })
     }

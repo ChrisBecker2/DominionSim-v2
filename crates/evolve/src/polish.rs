@@ -10,7 +10,7 @@ use crate::space::SearchSpace;
 /// A single-step simplification of `g`: without one rule, or one condition.
 fn simplifications(g: &Genome, space: &SearchSpace) -> Vec<(String, Genome)> {
     let mut out = Vec::new();
-    for list in [List::Gain, List::Play, List::Trash] {
+    for list in List::ALL {
         let n = g.clone().list_mut(list).len();
         for i in 0..n {
             let mut v = g.clone();
@@ -73,7 +73,7 @@ pub fn polish(g: &Genome, arena: &Arena, space: &SearchSpace, scenarios: &[Scena
 
     // Impact of each remaining rule.
     let mut drops = Vec::new();
-    for list in [List::Gain, List::Play, List::Trash] {
+    for list in List::ALL {
         for i in 0..cur.clone().list_mut(list).len() {
             let mut v = cur.clone();
             v.list_mut(list).remove(i);

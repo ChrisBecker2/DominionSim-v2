@@ -1224,6 +1224,10 @@ impl GameState {
                     self.zone_mut(p, f.zone).remove(f.subject);
                 }
                 self.put(p, f.subject, f.act, f.dest, f.source, sink);
+                if f.act == Act::Trash && f.zone == Zone::InPlay && f.subject == f.source {
+                    // Mining Village trashing itself for its bonus: used, not lost.
+                    self.turn.used_up.add_or_drop(f.source, 1);
+                }
                 if f.act == Act::Play {
                     self.resolve_effects(f.subject, p, f.depth, sink);
                 }
@@ -1523,6 +1527,9 @@ impl GameState {
             }
             Then::TreasureMapGold => {
                 if f.count > 0 && f.self_trashed {
+                    // Paid off: the Map that trashed itself was used. (A lone Map trashing itself
+                    // for nothing is a loss, so it isn't recorded.)
+                    self.turn.used_up.add_or_drop(id::TREASURE_MAP, 1);
                     for _ in 0..4 {
                         self.gain(p, id::GOLD, Dest::DeckTop, false, f.source, sink);
                     }
@@ -1626,6 +1633,7 @@ impl GameState {
                     let ps = &mut self.players[p as usize];
                     if ps.in_play.remove(f.source) {
                         self.trash.add(f.source, 1);
+                        self.turn.used_up.add_or_drop(f.source, 1);
                         sink.event(Event::Trash { player: p, card: f.source });
                     }
                     let hand = self.players[p as usize].hand;

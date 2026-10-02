@@ -62,17 +62,50 @@ impl GainListEvaluator<'_> {
             }
             if dominion_engine::cards::is(c, dominion_engine::cards::TREASURE) {
                 p += 0.01 * n;
+                // A Treasure with a mode choice (Investment) that the strategy gains or states a
+                // rule for is meant to be played, even though its forced trash of a card the
+                // trash rules don't name costs 0.3: worth 0.5 per play.
+                if !dominion_engine::cards::modes(c).is_empty() && (self.strategy.lists(c) || self.strategy.states_mode(c)) {
+                    p += 0.5 * n;
+                }
             }
         }
         for c in 0..NUM_CARDS as CardId {
-            let gone = before.get(c) as i32 - after.get(c) as i32;
+            // A card that trashed itself as part of its effect was used, not lost.
+            let gone = before.get(c) as i32 - after.get(c) as i32 - leaf.turn.used_up.get(c) as i32;
             // Trashing what the trash rules want is a plus; losing anything else (a lone
             // Treasure Map trashing itself, a forced trash) a small minus.
             if gone > 0 {
                 p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
-        p
+        p + self.vp_token_value(root, leaf, me)
+    }
+
+    /// VP tokens gained this turn (Investment, Monument, Bishop), in VP, on the preference scale
+    /// (1 VP = 1.0: above the play preferences, far below any gain-list difference), net of what
+    /// a card that trashed itself for them gives up: Investment's +$1 in every future hand it
+    /// would have turned up in. Priced like `NextHandEvaluator`: `vp_per_coin` VP per coin over the
+    /// `estimated_turns_left`, each card in a hand of 5 out of the deck's N cards.
+    fn vp_token_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        let tokens = leaf.players[me as usize].vp_tokens as f64 - root.players[me as usize].vp_tokens as f64;
+        let mut v = tokens;
+        if !leaf.turn.used_up.is_empty() {
+            let w = &self.tie_break.weights;
+            let turns = (dominion_search::estimated_turns_left(root, w) - 1.0).max(0.0);
+            let n = (root.players[me as usize].all_cards().total() as f64).max(5.0);
+            for (c, k) in leaf.turn.used_up.iter() {
+                // Coins the card would have given each time played.
+                let coin: f64 = dominion_engine::cards::modes(c)
+                    .iter()
+                    .map(|o| if let dominion_engine::cards::ModeOpt::Coins(x) = o { *x as f64 } else { 0.0 })
+                    .sum();
+                if dominion_engine::cards::is(c, dominion_engine::cards::TREASURE) {
+                    v -= k as f64 * coin * w.vp_per_coin * turns * (5.0 / n);
+                }
+            }
+        }
+        v
     }
 }
 
@@ -84,6 +117,9 @@ impl Evaluator for GainListEvaluator<'_> {
         let mut v = 0.0;
         for c in 0..NUM_CARDS as CardId {
             let d = after.get(c) as i32 - before.get(c) as i32;
+            // A card that trashed itself as part of its effect (Investment, Mining Village) was
+            // used, not lost: no charge for it.
+            let d = d + leaf.turn.used_up.get(c) as i32;
             if d < 0 {
                 v += d as f64 * self.weight(&view, c);
             }
@@ -140,6 +176,12 @@ impl Evaluator for GainListEvaluator<'_> {
     /// bot itself decides them.
     fn policy(&self, state: &GameState, me: u8, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         let view = PlayerView::new(state, me);
+        // Stated rules (a `[[mode]]` rule, a wanted trash inside a Treasure) are followed, not searched.
+        if decision.player == me {
+            if let Some(c) = self.strategy.stated_effect_choice(&view, decision, choices) {
+                return Some(c);
+            }
+        }
         if is_play_decision(state.turn.player, decision) {
             // Play order is searched, unless it's no real choice (the bot plays the obvious order).
             if matches!(decision.kind, DecisionKind::PlayAction) && decision.player == me && self.strategy.search_play {

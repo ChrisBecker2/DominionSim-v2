@@ -3,5 +3,3 @@ node_modules/
 web/dist/
 *.wasm
 
-# Local copy of the DominionStrategy wiki (reference only, not ours to redistribute)
-wiki/

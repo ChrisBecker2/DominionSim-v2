@@ -1899,6 +1899,7 @@ fn start_effect_label(state: &GameState, name: cards::CardId) -> String {
         id::TIDE_POOLS => format!("{card}: discard 2 cards"),
         id::SAILOR => format!("{card}: +$2, then you may trash a card from your hand"),
         id::CLERK => format!("{card}: you may play it from your hand"),
+        id::CAPTAIN => format!("{card}: play a non-Duration Action costing up to $4 from the Supply"),
         _ => {
             let (cards_n, actions, buys, coins) = cards::duration_bonus(name);
             let mut parts: Vec<String> = Vec::new();

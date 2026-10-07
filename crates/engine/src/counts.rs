@@ -2,11 +2,12 @@ use crate::cards::{CardId, NUM_CARDS};
 
 /// Slots in a `Counts`: one per card id, padded to a multiple of 32 so whole-set operations are
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
-/// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128.)
-pub const LANES: usize = 160;
+/// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
+/// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
+pub const LANES: usize = 192;
 const _: () = assert!(NUM_CARDS <= LANES, "more cards than Counts lanes: widen LANES");
 
-/// A multiset of cards stored as per-card counts. `Copy`, 160 bytes, never allocates.
+/// A multiset of cards stored as per-card counts. `Copy`, 192 bytes, never allocates.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(align(32))]
 pub struct Counts(pub [u8; LANES]);

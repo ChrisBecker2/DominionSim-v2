@@ -49,7 +49,7 @@ fn buy_phase(g: &mut GameState, coins: u16) {
 
 #[test]
 fn the_set_has_26_kingdom_cards_and_6_rewards() {
-    assert_eq!(cards::NUM_CARDS, 158);
+    assert_eq!(cards::NUM_CARDS, 161);
     assert_eq!(CardSet::ALL.len(), 7);
     assert_eq!(cards::set_by_name("Cornucopia & Guilds"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(cards::set_by_name("cornucopia"), Some(CardSet::CornucopiaGuilds));
@@ -2265,4 +2265,377 @@ fn with_charlatan_mine_and_bandit_treat_a_curse_as_a_treasure() {
     play(&mut g, id::BANDIT);
     drain_selects(&mut g);
     assert!(g.trash.has(id::CURSE), "trash: {:?}", g.trash);
+}
+
+// ===========================================================================
+// More scenarios: counts of names, short decks, empty piles and what a played card leaves behind
+// ===========================================================================
+
+/// Answer the pending Select and Gain decisions with their first choice, up to `n` of them.
+fn answer_first(g: &mut GameState, n: usize) {
+    for _ in 0..n {
+        match g.pending_decision() {
+            Some(d) if matches!(d.kind, DecisionKind::Select { .. } | DecisionKind::Gain { .. }) => {
+                let first = choices(g)[0];
+                choose(g, first);
+            }
+            _ => break,
+        }
+    }
+}
+
+#[test]
+fn menagerie_draws_three_or_one_by_the_names_in_the_rest_of_the_hand() {
+    // (the rest of the hand, cards drawn): only names in the hand matter, not the Estates in the deck.
+    let cases: [(&[CardId], usize); 6] = [
+        (&[], 3),
+        (&[id::COPPER], 3),
+        (&[id::COPPER, id::ESTATE, id::CURSE], 3),
+        (&[id::COPPER, id::COPPER], 1),
+        (&[id::COPPER, id::GOLD, id::COPPER], 1),
+        (&[id::COPPER, id::ESTATE, id::CURSE, id::COPPER], 1),
+    ];
+    for (rest, drawn) in cases {
+        let mut g = new_state(&[id::MENAGERIE], 2);
+        let mut hand = vec![id::MENAGERIE];
+        hand.extend_from_slice(rest);
+        set_hand(&mut g, 0, &hand);
+        set_deck_known(&mut g, 0, &[id::ESTATE; 6]);
+        play(&mut g, id::MENAGERIE);
+        assert_eq!(held(&g, 0).total() as usize, rest.len() + drawn, "{rest:?}");
+        assert_eq!(g.turn.actions, 1);
+    }
+}
+
+#[test]
+fn menagerie_draws_only_what_the_deck_has() {
+    // Nothing anywhere: nothing happens but the +Action.
+    let mut g = new_state(&[id::MENAGERIE], 2);
+    set_hand(&mut g, 0, &[id::MENAGERIE]);
+    play(&mut g, id::MENAGERIE);
+    assert!(g.players[0].hand.is_empty() && g.turn.actions == 1);
+    // A duplicate and no deck: the hand stays as it was.
+    let mut g = new_state(&[id::MENAGERIE], 2);
+    set_hand(&mut g, 0, &[id::MENAGERIE, id::COPPER, id::COPPER]);
+    play(&mut g, id::MENAGERIE);
+    assert_eq!(held(&g, 0), counts_of(&[id::COPPER, id::COPPER]));
+    // An empty hand but a 2-card deck: +3 Cards gets 2.
+    let mut g = new_state(&[id::MENAGERIE], 2);
+    set_hand(&mut g, 0, &[id::MENAGERIE]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE]);
+    play(&mut g, id::MENAGERIE);
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::ESTATE]));
+}
+
+#[test]
+fn hamlet_bonuses_each_depend_on_their_own_discard() {
+    // Nothing discarded either time: the drawn card stays, no bonus.
+    let mut g = new_state(&[id::HAMLET], 2);
+    set_hand(&mut g, 0, &[id::HAMLET]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::HAMLET);
+    pass(&mut g);
+    pass(&mut g);
+    assert_eq!((g.turn.actions, g.turn.buys, g.players[0].hand.total()), (1, 1, 1));
+
+    // Both discards: the drawn Curse and the Curse that was in hand.
+    let mut g = new_state(&[id::HAMLET], 2);
+    set_hand(&mut g, 0, &[id::HAMLET, id::CURSE]);
+    set_deck_known(&mut g, 0, &[id::CURSE, id::GOLD]);
+    play(&mut g, id::HAMLET);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::CURSE));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::CURSE));
+    assert_eq!((g.turn.actions, g.turn.buys), (2, 2));
+    assert_eq!(g.players[0].discard, counts_of(&[id::CURSE, id::CURSE]));
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
+
+    // Only the first: +1 Action, no +Buy.
+    let mut g = new_state(&[id::HAMLET], 2);
+    set_hand(&mut g, 0, &[id::HAMLET, id::COPPER]);
+    set_deck_known(&mut g, 0, &[id::CURSE, id::GOLD]);
+    play(&mut g, id::HAMLET);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::CURSE));
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!((g.turn.actions, g.turn.buys), (2, 1));
+    assert_eq!(held(&g, 0), counts_of(&[id::COPPER]));
+}
+
+#[test]
+fn remake_gains_use_the_reduced_cost_and_a_pile_that_ran_out_in_the_first_gain() {
+    // With a cost reduction of $1 a Copper and a Curse ($0) can be remade into an Estate ($1).
+    let mut g = new_state(&[id::REMAKE], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::REMAKE, id::COPPER, id::CURSE]);
+    play(&mut g, id::REMAKE);
+    answer_first(&mut g, 4);
+    assert_eq!(g.trash, counts_of(&[id::COPPER, id::CURSE]));
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE, id::ESTATE]));
+
+    // The last Silver goes on the first gain, so the second has only the Village to choose.
+    let mut g = new_state(&[id::REMAKE, id::VILLAGE], 2);
+    set_supply(&mut g, id::SILVER, 1);
+    set_hand(&mut g, 0, &[id::REMAKE, id::ESTATE, id::HAMLET]);
+    play(&mut g, id::REMAKE);
+    choose(&mut g, Choice::Card(id::ESTATE)); // $2: exactly $3 is a Silver or a Village
+    assert_eq!(choices(&g), vec![Choice::Card(id::SILVER), Choice::Card(id::VILLAGE)]);
+    choose(&mut g, Choice::Card(id::SILVER));
+    answer_first(&mut g, 2);
+    assert_eq!(g.trash, counts_of(&[id::ESTATE, id::HAMLET]));
+    assert_eq!(g.players[0].discard, counts_of(&[id::SILVER, id::VILLAGE]));
+    assert_eq!(g.supply.get(id::SILVER), 0);
+}
+
+#[test]
+fn fairgrounds_counts_names_in_all_the_cards_and_loses_a_name_when_the_last_copy_goes() {
+    let vp = |cs: &[CardId]| {
+        let mut p = state::PlayerState::default();
+        for &c in cs {
+            p.discard.add(c, 1);
+        }
+        p.vp()
+    };
+    let nine = [id::FAIRGROUNDS, id::COPPER, id::SILVER, id::GOLD, id::VILLAGE, id::WORKSHOP, id::MARKET, id::SMITHY, id::MINE];
+    assert_eq!(vp(&nine), 2, "9 names, rounded down");
+    let mut ten = nine.to_vec();
+    ten.push(id::PLATINUM);
+    assert_eq!(vp(&ten), 4);
+    let mut two_nine = nine.to_vec();
+    two_nine.push(id::FAIRGROUNDS);
+    assert_eq!(vp(&two_nine), 4, "two Fairgrounds, 9 names");
+    let mut two_ten = ten.clone();
+    two_ten.push(id::FAIRGROUNDS);
+    assert_eq!(vp(&two_ten), 8, "two Fairgrounds, 10 names");
+    // Extra copies of a name add nothing.
+    let mut many = ten.clone();
+    many.extend([id::COPPER; 7]);
+    assert_eq!(vp(&many), 4);
+    // Losing the only Copper drops a name: 10 -> 9.
+    let mut p = state::PlayerState::default();
+    for &c in &ten {
+        p.discard.add(c, 1);
+    }
+    assert_eq!(p.vp(), 4);
+    p.discard.remove(id::COPPER);
+    assert_eq!(p.vp(), 2);
+}
+
+#[test]
+fn hunting_party_reveals_past_copies_of_cards_in_the_hand() {
+    // (the deck top to bottom, the hand after, the discard pile after, the next card of the deck). The hand starts
+    // as Hunting Party and an Estate; the first card of the deck is the +1 Card.
+    type Case = (Vec<CardId>, Vec<CardId>, Vec<CardId>, Option<CardId>);
+    let cases: Vec<Case> = vec![
+        (vec![], vec![id::ESTATE], vec![], None),
+        (vec![id::ESTATE], vec![id::ESTATE, id::ESTATE], vec![], None),
+        (vec![id::ESTATE, id::PROVINCE], vec![id::ESTATE, id::ESTATE, id::PROVINCE], vec![], None),
+        (vec![id::PROVINCE, id::PROVINCE], vec![id::ESTATE, id::PROVINCE], vec![id::PROVINCE], None),
+        (vec![id::PROVINCE, id::ESTATE], vec![id::ESTATE, id::PROVINCE], vec![id::ESTATE], None),
+        (vec![id::DUCHY, id::CURSE, id::PROVINCE], vec![id::ESTATE, id::DUCHY, id::CURSE], vec![], Some(id::PROVINCE)),
+        (
+            vec![id::DUCHY, id::ESTATE, id::DUCHY, id::CURSE, id::GOLD],
+            vec![id::ESTATE, id::DUCHY, id::CURSE],
+            vec![id::ESTATE, id::DUCHY],
+            Some(id::GOLD),
+        ),
+    ];
+    for (deck, hand_after, discard_after, top) in cases {
+        let mut g = new_state(&[id::HUNTING_PARTY], 2);
+        set_hand(&mut g, 0, &[id::HUNTING_PARTY, id::ESTATE]);
+        set_deck_known(&mut g, 0, &deck);
+        play(&mut g, id::HUNTING_PARTY);
+        assert_eq!(g.players[0].hand, counts_of(&hand_after), "{deck:?}");
+        assert_eq!(g.players[0].discard, counts_of(&discard_after), "{deck:?}");
+        assert_eq!(g.players[0].deck_known.peek_top(), top, "{deck:?}");
+    }
+    // Everything revealed is a copy: all of it is discarded, nothing is found.
+    let mut g = new_state(&[id::HUNTING_PARTY], 2);
+    set_hand(&mut g, 0, &[id::HUNTING_PARTY, id::ESTATE, id::CURSE]);
+    set_deck_known(
+        &mut g, 0,
+        &[id::DUCHY, id::ESTATE, id::DUCHY, id::CURSE, id::ESTATE, id::DUCHY, id::CURSE, id::ESTATE, id::DUCHY, id::CURSE],
+    );
+    play(&mut g, id::HUNTING_PARTY);
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY, id::CURSE]));
+    assert_eq!(g.players[0].discard.total(), 9);
+    assert_eq!(g.players[0].deck_size(), 0);
+}
+
+#[test]
+fn horn_of_plenty_gains_up_to_the_number_of_names_in_play_including_itself() {
+    // Alone: one name, so up to $1.
+    let mut g = new_state(&[id::HORN_OF_PLENTY], 2);
+    set_hand(&mut g, 0, &[id::HORN_OF_PLENTY]);
+    g.turn.phase = Phase::Buy;
+    play_treasure(&mut g, id::HORN_OF_PLENTY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 1, .. }), "{d:?}");
+    assert!(choices(&g).contains(&Choice::Card(id::COPPER)) && !choices(&g).contains(&Choice::Card(id::ESTATE)));
+    choose(&mut g, Choice::Card(id::COPPER));
+    assert!(g.players[0].in_play.has(id::HORN_OF_PLENTY), "not a Victory card: the Horn stays");
+    // Two Coppers and the Horn are two names: $2, an Estate but no Silver.
+    let mut g = new_state(&[id::HORN_OF_PLENTY], 2);
+    set_hand(&mut g, 0, &[id::HORN_OF_PLENTY]);
+    set_in_play(&mut g, 0, &[id::COPPER, id::COPPER]);
+    g.turn.phase = Phase::Buy;
+    play_treasure(&mut g, id::HORN_OF_PLENTY);
+    expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(id::ESTATE)) && !choices(&g).contains(&Choice::Card(id::SILVER)));
+}
+
+#[test]
+fn a_victory_card_the_horn_gains_is_not_bought_so_hoard_gives_nothing() {
+    let mut g = new_state(&[id::HORN_OF_PLENTY, id::HOARD], 2);
+    set_hand(&mut g, 0, &[id::HORN_OF_PLENTY]);
+    set_in_play(&mut g, 0, &[id::COPPER, id::HOARD]);
+    g.turn.phase = Phase::Buy;
+    play_treasure(&mut g, id::HORN_OF_PLENTY);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE]), "gained, not bought: no Gold from the Hoard");
+    assert_eq!(g.trash.get(id::HORN_OF_PLENTY), 1);
+    // Buying one does give the Gold (checked before the turn ends and the discard pile is reshuffled).
+    g.turn.coins = 2;
+    expect_decision(&mut g);
+    g.apply(Choice::Card(id::ESTATE), &mut NoEvents).unwrap();
+    assert!(g.players[0].discard.has(id::GOLD));
+}
+
+#[test]
+fn jester_gains_nothing_when_the_discarded_cards_pile_is_not_in_the_game() {
+    let mut g = new_state(&[id::JESTER], 2);
+    set_hand(&mut g, 0, &[id::JESTER]);
+    set_deck_known(&mut g, 1, &[id::VILLAGE, id::COPPER]);
+    assert!(!g.in_supply(id::VILLAGE));
+    play(&mut g, id::JESTER);
+    assert_eq!(g.players[1].discard, counts_of(&[id::VILLAGE]), "discarded, and no copy for anyone");
+    assert_eq!(g.players[0].discard.total(), 0);
+    assert!(matches!(g.pending_decision().unwrap().kind, DecisionKind::PlayAction | DecisionKind::Buy), "nothing was asked");
+}
+
+#[test]
+fn young_witch_discards_what_there_is_when_it_has_fewer_than_two_cards() {
+    // No cards at all: nothing to ask, the others still get their Curse.
+    let mut g = new_state(&[id::YOUNG_WITCH], 2);
+    set_hand(&mut g, 0, &[id::YOUNG_WITCH]);
+    play(&mut g, id::YOUNG_WITCH);
+    assert!(g.players[0].hand.is_empty() && g.players[0].discard.is_empty());
+    assert_eq!(g.players[1].discard.get(id::CURSE), 1);
+    // The one card drawn is the one discarded.
+    let mut g = new_state(&[id::YOUNG_WITCH], 2);
+    set_hand(&mut g, 0, &[id::YOUNG_WITCH]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::YOUNG_WITCH);
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE]));
+    assert!(g.players[0].hand.is_empty());
+    // One in hand and one drawn: both go, with nothing to choose.
+    let mut g = new_state(&[id::YOUNG_WITCH], 2);
+    set_hand(&mut g, 0, &[id::YOUNG_WITCH, id::DUCHY]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::YOUNG_WITCH);
+    assert_eq!(g.players[0].discard, counts_of(&[id::DUCHY, id::ESTATE]));
+    assert_eq!(g.players[1].discard.get(id::CURSE), 1);
+}
+
+#[test]
+fn butcher_with_no_cards_only_gives_tokens_and_new_tokens_are_spendable_at_once() {
+    let mut g = new_state(&[id::BUTCHER], 2);
+    set_hand(&mut g, 0, &[id::BUTCHER]);
+    let Step::Decision(d) = play(&mut g, id::BUTCHER) else { panic!() };
+    assert!(matches!(d.kind, DecisionKind::PlayAction | DecisionKind::Buy), "{d:?}");
+    assert_eq!((g.players[0].coffers, g.trash.total()), (2, 0));
+    // A Gold ($6) and the two new tokens buy a Province ($8).
+    let mut g = new_state(&[id::BUTCHER], 2);
+    set_hand(&mut g, 0, &[id::BUTCHER, id::GOLD]);
+    play(&mut g, id::BUTCHER);
+    choose(&mut g, Choice::Card(id::GOLD));
+    assert!(choices(&g).contains(&Choice::Card(id::PROVINCE)));
+    choose(&mut g, Choice::Card(id::PROVINCE));
+    assert_eq!((g.players[0].coffers, g.trash.get(id::GOLD), g.players[0].discard.get(id::PROVINCE)), (0, 1, 1));
+}
+
+#[test]
+fn merchant_guild_pays_only_its_owner_and_only_in_their_own_turn() {
+    let mut g = new_state(&[id::MERCHANT_GUILD], 2);
+    g.players[1].in_play.add(id::MERCHANT_GUILD, 1);
+    buy_phase(&mut g, 3);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!((g.players[0].coffers, g.players[1].coffers), (0, 0));
+}
+
+#[test]
+fn candlestick_maker_adds_to_the_tokens_already_held() {
+    let mut g = new_state(&[id::CANDLESTICK_MAKER], 2);
+    g.players[0].coffers = 5;
+    set_hand(&mut g, 0, &[id::CANDLESTICK_MAKER]);
+    play(&mut g, id::CANDLESTICK_MAKER);
+    assert_eq!((g.players[0].coffers, g.turn.actions, g.turn.buys), (6, 1, 2));
+}
+
+#[test]
+fn stonemason_may_gain_cheaper_cards_of_any_type_and_overpays_with_one_copy_left() {
+    // Trash a Duchy ($5): a Silver, then a Quarry ($4, a Treasure): "costing less", whatever the type.
+    let mut g = new_state(&[id::STONEMASON, id::QUARRY], 2);
+    set_hand(&mut g, 0, &[id::STONEMASON, id::DUCHY, id::ESTATE]);
+    play(&mut g, id::STONEMASON);
+    choose(&mut g, Choice::Card(id::DUCHY));
+    assert!(choices(&g).contains(&Choice::Card(id::QUARRY)) && choices(&g).contains(&Choice::Card(id::SILVER)));
+    choose(&mut g, Choice::Card(id::SILVER));
+    choose(&mut g, Choice::Card(id::QUARRY));
+    assert_eq!(g.players[0].discard, counts_of(&[id::SILVER, id::QUARRY]));
+    assert_eq!(g.trash, counts_of(&[id::DUCHY]));
+
+    // Overpaying $3 with one Village left: it is gained, and the second gain finds none. The Potion
+    // that was not part of the overpay stays unspent.
+    let mut g = new_state(&[id::STONEMASON, id::VILLAGE], 2);
+    set_supply(&mut g, id::VILLAGE, 1);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 5;
+    g.turn.potions = 1;
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::STONEMASON));
+    expect_decision(&mut g);
+    let mut ev: Vec<Event> = Vec::new();
+    choose_ev(&mut g, Choice::Overpay(3), &mut ev);
+    assert!(ev.contains(&Event::Overpay { player: 0, card: id::STONEMASON, coins: 3, potion: false }), "{ev:?}");
+    assert_eq!(g.players[0].all_cards().get(id::VILLAGE), 1);
+    assert_eq!(g.supply.get(id::VILLAGE), 0);
+}
+
+#[test]
+fn journeyman_discards_named_cards_among_the_reveals_and_stops_after_three_others() {
+    let mut g = new_state(&[id::JOURNEYMAN], 2);
+    set_hand(&mut g, 0, &[id::JOURNEYMAN]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::GOLD, id::DUCHY, id::GOLD, id::PROVINCE, id::SILVER]);
+    play(&mut g, id::JOURNEYMAN);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::GOLD));
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY, id::PROVINCE]));
+    assert_eq!(g.players[0].discard, counts_of(&[id::GOLD, id::GOLD]));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER));
+
+    // The only card is the named one: it is discarded and the deck is empty.
+    let mut g = new_state(&[id::JOURNEYMAN], 2);
+    set_hand(&mut g, 0, &[id::JOURNEYMAN]);
+    set_deck_known(&mut g, 0, &[id::GOLD]);
+    play(&mut g, id::JOURNEYMAN);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::GOLD));
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.players[0].discard, counts_of(&[id::GOLD]));
+
+    // Nothing to reveal at all: whatever is asked, the hand is unchanged.
+    let mut g = new_state(&[id::JOURNEYMAN], 2);
+    set_hand(&mut g, 0, &[id::JOURNEYMAN, id::ESTATE]);
+    play(&mut g, id::JOURNEYMAN);
+    if g.pending_decision().is_some_and(|d| d.kind == DecisionKind::Name) {
+        let first = choices(&g)[0];
+        choose(&mut g, first);
+    }
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE]));
 }

@@ -700,13 +700,17 @@ impl GameState {
     }
 
     /// The offers made at the end of the Buy phase, before cleanup discards everything in play:
-    /// Treasury's "put this onto your deck" (not if a Victory card was gained this Buy phase), then
-    /// Alchemist's (put onto your deck if a Potion is in play), then Herbalist's (put a Treasure
-    /// from play onto your deck). Alchemist and Herbalist trigger "when you discard this from
-    /// play", and the player may order such triggers; the fixed order here is Treasury, Alchemist,
-    /// Herbalist, so Herbalist can't take away the Potion Alchemist needs. All are the generic
-    /// `YesNo` / `Select` frames (`Act::Topdeck` from `Zone::InPlay`), one per copy in play.
-    /// Cheaply gated: a game without these cards skips this with three bitmask tests.
+    /// Alchemist's (put onto your deck if a Potion is in play) and Walled Village's (put onto your
+    /// deck if it and at most one other Action are in play), both "at the start of Clean-up", then
+    /// Treasury's "put this onto your deck" (not if a Victory card was gained this Buy phase) and
+    /// Herbalist's (put a Treasure from play onto your deck), which trigger "when you discard this
+    /// from play". The player may order triggers of a kind; the fixed order here is Alchemist first
+    /// (a topdecked Alchemist leaves play, so it can make Walled Village's offer possible, never
+    /// impossible), then Walled Village, then Treasury, Herbalist (so Herbalist can't take away
+    /// the Potion Alchemist needs; Treasury, which Walled Village's check counts, is still in play
+    /// then). All are the generic `YesNo` / `Select` frames (`Act::Topdeck` from `Zone::InPlay`),
+    /// one per copy in play. Cheaply gated: a game without these cards skips this with a few
+    /// bitmask tests.
     fn push_end_of_turn_offers(&mut self) {
         let p = self.turn.player;
         let play = self.players[p as usize].in_play;
@@ -719,19 +723,30 @@ impl GameState {
                 });
             }
         }
-        if self.in_supply(id::ALCHEMIST) && play.has(id::POTION) {
-            for _ in 0..play.get(id::ALCHEMIST) {
-                self.stack.push(Frame {
-                    zone: Zone::InPlay, act: Act::Topdeck, subject: id::ALCHEMIST,
-                    ..Frame::new(FrameKind::YesNo, p, id::ALCHEMIST)
-                });
-            }
-        }
         if self.in_supply(id::TREASURY) && !self.turn.gained_victory_in_buy {
             for _ in 0..play.get(id::TREASURY) {
                 self.stack.push(Frame {
                     zone: Zone::InPlay, act: Act::Topdeck, subject: id::TREASURY,
                     ..Frame::new(FrameKind::YesNo, p, id::TREASURY)
+                });
+            }
+        }
+        // Walled Village: "if you have this and no more than one other Action card in play", checked
+        // when each copy's offer comes up (`GameState::walled_village_blocked`, in the YesNo frame),
+        // so a topdecked Alchemist or Walled Village lowers the count for the next one.
+        if self.in_supply(id::WALLED_VILLAGE) {
+            for _ in 0..play.get(id::WALLED_VILLAGE) {
+                self.stack.push(Frame {
+                    zone: Zone::InPlay, act: Act::Topdeck, subject: id::WALLED_VILLAGE,
+                    ..Frame::new(FrameKind::YesNo, p, id::WALLED_VILLAGE)
+                });
+            }
+        }
+        if self.in_supply(id::ALCHEMIST) && play.has(id::POTION) {
+            for _ in 0..play.get(id::ALCHEMIST) {
+                self.stack.push(Frame {
+                    zone: Zone::InPlay, act: Act::Topdeck, subject: id::ALCHEMIST,
+                    ..Frame::new(FrameKind::YesNo, p, id::ALCHEMIST)
                 });
             }
         }

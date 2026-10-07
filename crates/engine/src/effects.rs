@@ -66,6 +66,12 @@ fn select(p: u8, source: CardId, zone: Zone, act: Act, filter: Filter, min: u8, 
     Frame { zone, act, filter, min, max, then, ..Frame::new(K::Select, p, source) }
 }
 
+/// Captain's pick: a non-Duration Action costing up to $4 in the Supply, played where it is (a play
+/// from the Supply, `Then::PlayPicked`, is a `PlayEffects` frame with `zone: Supply`).
+fn captain_pick(p: u8, source: CardId) -> Frame {
+    select(p, source, Zone::Supply, Act::Play, Filter::ActionCostUpTo(4), 1, 1, Then::PlayPicked { times: 1 })
+}
+
 fn gain_frame(p: u8, source: CardId, max_cost: u8, filter: Filter, dest: Dest) -> Frame {
     Frame { max: max_cost, filter, dest, ..Frame::new(K::Gain, p, source) }
 }
@@ -543,6 +549,11 @@ impl GameState {
             id::PRINCE => self.stack.push(select(
                 p, card, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 0, 1, Then::PrinceHold,
             )),
+            // Walled Village: vanilla only; its Clean-up topdeck is `GameState::push_end_of_turn_offers`.
+            // Captain, now: play a non-Duration Action costing up to $4 from the Supply, leaving it there
+            // (mandatory when one exists). Its start-of-next-turn play is a pending Duration entry
+            // (`resolve_duration_start`), scheduled by the generic Duration tail below.
+            id::CAPTAIN => self.stack.push(captain_pick(p, card)),
             // ---- Cornucopia & Guilds ----
             id::CANDLESTICK_MAKER | id::BAKER => self.give_coffers(p, card, 1, sink),
             id::HAMLET => {
@@ -582,11 +593,11 @@ impl GameState {
                 });
             }
             id::CARNIVAL => self.stack.push(Frame { max: 4, then: Then::OneOfEachToHand, ..Frame::new(K::RevealTop, p, card) }),
-            id::ADVISOR => {
-                // Reveal the top 3; the player to the left picks one to discard; the rest to my hand.
+            id::ADVISOR | id::ENVOY => {
+                // Reveal the top 3 (Envoy: 5); the player to the left picks one to discard; the rest to my hand.
                 let left = (p + 1) % self.num_players;
                 self.stack.push(Frame { chooser: left, ..select(p, card, Zone::Revealed, Discard, Filter::Any, 1, 1, Then::RevealedToHand) });
-                self.stack.push(Frame { max: 3, ..Frame::new(K::RevealTop, p, card) });
+                self.stack.push(Frame { max: if card == id::ENVOY { 5 } else { 3 }, ..Frame::new(K::RevealTop, p, card) });
             }
             id::FOOTPAD => {
                 self.give_coffers(p, card, 2, sink);
@@ -781,6 +792,14 @@ impl GameState {
         cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.cost(c) <= n && !cards::potion_cost(c)
     }
 
+    /// Walled Village's Clean-up offer needs "no more than one other Action card in play": more than two
+    /// Action cards in play (itself included; Durations still in play from earlier turns count, a card
+    /// played from the Supply or held by a Prince is not in play) rules it out.
+    fn walled_village_blocked(&self, p: u8) -> bool {
+        let n: u32 = self.players[p as usize].in_play.iter().filter(|&(c, _)| cards::is(c, ACTION)).map(|(_, n)| n as u32).sum();
+        n > 2
+    }
+
     fn zone(&self, p: u8, z: Zone) -> &Counts {
         match z {
             Zone::Supply => &self.supply,
@@ -948,6 +967,15 @@ impl GameState {
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
+                if f.zone == Zone::Supply {
+                    // Played from the Supply (Captain): the card stays there, so it is not in play and a card
+                    // that tries to move itself fails to (`prince_play`, shared with Prince's held card).
+                    sink.event(Event::StartPlay { player: p, source: f.source, card: f.subject });
+                    self.turn.prince_play = true;
+                    self.resolve_effects(f.subject, p, f.depth, sink);
+                    self.turn.prince_play = false;
+                    return Run::Continue;
+                }
                 self.resolve_effects(f.subject, p, f.depth, sink);
                 Run::Continue
             }
@@ -996,7 +1024,7 @@ impl GameState {
             K::YesNo => {
                 // Nothing to act on (e.g. Mining Village already trashed by an earlier Throne
                 // Room play, or Baron with no Estate in hand): skip straight to the "no" outcome.
-                if self.zone(p, f.zone).get(f.subject) == 0 {
+                if self.zone(p, f.zone).get(f.subject) == 0 || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p)) {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
                     return Run::Continue;
@@ -1466,11 +1494,16 @@ impl GameState {
                 // (Forge) reads it. Cost is taken at the moment of picking, per the plan's
                 // ruling: Bridge/Quarry-style reductions active now apply on both sides.
                 f.cost_sum += self.cost(c) as u16;
-                if f.act != Act::Reveal {
+                // A card played from the Supply stays there (Captain); it is neither moved nor logged
+                // as played until its `PlayEffects` frame runs.
+                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply);
+                if !in_place {
                     let removed = self.zone_mut(p, f.zone).remove(c);
                     debug_assert!(removed);
                 }
-                self.put(p, c, f.act, f.dest, f.source, sink);
+                if !(f.act == Act::Play && f.zone == Zone::Supply) {
+                    self.put(p, c, f.act, f.dest, f.source, sink);
+                }
                 f.count += 1;
                 f.last = c;
                 self.stack.set_top(f);
@@ -1717,7 +1750,9 @@ impl GameState {
                     // all unwound.
                     // (Only for a card that plays another more than once: a card that plays one Action once, Crystal
                     // Ball or Shop, does not stay in play with it.)
-                    if times >= 2 && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE) {
+                    // (Not when the multiplier is not in play itself, as when Captain or a Prince plays it: there is
+                    // no card to keep.)
+                    if times >= 2 && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE) && self.players[p as usize].in_play.has(f.source) {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = times;
                         self.turn.multiplier_successes = 0;
@@ -1725,7 +1760,7 @@ impl GameState {
                     }
                     // Pushed last-first so the 1st resolution is on top; `count` = which play.
                     for nth in (1..=times).rev() {
-                        self.stack.push(Frame { subject: f.last, count: nth, ..Frame::new(K::PlayEffects, p, f.source) });
+                        self.stack.push(Frame { subject: f.last, count: nth, zone: if f.zone == Zone::Supply { Zone::Supply } else { Zone::Hand }, ..Frame::new(K::PlayEffects, p, f.source) });
                     }
                 }
             }
@@ -2357,6 +2392,12 @@ impl GameState {
             id::SAILOR => {
                 for _ in 0..times {
                     self.stack.push(Frame { depth: 1, ..select(p, e.card, Zone::Hand, Act::Trash, Filter::Any, 0, 1, Then::Nothing) });
+                }
+            }
+            // Once per play (a Throne Room'd Captain plays two cards): each is its own pick from the Supply.
+            id::CAPTAIN => {
+                for _ in 0..times {
+                    self.stack.push(Frame { depth: 1, ..captain_pick(p, e.card) });
                 }
             }
             id::PIRATE => {

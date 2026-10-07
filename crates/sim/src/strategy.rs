@@ -362,8 +362,12 @@ impl Strategy {
                 if act == Act::SetAside && decision.source == Some(id::PRINCE) {
                     return self.choose_prince_card(view, choices);
                 }
-                // Advisor: the player to the left picks which of the revealed cards the revealer loses.
-                if act == Act::Discard && decision.source == Some(id::ADVISOR) && decision.player != decision.for_player {
+                // Captain: the Action from the Supply to play (now, or at the start of the next turn).
+                if act == Act::Play && from == Zone::Supply && decision.source == Some(id::CAPTAIN) {
+                    return self.choose_captain_card(view, decision, choices);
+                }
+                // Advisor, Envoy: the player to the left picks which of the revealed cards the revealer loses.
+                if act == Act::Discard && matches!(decision.source, Some(id::ADVISOR | id::ENVOY)) && decision.player != decision.for_player {
                     return iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(choices[0]);
                 }
                 // Plaza: a Copper for a Coffers token (a token is at least the $1 the Copper would be).
@@ -432,7 +436,7 @@ impl Strategy {
             match c {
                 id::HAVEN | id::BLOCKADE | id::PIRATE => 0,
                 id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR => 3,
-                id::CLERK => 2,
+                id::CLERK | id::CAPTAIN => 2,
                 // Any other Action is a Prince's card, unless it is a plain bonus Duration.
                 _ if cards::is(c, cards::DURATION) => 1,
                 _ if cards::is(c, ACTION) => 2,
@@ -440,6 +444,41 @@ impl Strategy {
             }
         };
         iter_cards(choices).min_by_key(|&c| (group(c), c)).map(Choice::Card).unwrap_or(choices[0])
+    }
+
+    /// Captain's Action from the Supply: the strategy's own [[play]] rules first, in their order; else
+    /// the best line of the turn, searched when there is a real choice; else the most useful card
+    /// (`prince_card_score`). The card is played now or at the start of the turn, using no Action.
+    fn choose_captain_card(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if let Some(c) = self.captain_stated_pick(view, choices) {
+            return c;
+        }
+        if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
+        self.captain_default_pick(choices)
+    }
+
+    /// `choose_captain_card` without the search (used inside the search's own playouts).
+    fn captain_rule_pick(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        self.captain_stated_pick(view, choices).unwrap_or_else(|| self.captain_default_pick(choices))
+    }
+
+    fn captain_stated_pick(&self, view: &PlayerView, choices: &[Choice]) -> Option<Choice> {
+        self.play.iter().find_map(|(card, cond)| {
+            (has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))).then_some(Choice::Card(*card))
+        })
+    }
+
+    fn captain_default_pick(&self, choices: &[Choice]) -> Choice {
+        iter_cards(choices)
+            .max_by_key(|&c| (prince_card_score(c), std::cmp::Reverse(c)))
+            .map(Choice::Card)
+            .unwrap_or(choices[0])
     }
 
     /// The Action costing up to $4 in hand for a Prince to hold: the strategy's own [[play]]
@@ -775,6 +814,9 @@ impl Strategy {
     /// The play choice by rule order alone (stated [[play]] rules, then the default order), without
     /// searching. Used in search playouts.
     pub fn rule_play(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if decision.source == Some(id::CAPTAIN) {
+            return self.captain_rule_pick(view, choices);
+        }
         self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass)
     }
 
@@ -1519,7 +1561,7 @@ const START_ORDER_SEARCH_ALL: bool = false;
 /// Whether a start-of-turn order decision offers a play: Clerk, or a card a Prince plays (any
 /// Action that isn't a Duration, which are the effects' own cards).
 fn start_order_has_play(choices: &[Choice]) -> bool {
-    iter_cards(choices).any(|c| c == id::CLERK || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
+    iter_cards(choices).any(|c| c == id::CLERK || c == id::CAPTAIN || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
 }
 
 /// How good a card is to have played free at the start of every turn: cards, actions, buys and

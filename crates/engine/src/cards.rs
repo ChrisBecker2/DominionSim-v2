@@ -1,12 +1,12 @@
 //! Card identities and static definitions: Base Set, Intrigue, Seaside, Prosperity and Cornucopia &
 //! Guilds (all 2nd edition), Alchemy (one edition; Possession is not implemented, by decision) and
-//! the Prince promo.
+//! the Prince, Walled Village, Envoy and Captain promos.
 
 use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 158;
+pub const NUM_CARDS: usize = 161;
 
 // Type flags.
 pub const ACTION: u16 = 1;
@@ -157,40 +157,43 @@ pub mod id {
     pub const POTION: CardId = 124;
     // Promo
     pub const PRINCE: CardId = 125;
+    pub const WALLED_VILLAGE: CardId = 126;
+    pub const ENVOY: CardId = 127;
+    pub const CAPTAIN: CardId = 128;
     // Cornucopia & Guilds (2nd edition)
-    pub const CANDLESTICK_MAKER: CardId = 126;
-    pub const HAMLET: CardId = 127;
-    pub const FARRIER: CardId = 128;
-    pub const STONEMASON: CardId = 129;
-    pub const MENAGERIE: CardId = 130;
-    pub const SHOP: CardId = 131;
-    pub const INFIRMARY: CardId = 132;
-    pub const ADVISOR: CardId = 133;
-    pub const FARMHANDS: CardId = 134;
-    pub const PLAZA: CardId = 135;
-    pub const REMAKE: CardId = 136;
-    pub const YOUNG_WITCH: CardId = 137;
-    pub const HERALD: CardId = 138;
-    pub const BAKER: CardId = 139;
-    pub const BUTCHER: CardId = 140;
-    pub const CARNIVAL: CardId = 141;
-    pub const FERRYMAN: CardId = 142;
-    pub const FOOTPAD: CardId = 143;
-    pub const HORN_OF_PLENTY: CardId = 144;
-    pub const HUNTING_PARTY: CardId = 145;
-    pub const JESTER: CardId = 146;
-    pub const JOURNEYMAN: CardId = 147;
-    pub const JOUST: CardId = 148;
-    pub const MERCHANT_GUILD: CardId = 149;
-    pub const SOOTHSAYER: CardId = 150;
-    pub const FAIRGROUNDS: CardId = 151;
+    pub const CANDLESTICK_MAKER: CardId = 129;
+    pub const HAMLET: CardId = 130;
+    pub const FARRIER: CardId = 131;
+    pub const STONEMASON: CardId = 132;
+    pub const MENAGERIE: CardId = 133;
+    pub const SHOP: CardId = 134;
+    pub const INFIRMARY: CardId = 135;
+    pub const ADVISOR: CardId = 136;
+    pub const FARMHANDS: CardId = 137;
+    pub const PLAZA: CardId = 138;
+    pub const REMAKE: CardId = 139;
+    pub const YOUNG_WITCH: CardId = 140;
+    pub const HERALD: CardId = 141;
+    pub const BAKER: CardId = 142;
+    pub const BUTCHER: CardId = 143;
+    pub const CARNIVAL: CardId = 144;
+    pub const FERRYMAN: CardId = 145;
+    pub const FOOTPAD: CardId = 146;
+    pub const HORN_OF_PLENTY: CardId = 147;
+    pub const HUNTING_PARTY: CardId = 148;
+    pub const JESTER: CardId = 149;
+    pub const JOURNEYMAN: CardId = 150;
+    pub const JOUST: CardId = 151;
+    pub const MERCHANT_GUILD: CardId = 152;
+    pub const SOOTHSAYER: CardId = 153;
+    pub const FAIRGROUNDS: CardId = 154;
     // The Rewards: not in the Supply, gained only by Joust (see `FIRST_REWARD`).
-    pub const CORONET: CardId = 152;
-    pub const COURSER: CardId = 153;
-    pub const DEMESNE: CardId = 154;
-    pub const HOUSECARL: CardId = 155;
-    pub const HUGE_TURNIP: CardId = 156;
-    pub const RENOWN: CardId = 157;
+    pub const CORONET: CardId = 155;
+    pub const COURSER: CardId = 156;
+    pub const DEMESNE: CardId = 157;
+    pub const HOUSECARL: CardId = 158;
+    pub const HUGE_TURNIP: CardId = 159;
+    pub const RENOWN: CardId = 160;
 }
 
 /// The first of the six Rewards (card ids are contiguous: `FIRST_REWARD..FIRST_REWARD + 6`).
@@ -224,7 +227,7 @@ pub enum CardSet {
     Prosperity,
     /// Alchemy (Potion costs). Possession is not implemented.
     Alchemy,
-    /// Promo cards (Prince).
+    /// Promo cards (Prince, Walled Village, Envoy, Captain).
     Promo,
     /// Cornucopia & Guilds 2nd edition (Coffers, Overpay, the Rewards).
     CornucopiaGuilds,
@@ -521,6 +524,11 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     // Action-Duration-Command since the 2022 errata. It schedules nothing as a Duration: its
     // start-of-turn effect is the Prince bookkeeping (`PlayerState::prince_cards`).
     promo(order_sensitive(c("Prince", 8, ACTION | DURATION | COMMAND, 0, 0, 0, 0, 0))), // sets a non-Duration Action costing up to $4 aside (may be the +Actions card in hand)
+    promo(choice_free(c("Walled Village", 4, ACTION, 0, 0, 1, 2, 0))), // the topdeck is a cleanup offer, not a play decision
+    promo(order_sensitive(c("Envoy", 4, ACTION, 0, 0, 0, 0, 0))), // reveals the top 5 of the deck, an opponent discards one, the rest to hand (like Advisor)
+    // Action-Duration-Command: plays a non-Duration, non-Command Action costing up to $4 from the Supply, now and at
+    // the start of the next turn (it is a pending Duration entry, resolved in the start-of-turn order).
+    promo(order_sensitive(c("Captain", 6, ACTION | DURATION | COMMAND, 0, 0, 0, 0, 0))), // plays an Action from the Supply (it may need the +Actions card still in hand)
     // ---- Cornucopia & Guilds (2nd edition). Coffers and overpay are in `effects.rs`/`engine.rs`. ----
     cg(choice_free(c("Candlestick Maker", 2, ACTION, 0, 0, 0, 1, 1))), // +1 Coffers
     cg(order_sensitive(c("Hamlet", 2, ACTION, 0, 0, 1, 1, 0))), // discard for +Action / +Buy (may be the +Actions card in hand)
@@ -833,7 +841,7 @@ pub fn duration_bonus(card: CardId) -> (u8, u8, u8, u8) {
 
 /// Whether `card`'s start-of-turn effect is order-sensitive: it acts on the hand (Sea Witch and
 /// Tide Pools discard 2, Sailor may trash a card), adds to the hand (Haven and Blockade return a
-/// card, Pirate gains a Treasure to hand), or plays a card (Prince's set-aside Action, Clerk's
+/// card, Pirate gains a Treasure to hand), or plays a card (Prince's set-aside Action, Captain's Supply Action, Clerk's
 /// "play this from your hand"). The other start-of-turn effects are plain bonuses
 /// (`duration_bonus`: +Cards/+Actions/+Buys/+$) that never change what another effect can do.
 /// When no pending start-of-turn effect is order-sensitive, or only one is pending, the engine
@@ -841,7 +849,7 @@ pub fn duration_bonus(card: CardId) -> (u8, u8, u8, u8) {
 pub fn start_order_sensitive(card: CardId) -> bool {
     matches!(
         card,
-        id::HAVEN | id::BLOCKADE | id::PIRATE | id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR | id::PRINCE | id::CLERK
+        id::HAVEN | id::BLOCKADE | id::PIRATE | id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR | id::PRINCE | id::CLERK | id::CAPTAIN
             | id::FARMHANDS
     )
 }
@@ -1043,7 +1051,7 @@ mod tests {
                 "Clerk", "Monument", "Quarry", "Worker's Village", "Charlatan", "City", "Collection", "Rabble", "Grand Market",
                 "Hoard", "Peddler", "Platinum",
                 "Herbalist", "Alchemist", "Familiar", "Philosopher's Stone", "Potion",
-                "Candlestick Maker", "Farrier", "Farmhands", "Baker", "Footpad", "Merchant Guild", "Huge Turnip", "Renown",
+                "Walled Village", "Candlestick Maker", "Farrier", "Farmhands", "Baker", "Footpad", "Merchant Guild", "Huge Turnip", "Renown",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );
@@ -1056,7 +1064,7 @@ mod tests {
                 "Mill", "Secret Passage", "Courtier", "Minion", "Patrol", "Replace", "Trading Post", "Upgrade",
                 "Haven", "Native Village", "Lookout", "Sea Chart", "Warehouse", "Island", "Salvager", "Treasure Map",
                 "Watchtower", "Bishop", "Vault", "Expand", "Forge", "King's Court",
-                "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice", "Prince",
+                "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice", "Prince", "Envoy", "Captain",
                 "Hamlet", "Stonemason", "Menagerie", "Shop", "Infirmary", "Advisor", "Plaza", "Remake", "Young Witch", "Herald",
                 "Butcher", "Carnival", "Ferryman", "Hunting Party", "Journeyman",
             ],
@@ -1080,7 +1088,7 @@ mod set_tests {
         assert_eq!(in_set(CardSet::Seaside), 27);
         assert_eq!(in_set(CardSet::Prosperity), 25);
         assert_eq!(in_set(CardSet::Alchemy), 11);
-        assert_eq!(in_set(CardSet::Promo), 1);
+        assert_eq!(in_set(CardSet::Promo), 4);
         assert!(!is_kingdom(id::POTION) && is_optional_basic(id::POTION) && potion_cost(id::GOLEM) && !potion_cost(id::APPRENTICE));
         assert_eq!(cost_string(id::APOTHECARY), "$2P");
         assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
@@ -1099,7 +1107,7 @@ mod set_tests {
         assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
         assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
         assert_eq!(kingdom_cards_in(CardSet::Alchemy).count(), 11);
-        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 1);
+        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 4);
     }
 
     #[test]

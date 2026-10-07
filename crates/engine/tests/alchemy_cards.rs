@@ -1457,8 +1457,9 @@ fn two_herbalists_but_only_one_treasure() {
 }
 
 #[test]
-fn throne_room_on_herbalist_still_puts_back_one_treasure() {
-    // One physical Herbalist is discarded once: one offer, even though it was played twice.
+fn throne_room_on_herbalist_puts_back_up_to_two_treasures() {
+    // "Once this turn, when you discard a Treasure from play, you may put it onto your deck", and
+    // the Herbalist was played twice: two Treasures can go back (the plays are cumulative).
     let mut g = new_state(&[id::THRONE_ROOM, id::HERBALIST], 2);
     set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HERBALIST, id::GOLD, id::GOLD]);
     set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
@@ -1469,7 +1470,9 @@ fn throne_room_on_herbalist_still_puts_back_one_treasure() {
     assert_eq!(g.turn.coins, 2 + 6, "Herbalist twice, then both Golds in the Buy phase");
     pass(&mut g);
     g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
+    expect_decision(&mut g); // the second offer
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].deck_known.len, 7, "the two Golds on top of the five Duchies");
     assert!(g.pending_decision().is_none());
     adv(&mut g);
     assert_eq!(g.turn.player, 1);

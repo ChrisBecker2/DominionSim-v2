@@ -491,6 +491,12 @@ pub struct PlayerState {
     /// Outpost turn, so it can't grant a 3rd turn in a row) and any Throne Room / King's Court
     /// that played it ("If Outpost fails, you discard it during Clean-up of the next turn").
     pub discard_next_cleanup: DurationHeld,
+    /// Players (bit `1 << player`) that this player's lingering Duration Attacks (Corsair,
+    /// Blockade) don't affect, because they were immune (Moat revealed, Lighthouse in play) when
+    /// the Attack was played: "attack immunity only works if it is in force as the Attack is
+    /// played", however much later the effect would hit. Set when the Attack is played, cleared
+    /// when it ends at the start of this player's next turn (`push_turn_start_frames`).
+    pub shielded: u8,
     /// Prince (Promo): the Action cards set aside by this player's Princes (a Prince played with
     /// Throne Room sets aside two). Each is played, without entering play, at the start of every
     /// one of their turns after the one it was set aside on (`GameState::run_start_order`) and
@@ -808,6 +814,10 @@ pub enum Filter {
     /// An Action that is not a Reward, and a Treasure that is not a Reward (Coronet: "a non-Reward Action").
     ActionNotReward,
     TreasureNotReward,
+    /// A Treasure in play that this cleanup discards (Herbalist): not a Duration Treasure that is
+    /// staying in play for next turn (Astrolabe). Decided against the live game
+    /// (`GameState::filter_ok`); `matches` can only say "a Treasure".
+    TreasureToDiscard,
 }
 
 impl Filter {
@@ -831,6 +841,7 @@ impl Filter {
             Filter::NotInPlayAction => cards::is(c, cards::ACTION),
             Filter::ActionNotReward => cards::is(c, cards::ACTION) && !cards::is(c, cards::REWARD),
             Filter::TreasureNotReward => cards::is(c, cards::TREASURE) && !cards::is(c, cards::REWARD),
+            Filter::TreasureToDiscard => cards::is(c, cards::TREASURE),
             Filter::ActionCostUpTo(n) => {
                 cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c)
             }
@@ -1034,7 +1045,9 @@ pub struct Frame {
     /// the moment this frame is first run, and then baked in (`min = max = that count`, this flag
     /// cleared). This makes a "discard down to N" attack (Militia) pick up a hand-size change
     /// from a reaction that resolves first (Diplomat), instead of using a count computed when the
-    /// frame was pushed, before the reaction ran.
+    /// frame was pushed, before the reaction ran. With `exact` it is a threshold instead (Clerk's
+    /// "with 5 or more cards in hand, put one onto your deck"): `max` is the size from which one
+    /// card is picked, none below it.
     pub down_to_target: bool,
     pub then: Then,
     /// The card a YesNo decision is about / the card to PlayEffects.
@@ -1354,7 +1367,8 @@ impl GameState {
             let pile = match k {
                 id::PLATINUM => 12,
                 id::POTION => 16,
-                id::COLONY => province_pile_size(n),
+                // 8 with 2 players, 12 with 3 or more (unlike the Provinces, 5 and 6 players add none).
+                id::COLONY => victory_pile_size(n),
                 _ if cards::is(k, cards::VICTORY) => victory_pile_size(n),
                 _ => 10,
             };
@@ -1407,24 +1421,35 @@ impl GameState {
     }
 
     /// What `c` costs right now: its printed cost less this turn's reductions, min 0. Bridge is a
-    /// flat turn-wide reduction; Quarry reduces Action cards while it's in play (stacking per
-    /// copy); Peddler reduces only itself, and only during its owner's Buy phase, by $2 per
-    /// Action card they have in play. Everything that compares costs (buying, "gain a card
-    /// costing up to", Remodel's +$2...) goes through this, never through `cards::cost` directly.
+    /// flat turn-wide reduction; Quarry reduces Action cards for the rest of the turn once played
+    /// (stacking per play: twice with Tiara is $4); Peddler reduces only itself, and only during
+    /// its owner's Buy phase, by $2 per Action card they have in play. Everything that compares
+    /// costs (buying, "gain a card costing up to", Remodel's +$2...) goes through this, never
+    /// through `cards::cost` directly.
     #[inline(always)]
     pub fn cost(&self, c: CardId) -> u8 {
         let pi = self.turn.player as usize;
         let mut reduction: u32 = self.turn.cost_reduction as u32;
         // `in_supply` check first: a single cheap bitmask test that skips the (still cheap, but
-        // not free) `in_play` lookup entirely for the overwhelming majority of games, which have
-        // no Quarry in the kingdom at all.
+        // not free) lookup entirely for the overwhelming majority of games, which have no
+        // Quarry in the kingdom at all.
         if self.in_supply(id::QUARRY) && cards::is(c, cards::ACTION) {
-            reduction += 2 * self.players[pi].in_play.get(id::QUARRY) as u32;
+            reduction += 2 * self.plays_this_turn(self.turn.player, id::QUARRY) as u32;
         }
         if c == id::PEDDLER && self.turn.phase == Phase::Buy {
             reduction += 2 * self.players[pi].in_play.count_type(cards::ACTION);
         }
         (cards::cost(c) as u32).saturating_sub(reduction) as u8
+    }
+
+    /// How many times `p` has played `card` this turn, for "this turn" effects of Treasures that
+    /// outlive their card (Quarry, Hoard, Collection, Tiara): each play counts (Tiara plays a
+    /// Treasure twice), and the effect stays when the card leaves play (Mint trashes it). A
+    /// card in play that no play was recorded for (a position built by hand) counts once.
+    #[inline]
+    pub fn plays_this_turn(&self, p: u8, card: CardId) -> u8 {
+        let in_play = self.players[p as usize].in_play.get(card);
+        if p == self.turn.player { in_play.max(self.turn.played.get(card)) } else { in_play }
     }
 
     /// Whether `c` is a Treasure right now: statically Treasure-typed, or Curse when Charlatan is
@@ -1553,7 +1578,8 @@ impl GameState {
         let scores = self.scores();
         let mut turns = [0u16; MAX_PLAYERS];
         for p in 0..n {
-            turns[p] = self.players[p].turns_taken + u16::from(p == self.turn.player as usize && self.turn.phase != Phase::GameOver);
+            let counts = p == self.turn.player as usize && self.turn.phase != Phase::GameOver && !self.turn.is_extra_turn;
+            turns[p] = self.players[p].turns_taken + u16::from(counts);
         }
         Some(winners_of(&scores[..n], &turns[..n]))
     }

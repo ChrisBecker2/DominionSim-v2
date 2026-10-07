@@ -36,6 +36,10 @@
 //! (the cards set aside by Farmhands, played at the start of the next turn) and `cleanup aside:`
 //! (Joust's Province). The turn line adds `extra_draw`, `guilds` and `gained_in_buy` while nonzero.
 //!
+//! Corsair and Blockade: per player, `shielded: 2 3` lists the players (1-based) whose Moat or
+//! Lighthouse protected them when this player's lingering Attack was played, until that player's
+//! next turn starts.
+//!
 //! `GameState`'s RNG (`rng: Rng`) cannot be read back out (its internal words are private to
 //! `rng.rs`), so the `seed:` line is not a faithful memento of prior randomness: parsing always
 //! seeds a *fresh* `Rng::new(seed)`, and `format_state` prints a number derived from the current
@@ -484,6 +488,10 @@ pub fn format_state(state: &GameState) -> String {
         if !ps.last_turn_gains.is_empty() {
             out.push_str(&format!("last turn gains: {}\n", format_counts(&ps.last_turn_gains.counts())));
         }
+        if ps.shielded != 0 {
+            let who: Vec<String> = (0..n).filter(|q| ps.shielded & (1 << q) != 0).map(|q| (q + 1).to_string()).collect();
+            out.push_str(&format!("shielded: {}\n", who.join(" ")));
+        }
     }
 
     out
@@ -835,6 +843,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "native village" => ps.native_village_mat = parse_small_multiset(val, "native village").map_err(|e| format!("line {ln2}: {e}"))?,
                 "island" => ps.island_mat = parse_small_multiset(val, "island").map_err(|e| format!("line {ln2}: {e}"))?,
                 "last turn gains" => ps.last_turn_gains = parse_small_multiset(val, "last turn gains").map_err(|e| format!("line {ln2}: {e}"))?,
+                "shielded" => {
+                    for w in val.split_whitespace() {
+                        match w.parse::<u8>() {
+                            Ok(q) if (1..=crate::state::MAX_PLAYERS as u8).contains(&q) => ps.shielded |= 1 << (q - 1),
+                            _ => return Err(format!("line {ln2}: invalid player '{w}' in shielded")),
+                        }
+                    }
+                }
                 other => return Err(format!("line {ln2}: unknown field '{other}' in player block")),
             }
             i += 1;

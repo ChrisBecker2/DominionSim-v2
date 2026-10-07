@@ -121,7 +121,11 @@ impl GameState {
     fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
         let p = player;
         let def = cards::def(card);
-        self.turn.played.add(card, 1);
+        // What this turn's player has played (Conspirator counts Actions, Quarry and Hoard their own
+        // plays): not what another player plays from their hand on this turn (Pirate).
+        if p == self.turn.player {
+            self.turn.played.add(card, 1);
+        }
         self.turn.actions += def.actions;
         self.turn.buys += def.buys;
         self.turn.coins += def.coins as u16;
@@ -341,14 +345,14 @@ impl GameState {
                 self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 1, 1, Then::VpPerCost { per: 2 }));
             }
             id::CLERK => {
-                // +$2 is vanilla (above). Each other player (Moat allowing) with 5+ cards in
-                // hand puts one onto their deck. Clerk's own start-of-turn reaction ("you may
-                // play this from your hand") needs step 3's turn-start hook — TODO(step 3).
+                // +$2 is vanilla (above). Each other player (Moat allowing) with 5+ cards in hand puts
+                // one onto their deck. The hand is counted when the frame first runs, after a
+                // Diplomat reaction (draw 2, discard 3) has resolved: a victim left with 4 cards
+                // is not affected (`Frame::down_to_target` in its threshold form: `exact`).
+                // Clerk's own start-of-turn play is `take_start_effect_at`.
                 let (vs, n) = self.victims(sink);
                 for &v in vs[..n].iter().rev() {
-                    if self.players[v as usize].hand.total() >= 5 {
-                        self.stack.push(select(v, card, Zone::Hand, Topdeck, Filter::Any, 1, 1, Then::Nothing));
-                    }
+                    self.stack.push(Frame { down_to_target: true, exact: true, ..select(v, card, Zone::Hand, Topdeck, Filter::Any, 0, 5, Then::Nothing) });
                 }
             }
             id::INVESTMENT => {
@@ -527,7 +531,11 @@ impl GameState {
             // may put this onto your deck" offer is a turn-boundary hook, not a play-time effect
             // — see `GameState::push_treasury_offers`, called from `engine::run_phase`.
             id::HAVEN => self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Any, 1, 1, Then::ScheduleDuration { times: 1 })),
-            id::BLOCKADE => self.stack.push(Frame { then: Then::ScheduleDuration { times: 1 }, ..gain_frame(p, card, 4, Filter::Any, Dest::Discard) }),
+            id::BLOCKADE => {
+                self.shield_lingering_attack(p, sink);
+                self.stack.push(Frame { then: Then::ScheduleDuration { times: 1 }, ..gain_frame(p, card, 4, Filter::Any, Dest::Discard) });
+            }
+            id::CORSAIR => self.shield_lingering_attack(p, sink),
             id::SEA_WITCH => {
                 // "+2 Cards. Each other player gains a Curse": after the draw, like Witch.
                 let (vs, n) = self.victims(sink);
@@ -675,13 +683,16 @@ impl GameState {
                 let names = self.players[p as usize].in_play.iter().count() as u8;
                 self.stack.push(Frame { then: Then::HornTrash, ..gain_frame(p, card, names, Filter::Any, Dest::Discard) });
             }
-            // A Silver played by an effect (Farmhands, Tiara, Crystal Ball): the Merchant bonus too.
+            // A Silver played by an effect (Farmhands, Tiara, Crystal Ball): the Merchant bonus too,
+            // and a Silver or Gold is the first one Corsair trashes, if it is.
             id::SILVER => {
                 let m = if self.turn.silvers_played == 0 { self.turn.merchants as u16 } else { 0 };
                 self.turn.coins += m;
                 self.turn.silvers_played = self.turn.silvers_played.saturating_add(1);
                 sink.bonus(p, id::MERCHANT, 0, 0, m, 0);
+                self.corsair_trashes_first_silver_or_gold(p, id::SILVER, sink);
             }
+            id::GOLD => self.corsair_trashes_first_silver_or_gold(p, id::GOLD, sink),
             // ---- Hidden information (step 4) ----
             id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
             id::SWINDLER => {
@@ -727,9 +738,8 @@ impl GameState {
 
     /// Open a reaction window for an Attack just played: every other player holding a reaction
     /// card whose table entry applies (today, just Diplomat) is offered a `YesNo` to reveal it.
-    /// Simplification: offered once per Attack play per player, even if they hold several copies
-    /// of the same reaction card (2nd-edition Diplomat allows re-revealing another copy if the
-    /// hand is still large enough; not modelled).
+    /// A reaction can be revealed again once it has resolved, if the hand still allows it (see the
+    /// `YesNo` arm of `run_frame`); only copies still in the hand count.
     fn push_reaction_window<S: EventSink>(&mut self, attack: CardId, _sink: &mut S) {
         let n = self.num_players;
         let attacker = self.turn.player;
@@ -740,13 +750,33 @@ impl GameState {
                 if hand.get(react_card) > 0 && hand.total() >= min_hand as u32 {
                     self.stack.push(Frame {
                         zone: Zone::Hand, act: Act::Reveal, subject: react_card,
-                        then: Then::ReactDrawDiscard { draw, discard },
+                        then: Then::ReactDrawDiscard { draw, discard }, min: min_hand,
                         ..Frame::new(K::YesNo, v, react_card)
                     });
                 }
             }
         }
         let _ = attack;
+    }
+
+    /// A lingering Duration Attack (Corsair, Blockade) was just played by `p`: remember which other
+    /// players it doesn't affect, those immune right now (a Moat is revealed, a Lighthouse is in
+    /// play). Several plays this turn (Throne Room) keep a player only if every one missed them.
+    fn shield_lingering_attack<S: EventSink>(&mut self, p: u8, sink: &mut S) {
+        let (vs, nv) = self.victims(sink);
+        let mut hit = 0u8;
+        for &v in &vs[..nv] {
+            hit |= 1 << v;
+        }
+        let mut immune = 0u8;
+        for v in self.others(p) {
+            immune |= (1 << v) & !hit;
+        }
+        let ps = &mut self.players[p as usize];
+        let earlier_play = ps.pending_durations[..ps.pending_durations_len as usize]
+            .iter()
+            .any(|e| matches!(e.card, id::CORSAIR | id::BLOCKADE));
+        ps.shielded = if earlier_play { ps.shielded & immune } else { immune };
     }
 
     /// Scrying Pool for target `t` (me or a victim): reveal their top card; `chooser` (the Pool's
@@ -848,6 +878,12 @@ impl GameState {
             Filter::NonCopperTreasure => c != id::COPPER && self.is_treasure(c),
             Filter::ActionOrTreasure => cards::is(c, ACTION) || self.is_treasure(c),
             Filter::TreasureNotReward => self.is_treasure(c) && !cards::is(c, cards::REWARD),
+            // A Duration Treasure only counts for the copies this cleanup discards: those played
+            // on an earlier turn, not the ones held for the next.
+            Filter::TreasureToDiscard => {
+                self.is_treasure(c)
+                    && (!cards::is(c, cards::DURATION) || self.players[p as usize].in_play.get(c) > self.turn.duration_held.get(c))
+            }
             Filter::ActionCostUpTo(n) => self.action_cost_ok(n, c),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
@@ -1005,7 +1041,8 @@ impl GameState {
                     // current size is the right one to compute the mandatory count from.
                     let z = self.zone(p, f.zone);
                     let avail: u32 = z.iter().filter(|&(c, _)| self.filter_ok(p, f.filter, c)).map(|(_, n)| n as u32).sum();
-                    let excess = avail.saturating_sub(f.max as u32) as u8;
+                    // Threshold form (`exact`, Clerk): pick one card if the zone holds `max` or more.
+                    let excess = if f.exact { u32::from(avail >= f.max as u32) } else { avail.saturating_sub(f.max as u32) } as u8;
                     f.min = excess;
                     f.max = excess;
                     f.down_to_target = false;
@@ -1024,7 +1061,13 @@ impl GameState {
             K::YesNo => {
                 // Nothing to act on (e.g. Mining Village already trashed by an earlier Throne
                 // Room play, or Baron with no Estate in hand): skip straight to the "no" outcome.
-                if self.zone(p, f.zone).get(f.subject) == 0 || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p)) {
+                // A hand-size reaction (Diplomat: `min` is the hand it needs) is only on offer
+                // while the hand still has that many cards, which is what lets it be revealed
+                // again after it resolved, as often as another copy and the hand allow.
+                if self.zone(p, f.zone).get(f.subject) == 0
+                    || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p))
+                    || (matches!(f.then, Then::ReactDrawDiscard { .. }) && self.players[pi].hand.total() < f.min as u32)
+                {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
                     return Run::Continue;
@@ -1424,7 +1467,7 @@ impl GameState {
                 }
                 // Replace: the gain's destination (and any attack) is keyed off the gained
                 // card's type rather than the frame's normal `dest`.
-                let dest = if f.then == Then::GainedTypeDestAttack && (cards::is(c, ACTION) || cards::is(c, TREASURE)) {
+                let dest = if f.then == Then::GainedTypeDestAttack && (cards::is(c, ACTION) || self.is_treasure(c)) {
                     Dest::DeckTop
                 } else {
                     f.dest
@@ -1443,7 +1486,7 @@ impl GameState {
                 if gained {
                     match f.then {
                         Then::GainedTypeStatBonus => {
-                            let (a, k) = (cards::is(c, ACTION) as u8, cards::is(c, TREASURE) as u16);
+                            let (a, k) = (cards::is(c, ACTION) as u8, self.is_treasure(c) as u16);
                             self.turn.actions += a;
                             self.turn.coins += k;
                             sink.bonus(p, f.source, a, 0, k, 0);
@@ -1537,6 +1580,8 @@ impl GameState {
                         sink.bonus(p, f.source, 0, 0, n as u16, 0);
                     }
                     Then::ReactDrawDiscard { draw, discard } => {
+                        // Offered again once this has resolved (see `K::YesNo`).
+                        self.stack.push(Frame { depth: f.depth, ..f });
                         self.stack.push(Frame { depth: f.depth, ..select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, discard, discard, Then::Nothing) });
                         self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, draw) });
                     }
@@ -1788,7 +1833,8 @@ impl GameState {
             }
             Then::ModePerType => {
                 if f.count > 0 {
-                    let types = cards::def(f.last).types.count_ones();
+                    // A Curse is also a Treasure in a game with Charlatan: two types.
+                    let types = cards::def(f.last).types.count_ones() + (f.last == id::CURSE && self.is_treasure(f.last)) as u32;
                     let picks = types.min(cards::modes(f.source).len() as u32) as u8;
                     if picks > 0 {
                         self.stack.push(mode_frame(p, f.source, picks));
@@ -2088,13 +2134,17 @@ impl GameState {
                 ModeOpt::TrashSelfRevealVpPerTreasureType => {
                     // Trash the card that offered this choice (Investment; already in play),
                     // then reveal the hand for +1 VP token per differently-named Treasure in it
-                    // (Curse counts too, under Charlatan).
+                    // (Curse counts too, under Charlatan). Only if this really trashed it: an
+                    // Investment played twice (Tiara) that was already trashed by its first play
+                    // has nothing left to trash, so the second play reveals nothing and scores
+                    // nothing.
                     let ps = &mut self.players[p as usize];
-                    if ps.in_play.remove(f.source) {
-                        self.trash.add(f.source, 1);
-                        self.turn.used_up.add_or_drop(f.source, 1);
-                        sink.event(Event::Trash { player: p, card: f.source });
+                    if !ps.in_play.remove(f.source) {
+                        continue;
                     }
+                    self.trash.add(f.source, 1);
+                    self.turn.used_up.add_or_drop(f.source, 1);
+                    sink.event(Event::Trash { player: p, card: f.source });
                     let hand = self.players[p as usize].hand;
                     let mut distinct = 0u16;
                     for (c, n) in hand.iter() {
@@ -2184,7 +2234,11 @@ impl GameState {
         // cleanup (see `put`'s `Act::Play` for why this isn't done unconditionally at play
         // time). Over-counting when Throne Room/King's Court multiplies a single physical card
         // (one call per resolution) is harmless: `cleanup` clamps to the real `in_play` count.
-        self.turn.duration_held.add(card, 1);
+        // Only for the turn's own player: a Pirate another player plays from their hand during
+        // this turn stays out until their own next turn's cleanup, not this one's.
+        if p == self.turn.player {
+            self.turn.duration_held.add(card, 1);
+        }
         let ps = &mut self.players[p as usize];
         if arg == 0 {
             for i in 0..ps.pending_durations_len as usize {
@@ -2213,6 +2267,8 @@ impl GameState {
     pub(crate) fn push_turn_start_frames<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player;
         let pi = p as usize;
+        // Corsair and Blockade end now ("until your next turn").
+        self.players[pi].shielded = 0;
         let len = self.players[pi].pending_durations_len as usize;
         if len > 0 {
             let ps = &mut self.players[pi];

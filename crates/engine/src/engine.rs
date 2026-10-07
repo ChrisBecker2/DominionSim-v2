@@ -461,7 +461,10 @@ impl GameState {
                 }
             }
             Phase::CleanupDraw => {
-                self.players[p].turns_taken += 1;
+                // Extra turns (Outpost) don't count towards the tie-break "fewer turns wins".
+                if !self.turn.is_extra_turn {
+                    self.players[p].turns_taken += 1;
+                }
                 if self.end_condition_met() {
                     self.turn.phase = Phase::GameOver;
                     sink.event(Event::GameOver);
@@ -675,18 +678,30 @@ impl GameState {
                 self.push_duration_pending(p, c, 1, 0);
             }
         }
-        // Corsair (owned by anyone else): the first Silver or Gold played each turn is
-        // trashed instead of staying in play. Card ids are fixed in ascending order
-        // (Copper < Silver < Gold), so this loop's iteration order already gives Silver
-        // priority over Gold when both are in hand, matching "the first ... they play".
-        if (c == id::SILVER || c == id::GOLD) && !self.turn.corsair_trashed_first && self.in_supply(id::CORSAIR) {
-            let n_players = self.num_players;
-            let has_other_corsair =
-                (0..n_players).any(|v| v != p && self.players[v as usize].in_play.has(id::CORSAIR));
-            if has_other_corsair {
-                self.turn.corsair_trashed_first = true;
-                let ps = &mut self.players[p as usize];
-                ps.in_play.remove(c);
+        // Card ids are fixed in ascending order (Copper < Silver < Gold), so this loop's
+        // iteration order already gives Silver priority over Gold when both are in hand,
+        // matching "the first ... they play".
+        if c == id::SILVER || c == id::GOLD {
+            self.corsair_trashes_first_silver_or_gold(p, c, sink);
+        }
+    }
+
+    /// Corsair (owned by anyone else): "until your next turn, each other player trashes the first
+    /// Silver or Gold they play each turn". `c` was just played by `p` (by auto-play or by an
+    /// effect); it is trashed from play if it is the first this turn and some other player's
+    /// Corsair is in effect against `p` (not if `p` was immune when it was played, `shielded`).
+    pub(crate) fn corsair_trashes_first_silver_or_gold<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
+        if self.turn.corsair_trashed_first || !self.in_supply(id::CORSAIR) {
+            return;
+        }
+        let hit = (0..self.num_players).any(|v| {
+            let owner = &self.players[v as usize];
+            v != p && owner.in_play.has(id::CORSAIR) && owner.shielded & (1 << p) == 0
+        });
+        if hit {
+            self.turn.corsair_trashed_first = true;
+            let ps = &mut self.players[p as usize];
+            if ps.in_play.remove(c) {
                 self.trash.add(c, 1);
                 sink.event(Event::Trash { player: p, card: c });
             }
@@ -715,10 +730,12 @@ impl GameState {
         let p = self.turn.player;
         let play = self.players[p as usize].in_play;
         // Pushed last-first (the stack pops the top first).
+        // Herbalist, 2022 text: "Once this turn, when you discard a Treasure from play, you may put
+        // it onto your deck", so every play counts (a Throne Roomed Herbalist is two).
         if self.in_supply(id::HERBALIST) {
-            for _ in 0..play.get(id::HERBALIST) {
+            for _ in 0..self.plays_this_turn(p, id::HERBALIST) {
                 self.stack.push(Frame {
-                    zone: Zone::InPlay, act: Act::Topdeck, filter: self.treasure_filter(), max: 1,
+                    zone: Zone::InPlay, act: Act::Topdeck, filter: Filter::TreasureToDiscard, max: 1,
                     ..Frame::new(FrameKind::Select, p, id::HERBALIST)
                 });
             }
@@ -915,9 +932,9 @@ impl GameState {
 
     /// Gain `c` from the supply if available, to `to`. `on_buy` is true only for the literal
     /// purchase in the Buy phase (never for Workshop/Remodel/War Chest/... gains, even though
-    /// some of those happen during a buy): it gates Hoard's "if you bought it" and Mint's on-buy
-    /// trash (`on_buy_effects`). Runs every "when you gain" trigger (Watchtower, Hoard,
-    /// Collection, Tiara). Also maintains two cheap, narrowly-gated per-turn records: `p`'s
+    /// some of those happen during a buy): it gates Hoard's "if you bought it" (`on_buy_effects`
+    /// holds any other buy-only effect). Runs every "when you gain" trigger (Watchtower, Hoard,
+    /// Collection, Tiara, Mint's trash). Also maintains two cheap, narrowly-gated per-turn records: `p`'s
     /// gain record for Smugglers (only while Smugglers is in this game's supply) and the
     /// "gained a Victory card this Buy phase" flag for Treasury (only while in the Buy phase).
     /// Returns whether it was gained.
@@ -975,7 +992,8 @@ impl GameState {
             self.turn.gained_this_turn.add_or_drop(c, 1);
         }
         if self.turn.phase == Phase::Buy {
-            if cards::is(c, cards::VICTORY) {
+            // Treasury looks at the Victory cards its own player gains in their Buy phase.
+            if cards::is(c, cards::VICTORY) && p == self.turn.player {
                 self.turn.gained_victory_in_buy = true;
             }
             // Merchant Guild counts the turn player's own gains.
@@ -1027,12 +1045,17 @@ impl GameState {
             return;
         }
         let pi = p as usize;
+        // Mint: "when you gain this, trash all non-Duration Treasures you have in play". The
+        // "this turn" passives below count plays, so they survive the trash.
+        if c == id::MINT {
+            self.mint_trashes_treasures_in_play(p, sink);
+        }
         for &(watcher, zone, trigger) in cards::GAIN_TRIGGERS {
-            // Every copy present triggers independently (two Hoards on one bought Victory card
-            // gain two Golds).
+            // Every play of a card triggers independently (two Hoards on one bought Victory card
+            // gain two Golds; one Hoard played twice with Tiara does too).
             let count = match zone {
                 cards::GainTriggerZone::Hand => self.players[pi].hand.get(watcher),
-                cards::GainTriggerZone::InPlay => self.players[pi].in_play.get(watcher),
+                cards::GainTriggerZone::InPlay => self.plays_this_turn(p, watcher),
             };
             if count == 0 {
                 continue;
@@ -1069,7 +1092,8 @@ impl GameState {
         // A 2nd (or later) copy's reaction naturally finds nothing left to act on once an
         // earlier one has already moved the card (`avail == 0`, auto-skipped), so pushing one
         // frame per copy is both correct and cheap (copy counts are always small).
-        for _ in 0..self.players[pi].in_play.get(id::TIARA) {
+        // One offer however many Tiaras (or plays of one) are active: they all say the same.
+        if self.plays_this_turn(p, id::TIARA) > 0 {
             self.stack.push(react(id::TIARA, Act::Topdeck));
         }
         for _ in 0..self.players[pi].hand.get(id::WATCHTOWER) {
@@ -1091,10 +1115,20 @@ impl GameState {
         // Monkey: "until your next turn, when the player to your right gains a card, +1 Card."
         // The owner is the player to whose right `g` sits, i.e. the next seat after `g` in turn
         // order (turns pass to the left, so "your right" is the player who acted just before you).
+        // The effect lasts "until your next turn" (so not through the owner's own next turn, where
+        // the Monkey is still in play) and each play of a Monkey is its own effect (a Throne
+        // Roomed Monkey draws twice): both are what its pending next-turn entry records.
         if self.in_supply(id::MONKEY) {
             let owner = (g + 1) % n;
-            if self.players[owner as usize].in_play.has(id::MONKEY) {
-                self.stack.push(Frame { max: 1, ..Frame::new(FrameKind::Draw, owner, id::MONKEY) });
+            let ps = &self.players[owner as usize];
+            let mut draws = 0u8;
+            for i in 0..ps.pending_durations_len as usize {
+                if ps.pending_durations[i].card == id::MONKEY {
+                    draws = draws.saturating_add(ps.pending_durations[i].times);
+                }
+            }
+            if draws > 0 {
+                self.stack.push(Frame { max: draws, ..Frame::new(FrameKind::Draw, owner, id::MONKEY) });
             }
         }
         // Blockade: "while its gained card is set aside, when another player gains a copy on
@@ -1115,6 +1149,10 @@ impl GameState {
                     continue;
                 }
                 let ps = &self.players[owner as usize];
+                // Immune when the Blockade was played (Moat, Lighthouse): no Curse, ever.
+                if ps.shielded & (1 << g) != 0 {
+                    continue;
+                }
                 for i in 0..ps.pending_durations_len as usize {
                     let e = ps.pending_durations[i];
                     if e.card == id::BLOCKADE && e.arg == c {
@@ -1126,10 +1164,13 @@ impl GameState {
                 }
             }
         }
-        // Pirate: "When any player gains a Treasure, you may play this from your hand."
+        // Pirate: "When any player gains a Treasure, you may play this from your hand." Each copy
+        // in the hand is its own reaction (one offer per copy; a copy played away is skipped).
+        // Players react in turn order starting with the turn's player: pushed last-first.
         if self.in_supply(id::PIRATE) && self.is_treasure(c) {
-            for owner in 0..n {
-                if self.players[owner as usize].hand.has(id::PIRATE) {
+            for i in (0..n).rev() {
+                let owner = (self.turn.player + i) % n;
+                for _ in 0..self.players[owner as usize].hand.get(id::PIRATE) {
                     self.stack.push(Frame {
                         zone: Zone::Hand, act: Act::Play, subject: id::PIRATE,
                         ..Frame::new(FrameKind::YesNo, owner, id::PIRATE)
@@ -1158,18 +1199,24 @@ impl GameState {
 
     /// Card-specific effects that happen specifically because a card was *bought* (not gained
     /// any other way): the one place for them, parallel to `may_buy`. Runs after the bought
-    /// card's own gain (and its triggers) have resolved.
+    /// card's own gain (and its triggers) have resolved. None at present: Mint's trash is a
+    /// "when you gain this" effect (`mint_trashes_treasures_in_play`), and Hoard's "if you bought
+    /// it" is checked on the gain itself (`on_buy`).
     pub(crate) fn on_buy_effects<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
-        if c == id::MINT {
-            // 2nd edition: trash only non-Duration Treasures (1st edition trashed all Treasures).
-            let treasures = self.players[p as usize].in_play;
-            for (tc, n) in treasures.iter() {
-                if self.is_treasure(tc) && !cards::is(tc, cards::DURATION) {
-                    for _ in 0..n {
-                        self.players[p as usize].in_play.remove(tc);
-                        self.trash.add(tc, 1);
-                        sink.event(Event::Trash { player: p, card: tc });
-                    }
+        let _ = (p, c, sink);
+    }
+
+    /// Mint, 2nd edition: "When you gain this, trash all non-Duration Treasures you have in
+    /// play". Any gain triggers it (bought, Artisan, ...), for whoever gains it; Treasures in
+    /// hand or elsewhere are untouched, and the coins they made stay spent.
+    fn mint_trashes_treasures_in_play<S: EventSink>(&mut self, p: u8, sink: &mut S) {
+        let treasures = self.players[p as usize].in_play;
+        for (tc, n) in treasures.iter() {
+            if self.is_treasure(tc) && !cards::is(tc, cards::DURATION) {
+                for _ in 0..n {
+                    self.players[p as usize].in_play.remove(tc);
+                    self.trash.add(tc, 1);
+                    sink.event(Event::Trash { player: p, card: tc });
                 }
             }
         }

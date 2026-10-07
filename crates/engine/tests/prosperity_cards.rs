@@ -46,16 +46,17 @@ fn platinum_is_a_five_coin_treasure_with_a_pile_of_twelve() {
 }
 
 #[test]
-fn colony_is_worth_ten_and_its_pile_matches_provinces() {
+fn colony_is_worth_ten_and_its_pile_is_8_with_two_players_else_12() {
     let d = cards::def(id::COLONY);
     assert_eq!((d.cost, d.vp), (11, 10));
     for (n, vp) in [(1, 10), (2, 20), (3, 30), (10, 100)] {
         assert_eq!(vp_of(&[(id::COLONY, n)]), vp);
     }
     assert_eq!(cards::set_of(id::COLONY), CardSet::Prosperity);
+    // Unlike the Provinces (15 and 18 with 5 and 6 players), the Colonies stay at 12.
     for n in 2..=6 {
         let g = new_state(&[id::PLATINUM, id::COLONY], n);
-        assert_eq!(g.supply.get(id::COLONY), g.supply.get(id::PROVINCE), "{n} players");
+        assert_eq!(g.supply.get(id::COLONY), if n == 2 { 8 } else { 12 }, "{n} players");
     }
     // Not in the supply unless named.
     assert!(!new_state(&[id::VILLAGE], 2).in_supply(id::COLONY));
@@ -347,10 +348,10 @@ fn mint_reveal_gains_a_copy_to_discard() {
 
 #[test]
 fn mint_buying_it_trashes_treasures_in_play_but_not_durations_2nd_edition() {
-    // 2nd edition: Mint's on-buy trash skips Duration Treasures (Astrolabe). 1st edition
-    // trashed every Treasure in play; this engine follows 2nd edition. Checked right after the
-    // buy (via `apply`, not the `buy` helper, which would drive on into cleanup and sweep
-    // in_play into discard regardless — the step-3 Duration zone isn't built yet).
+    // 2nd edition: Mint's trash skips Duration Treasures (Astrolabe). 1st edition trashed every
+    // Treasure in play; this engine follows 2nd edition. Checked right after the buy (via
+    // `apply`, not the `buy` helper, which would drive on into cleanup and sweep in_play into
+    // discard regardless — the step-3 Duration zone isn't built yet).
     let mut g = new_state(&[id::MINT, id::HAREM], 2);
     set_hand(&mut g, 0, &[id::GOLD, id::SILVER, id::COPPER, id::HAREM]);
     set_in_play(&mut g, 0, &[id::ASTROLABE]); // a Duration Treasure, placed directly (step-3 card)
@@ -364,18 +365,17 @@ fn mint_buying_it_trashes_treasures_in_play_but_not_durations_2nd_edition() {
 }
 
 #[test]
-fn mint_gaining_it_any_other_way_does_not_trash_treasures() {
-    // Artisan gains up to $5 to hand (Mint costs 5); a plain Workshop-style ($4) gain can't
-    // reach Mint at all, which already proves the on-buy trash is buy-specific, but Artisan
-    // shows a same-cost non-buy gain still doesn't trigger it.
+fn mint_gained_any_way_trashes_the_non_duration_treasures_in_play() {
+    // "When you gain this": Artisan gaining a Mint (up to $5) trashes the Treasures in play too,
+    // not only a buy. Hand and Duration Treasures are safe.
     let mut g = new_state(&[id::MINT, id::ARTISAN], 2);
-    set_hand(&mut g, 0, &[id::ARTISAN]);
-    set_in_play(&mut g, 0, &[id::GOLD, id::SILVER]);
+    set_hand(&mut g, 0, &[id::ARTISAN, id::COPPER]);
+    set_in_play(&mut g, 0, &[id::GOLD, id::SILVER, id::ASTROLABE]);
     play(&mut g, id::ARTISAN);
     choose(&mut g, Choice::Card(id::MINT)); // the gain
-    pick_while(&mut g, Zone::Hand, Act::Topdeck, id::MINT); // Artisan's own follow-up: topdeck a card
-    assert!(g.trash.is_empty(), "gaining Mint via Artisan, not a buy, must not trigger its trash");
-    assert!(g.players[0].in_play.has(id::GOLD) && g.players[0].in_play.has(id::SILVER));
+    assert!(g.trash.has(id::GOLD) && g.trash.has(id::SILVER) && g.trash.total() == 2);
+    assert!(g.players[0].in_play.has(id::ASTROLABE), "Durations stay");
+    assert!(g.players[0].hand.has(id::COPPER), "Treasures in hand are not in play");
 }
 
 // ===========================================================================

@@ -12,6 +12,7 @@ Saboteur, Scout, Secret Chamber and Tribute.
 
 > Card text below is from memory: the wiki blocks automated fetches. Check each card against the
 > wiki or the physical cards before its tests are written. The tests are the specification.
+> Checked against the wiki afterwards: see section 7 (rules audit).
 
 ## 1. The cards and what each needs from the engine
 
@@ -210,3 +211,34 @@ Diplomat, Mill, Secret Passage, Courtier, Patrol and Replace.
    (faster)? Recommend exact.
 3. **Base + Intrigue mixed kingdoms from the start**, or Intrigue-only first? Recommend mixed:
    same work, more useful.
+
+## 7. Rules audit against the wiki (2026-10)
+
+The Base set and Intrigue were re-read card by card against the wiki (latest card text, FAQ
+sections, the Reaction, Attack immunity, Gain, Reveal, Set aside and Clean-up pages; costs, types
+and vanilla bonuses compared by script: all equal). Tests: `crates/engine/tests/rules_audit.rs`.
+
+**Fixed**
+
+- **Diplomat's reaction can be revealed again** while the hand still has 5 or more cards and a
+  Diplomat (the FAQ: "you can reveal Diplomat again and do it again"); it was offered once per
+  Attack. The same Diplomat can be the card revealed again.
+- **Clerk** (Prosperity) now counts the victim's hand when it resolves, after the Diplomat.
+- **Charlatan's Curse is a Treasure for every rule**: Ironworks gaining a Curse gives +$1 (it
+  gave nothing), Replace puts a gained Curse onto the deck, Courtier counts a Curse as two types
+  (Treasure-Curse: two choices). `GameState::is_treasure` is used instead of the printed type.
+- Colony pile, Mint, the "this turn" Treasures: see the Seaside/Prosperity plan.
+
+**Checked, no change**: Cellar, Chapel, Moat, Harbinger, Merchant, Vassal, Village, Workshop,
+Bureaucrat, Gardens, Militia, Moneylender, Poacher, Remodel, Smithy, Throne Room, Bandit,
+Council Room, Festival, Laboratory, Library, Market, Mine, Sentry, Witch, Artisan; Courtyard,
+Lurker, Pawn, Masquerade (passing, empty hands skipped, a lone card is passed to oneself), Shanty
+Town, Steward, Swindler, Wishing Well, Baron, Bridge, Conspirator (counts plays, Throne Room's
+second play included), Ironworks, Mill (two cards, or one for nothing), Mining Village, Secret
+Passage, Duke, Minion, Patrol, Torturer, Trading Post, Upgrade, Nobles, Harem; the pile sizes (8
+Victory cards with 2 players and 12 with more, 10 Curses per player after the first, Provinces
+8/12/15/18) and the Platinum/Colony rule (a random kingdom card from Prosperity).
+
+**Open (not fixed)**: Moat is auto-revealed and a Moat drawn by a Diplomat is not seen (see the
+Seaside/Prosperity plan); Replace gains straight onto the deck instead of to the discard pile
+first, so Watchtower/Tiara cannot react to that gain; Harem is Farm on the wiki (renamed 2023).

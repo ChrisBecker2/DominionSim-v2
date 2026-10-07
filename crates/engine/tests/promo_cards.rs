@@ -303,7 +303,7 @@ fn a_princes_card_is_one_of_the_start_of_turn_effects() {
     set_deck_known(&mut g, 0, &[id::GOLD, id::GOLD, id::GOLD, id::GOLD, id::GOLD]);
     let i = g.players[0].pending_durations_len as usize;
     g.players[0].pending_durations[i] =
-        dominion_engine::state::PendingDuration { card: id::SEA_WITCH, times: 1, arg: 0, used: false };
+        dominion_engine::state::PendingDuration { card: id::SEA_WITCH, times: 1, arg: 0, used: 0 };
     g.players[0].pending_durations_len += 1;
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::StartOrder);
@@ -833,7 +833,7 @@ fn sorted(mut v: Vec<Choice>) -> Vec<Choice> {
 fn with_pending_captain(g: &mut GameState, times: u8) {
     g.players[0].in_play.add(id::CAPTAIN, 1);
     let i = g.players[0].pending_durations_len as usize;
-    g.players[0].pending_durations[i] = dominion_engine::state::PendingDuration { card: id::CAPTAIN, times, arg: 0, used: false };
+    g.players[0].pending_durations[i] = dominion_engine::state::PendingDuration { card: id::CAPTAIN, times, arg: 0, used: 0 };
     g.players[0].pending_durations_len += 1;
 }
 

@@ -1268,12 +1268,13 @@ fn clerk_does_not_attack_a_player_with_fewer_than_five_cards() {
 
 #[test]
 fn clerk_is_blocked_by_moat() {
-    let mut g = new_state(&[id::CLERK], 2);
+    let mut g = new_state(&[id::CLERK, id::MOAT], 2);
     set_hand(&mut g, 0, &[id::CLERK]);
     set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
     expect_decision(&mut g);
     choose(&mut g, Choice::No); // decline Clerk's own start-of-turn reaction offer first
     play(&mut g, id::CLERK);
+    moat(&mut g, true);
     assert_eq!(g.players[1].hand.total(), 6);
 }
 

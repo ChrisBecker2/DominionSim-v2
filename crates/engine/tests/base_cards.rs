@@ -354,6 +354,7 @@ fn moat_blocks_militia() {
     let victim_hand = [id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::MOAT];
     set_hand(&mut g, 1, &victim_hand);
     play(&mut g, id::MILITIA);
+    moat(&mut g, true);
     assert_eq!(g.players[1].hand, counts_of(&victim_hand), "fully blocked, nothing discarded");
 }
 
@@ -365,6 +366,7 @@ fn moat_blocks_witch() {
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
     set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
     play(&mut g, id::WITCH);
+    moat(&mut g, true);
     assert!(!g.players[1].discard.has(id::CURSE), "Moat blocks the Curse");
     assert_eq!(g.players[0].hand.total(), 2, "the attacker still draws +2 Cards");
 }

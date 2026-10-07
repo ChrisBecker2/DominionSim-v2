@@ -13,7 +13,7 @@ use dominion_engine::*;
 
 fn inject_pending(g: &mut GameState, p: usize, card: CardId, times: u8, arg: CardId) {
     let i = g.players[p].pending_durations_len as usize;
-    g.players[p].pending_durations[i] = PendingDuration { card, times, arg, used: false };
+    g.players[p].pending_durations[i] = PendingDuration { card, times, arg, used: 0 };
     g.players[p].pending_durations_len += 1;
 }
 
@@ -187,6 +187,7 @@ fn replace_puts_a_gained_curse_on_the_deck_when_charlatan_makes_it_a_treasure() 
     set_hand(&mut g, 0, &[id::REPLACE, id::COPPER]);
     play(&mut g, id::REPLACE); // the Copper is the only card to trash: trashed without asking
     g.apply(Choice::Card(id::CURSE), &mut NoEvents).unwrap(); // gain a Curse ($0 <= $2)
+    adv(&mut g);
     assert_eq!(g.players[0].deck_known.peek_top(), Some(id::CURSE));
     assert!(!g.players[0].discard.has(id::CURSE));
 
@@ -194,6 +195,7 @@ fn replace_puts_a_gained_curse_on_the_deck_when_charlatan_makes_it_a_treasure() 
     set_hand(&mut g, 0, &[id::REPLACE, id::COPPER]);
     play(&mut g, id::REPLACE);
     g.apply(Choice::Card(id::CURSE), &mut NoEvents).unwrap();
+    adv(&mut g);
     assert!(g.players[0].discard.has(id::CURSE), "without Charlatan a Curse is not a Treasure");
 }
 
@@ -218,6 +220,7 @@ fn a_moat_revealed_when_corsair_is_played_protects_from_its_silver_trashing() {
     set_hand(&mut g, 0, &[id::CORSAIR]);
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::CORSAIR);
+    moat(&mut g, true);
     assert_eq!(g.players[0].shielded, 0b10);
     reset_turn(&mut g, 1);
     set_hand(&mut g, 1, &[id::SILVER, id::GOLD]);
@@ -255,6 +258,7 @@ fn a_moat_revealed_when_blockade_is_played_protects_from_its_curse() {
     set_hand(&mut g, 0, &[id::BLOCKADE]);
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::BLOCKADE);
+    moat(&mut g, true);
     choose(&mut g, Choice::Card(id::SILVER)); // set aside
     pass(&mut g); // end player 0's turn
     pass(&mut g); // player 1 plays no Action

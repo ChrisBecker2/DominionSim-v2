@@ -55,7 +55,7 @@ fn bazaar_card_two_actions_and_a_coin() {
 
 fn inject_pending(g: &mut GameState, p: usize, card: CardId, times: u8, arg: CardId) {
     let i = g.players[p].pending_durations_len as usize;
-    g.players[p].pending_durations[i] = PendingDuration { card, times, arg, used: false };
+    g.players[p].pending_durations[i] = PendingDuration { card, times, arg, used: 0 };
     g.players[p].pending_durations_len += 1;
 }
 
@@ -718,7 +718,7 @@ fn sailor_now_gives_an_action_and_schedules_next_turn() {
     assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (1, 1, 0));
     assert_eq!(g.players[0].pending_durations_len, 1);
     let e = g.players[0].pending_durations[0];
-    assert_eq!((e.card, e.times, e.used), (id::SAILOR, 1, false));
+    assert_eq!((e.card, e.times, e.used), (id::SAILOR, 1, 0));
 }
 
 #[test]
@@ -750,7 +750,7 @@ fn sailor_may_play_a_gained_duration_card_once_per_turn() {
         .iter()
         .find(|e| e.card == id::SAILOR)
         .expect("Sailor's own next-turn entry");
-    assert!(sailor_entry.used, "Sailor's reaction is spent for the turn");
+    assert_eq!(sailor_entry.used, 1, "Sailor's reaction is spent for the turn");
 }
 
 // ===========================================================================

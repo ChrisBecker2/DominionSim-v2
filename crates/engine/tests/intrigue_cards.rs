@@ -870,6 +870,7 @@ fn replace_victory_gain_curses_other_players_unless_moat() {
     set_hand(&mut g, 0, &[id::REPLACE, id::GOLD]);
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::REPLACE);
+    moat(&mut g, true);
     choose(&mut g, Choice::Card(id::DUCHY));
     assert!(g.players[1].discard.is_empty(), "player 1 revealed Moat");
     assert_eq!(g.players[2].discard, counts_of(&[id::CURSE]), "player 2 has no Moat");
@@ -1179,6 +1180,7 @@ fn minion_coins_or_new_hands() {
     set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY, id::DUCHY]);
     set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
     play(&mut g, id::MINION);
+    moat(&mut g, true);
     choose(&mut g, Choice::Mode(hand_i));
     assert_eq!(g.players[1].hand, counts_of(&[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]), "Moat blocked the attack");
     assert!(g.players[1].discard.is_empty());
@@ -1716,6 +1718,7 @@ fn swindler_moat_blocks_it_entirely() {
     set_hand(&mut g, 1, &[id::MOAT]);
     set_deck_known(&mut g, 1, &[id::SILVER]);
     play(&mut g, id::SWINDLER);
+    moat(&mut g, true);
     assert_eq!(g.turn.coins, 2, "Swindler's own +$2 always applies");
     assert!(g.trash.is_empty(), "Moat blocks the trash");
     assert_eq!(g.players[1].deck_known.peek_top(), Some(id::SILVER));

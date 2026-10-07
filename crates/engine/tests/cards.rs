@@ -100,7 +100,8 @@ fn moat_blocks_militia() {
     let victim_hand = [id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::MOAT];
     set_hand(&mut g, 1, &victim_hand);
 
-    let next = play(&mut g, id::MILITIA);
+    play(&mut g, id::MILITIA);
+    let next = moat(&mut g, true);
     assert_eq!(g.players[1].hand, counts_of(&victim_hand), "Moat fully blocks Militia's discard");
     assert!(matches!(next, Step::Decision(Decision { kind: DecisionKind::Buy, .. })));
 }
@@ -112,6 +113,7 @@ fn moat_blocks_witch() {
     set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY]);
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::WITCH);
+    moat(&mut g, true);
     assert!(!g.players[1].discard.has(id::CURSE), "Moat blocks the Curse");
     assert_eq!(g.players[0].hand.total(), 2, "attacker still draws +2 Cards");
 }
@@ -122,6 +124,7 @@ fn moat_blocks_bureaucrat() {
     set_hand(&mut g, 0, &[id::BUREAUCRAT]);
     set_hand(&mut g, 1, &[id::MOAT, id::ESTATE]);
     play(&mut g, id::BUREAUCRAT);
+    moat(&mut g, true);
     assert_eq!(g.players[1].hand, counts_of(&[id::MOAT, id::ESTATE]), "victim untouched");
     assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER), "attacker still gains Silver");
 }
@@ -133,6 +136,7 @@ fn moat_blocks_bandit() {
     set_hand(&mut g, 1, &[id::MOAT]);
     set_deck_known(&mut g, 1, &[id::GOLD, id::SILVER]);
     play(&mut g, id::BANDIT);
+    moat(&mut g, true);
     assert_eq!(g.players[1].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::GOLD, id::SILVER], "deck untouched");
     assert_eq!(g.players[0].discard.get(id::GOLD), 1, "attacker still gains Gold");
 }

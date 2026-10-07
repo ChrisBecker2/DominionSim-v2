@@ -248,6 +248,37 @@ sizes were compared by script (all equal). Tests: `crates/engine/tests/rules_aud
   the deck (that was a bug: the Astrolabe's next-turn bonus would stay scheduled).
 - Charlatan's Curse-as-Treasure also applies to **Ironworks** (+$1), **Replace** (onto the
   deck) and **Courtier** (two types); see the Intrigue plan.
+- **Gains onto the deck can be reacted to** (Gain page: a card gained "onto your deck" is gained
+  there directly). `Zone::DeckTop` is a one-card zone, the known top of the deck, so the generic
+  `Select`/`YesNo` frames work on it: Watchtower may trash Bureaucrat's Silver or any of Treasure
+  Map's four Golds (one offer per Gold), and Sailor plays a Duration gained onto the deck from the
+  top. Putting a card onto the deck that is already there is not offered (Watchtower's and Tiara's
+  topdeck are skipped for such a gain). **Replace** now gains to the discard pile as usual
+  (Replace FAQ: "first gained to your discard pile ... then it is moved to the top of your deck
+  if possible"), runs the gain's reactions, and only then moves an Action or Treasure onto the
+  deck if it is still where it was gained (`Then::MoveSubjectIfPresent`, remembering how many
+  copies the discard pile held): a Watchtower that trashed it, or a Tiara that already put it
+  back, leaves nothing to move, and an older copy of the same card is never taken. Cards that gain
+  straight onto the deck today: Bureaucrat, Treasure Map, nothing else (a test pushes a synthetic
+  gain frame for Sailor).
+- **Sailor with Throne Room or King's Court**: "once this turn" is per play, so a Throne Roomed
+  Sailor can play two gained Durations and a King's Courted one three; two Sailors give one each.
+  `PendingDuration::used` is now a count of spent uses (against `times`); an offer spends a use
+  whether or not it is taken, and one gained card gets one offer (two Sailors cannot both play
+  it, Sailor FAQ). Text format: `Sailor x2 (used 1)`; the old `Sailor (used)` still loads (all of
+  its uses spent).
+- **Moat is a choice** (Moat FAQ: "you *may* reveal"; "you may reveal Moat for as many of them as
+  you want"). An Attack that another player could answer (a Moat in hand with no Lighthouse in
+  play, or a Diplomat they may reveal) first opens a reaction window: its own effects wait under
+  it (`FrameKind::AttackBody`), and each such player gets a `YesNo` per Attack, in turn order
+  (`Then::BlockAttack`, `cards::BLOCK_REACTIONS`; revealing sets a bit of `TurnState::moated`,
+  which `victims` reads). A player's Diplomat comes first, so a Moat it draws is still offered
+  (the reactions can be used in either order, the result is the same). Nobody is asked when no
+  other player can react, so games without Moat/Diplomat in hand are not slowed. Lighthouse still
+  protects with no decision. The bot reveals always, except against **Minion** when it holds 5 or
+  more cards and a new hand of 4 is worth more money than its hand (the comparison Minion's own
+  default makes). **Scrying Pool**: the bot also always reveals: the Pool's owner picks, so
+  having its top card judged cannot help the victim.
 
 **Checked, no change**: Anvil, Watchtower, Bishop, Monument, Worker's Village, City, Crystal Ball,
 Magnate, Rabble, Vault, War Chest, Grand Market, Bank, Expand, Forge, King's Court, Peddler,
@@ -260,17 +291,9 @@ King's Court with Durations.
 
 **Open (not fixed)**
 
-- **Gains onto the deck cannot be reacted to**: Watchtower, Tiara and Sailor see only gains to
-  the discard pile or the hand (`gain_dest_zone`). Bureaucrat's Silver, Treasure Map's Golds and
-  Replace's Action/Treasure go straight onto the deck. By the rules Replace gains to the discard
-  pile first and then moves the card, so a Watchtower could trash it there; a Watchtower trashing
-  a Silver onto the deck is a move nobody makes, so this is rarely visible.
-- **Sailor with Throne Room or King's Court**: the entry has one `used` flag, so a doubled Sailor
-  can play one gained Duration, not two.
-- **Moat is revealed automatically** against every Attack (`GameState::immune`); the rules let
-  a player choose not to, which only matters against Attacks that can help the victim (Minion's new
-  hand, Scrying Pool). A Moat that arrives in hand after the Attack was played (a Diplomat's
-  draw) is not seen either.
+- Watchtower's two offers (trash, then put onto the deck) look for the gained card's *name* in
+  the zone, so with an older copy of it in the discard pile, a Watchtower that trashed the new
+  card may still be offered to put the older one onto the deck (the card is the same).
 - A Cutpurse or Bureaucrat checks the victim's hand when played; a Diplomat reveal that then
   draws a Copper or Victory card changes nothing for them (the Clerk, Militia and Minion check
   late).

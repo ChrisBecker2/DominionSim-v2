@@ -890,6 +890,7 @@ fn footpad_blocked_by_moat_still_gives_the_tokens() {
     set_hand(&mut g, 0, &[id::FOOTPAD]);
     set_hand(&mut g, 1, &[id::MOAT, id::COPPER, id::COPPER, id::SILVER, id::ESTATE]);
     play(&mut g, id::FOOTPAD);
+    moat(&mut g, true);
     assert_eq!(g.players[0].coffers, 2);
     assert_eq!(g.players[1].hand.total(), 5);
 }
@@ -1011,6 +1012,7 @@ fn soothsayer_gives_nothing_to_draw_when_no_curse_is_gained() {
     set_hand(&mut g, 1, &[id::MOAT]);
     set_deck_known(&mut g, 1, &junk(3));
     play(&mut g, id::SOOTHSAYER);
+    moat(&mut g, true);
     assert_eq!(g.players[1].hand.total(), 1);
     assert!(g.players[1].discard.is_empty());
 }
@@ -1156,6 +1158,7 @@ fn jester_edge_cases_empty_pile_empty_deck_moat_and_dual_types() {
     set_hand(&mut g, 1, &[id::MOAT]);
     set_deck_known(&mut g, 1, &[id::ESTATE]);
     play(&mut g, id::JESTER);
+    moat(&mut g, true);
     assert_eq!(g.players[1].deck_known.peek_top(), Some(id::ESTATE));
     // A Victory-Treasure (Harem) is a Victory card: the Curse.
     let mut g = new_state(&[id::JESTER, id::HAREM], 2);
@@ -1407,7 +1410,7 @@ fn farmhands_cards_and_durations_resolve_in_an_order_the_player_chooses() {
 
 fn state_push_pending(g: &mut GameState, card: CardId) {
     let i = g.players[0].pending_durations_len as usize;
-    g.players[0].pending_durations[i] = state::PendingDuration { card, times: 1, arg: 0, used: false };
+    g.players[0].pending_durations[i] = state::PendingDuration { card, times: 1, arg: 0, used: 0 };
     g.players[0].pending_durations_len += 1;
 }
 
@@ -1786,6 +1789,7 @@ fn young_witch_is_blocked_by_revealing_a_bane_or_a_moat_and_the_bane_is_an_extra
     set_deck_known(&mut g, 0, &junk(6));
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::YOUNG_WITCH);
+    moat(&mut g, true);
     drain_selects(&mut g);
     assert_eq!(g.players[1].discard.get(id::CURSE), 0);
 }

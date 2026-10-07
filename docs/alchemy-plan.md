@@ -223,4 +223,5 @@ Philosopher's Stone (deck and discard pile only, recomputed per play), Golem (th
 are not in hand, so a Throne Room among them cannot target the other), Apprentice, Potion
 (16 in the supply, one per game with a card with a Potion in its cost).
 
-**Open**: none beyond the Moat and deck-gain notes in the Seaside/Prosperity plan.
+**Open**: none (the Moat and deck-gain notes were fixed, see the Seaside/Prosperity plan, section 6;
+a victim may decline to reveal Moat to Scrying Pool, but the bot never does).

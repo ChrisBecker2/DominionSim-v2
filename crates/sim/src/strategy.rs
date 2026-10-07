@@ -411,8 +411,15 @@ impl Strategy {
                 }
                 // Discard-for-a-bonus (Baron: discard an Estate for +$4): worth it by default.
                 Act::Discard => Choice::Yes,
-                // Diplomat's reaction: only offered once the hand already has 5+ cards.
-                Act::Reveal => Choice::Yes,
+                // Diplomat's reaction: only offered once the hand already has 5+ cards. Moat
+                // (the source is the Attack): see `reveal_to_attack`.
+                Act::Reveal => {
+                    if decision.source.is_some_and(|s| s != decision.subject && cards::is(s, cards::ATTACK)) {
+                        self.reveal_to_attack(view, decision)
+                    } else {
+                        Choice::Yes
+                    }
+                }
                 // Treasury: always put it back unless the strategy says otherwise (there's no
                 // stated-rule override for this shape yet, so this is the whole policy for now).
                 Act::Topdeck => Choice::Yes,
@@ -1360,19 +1367,38 @@ impl Strategy {
     /// in hand plus $2 (and any other Minions in hand, each good for at least $2 more) beats 4
     /// cards drawn at the deck's average money per card.
     fn default_minion(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        let (hand_money, redraw) = Self::hand_vs_redraw(view);
+        let keep = hand_money + 2 + 2 * view.hand().get(id::MINION) as u32;
+        let pred: fn(&ModeOpt) -> bool = if redraw > keep as f64 { is_discard_hand_draw } else { is_coins };
+        find_mode(id::MINION, choices, pred).unwrap_or(choices[0])
+    }
+
+    /// The treasure money in my hand, and what a new hand of 4 cards is worth on average (by the
+    /// money of the deck, reshuffling the discard in if the deck is short).
+    fn hand_vs_redraw(view: &PlayerView) -> (u32, f64) {
         let money = |c: &Counts| -> u32 {
             c.iter().filter(|&(x, _)| cards::is(x, TREASURE)).map(|(x, n)| cards::def(x).coins as u32 * n as u32).sum()
         };
-        let hand = view.hand();
-        let keep = money(hand) + 2 + 2 * hand.get(id::MINION) as u32;
-        // What a new hand draws from: the deck, reshuffling the discard in if the deck is short.
         let mut pool = view.deck();
         if pool.total() < 4 {
             pool.add_all(view.discard());
         }
         let redraw = if pool.total() == 0 { 0.0 } else { 4.0 * money(&pool) as f64 / pool.total() as f64 };
-        let pred: fn(&ModeOpt) -> bool = if redraw > keep as f64 { is_discard_hand_draw } else { is_coins };
-        find_mode(id::MINION, choices, pred).unwrap_or(choices[0])
+        (money(view.hand()), redraw)
+    }
+
+    /// Revealing a blocking Reaction (Moat) to an Attack: always, except against an Attack that can
+    /// help the victim. Minion hands a victim with 5+ cards a new hand of 4: declined when that
+    /// is worth more than the hand held (the comparison `default_minion` makes). Scrying Pool is
+    /// always blocked: its player judges my top card, and judging never helps the one judged.
+    fn reveal_to_attack(&self, view: &PlayerView, decision: &Decision) -> Choice {
+        if decision.source == Some(id::MINION) && view.hand().total() >= 5 {
+            let (hand_money, redraw) = Self::hand_vs_redraw(view);
+            if redraw > hand_money as f64 {
+                return Choice::No;
+            }
+        }
+        Choice::Yes
     }
 
     /// Courtier: +$3, then gain a Gold, then +1 Buy, then +1 Action (in that priority order,
@@ -1651,6 +1677,13 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Revealed => *view.revealed(),
         Zone::InPlay => *view.in_play(),
         Zone::Trash => *view.trash(),
+        Zone::DeckTop => {
+            let mut top = Counts::EMPTY;
+            if let Some(c) = view.deck_known_top().next() {
+                top.add(c, 1);
+            }
+            top
+        }
         Zone::Supply => {
             let mut c = Counts::EMPTY;
             for card in view.supply_cards() {

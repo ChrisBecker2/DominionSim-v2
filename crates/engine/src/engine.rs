@@ -1005,16 +1005,14 @@ impl GameState {
     }
 
     /// The zone a gain destination corresponds to, for triggers that need to find the gained
-    /// card again afterward (Watchtower, Tiara). `None` for `Dest::DeckTop`: there is no zone in
-    /// this engine's Select vocabulary for "the known top of the deck" (decks are the
-    /// known-stack/unknown-multiset split, not a `Counts` zone), so a card gained straight onto
-    /// the deck (e.g. Bureaucrat's Silver) is a documented gap: Watchtower/Tiara can't currently
-    /// react to it. Rare in practice.
-    fn gain_dest_zone(to: Dest) -> Option<Zone> {
+    /// card again afterward (Watchtower, Sailor). A card gained onto the deck is gained there
+    /// directly (Gain rules page), so it is the known top card of the deck: `Zone::DeckTop`, the
+    /// one-card zone a reaction can trash it from or play it from.
+    fn gain_dest_zone(to: Dest) -> Zone {
         match to {
-            Dest::Discard => Some(Zone::Discard),
-            Dest::Hand => Some(Zone::Hand),
-            Dest::DeckTop => None,
+            Dest::Discard => Zone::Discard,
+            Dest::Hand => Zone::Hand,
+            Dest::DeckTop => Zone::DeckTop,
         }
     }
 
@@ -1081,7 +1079,7 @@ impl GameState {
                 cards::GainTrigger::WatchtowerReact | cards::GainTrigger::TiaraTopdeck => {}
             }
         }
-        let Some(zone) = Self::gain_dest_zone(to) else { return };
+        let zone = Self::gain_dest_zone(to);
         let react = |source: CardId, act: Act| Frame {
             zone,
             act,
@@ -1093,12 +1091,17 @@ impl GameState {
         // earlier one has already moved the card (`avail == 0`, auto-skipped), so pushing one
         // frame per copy is both correct and cheap (copy counts are always small).
         // One offer however many Tiaras (or plays of one) are active: they all say the same.
-        if self.plays_this_turn(p, id::TIARA) > 0 {
+        // A card gained onto the deck is already there: nothing to put (Watchtower can still
+        // trash it).
+        let on_deck = to == Dest::DeckTop;
+        if !on_deck && self.plays_this_turn(p, id::TIARA) > 0 {
             self.stack.push(react(id::TIARA, Act::Topdeck));
         }
         for _ in 0..self.players[pi].hand.get(id::WATCHTOWER) {
             // Revealed from hand when used: the pick logs a Reaction event (`reveal_source`).
-            self.stack.push(Frame { reveal_source: true, ..react(id::WATCHTOWER, Act::Topdeck) });
+            if !on_deck {
+                self.stack.push(Frame { reveal_source: true, ..react(id::WATCHTOWER, Act::Topdeck) });
+            }
             self.stack.push(Frame { reveal_source: true, ..react(id::WATCHTOWER, Act::Trash) });
         }
     }
@@ -1108,7 +1111,7 @@ impl GameState {
     /// reacts to the player to its owner's right; Blockade reacts to any other player gaining its
     /// held card; Pirate reacts to any player's Treasure gain; Sailor is the one card here that
     /// *does* react to its own owner's gain, but "once this turn" is tracked per Sailor instance
-    /// via its own `PendingDuration::used`, not the generic per-gain table. Gated by the caller on
+    /// via its own `PendingDuration::used` count, not the generic per-gain table. Gated by the caller on
     /// `cards::SEASIDE_GAIN_TRIGGER_MASK`.
     fn run_seaside_gain_triggers<S: EventSink>(&mut self, g: u8, c: CardId, to: Dest, sink: &mut S) {
         let n = self.num_players;
@@ -1178,20 +1181,20 @@ impl GameState {
                 }
             }
         }
-        // Sailor: "once this turn, when you gain a Duration card, you may play it." Only the
-        // gainer's own live, not-yet-used Sailor reacts; needs the gain's zone (Hand/Discard) to
-        // offer a `Play` there (a `Dest::DeckTop` gain has no zone to play from: same documented
-        // gap as Watchtower/Tiara in `gain_dest_zone`).
+        // Sailor: "once this turn, when you gain a Duration card, you may play it." Each play of a
+        // Sailor (a Throne Room'd one is played twice) is one use, spent when it is offered; one
+        // offer per gained card, since two Sailors cannot play the same card twice. Only the
+        // gainer's own Sailors react. The card is played from where it landed, the deck top
+        // included.
         if self.in_supply(id::SAILOR) && cards::is(c, cards::DURATION) {
-            if let Some(zone) = Self::gain_dest_zone(to) {
-                let ps = &mut self.players[g as usize];
-                for i in 0..ps.pending_durations_len as usize {
-                    let e = &mut ps.pending_durations[i];
-                    if e.card == id::SAILOR && !e.used {
-                        e.used = true;
-                        self.stack.push(Frame { zone, act: Act::Play, subject: c, ..Frame::new(FrameKind::YesNo, g, id::SAILOR) });
-                        break;
-                    }
+            let zone = Self::gain_dest_zone(to);
+            let ps = &mut self.players[g as usize];
+            for i in 0..ps.pending_durations_len as usize {
+                let e = &mut ps.pending_durations[i];
+                if e.card == id::SAILOR && e.used < e.times {
+                    e.used += 1;
+                    self.stack.push(Frame { zone, act: Act::Play, subject: c, ..Frame::new(FrameKind::YesNo, g, id::SAILOR) });
+                    break;
                 }
             }
         }
@@ -1222,16 +1225,12 @@ impl GameState {
         }
     }
 
-    /// Moat / Lighthouse check: Moat is auto-revealed from hand; Lighthouse is a lingering
-    /// static while in play ("other players' Attacks don't affect you"), so it's just an
-    /// `in_play` check, no reaction event (nothing is revealed).
-    pub(crate) fn immune<S: EventSink>(&self, victim: u8, sink: &mut S) -> bool {
-        if self.players[victim as usize].hand.has(id::MOAT) {
-            sink.event(Event::Reaction { player: victim, card: id::MOAT });
-            true
-        } else {
-            self.players[victim as usize].in_play.has(id::LIGHTHOUSE)
-        }
+    /// Moat / Lighthouse check: a Moat revealed to the Attack being resolved (`TurnState::moated`,
+    /// set by the victim's choice in the reaction window); Lighthouse is a lingering static while
+    /// in play ("other players' Attacks don't affect you"), so it's just an `in_play` check, no
+    /// reaction event (nothing is revealed).
+    pub(crate) fn immune(&self, victim: u8) -> bool {
+        self.turn.moated & (1 << victim) != 0 || self.players[victim as usize].in_play.has(id::LIGHTHOUSE)
     }
 
     // ------------------------------------------------------------------

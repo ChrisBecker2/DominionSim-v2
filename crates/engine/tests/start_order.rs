@@ -16,7 +16,7 @@ use dominion_engine::*;
 fn inject(g: &mut GameState, card: CardId, times: u8, arg: CardId) {
     let ps = &mut g.players[0];
     let i = ps.pending_durations_len as usize;
-    ps.pending_durations[i] = PendingDuration { card, times, arg, used: false };
+    ps.pending_durations[i] = PendingDuration { card, times, arg, used: 0 };
     ps.pending_durations_len += 1;
 }
 
@@ -386,8 +386,8 @@ fn the_decision_kind_is_not_a_play_decision_for_other_players() {
     // The decision belongs to the turn's player (player 1's turn: player 1 chooses).
     let mut g = new_state(&[id::SEA_WITCH, id::CARAVAN], 2);
     reset_turn(&mut g, 1);
-    g.players[1].pending_durations[0] = PendingDuration { card: id::SEA_WITCH, times: 1, arg: 0, used: false };
-    g.players[1].pending_durations[1] = PendingDuration { card: id::CARAVAN, times: 1, arg: 0, used: false };
+    g.players[1].pending_durations[0] = PendingDuration { card: id::SEA_WITCH, times: 1, arg: 0, used: 0 };
+    g.players[1].pending_durations[1] = PendingDuration { card: id::CARAVAN, times: 1, arg: 0, used: 0 };
     g.players[1].pending_durations_len = 2;
     let d = expect_decision(&mut g);
     assert_eq!((d.kind, d.player), (DecisionKind::StartOrder, 1));

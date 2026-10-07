@@ -807,10 +807,14 @@ pub const GAIN_TRIGGER_CARDS_MASK: u128 =
     (1u128 << id::WATCHTOWER) | (1u128 << id::HOARD) | (1u128 << id::COLLECTION) | (1u128 << id::TIARA) | (1u128 << id::MINT);
 
 /// Reaction cards that offer an optional effect (not a block) when another player plays an
-/// Attack: `(card, minimum hand size to reveal, cards drawn, cards then discarded)`. Moat's
-/// blocking reaction is handled separately (`GameState::immune`); this table is for reactions
-/// like Diplomat's that let the revealer act without stopping the attack.
+/// Attack: `(card, minimum hand size to reveal, cards drawn, cards then discarded)`. Blocking
+/// reactions are `BLOCK_REACTIONS`; this table is for reactions like Diplomat's that let the
+/// revealer act without stopping the attack.
 pub static REACTION_EFFECTS: &[(CardId, u8, u8, u8)] = &[(id::DIPLOMAT, 5, 2, 3)];
+
+/// Reaction cards that, revealed from the hand when another player plays an Attack, leave their
+/// owner unaffected by it (Moat). Revealing is the owner's choice (`Then::BlockAttack`).
+pub static BLOCK_REACTIONS: &[CardId] = &[id::MOAT];
 
 // ---------------------------------------------------------------------------------------
 // Duration cards (Seaside step 3): the vanilla start-of-next-turn bonus each Duration card

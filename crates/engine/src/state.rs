@@ -382,10 +382,10 @@ pub struct PendingDuration {
     /// card gained and set aside, whose copies curse other players who gain one on their turn.
     /// 0 = no argument.
     pub arg: CardId,
-    /// Sailor only: whether its "once this turn, when you gain a Duration card, you may play
-    /// it" reaction has already been used by this copy. Unused (always false) for every other
-    /// card.
-    pub used: bool,
+    /// Sailor only: how many of this entry's `times` plays have already used their "once this
+    /// turn, when you gain a Duration card, you may play it" reaction (a Throne Room'd Sailor has
+    /// two, a King's Court'd one three). Always 0 for every other card.
+    pub used: u8,
 }
 
 /// The start-of-turn effects not yet resolved (`TurnState::start_pending`): a short fixed list.
@@ -399,7 +399,7 @@ pub struct StartList {
 
 impl StartList {
     pub const EMPTY: StartList =
-        StartList { entries: [PendingDuration { card: 0, times: 0, arg: 0, used: false }; START_PENDING_CAP], len: 0 };
+        StartList { entries: [PendingDuration { card: 0, times: 0, arg: 0, used: 0 }; START_PENDING_CAP], len: 0 };
 
     #[inline]
     pub fn as_slice(&self) -> &[PendingDuration] {
@@ -694,6 +694,10 @@ pub struct TurnState {
     /// function (the bots' `GainListEvaluator`) tell "used up" from "had a card taken". Tiny
     /// fixed record, per-turn bookkeeping, not part of the text format (reset on load).
     pub used_up: SmallMultiset<4>,
+    /// Players (bit per seat) who revealed a blocking Reaction (Moat) to the Attack being
+    /// resolved: unaffected by it. Reset when an Attack is played that opens a reaction window;
+    /// transient, not part of the text format.
+    pub moated: u8,
     /// Cards to draw at Clean-up on top of the usual 5 (3 after an Outpost): Farrier's overpay.
     pub extra_draw: u8,
     /// Merchant Guild plays this turn: each pays +1 Coffers per card gained in the Buy phase.
@@ -734,6 +738,7 @@ impl TurnState {
             start_pending: StartList::EMPTY,
             prince_play: false,
             used_up: SmallMultiset::EMPTY,
+            moated: 0,
             extra_draw: 0,
             guilds: 0,
             gained_in_buy: 0,
@@ -754,6 +759,9 @@ pub enum Zone {
     Supply,
     /// The shared trash pile (Lurker: gain a card from it).
     Trash,
+    /// The known top card of the player's own deck, if there is one (a card just gained onto the
+    /// deck: Watchtower trashes it, Sailor plays it). Empty while the top is unknown.
+    DeckTop,
 }
 
 /// What happens to a picked card.
@@ -912,6 +920,14 @@ pub enum Then {
     /// YesNo (`act: Reveal`): if revealed, draw `draw` cards then discard exactly `discard`
     /// (Diplomat's reaction to an Attack being played).
     ReactDrawDiscard { draw: u8, discard: u8 },
+    /// YesNo (`act: Reveal`): if revealed, the player is unaffected by the Attack being played
+    /// (`TurnState::moated`; Moat). The frame's `source` is the Attack.
+    BlockAttack,
+    /// Select (a 0-pick frame sitting under the reactions a gain triggers): once they have run,
+    /// move one copy of `subject` out of `zone` by `act` if the zone still holds at least `min`
+    /// copies, i.e. nothing moved the gained card meanwhile (Replace: an Action or Treasure
+    /// gained to the discard pile goes onto the deck, unless Watchtower or Tiara moved it first).
+    MoveSubjectIfPresent,
     /// Select: if something was picked, gain a card costing up to a *fixed* amount, regardless
     /// of what was picked (Anvil: discard a Treasure to gain a card up to $4).
     GainFixedUpTo { max_cost: u8, filter: Filter, dest: Dest },
@@ -1180,6 +1196,9 @@ pub enum FrameKind {
     /// whether all `times` actually scheduled a next-turn effect (`TurnState::multiplier_*`) and,
     /// if so, keeps the multiplier itself (`source`) in play too. See `Then::PlayPicked`.
     MultiplierFinalize,
+    /// An Attack's own effects, held back (`subject`) until the reaction window opened above it
+    /// has resolved, so a victim's Moat is known before the Attack does anything. No decision.
+    AttackBody,
     /// Native Village's "put the top card of your deck face down on your mat" mode option:
     /// chance-aware like `Draw` (may need a `Step::Chance` sample), but the card goes to the
     /// player's `native_village_mat` instead of their hand.

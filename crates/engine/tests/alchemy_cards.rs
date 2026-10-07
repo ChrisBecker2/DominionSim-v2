@@ -879,6 +879,7 @@ fn scrying_pool_is_blocked_by_moat_but_the_owner_still_reveals() {
     set_deck_known(&mut g, 1, &[id::PLATINUM, id::PROVINCE]);
     set_deck_known(&mut g, 0, &[id::ESTATE, id::COPPER]);
     play(&mut g, id::SCRYING_POOL);
+    moat(&mut g, true);
     // Only the owner's own top card is asked about.
     let d = g.pending_decision().expect("own top card");
     assert_eq!(d.for_player, 0);
@@ -1004,6 +1005,7 @@ fn familiar_is_blocked_by_moat() {
     set_hand(&mut g, 0, &[id::FAMILIAR]);
     set_hand(&mut g, 1, &[id::MOAT]);
     play(&mut g, id::FAMILIAR);
+    moat(&mut g, true);
     assert!(g.players[1].discard.is_empty());
 }
 

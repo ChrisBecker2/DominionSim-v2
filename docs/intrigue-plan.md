@@ -239,6 +239,7 @@ Passage, Duke, Minion, Patrol, Torturer, Trading Post, Upgrade, Nobles, Harem; t
 Victory cards with 2 players and 12 with more, 10 Curses per player after the first, Provinces
 8/12/15/18) and the Platinum/Colony rule (a random kingdom card from Prosperity).
 
-**Open (not fixed)**: Moat is auto-revealed and a Moat drawn by a Diplomat is not seen (see the
-Seaside/Prosperity plan); Replace gains straight onto the deck instead of to the discard pile
-first, so Watchtower/Tiara cannot react to that gain; Harem is Farm on the wiki (renamed 2023).
+**Fixed afterwards** (see the Seaside/Prosperity plan, section 6): Moat is a choice, also for a
+Moat a Diplomat draws; Replace gains to the discard pile first and then moves the card, so
+Watchtower and Tiara can react to that gain. **Open (not fixed)**: Harem is Farm on the wiki
+(renamed 2023).

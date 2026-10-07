@@ -1697,6 +1697,7 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::InPlay => " from play",
         Zone::Supply => " from the Supply",
         Zone::Trash => " from the trash",
+        Zone::DeckTop => " from the top of your deck",
     }
 }
 
@@ -1768,8 +1769,23 @@ fn gain_reaction(d: &Decision) -> Option<(cards::CardId, cards::CardId, Act)> {
     }
 }
 
+/// A Reaction offered against an Attack that was just played (Moat): a YesNo to reveal the card,
+/// whose source is the Attack. Returns (reaction, attack).
+fn block_reaction(d: &Decision) -> Option<(cards::CardId, cards::CardId)> {
+    let src = d.source?;
+    match d.kind {
+        DecisionKind::YesNo { act: Act::Reveal } if src != d.subject && cards::is(src, cards::ATTACK) && cards::is(d.subject, cards::REACTION) => {
+            Some((d.subject, src))
+        }
+        _ => None,
+    }
+}
+
 fn decision_description(state: &GameState, d: &Decision) -> String {
     let who = format!("Player {}", d.player + 1);
+    if let Some((reaction, attack)) = block_reaction(d) {
+        return format!("{who}: Reveal {} to block {}?", cards::name(reaction), cards::name(attack));
+    }
     if let Some((src, c, act)) = gain_reaction(d) {
         let what = if act == Act::Trash { "trash" } else { "put onto your deck" };
         return format!("{who}: You may reveal {} from your hand to {what} the {} you just gained.", cards::name(src), cards::name(c));
@@ -1917,6 +1933,12 @@ fn start_effect_label(state: &GameState, name: cards::CardId) -> String {
 }
 
 fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
+    if let Some((reaction, _)) = block_reaction(d) {
+        return match c {
+            Choice::Yes => format!("Reveal {}", cards::name(reaction)),
+            _ => "Don't reveal".to_string(),
+        };
+    }
     if let Some((src, card, act)) = gain_reaction(d) {
         return match c {
             Choice::Card(_) if act == Act::Trash => format!("Reveal {}: trash {}", cards::name(src), cards::name(card)),
@@ -2060,7 +2082,7 @@ fn supply_json(state: &GameState) -> String {
 
 /// `[{"card":"Fishing Village","times":2,"arg":null},...]`, the pending start-of-next-turn
 /// Duration effects (Seaside): `arg` is the set-aside/gained card name (Haven/Blockade) or
-/// `"used"` (Sailor's spent reaction), else `null`.
+/// `"used"` (Sailor's spent reactions; `"used 1"` with plays left over), else `null`.
 fn durations_json(state: &GameState, p: usize) -> String {
     let ps = &state.players[p];
     let items: Vec<String> = ps.pending_durations[..ps.pending_durations_len as usize]
@@ -2068,8 +2090,10 @@ fn durations_json(state: &GameState, p: usize) -> String {
         .map(|e| {
             let arg = if e.arg != 0 {
                 jstr(cards::name(e.arg))
-            } else if e.used {
+            } else if e.used >= e.times.max(1) {
                 jstr("used")
+            } else if e.used > 0 {
+                jstr(&format!("used {}", e.used))
             } else {
                 "null".to_string()
             };

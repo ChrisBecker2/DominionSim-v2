@@ -63,7 +63,7 @@ fn astrolabe_reports_now_and_at_turn_start() {
     // Next turn: a pending Astrolabe fires with the same bonus, reported even at depth 0.
     let mut g = new_state(&[id::ASTROLABE], 2);
     let i = g.players[0].pending_durations_len as usize;
-    g.players[0].pending_durations[i] = PendingDuration { card: id::ASTROLABE, times: 1, arg: 0, used: false };
+    g.players[0].pending_durations[i] = PendingDuration { card: id::ASTROLABE, times: 1, arg: 0, used: 0 };
     g.players[0].pending_durations_len += 1;
     let mut ev: Vec<Event> = Vec::new();
     g.advance(&mut ev);
@@ -76,7 +76,7 @@ fn a_duration_with_no_vanilla_bonus_still_reports_firing_before_its_draw() {
     set_hand(&mut g, 0, &[id::ESTATE]);
     set_deck_known(&mut g, 0, &[id::GOLD, id::COPPER]);
     let i = g.players[0].pending_durations_len as usize;
-    g.players[0].pending_durations[i] = PendingDuration { card: id::CARAVAN, times: 1, arg: 0, used: false };
+    g.players[0].pending_durations[i] = PendingDuration { card: id::CARAVAN, times: 1, arg: 0, used: 0 };
     g.players[0].pending_durations_len += 1;
     let mut ev: Vec<Event> = Vec::new();
     g.advance(&mut ev);

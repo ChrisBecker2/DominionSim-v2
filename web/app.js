@@ -407,8 +407,9 @@
 
   function durationTitle(d) {
     let text = DURATION_TEXT[d.card] || "";
-    if (d.arg && d.arg !== "used") text += ` Set aside: ${d.arg}.`;
+    if (d.arg && !d.arg.startsWith("used")) text += ` Set aside: ${d.arg}.`;
     else if (d.arg === "used") text += " (Already used this turn.)";
+    else if (d.arg) text += ` (Used ${d.arg.slice(5)} time(s) this turn.)`;
     return text;
   }
 

@@ -14,6 +14,14 @@
 //! special frames are pushed next, and the +cards Draw frame is pushed last so it resolves
 //! first ("+1 Card +1 Action, then ...").
 //!
+//! Attacks and reactions: playing an Attack that another player could react to (a Moat in their
+//! hand, or a Diplomat) pushes a `FrameKind::AttackBody` frame holding the card, with the reaction
+//! window (`push_reaction_window`: one `YesNo` per Reaction per player, in turn order) above it. The
+//! card's own effects (`resolve_card_body`) run only once every player has answered, so a Moat
+//! revealed (`Then::BlockAttack`, recorded in `TurnState::moated`) is known to `victims`, and one a
+//! Diplomat drew is still offered. With no such player there is no window and the card resolves at
+//! once. A card gained straight onto the deck is reachable by reactions as `Zone::DeckTop`.
+//!
 //! ## The Duration framework (Seaside step 3)
 //!
 //! A Duration card's "now" part plays exactly like any other card (vanilla bonuses via
@@ -59,6 +67,23 @@ macro_rules! take_top {
             Err(NeedChance(p)) => return Run::Chance(p),
         }
     };
+}
+
+/// A zone's cards: borrowed from the state, or (the deck top) built on the spot.
+enum ZoneRef<'a> {
+    Ref(&'a Counts),
+    Top(Counts),
+}
+
+impl std::ops::Deref for ZoneRef<'_> {
+    type Target = Counts;
+    #[inline(always)]
+    fn deref(&self) -> &Counts {
+        match self {
+            ZoneRef::Ref(c) => c,
+            ZoneRef::Top(c) => c,
+        }
+    }
 }
 
 /// Pick up to `max` (at least `min`, clamped to what's available) cards from `zone`.
@@ -134,6 +159,23 @@ impl GameState {
         let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) { 0 } else { def.coins as u16 };
         sink.bonus(p, card, def.actions, def.buys, shown_coins, 0);
 
+        // An Attack opens a reaction window first: each other player may reveal Moat (and Diplomat)
+        // before the Attack does anything, so its own effects wait (`FrameKind::AttackBody`) under
+        // the window. With nobody holding a Reaction there is no window and no wait.
+        if cards::is(card, cards::ATTACK) {
+            self.turn.moated = 0;
+            if self.reaction_window_open() {
+                self.stack.push(Frame { subject: card, ..Frame::new(K::AttackBody, p, card) });
+                self.push_reaction_window(card);
+                return;
+            }
+        }
+        self.resolve_card_body(card, p, sink);
+    }
+
+    /// Everything a played card does beyond its vanilla bonuses (see `resolve_effects_inner`).
+    fn resolve_card_body<S: EventSink>(&mut self, card: CardId, p: u8, sink: &mut S) {
+        let def = cards::def(card);
         use Act::*;
         match card {
             id::CELLAR => self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 0, ALL, Then::DrawPerPick)),
@@ -728,23 +770,45 @@ impl GameState {
         if def.cards > 0 {
             self.stack.push(draw_frame(p, card, def.cards));
         }
-        // Any Attack, once played, opens a reaction window for every other player: today only
-        // Diplomat (Moat's auto-reveal immunity is handled separately by `immune`/`victims`).
-        // Pushed last so it resolves before this card's own per-victim frames (pushed above).
-        if cards::is(card, cards::ATTACK) {
-            self.push_reaction_window(card, sink);
-        }
     }
 
-    /// Open a reaction window for an Attack just played: every other player holding a reaction
-    /// card whose table entry applies (today, just Diplomat) is offered a `YesNo` to reveal it.
-    /// A reaction can be revealed again once it has resolved, if the hand still allows it (see the
-    /// `YesNo` arm of `run_frame`); only copies still in the hand count.
-    fn push_reaction_window<S: EventSink>(&mut self, attack: CardId, _sink: &mut S) {
+    /// Whether any other player has a Reaction to offer against an Attack now: a Moat to reveal (no
+    /// Lighthouse already protecting them), or a card that draws (Diplomat, with enough cards in
+    /// hand) and so may bring a Moat into the hand.
+    fn reaction_window_open(&self) -> bool {
+        // Cheap exit for the many games with no such Reaction in the kingdom.
+        if !cards::BLOCK_REACTIONS.iter().any(|&c| self.in_supply(c)) && !cards::REACTION_EFFECTS.iter().any(|&(c, ..)| self.in_supply(c)) {
+            return false;
+        }
+        self.others(self.turn.player).any(|v| {
+            let ps = &self.players[v as usize];
+            (!ps.in_play.has(id::LIGHTHOUSE) && cards::BLOCK_REACTIONS.iter().any(|&c| ps.hand.has(c)))
+                || cards::REACTION_EFFECTS.iter().any(|&(c, min_hand, _, _)| ps.hand.has(c) && ps.hand.total() >= min_hand as u32)
+        })
+    }
+
+    /// Open a reaction window for an Attack just played: every other player is offered a `YesNo`
+    /// for each Reaction they may reveal, in turn order from the attacker's left. A player's
+    /// Diplomat comes first (it can be revealed again once it has resolved, if the hand still
+    /// allows it, see the `YesNo` arm of `run_frame`), so that a Moat it draws can still be
+    /// revealed; then each blocking Reaction (Moat: `Then::BlockAttack`, naming the Attack as the
+    /// source), skipped when the player is already protected by a Lighthouse in play or holds none
+    /// by then. Pushed in reverse so the first reaction resolves first.
+    fn push_reaction_window(&mut self, attack: CardId) {
         let n = self.num_players;
         let attacker = self.turn.player;
         for i in (1..n).rev() {
             let v = (attacker + i) % n;
+            let ps = &self.players[v as usize];
+            let draws = cards::REACTION_EFFECTS.iter().any(|&(c, min_hand, _, _)| ps.hand.has(c) && ps.hand.total() >= min_hand as u32);
+            if !ps.in_play.has(id::LIGHTHOUSE) && (draws || cards::BLOCK_REACTIONS.iter().any(|&c| ps.hand.has(c))) {
+                for &block in cards::BLOCK_REACTIONS {
+                    self.stack.push(Frame {
+                        zone: Zone::Hand, act: Act::Reveal, subject: block, then: Then::BlockAttack,
+                        ..Frame::new(K::YesNo, v, attack)
+                    });
+                }
+            }
             for &(react_card, min_hand, draw, discard) in cards::REACTION_EFFECTS {
                 let hand = &self.players[v as usize].hand;
                 if hand.get(react_card) > 0 && hand.total() >= min_hand as u32 {
@@ -756,7 +820,6 @@ impl GameState {
                 }
             }
         }
-        let _ = attack;
     }
 
     /// A lingering Duration Attack (Corsair, Blockade) was just played by `p`: remember which other
@@ -789,12 +852,12 @@ impl GameState {
     }
 
     /// Other players affected by an attack, in turn order starting to the left.
-    /// Reactions are checked when the attack is played (Moat is auto-revealed).
-    fn victims<S: EventSink>(&self, sink: &mut S) -> ([u8; MAX_PLAYERS], usize) {
+    /// Reactions were resolved when the attack was played (`push_reaction_window`).
+    fn victims<S: EventSink>(&self, _sink: &mut S) -> ([u8; MAX_PLAYERS], usize) {
         let mut out = [0u8; MAX_PLAYERS];
         let mut n = 0;
         for v in self.others(self.turn.player) {
-            if !self.immune(v, sink) {
+            if !self.immune(v) {
                 out[n] = v;
                 n += 1;
             }
@@ -830,21 +893,42 @@ impl GameState {
         n > 2
     }
 
-    fn zone(&self, p: u8, z: Zone) -> &Counts {
+    fn zone(&self, p: u8, z: Zone) -> ZoneRef<'_> {
         match z {
-            Zone::Supply => &self.supply,
-            Zone::Trash => &self.trash,
+            Zone::Supply => ZoneRef::Ref(&self.supply),
+            Zone::Trash => ZoneRef::Ref(&self.trash),
             _ => {
                 let ps = &self.players[p as usize];
-                match z {
+                ZoneRef::Ref(match z {
                     Zone::Hand => &ps.hand,
                     Zone::Discard => &ps.discard,
                     Zone::Revealed => &ps.set_aside,
                     Zone::InPlay => &ps.in_play,
+                    // The known top card of the deck, as a one-card zone.
+                    Zone::DeckTop => {
+                        let mut top = Counts::EMPTY;
+                        if let Some(c) = ps.deck_known.peek_top() {
+                            top.add(c, 1);
+                        }
+                        return ZoneRef::Top(top);
+                    }
                     Zone::Supply | Zone::Trash => unreachable!(),
-                }
+                })
             }
         }
+    }
+
+    /// Take one `c` out of `z` for `p`; whether there was one (the deck top: only if it is the top card).
+    fn zone_take(&mut self, p: u8, z: Zone, c: CardId) -> bool {
+        if z == Zone::DeckTop {
+            let ps = &mut self.players[p as usize];
+            if ps.deck_known.peek_top() == Some(c) {
+                ps.deck_known.pop_top();
+                return true;
+            }
+            return false;
+        }
+        self.zone_mut(p, z).remove(c)
     }
 
     fn zone_mut(&mut self, p: u8, z: Zone) -> &mut Counts {
@@ -858,7 +942,7 @@ impl GameState {
                     Zone::Discard => &mut ps.discard,
                     Zone::Revealed => &mut ps.set_aside,
                     Zone::InPlay => &mut ps.in_play,
-                    Zone::Supply | Zone::Trash => unreachable!(),
+                    Zone::DeckTop | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
                 }
             }
         }
@@ -1067,6 +1151,7 @@ impl GameState {
                 if self.zone(p, f.zone).get(f.subject) == 0
                     || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p))
                     || (matches!(f.then, Then::ReactDrawDiscard { .. }) && self.players[pi].hand.total() < f.min as u32)
+                    || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
@@ -1256,6 +1341,15 @@ impl GameState {
                 let potion = f.source == id::STONEMASON && self.turn.potions > 0;
                 Run::Decide(DecisionKind::Overpay { card: f.source, max_coins, potion }, 0)
             }
+            K::AttackBody => {
+                self.stack.pop();
+                let base = self.stack.len as usize;
+                self.resolve_card_body(f.subject, p, sink);
+                for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+                    fr.depth = f.depth;
+                }
+                Run::Continue
+            }
             K::MultiplierFinalize => {
                 self.stack.pop();
                 // Throne Room / King's Court stays in play with the Duration it played if *any*
@@ -1379,7 +1473,7 @@ impl GameState {
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
                 let lo = if f.count == 0 { 0 } else { f.last };
-                select_choices(z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out);
+                select_choices(&z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out);
                 if rem_min == 0 {
                     out.push(Choice::Pass);
                 }
@@ -1429,7 +1523,7 @@ impl GameState {
                     out.push(Choice::Position(255));
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::AttackBody | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
             K::Overpay => {
                 let max = self.turn.coins.min(OVERPAY_CAP) as u8;
@@ -1465,13 +1559,16 @@ impl GameState {
                 if f.then == Then::DrawIfGained && self.supply.get(c) > 0 {
                     self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, 1) });
                 }
-                // Replace: the gain's destination (and any attack) is keyed off the gained
-                // card's type rather than the frame's normal `dest`.
-                let dest = if f.then == Then::GainedTypeDestAttack && (cards::is(c, ACTION) || self.is_treasure(c)) {
-                    Dest::DeckTop
-                } else {
-                    f.dest
-                };
+                // Replace: the card is gained to the discard pile as usual; an Action or Treasure is
+                // then moved onto the deck if it is still there once the gain's reactions have
+                // run (Watchtower, Tiara). The move waits under them.
+                let dest = f.dest;
+                if f.then == Then::GainedTypeDestAttack && self.supply.get(c) > 0 && (cards::is(c, ACTION) || self.is_treasure(c)) {
+                    self.stack.push(Frame {
+                        depth: f.depth, subject: c, min: self.players[pi].discard.get(c) + 1,
+                        ..select(p, f.source, Zone::Discard, Act::Topdeck, Filter::Any, 0, 0, Then::MoveSubjectIfPresent)
+                    });
+                }
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
@@ -1517,7 +1614,7 @@ impl GameState {
                             let moved = match dest {
                                 Dest::Discard => ps.discard.remove(c),
                                 Dest::Hand => ps.hand.remove(c),
-                                Dest::DeckTop => false, // no known-top zone to pull back out of
+                                Dest::DeckTop => ps.deck_known.peek_top() == Some(c) && ps.deck_known.pop_top().is_some(),
                             };
                             if moved {
                                 ps.set_aside.add(c, 1);
@@ -1541,7 +1638,7 @@ impl GameState {
                 // as played until its `PlayEffects` frame runs.
                 let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply);
                 if !in_place {
-                    let removed = self.zone_mut(p, f.zone).remove(c);
+                    let removed = self.zone_take(p, f.zone, c);
                     debug_assert!(removed);
                 }
                 if !(f.act == Act::Play && f.zone == Zone::Supply) {
@@ -1563,10 +1660,16 @@ impl GameState {
             }
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
-                if f.act != Act::Reveal {
-                    self.zone_mut(p, f.zone).remove(f.subject);
+                if f.then == Then::BlockAttack {
+                    // Revealed to an Attack: unaffected by it (nothing moves).
+                    sink.event(Event::Reaction { player: p, card: f.subject });
+                    self.turn.moated |= 1 << p;
+                } else {
+                    if f.act != Act::Reveal {
+                        self.zone_take(p, f.zone, f.subject);
+                    }
+                    self.put(p, f.subject, f.act, f.dest, f.source, sink);
                 }
-                self.put(p, f.subject, f.act, f.dest, f.source, sink);
                 if f.act == Act::Trash && f.zone == Zone::InPlay && f.subject == f.source {
                     // Mining Village trashing itself for its bonus: used, not lost.
                     self.turn.used_up.add_or_drop(f.source, 1);
@@ -1770,6 +1873,11 @@ impl GameState {
         let p = f.player;
         match f.then {
             Then::Nothing => {}
+            Then::MoveSubjectIfPresent => {
+                if self.zone(p, f.zone).get(f.subject) >= f.min && self.zone_take(p, f.zone, f.subject) {
+                    self.put(p, f.subject, f.act, f.dest, f.source, sink);
+                }
+            }
             Then::DrawPerPick => {
                 if f.count > 0 {
                     self.stack.push(draw_frame(p, f.source, f.count));
@@ -2024,7 +2132,8 @@ impl GameState {
                 }
             }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
-            Then::DrawIfGained
+            Then::BlockAttack
+            | Then::DrawIfGained
             | Then::HornTrash
             | Then::JesterGain
             | Then::JourneymanDraw
@@ -2251,7 +2360,7 @@ impl GameState {
         }
         let i = ps.pending_durations_len as usize;
         assert!(i < crate::state::PENDING_DURATIONS_CAP, "pending duration list overflow");
-        ps.pending_durations[i] = crate::state::PendingDuration { card, times, arg, used: false };
+        ps.pending_durations[i] = crate::state::PendingDuration { card, times, arg, used: 0 };
         ps.pending_durations_len += 1;
     }
 
@@ -2279,18 +2388,18 @@ impl GameState {
             ps.pending_durations_len = 0;
         }
         for (c, k) in self.players[pi].prince_cards.iter() {
-            self.turn.start_pending.push(crate::state::PendingDuration { card: id::PRINCE, times: k, arg: c, used: false });
+            self.turn.start_pending.push(crate::state::PendingDuration { card: id::PRINCE, times: k, arg: c, used: 0 });
         }
         // Farmhands: each card set aside is played at the start of this turn.
         for (c, k) in self.players[pi].farm_cards.iter() {
             for _ in 0..k {
-                self.turn.start_pending.push(crate::state::PendingDuration { card: id::FARMHANDS, times: 1, arg: c, used: false });
+                self.turn.start_pending.push(crate::state::PendingDuration { card: id::FARMHANDS, times: 1, arg: c, used: 0 });
             }
         }
         if self.in_supply(id::CLERK) {
             let k = self.players[pi].hand.get(id::CLERK);
             if k > 0 {
-                self.turn.start_pending.push(crate::state::PendingDuration { card: id::CLERK, times: k, arg: 0, used: false });
+                self.turn.start_pending.push(crate::state::PendingDuration { card: id::CLERK, times: k, arg: 0, used: 0 });
             }
         }
         if !self.turn.start_pending.is_empty() {

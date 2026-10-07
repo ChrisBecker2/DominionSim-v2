@@ -137,6 +137,14 @@ pub fn play(g: &mut GameState, card: CardId) -> Step {
     choose_and_advance(g, Choice::Card(card))
 }
 
+/// Answer the pending "reveal Moat to this Attack?" decision (the attacked player's), and return the
+/// next step.
+pub fn moat(g: &mut GameState, reveal: bool) -> Step {
+    let d = expect_decision(g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Reveal }) && d.subject == id::MOAT, "expected the Moat decision, got {d:?}");
+    choose(g, if reveal { Choice::Yes } else { Choice::No })
+}
+
 /// From the Buy-phase decision, buy `card`.
 pub fn buy(g: &mut GameState, card: CardId) -> Step {
     let d = expect_decision(g);

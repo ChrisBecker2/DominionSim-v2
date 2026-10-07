@@ -36,6 +36,10 @@
 //! (the cards set aside by Farmhands, played at the start of the next turn) and `cleanup aside:`
 //! (Joust's Province). The turn line adds `extra_draw`, `guilds` and `gained_in_buy` while nonzero.
 //!
+//! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
+//! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
+//! plain `(used)` (the older format) means all of them.
+//!
 //! Corsair and Blockade: per player, `shielded: 2 3` lists the players (1-based) whose Moat or
 //! Lighthouse protected them when this player's lingering Attack was played, until that player's
 //! next turn starts.
@@ -498,6 +502,7 @@ pub fn format_state(state: &GameState) -> String {
 }
 
 /// Format the pending Duration effects list: `"Fishing Village x2, Haven (Silver), Sailor (used)"`.
+/// A Sailor with plays left over shows how many it has spent: `Sailor x2 (used 1)`.
 fn format_pending_durations(list: &[PendingDuration]) -> String {
     list.iter()
         .map(|e| {
@@ -507,8 +512,10 @@ fn format_pending_durations(list: &[PendingDuration]) -> String {
             }
             if e.arg != 0 {
                 s.push_str(&format!(" ({})", cards::name(e.arg)));
-            } else if e.used {
+            } else if e.used >= e.times.max(1) {
                 s.push_str(" (used)");
+            } else if e.used > 0 {
+                s.push_str(&format!(" (used {})", e.used));
             }
             s
         })
@@ -522,11 +529,13 @@ fn parse_pending_durations(s: &str) -> Result<Vec<PendingDuration>, String> {
     for part in split_parts(s) {
         let mut rest = part;
         let mut arg = 0;
-        let mut used = false;
+        let mut used = 0u8;
         if let Some(open) = rest.find('(') {
             let inner = rest[open + 1..].trim_end().trim_end_matches(')').trim();
             if inner.eq_ignore_ascii_case("used") {
-                used = true;
+                used = u8::MAX; // every play spent (clamped to `times` below); the older format
+            } else if let Some(n) = inner.strip_prefix("used ").and_then(|n| n.trim().parse::<u8>().ok()) {
+                used = n;
             } else {
                 arg = cards::by_name(inner).ok_or_else(|| format!("unknown card '{inner}' in durations"))?;
             }
@@ -540,7 +549,7 @@ fn parse_pending_durations(s: &str) -> Result<Vec<PendingDuration>, String> {
             }
         }
         let card = cards::by_name(rest).ok_or_else(|| format!("unknown card '{rest}' in durations"))?;
-        out.push(PendingDuration { card, times, arg, used });
+        out.push(PendingDuration { card, times, arg, used: used.min(times) });
     }
     Ok(out)
 }
@@ -742,6 +751,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         start_pending: StartList::EMPTY,
         prince_play: false,
         used_up: SmallMultiset::EMPTY,
+        moated: 0,
         extra_draw: tf.extra_draw,
         guilds: tf.guilds,
         gained_in_buy: tf.gained_in_buy,

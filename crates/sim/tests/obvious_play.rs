@@ -60,8 +60,14 @@ impl Evaluator for FullSearch<'_> {
     }
 }
 
+/// Every playable choice-free card, except Philosopher's Stone: its value is $1 per 5 cards in the
+/// deck and discard pile, so an Action that draws before the Treasures are played lowers it, and
+/// playing nothing can then beat "play everything" (the obvious play). The play order is still never
+/// worse (the Stone is played after every Action in both), and the engine marks the Stone
+/// choice-free for that reason (docs/alchemy-plan.md); only the shortcut's "play all of them" is
+/// not exact for it, which this test, about the order of Actions, does not cover.
 fn free_actions() -> Vec<CardId> {
-    cards::kingdom_cards().filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree).collect()
+    cards::kingdom_cards().filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE).collect()
 }
 
 fn names(cs: &[CardId]) -> String {

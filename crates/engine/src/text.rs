@@ -30,6 +30,12 @@
 //! Rooms / King's Courts) that hold cards and so stay in play (cleanup keeps them). If a
 //! hand-written state has `prince:` but no `prince stays:`, one Prince in play is taken to hold them.
 //!
+//! Cornucopia & Guilds: `bane: <card>` and `ferryman: <card>` name the set-up piles (the Bane is also
+//! in `kingdom:`, being a Supply pile; Ferryman's is not), `side piles: Card=N, ...` the cards left in
+//! the piles outside the Supply (Ferryman's and the Rewards), and per player `coffers:`, `farmhands:`
+//! (the cards set aside by Farmhands, played at the start of the next turn) and `cleanup aside:`
+//! (Joust's Province). The turn line adds `extra_draw`, `guilds` and `gained_in_buy` while nonzero.
+//!
 //! `GameState`'s RNG (`rng: Rng`) cannot be read back out (its internal words are private to
 //! `rng.rs`), so the `seed:` line is not a faithful memento of prior randomness: parsing always
 //! seeds a *fresh* `Rng::new(seed)`, and `format_state` prints a number derived from the current
@@ -40,7 +46,7 @@
 use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
-use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, KNOWN_CAP, PENDING_DURATIONS_CAP, PRINCE_CAP, StartList};
+use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, FARM_CAP, KNOWN_CAP, PENDING_DURATIONS_CAP, PRINCE_CAP, StartList};
 use crate::state::Phase;
 
 // ---------------------------------------------------------------------------------------
@@ -257,13 +263,18 @@ struct TurnFields {
     /// A Silver or Gold played by this turn's player has already been trashed by someone else's
     /// Corsair this turn (Seaside).
     corsair_trashed: bool,
+    /// Cornucopia & Guilds per-turn counters: Farrier's extra Clean-up cards, Merchant Guild plays,
+    /// cards gained this Buy phase.
+    extra_draw: u8,
+    guilds: u8,
+    gained_in_buy: u8,
 }
 
 impl Default for TurnFields {
     fn default() -> Self {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
-            extra_turn: false, corsair_trashed: false,
+            extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0,
         }
     }
 }
@@ -305,6 +316,11 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "corsair_trashed" => {
                 f.corsair_trashed = val.parse().map_err(|_| format!("line {lineno}: invalid corsair_trashed '{val}'"))?
             }
+            "extra_draw" => f.extra_draw = val.parse().map_err(|_| format!("line {lineno}: invalid extra_draw '{val}'"))?,
+            "guilds" => f.guilds = val.parse().map_err(|_| format!("line {lineno}: invalid guilds '{val}'"))?,
+            "gained_in_buy" => {
+                f.gained_in_buy = val.parse().map_err(|_| format!("line {lineno}: invalid gained_in_buy '{val}'"))?
+            }
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -324,6 +340,25 @@ pub fn format_state(state: &GameState) -> String {
     kingdom.sort_by_key(|&c| cards::name(c));
     let kingdom_str = kingdom.iter().map(|&c| cards::name(c)).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("kingdom: {kingdom_str}\n"));
+    // Cornucopia & Guilds set-up piles (see the module docs).
+    if state.bane != 0 {
+        out.push_str(&format!("bane: {}\n", cards::name(state.bane)));
+    }
+    if state.ferryman != 0 {
+        out.push_str(&format!("ferryman: {}\n", cards::name(state.ferryman)));
+    }
+    let mut side = Vec::new();
+    if state.ferryman != 0 {
+        side.push(format!("{}={}", cards::name(state.ferryman), state.ferryman_left));
+    }
+    if state.in_supply(cards::id::JOUST) {
+        for (i, &n) in state.rewards.iter().enumerate() {
+            side.push(format!("{}={}", cards::name(cards::FIRST_REWARD + i as CardId), n));
+        }
+    }
+    if !side.is_empty() {
+        out.push_str(&format!("side piles: {}\n", side.join(", ")));
+    }
 
     let mut supply_parts = Vec::new();
     for c in 0..cards::NUM_CARDS as CardId {
@@ -359,6 +394,16 @@ pub fn format_state(state: &GameState) -> String {
     if state.turn.corsair_trashed_first {
         out.push_str("  corsair_trashed: true");
     }
+    // Cornucopia & Guilds: only while nonzero.
+    if state.turn.extra_draw > 0 {
+        out.push_str(&format!("  extra_draw: {}", state.turn.extra_draw));
+    }
+    if state.turn.guilds > 0 {
+        out.push_str(&format!("  guilds: {}", state.turn.guilds));
+    }
+    if state.turn.gained_in_buy > 0 {
+        out.push_str(&format!("  gained_in_buy: {}", state.turn.gained_in_buy));
+    }
     out.push('\n');
 
     // See module docs: this is not the original construction seed, just a deterministic
@@ -390,6 +435,15 @@ pub fn format_state(state: &GameState) -> String {
         out.push_str(&format!("turns: {}\n", ps.turns_taken));
         if ps.vp_tokens > 0 {
             out.push_str(&format!("vp tokens: {}\n", ps.vp_tokens));
+        }
+        if ps.coffers > 0 {
+            out.push_str(&format!("coffers: {}\n", ps.coffers));
+        }
+        if !ps.farm_cards.is_empty() {
+            out.push_str(&format!("farmhands: {}\n", format_counts(&ps.farm_cards.counts())));
+        }
+        if !ps.cleanup_aside.is_empty() {
+            out.push_str(&format!("cleanup aside: {}\n", format_counts(&ps.cleanup_aside.counts())));
         }
         if !ps.discard_next_cleanup.is_empty() {
             let mut c = Counts::EMPTY;
@@ -493,6 +547,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut supply_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
     let mut held_val: Option<(usize, String)> = None;
+    let mut bane_val: Option<(usize, String)> = None;
+    let mut ferryman_val: Option<(usize, String)> = None;
+    let mut side_val: Option<(usize, String)> = None;
     let mut seed_val: Option<(usize, String)> = None;
     let mut max_turns_val: Option<(usize, String)> = None;
     let mut turn_fields: Option<(usize, TurnFields)> = None;
@@ -522,6 +579,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
             "held" => held_val = Some((lineno, rest.to_string())),
+            "bane" => bane_val = Some((lineno, rest.to_string())),
+            "ferryman" => ferryman_val = Some((lineno, rest.to_string())),
+            "side piles" => side_val = Some((lineno, rest.to_string())),
             "seed" => seed_val = Some((lineno, rest.to_string())),
             "max_turns" | "max turns" => max_turns_val = Some((lineno, rest.to_string())),
             "turn" => turn_fields = Some((lineno, parse_turn_line(line, lineno)?)),
@@ -556,7 +616,20 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         None => GameConfig::default().max_turns,
     };
 
-    let cfg = GameConfig { num_players, kingdom, seed, max_turns };
+    let named = |v: &Option<(usize, String)>, what: &str| -> Result<Option<CardId>, String> {
+        match v {
+            Some((ln, s)) => {
+                let c = cards::by_name(s.trim()).ok_or_else(|| format!("line {ln}: unknown card '{s}' for {what}"))?;
+                Ok(Some(c))
+            }
+            None => Ok(None),
+        }
+    };
+    let cfg = GameConfig {
+        num_players, kingdom, seed, max_turns,
+        bane: named(&bane_val, "bane")?,
+        ferryman: named(&ferryman_val, "ferryman")?,
+    };
     let mut state = GameState::new(&cfg);
     state.stack = FrameStack::default();
     state.pending = Pending::None;
@@ -579,6 +652,22 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 return Err(format!("line {ln}: count too large for '{name}'"));
             }
             state.supply.set(id, count as u8);
+        }
+    }
+
+    if let Some((ln, s)) = &side_val {
+        for pair in split_parts(s) {
+            let (name_part, count_part) =
+                pair.split_once('=').ok_or_else(|| format!("line {ln}: expected 'Card=Count' in side piles, found '{pair}'"))?;
+            let id = cards::by_name(name_part.trim()).ok_or_else(|| format!("line {ln}: unknown card '{}'", name_part.trim()))?;
+            let count: u8 = count_part.trim().parse().map_err(|_| format!("line {ln}: invalid count in '{pair}'"))?;
+            if cards::is_reward(id) {
+                state.rewards[(id - cards::FIRST_REWARD) as usize] = count;
+            } else if id == state.ferryman && id != 0 {
+                state.ferryman_left = count;
+            } else {
+                return Err(format!("line {ln}: '{}' is not a pile outside the Supply in this game", name_part.trim()));
+            }
         }
     }
 
@@ -645,6 +734,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         start_pending: StartList::EMPTY,
         prince_play: false,
         used_up: SmallMultiset::EMPTY,
+        extra_draw: tf.extra_draw,
+        guilds: tf.guilds,
+        gained_in_buy: tf.gained_in_buy,
     };
 
     // Player blocks.
@@ -725,6 +817,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "vp tokens" | "vp_tokens" => {
                     ps.vp_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid vp tokens '{val}'"))?
                 }
+                "coffers" => ps.coffers = val.parse().map_err(|_| format!("line {ln2}: invalid coffers '{val}'"))?,
+                "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
+                "cleanup aside" => ps.cleanup_aside = parse_small_multiset::<2>(val, "cleanup aside").map_err(|e| format!("line {ln2}: {e}"))?,
                 "durations" => {
                     let list = parse_pending_durations(val).map_err(|e| format!("line {ln2}: {e}"))?;
                     if list.len() > PENDING_DURATIONS_CAP {

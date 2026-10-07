@@ -35,7 +35,7 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
     assert!((2..=MAX_PLAYERS).contains(&p), "match needs 2..={MAX_PLAYERS} strategies, got {p}");
 
     let base_seed = cfg.seed;
-    let base_cfg = GameConfig { num_players: p, kingdom: cfg.kingdom.clone(), seed: 0, max_turns: cfg.max_turns };
+    let base_cfg = GameConfig { num_players: p, kingdom: cfg.kingdom.clone(), seed: 0, max_turns: cfg.max_turns, ..Default::default() };
 
     let totals: [StratStats; MAX_PLAYERS] = (0..cfg.games)
         .into_par_iter()

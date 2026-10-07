@@ -521,7 +521,7 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
             }
         };
         let cfg =
-            GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 } };
+            GameConfig { num_players: n, kingdom, seed, max_turns: if max_turns == 0 { 200 } else { max_turns as u16 }, ..Default::default() };
         let mut state = GameState::new(&cfg);
         // The game waits before the deal ("Deal"): the opening hands aren't drawn yet, so
         // Simulate from here deals fresh ones in every game (not one fixed 5/2 or 4/3 split).
@@ -1326,6 +1326,8 @@ pub extern "C" fn card_info() -> i32 {
         (cards::ATTACK, "attack"),
         (cards::REACTION, "reaction"),
         (cards::DURATION, "duration"),
+        (cards::REWARD, "reward"),
+        (cards::COMMAND, "command"),
     ];
     let items: Vec<String> = (0..cards::NUM_CARDS as u8)
         .map(|c| {
@@ -1411,12 +1413,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 32 != 0 {
         v.push(cards::CardSet::Promo);
     }
+    if sets_mask & 64 != 0 {
+        v.push(cards::CardSet::CornucopiaGuilds);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1653,6 +1658,13 @@ fn render_event(e: &Event) -> String {
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
         Event::StartPlay { player, source, card } => format!("Player {}'s {} plays {}", player + 1, cards::name(source), cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
+        Event::Coffers { player, source, n } => format!("Player {} gets +{n} Coffers ({})", player + 1, cards::name(source)),
+        Event::SpendCoffers { player, n } => {
+            format!("Player {} spends {} Coffers (+${n})", player + 1, if n == 1 { "a token of".to_string() } else { n.to_string() })
+        }
+        Event::Overpay { player, card, coins, potion } => {
+            format!("Player {} overpays ${coins}{} for {}", player + 1, if potion { " and a Potion" } else { "" }, cards::name(card))
+        }
         Event::Pass { player, card, to } => format!("Player {} passes {} to Player {}", player + 1, cards::name(card), to + 1),
         Event::GameOver => "--- Game over ---".to_string(),
         Event::PlayAgain { player, card, source, nth } => {
@@ -1732,6 +1744,14 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::NonAction => ("a non-Action card".into(), "non-Action cards".into()),
         Filter::ActionNot(c) => (format!("an Action card other than {}", cards::name(c)), format!("Action cards other than {}", cards::name(c))),
         Filter::ActionCostUpTo(n) => (format!("an Action card costing up to ${n}"), format!("Action cards costing up to ${n}")),
+        Filter::NotCard(c) => (format!("a card other than {}", cards::name(c)), format!("cards other than {}", cards::name(c))),
+        Filter::NotInHand => ("a card you have no copy of in hand".into(), "cards you have no copy of in hand".into()),
+        Filter::ActionNotReward => ("an Action card other than a Reward".into(), "Action cards other than Rewards".into()),
+        Filter::TreasureNotReward => ("a Treasure other than a Reward".into(), "Treasures other than Rewards".into()),
+        Filter::NotInPlayAction => (
+            "an Action card you have no copy of in play".into(),
+            "Action cards you have no copy of in play".into(),
+        ),
     }
 }
 
@@ -1761,7 +1781,13 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
         DecisionKind::PlayAction => format!("You may play an Action card ({} action(s) left).", state.turn.actions),
         DecisionKind::Buy => {
             let potions = if state.in_supply(id::POTION) { format!(", {} Potion(s)", state.turn.potions) } else { String::new() };
-            format!("You may buy a card (${}{potions} available, {} buy(s) left).", state.turn.coins, state.turn.buys)
+            let coffers = state.players[d.player as usize].coffers;
+            let coffers = if coffers > 0 { format!("; {coffers} Coffers to spend for +$1 each") } else { String::new() };
+            format!("You may buy a card (${}{potions} available, {} buy(s) left{coffers}).", state.turn.coins, state.turn.buys)
+        }
+        DecisionKind::Overpay { card, max_coins, potion } => {
+            let p = if potion { " (and a Potion)" } else { "" };
+            format!("You may overpay for {} by up to ${max_coins}{p}.", cards::name(card))
         }
         DecisionKind::PlayTreasure => format!("You may play a Treasure card (${} so far).", state.turn.coins),
         DecisionKind::Gain { max_cost, filter, dest, exact, potion, optional } => {
@@ -1859,9 +1885,10 @@ fn capitalize(s: &str) -> String {
 /// the choice's card; the pending effect it stands for is looked up in the turn's list.
 fn start_effect_label(state: &GameState, name: cards::CardId) -> String {
     let list = state.turn.start_pending.as_slice();
-    let entry = list.iter().find(|e| if e.card == id::PRINCE { e.arg == name } else { e.card == name });
-    if entry.is_some_and(|e| e.card == id::PRINCE) {
-        return format!("Prince: play {}", cards::name(name));
+    let held = |e: &dominion_engine::state::PendingDuration| e.card == id::PRINCE || e.card == id::FARMHANDS;
+    let entry = list.iter().find(|e| if held(e) { e.arg == name } else { e.card == name });
+    if let Some(e) = entry.filter(|e| held(e)) {
+        return format!("{}: play {}", cards::name(e.card), cards::name(name));
     }
     let card = cards::name(name);
     let arg = entry.map(|e| e.arg).filter(|&a| a != 0).map(cards::name).unwrap_or("its card");
@@ -1896,6 +1923,10 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
         };
     }
     match c {
+        Choice::Coffers => "Spend a Coffers token (+$1)".to_string(),
+        Choice::Overpay(0) => "Don't overpay".to_string(),
+        Choice::Overpay(coins) => format!("Overpay ${coins}"),
+        Choice::OverpayPotion(coins) => format!("Overpay ${coins} + Potion"),
         Choice::Pass => match d.kind {
             DecisionKind::PlayTreasure => "Done playing treasures".to_string(),
             DecisionKind::PlayAction => "Done playing actions".to_string(),
@@ -1929,6 +1960,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                 DecisionKind::Name => format!("Name {name}"),
                 DecisionKind::StartOrder => start_effect_label(state, card),
                 DecisionKind::DeckPosition { .. } => name.to_string(),
+                DecisionKind::Overpay { .. } => name.to_string(),
             }
         }
         Choice::Position(255) => "Bottom".to_string(),
@@ -1994,14 +2026,33 @@ fn supply_json(state: &GameState) -> String {
         .iter()
         .map(|&c| {
             format!(
-                "{{\"id\":{c},\"name\":{},\"cost\":{},\"costLabel\":{},\"count\":{}}}",
+                "{{\"id\":{c},\"name\":{},\"cost\":{},\"costLabel\":{},\"count\":{}{}}}",
                 jstr(cards::name(c)),
                 cards::cost(c),
                 jstr(&cards::cost_string(c)),
-                state.supply.get(c)
+                state.supply.get(c),
+                if c == state.bane && c != 0 { ",\"bane\":true" } else { "" }
             )
         })
         .collect();
+    // Piles outside the Supply (Ferryman's pile and the Rewards), marked "side": they cannot be bought.
+    let mut items = items;
+    let mut side = |c: u8, n: u8| {
+        items.push(format!(
+            "{{\"id\":{c},\"name\":{},\"cost\":{},\"costLabel\":{},\"count\":{n},\"side\":true}}",
+            jstr(cards::name(c)),
+            cards::cost(c),
+            jstr(&format!("{}*", cards::cost_string(c)))
+        ))
+    };
+    if state.ferryman != 0 {
+        side(state.ferryman, state.ferryman_left);
+    }
+    if state.in_supply(id::JOUST) {
+        for (i, &n) in state.rewards.iter().enumerate() {
+            side(cards::FIRST_REWARD + i as u8, n);
+        }
+    }
     format!("[{}]", items.join(","))
 }
 
@@ -2038,7 +2089,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
-            "\"princeCards\":{prince_cards},",
+            "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"cleanupAside\":{cleanup_aside},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         p = p,
@@ -2056,6 +2107,9 @@ fn player_json(state: &GameState, p: usize) -> String {
         nv_mat = counts_json(&ps.native_village_mat.counts()),
         island_mat = counts_json(&ps.island_mat.counts()),
         prince_cards = counts_json(&ps.prince_cards.counts()),
+        coffers = ps.coffers,
+        farm_cards = counts_json(&ps.farm_cards.counts()),
+        cleanup_aside = counts_json(&ps.cleanup_aside.counts()),
         vp = ps.vp(),
         vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,
@@ -2178,7 +2232,7 @@ mod log_tests {
     #[test]
     fn real_games_log_witch_curses_hoard_golds_and_plain_buys() {
         use dominion_engine::state::{GameConfig, PlayerState};
-        let cfg = GameConfig { num_players: 2, kingdom: vec![id::WITCH, id::HOARD], seed: 1, max_turns: 100 };
+        let cfg = GameConfig { num_players: 2, kingdom: vec![id::WITCH, id::HOARD], seed: 1, max_turns: 100, ..Default::default() };
         let mut g = GameState::new(&cfg);
         g.advance(&mut NoEvents);
         for p in 0..2 {

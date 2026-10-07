@@ -1,0 +1,31 @@
+# Young Witch Big Money (Cornucopia & Guilds) — a cheap Witch: +2 Cards, discard 2, and a Curse for
+# everyone who cannot reveal the Bane. Two Young Witches, then Big Money with a Duchy/Estate endgame.
+# The kingdom needs Young Witch (a Bane pile joins by itself): pair with `--kingdom auto`.
+
+name = "Young Witch BM"
+description = "Big Money with two Young Witches (cheap cursing attack)."
+
+[[gain]]
+card = "Province"
+if = "money > 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Young Witch"
+if = "count(Young Witch) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Young Witch"

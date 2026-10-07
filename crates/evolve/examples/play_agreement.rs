@@ -76,7 +76,7 @@ fn main() {
     let mut opp = dominion_sim::StrategyAgent::new(&b);
     let t0 = Instant::now();
     for g in 0..games {
-        let mut st = GameState::new(&GameConfig { num_players: 2, kingdom: kingdom.clone(), seed: 1000 + g, max_turns: 200 });
+        let mut st = GameState::new(&GameConfig { num_players: 2, kingdom: kingdom.clone(), seed: 1000 + g, max_turns: 200, ..Default::default() });
         let mut agents: [&mut dyn Agent; 2] = if g % 2 == 0 { [&mut p, &mut opp] } else { [&mut opp, &mut p] };
         play_game(&mut st, &mut agents, &mut NoEvents);
     }

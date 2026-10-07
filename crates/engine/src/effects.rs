@@ -47,7 +47,10 @@
 use crate::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
 use crate::counts::Counts;
 use crate::engine::*;
-use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Then, Zone, MAX_PLAYERS};
+use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Phase, Then, Zone, MAX_PLAYERS};
+
+/// The most coins an overpay decision offers (and the most it can offer in one go).
+pub const OVERPAY_CAP: u16 = 60;
 
 macro_rules! take_top {
     ($s:expr, $p:expr, $sink:expr) => {
@@ -540,6 +543,134 @@ impl GameState {
             id::PRINCE => self.stack.push(select(
                 p, card, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 0, 1, Then::PrinceHold,
             )),
+            // ---- Cornucopia & Guilds ----
+            id::CANDLESTICK_MAKER | id::BAKER => self.give_coffers(p, card, 1, sink),
+            id::HAMLET => {
+                // Two independent optional discards, the +Action one first (pushed last, so on top).
+                self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 0, 1, Then::BonusIfPicked { actions: 0, buys: 1 }));
+                self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 0, 1, Then::BonusIfPicked { actions: 1, buys: 0 }));
+            }
+            id::MENAGERIE => {
+                // Reveal the hand: +3 Cards if every name is different (an empty hand counts), else +1.
+                let hand = self.players[p as usize].hand;
+                for (c, k) in hand.iter() {
+                    for _ in 0..k {
+                        sink.event(Event::Reveal { player: p, card: c });
+                    }
+                }
+                let all_different = hand.iter().count() as u32 == hand.total();
+                self.stack.push(draw_frame(p, card, if all_different { 3 } else { 1 }));
+            }
+            id::SHOP => self.stack.push(select(p, card, Zone::Hand, Play, Filter::NotInPlayAction, 0, 1, Then::PlayPicked { times: 1 })),
+            id::PLAZA => self.stack.push(select(p, card, Zone::Hand, Discard, self.treasure_filter(), 0, 1, Then::CoffersPerPick(1))),
+            id::REMAKE => {
+                // Do this twice, one trash and gain at a time (the gain sits above the second trash).
+                for _ in 0..2 {
+                    self.stack.push(select(
+                        p, card, Zone::Hand, Trash, Filter::Any, 1, 1,
+                        Then::GainUpTo { plus: 1, filter: Filter::Any, dest: Dest::Discard, exact: true, dest_by_type: false },
+                    ));
+                }
+            }
+            id::MERCHANT_GUILD => self.turn.guilds = self.turn.guilds.saturating_add(1),
+            id::HUNTING_PARTY => {
+                // Reveal until a card that is not a copy of one in the hand (the hand as it is once
+                // the +1 Card has been drawn: the draw is pushed last and resolves first).
+                self.stack.push(Frame {
+                    filter: Filter::NotInHand, max: 1, then: Then::KeepMatchingDiscardRest,
+                    ..Frame::new(K::RevealUntil, p, card)
+                });
+            }
+            id::CARNIVAL => self.stack.push(Frame { max: 4, then: Then::OneOfEachToHand, ..Frame::new(K::RevealTop, p, card) }),
+            id::ADVISOR => {
+                // Reveal the top 3; the player to the left picks one to discard; the rest to my hand.
+                let left = (p + 1) % self.num_players;
+                self.stack.push(Frame { chooser: left, ..select(p, card, Zone::Revealed, Discard, Filter::Any, 1, 1, Then::RevealedToHand) });
+                self.stack.push(Frame { max: 3, ..Frame::new(K::RevealTop, p, card) });
+            }
+            id::FOOTPAD => {
+                self.give_coffers(p, card, 2, sink);
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(Frame { down_to_target: true, ..select(v, card, Zone::Hand, Discard, Filter::Any, 0, 3, Then::Nothing) });
+                }
+            }
+            id::SOOTHSAYER => {
+                // Gain a Gold, then each other player in turn gains a Curse and draws a card if they did.
+                self.gain(p, id::GOLD, Dest::Discard, false, card, sink);
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(Frame {
+                        then: Then::DrawIfGained,
+                        ..gain_frame(v, card, u8::MAX, Filter::Card(id::CURSE), Dest::Discard)
+                    });
+                }
+            }
+            id::JESTER => {
+                // Each other player discards the top card of their deck (in turn order); I choose what follows.
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(Frame { chooser: p, act: Discard, then: Then::JesterGain, ..Frame::new(K::TopCard, v, card) });
+                }
+            }
+            id::JOURNEYMAN => self.stack.push(Frame { then: Then::JourneymanDraw, ..Frame::new(K::Name, p, card) }),
+            id::STONEMASON => self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 1, 1, Then::GainLess { count: 2 })),
+            id::INFIRMARY => self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 0, 1, Then::Nothing)),
+            id::FERRYMAN => self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 1, 1, Then::Nothing)),
+            id::HERALD => {
+                // Reveal the top card: an Action is played (mandatory, no Action used); anything else goes back.
+                self.stack.push(Frame { ordered: true, ..select(p, card, Zone::Revealed, Topdeck, Filter::Any, ALL, ALL, Then::Nothing) });
+                self.stack.push(select(p, card, Zone::Revealed, Play, Filter::Action, 1, 1, Then::PlayPicked { times: 1 }));
+                self.stack.push(Frame { max: 1, ..Frame::new(K::RevealTop, p, card) });
+            }
+            id::YOUNG_WITCH => {
+                // +2 Cards, discard 2, then each other player gains a Curse unless they reveal a Bane.
+                let (vs, n) = self.victims(sink);
+                for &v in vs[..n].iter().rev() {
+                    self.stack.push(Frame { bane_blocks: true, ..gain_frame(v, card, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
+                }
+                self.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 2, 2, Then::Nothing));
+            }
+            id::JOUST => self.stack.push(select(p, card, Zone::Hand, Act::SetAside, Filter::Card(id::PROVINCE), 0, 1, Then::JoustReward)),
+            // ---- The Rewards ----
+            id::CORONET => {
+                // A non-Reward Action twice, then a non-Reward Treasure twice (the Action is pushed last, so it comes first).
+                self.stack.push(select(p, card, Zone::Hand, Play, Filter::TreasureNotReward, 0, 1, Then::PlayPicked { times: 2 }));
+                self.stack.push(select(p, card, Zone::Hand, Play, Filter::ActionNotReward, 0, 1, Then::PlayPicked { times: 2 }));
+            }
+            id::COURSER => self.stack.push(mode_frame(p, card, 2)),
+            id::DEMESNE => {
+                self.gain(p, id::GOLD, Dest::Discard, false, card, sink);
+            }
+            id::HOUSECARL => {
+                let names = self.players[p as usize].in_play.iter().filter(|&(c, _)| cards::is(c, ACTION)).count() as u8;
+                if names > 0 {
+                    self.stack.push(draw_frame(p, card, names));
+                }
+            }
+            id::HUGE_TURNIP => {
+                self.give_coffers(p, card, 2, sink);
+                let n = self.players[p as usize].coffers.min(u16::MAX);
+                self.turn.coins += n;
+                sink.bonus(p, card, 0, 0, n, 0);
+            }
+            id::RENOWN => self.turn.cost_reduction = self.turn.cost_reduction.saturating_add(2),
+            id::BUTCHER => {
+                self.give_coffers(p, card, 2, sink);
+                self.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 0, 1, Then::GainWithCoffers));
+            }
+            id::HORN_OF_PLENTY => {
+                // Up to $1 per differently named card in play, this one included.
+                let names = self.players[p as usize].in_play.iter().count() as u8;
+                self.stack.push(Frame { then: Then::HornTrash, ..gain_frame(p, card, names, Filter::Any, Dest::Discard) });
+            }
+            // A Silver played by an effect (Farmhands, Tiara, Crystal Ball): the Merchant bonus too.
+            id::SILVER => {
+                let m = if self.turn.silvers_played == 0 { self.turn.merchants as u16 } else { 0 };
+                self.turn.coins += m;
+                self.turn.silvers_played = self.turn.silvers_played.saturating_add(1);
+                sink.bonus(p, id::MERCHANT, 0, 0, m, 0);
+            }
             // ---- Hidden information (step 4) ----
             id::WISHING_WELL => self.stack.push(Frame::new(K::Name, p, card)),
             id::SWINDLER => {
@@ -566,7 +697,9 @@ impl GameState {
         // entry, except the three that schedule themselves above once their own argument (the
         // set-aside/gained card, or whether the "if you have a card in hand" condition held) is
         // known (Haven, Blockade: after a Select/Gain resolves; Tactician: only conditionally).
-        if cards::is(card, cards::DURATION) && !matches!(card, id::HAVEN | id::BLOCKADE | id::TACTICIAN) {
+        // Prince is a Duration by type, but its next-turn behaviour is its own bookkeeping
+        // (`PlayerState::prince_cards`), never a pending entry.
+        if cards::is(card, cards::DURATION) && !matches!(card, id::HAVEN | id::BLOCKADE | id::TACTICIAN | id::PRINCE) {
             self.push_duration_pending(p, card, 1, 0);
         }
 
@@ -685,8 +818,22 @@ impl GameState {
     /// (remaining min, remaining max, eligible cards at/above the canonical bound) for a Select.
     fn select_bounds(&self, f: &Frame) -> (u8, u8, u32) {
         match f.filter {
-            Filter::ActionCostUpTo(n) => self.select_bounds_by(f, |c| self.action_cost_ok(n, c)),
+            Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
+                self.select_bounds_by(f, |c| self.filter_ok(f.player, f.filter, c))
+            }
             filter => self.select_bounds_by(f, |c| filter.matches(c)),
+        }
+    }
+
+    /// Whether `c` passes `filter` for player `p` right now: the filters that read the state are
+    /// decided here (the cost of an Action now, the live hand and play area), the rest by
+    /// `Filter::matches`.
+    pub(crate) fn filter_ok(&self, p: u8, filter: Filter, c: CardId) -> bool {
+        match filter {
+            Filter::ActionCostUpTo(n) => self.action_cost_ok(n, c),
+            Filter::NotInHand => !self.players[p as usize].hand.has(c),
+            Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
+            filter => filter.matches(c),
         }
     }
 
@@ -746,7 +893,7 @@ impl GameState {
                     Some(c) => {
                         self.players[pi].set_aside.add(c, 1);
                         sink.event(Event::Reveal { player: p, card: c });
-                        if f.filter.matches(c) {
+                        if self.filter_ok(p, f.filter, c) {
                             f.count += 1;
                         }
                         if f.count >= f.max { self.finish_reveal_top(f, sink); } else { self.stack.set_top(f); }
@@ -794,6 +941,11 @@ impl GameState {
                     self.players[pi].in_play.add(f.subject, 1);
                     sink.event(Event::Play { player: p, card: f.subject });
                 }
+                // Played from the discard pile where it stays (Infirmary's overpay): the first play
+                // is logged here, the card did not move.
+                if f.zone == Zone::Discard && f.count == 1 {
+                    sink.event(Event::Play { player: p, card: f.subject });
+                }
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
@@ -801,6 +953,12 @@ impl GameState {
                 Run::Continue
             }
             K::Gain => {
+                // Young Witch: a player who reveals a Bane from their hand is not given the Curse.
+                if f.bane_blocks && self.bane != 0 && self.players[pi].hand.has(self.bane) {
+                    sink.event(Event::Reaction { player: p, card: self.bane });
+                    self.stack.pop();
+                    return Run::Continue;
+                }
                 let mut buf = ChoiceBuf::default();
                 self.frame_choices(f, &mut buf);
                 if buf.is_empty() {
@@ -820,7 +978,9 @@ impl GameState {
                     // current size is the right one to compute the mandatory count from.
                     let z = self.zone(p, f.zone);
                     let avail: u32 = match f.filter {
-                        Filter::ActionCostUpTo(n) => z.iter().filter(|&(c, _)| self.action_cost_ok(n, c)).map(|(_, n)| n as u32).sum(),
+                        Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
+                            z.iter().filter(|&(c, _)| self.filter_ok(p, f.filter, c)).map(|(_, n)| n as u32).sum()
+                        }
                         filter => z.iter().filter(|&(c, _)| filter.matches(c)).map(|(_, n)| n as u32).sum(),
                     };
                     let excess = avail.saturating_sub(f.max as u32) as u8;
@@ -871,7 +1031,7 @@ impl GameState {
                     self.finish_mode(f, sink);
                     return Run::Continue;
                 }
-                Run::Decide(DecisionKind::Mode { picks: f.max - f.count, distinct: f.max > 1 }, 0)
+                Run::Decide(DecisionKind::Mode { picks: f.max - f.count, distinct: f.max > 1 }, f.subject)
             }
             K::Library => {
                 if f.count == 1 {
@@ -906,14 +1066,29 @@ impl GameState {
                 // frame (excluding every name so far this turn) follows. Otherwise this is
                 // Wishing Well's "name a card, reveal the top, draw it if it matches."
                 let war_chest = f.zone == Zone::Supply;
+                let journeyman = f.then == Then::JourneymanDraw;
                 if f.count == 0 {
-                    let has_options =
-                        if war_chest { self.supply_cards().any(|c| self.supply.get(c) > 0) } else { !self.name_offer(p).is_empty() };
+                    let has_options = if war_chest {
+                        self.supply_cards().any(|c| self.supply.get(c) > 0)
+                    } else if journeyman {
+                        true
+                    } else {
+                        !self.name_offer(p).is_empty()
+                    };
                     if !has_options {
                         self.stack.pop();
                         return Run::Continue;
                     }
                     return Run::Decide(DecisionKind::Name, 0);
+                }
+                if journeyman {
+                    // Named: reveal until 3 cards without that name; they go to the hand, the rest are discarded.
+                    self.stack.pop();
+                    self.stack.push(Frame {
+                        depth: f.depth, filter: Filter::NotCard(f.subject), max: 3, then: Then::KeepMatchingDiscardRest,
+                        ..Frame::new(K::RevealUntil, p, f.source)
+                    });
+                    return Run::Continue;
                 }
                 if war_chest {
                     self.stack.pop();
@@ -990,6 +1165,32 @@ impl GameState {
                 Run::Continue
             }
             K::StartOrder => self.run_start_order(sink),
+            K::TopCard => {
+                match take_top!(self, p, sink) {
+                    None => {
+                        self.stack.pop();
+                    }
+                    Some(c) => {
+                        self.stack.pop();
+                        self.put(p, c, f.act, Dest::Discard, f.source, sink);
+                        if f.then == Then::JesterGain {
+                            // A Victory card: a Curse for the victim. Otherwise the attacker picks who gains a copy
+                            // (nobody if there is none in the Supply).
+                            if cards::is(c, VICTORY) {
+                                self.stack.push(Frame { depth: f.depth, ..gain_frame(p, f.source, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
+                            } else if self.in_supply(c) && self.supply.get(c) > 0 {
+                                self.stack.push(Frame { chooser: f.chooser, subject: c, depth: f.depth, ..mode_frame(p, f.source, 1) });
+                            }
+                        }
+                    }
+                }
+                Run::Continue
+            }
+            K::Overpay => {
+                let max_coins = self.turn.coins.min(OVERPAY_CAP) as u8;
+                let potion = f.source == id::STONEMASON && self.turn.potions > 0;
+                Run::Decide(DecisionKind::Overpay { card: f.source, max_coins, potion }, 0)
+            }
             K::MultiplierFinalize => {
                 self.stack.pop();
                 // Throne Room / King's Court stays in play with the Duration it played if *any*
@@ -1021,6 +1222,21 @@ impl GameState {
     fn name_offer(&self, p: u8) -> Counts {
         let ps = &self.players[p as usize];
         if ps.deck_size() > 0 { ps.deck_counts() } else { ps.discard }
+    }
+
+    /// The cards Journeyman may name: what is in `p`'s deck and discard pile (the cards a reveal can
+    /// meet) and the Supply piles (so there is always a card that is in neither: naming one of those is
+    /// naming nothing). Any other name is the same as naming nothing.
+    fn journeyman_offer(&self, p: u8) -> Counts {
+        let ps = &self.players[p as usize];
+        let mut c = ps.deck_counts();
+        c.add_all(&ps.discard);
+        for sc in self.supply_cards() {
+            if !c.has(sc) {
+                c.set(sc, 1);
+            }
+        }
+        c
     }
 
     /// "Each player with cards passes one to the next such player to their left, at once"
@@ -1058,12 +1274,27 @@ impl GameState {
 
     pub(crate) fn frame_choices(&self, f: Frame, out: &mut ChoiceBuf) {
         match f.kind {
+            K::Gain if f.from_side => {
+                // The Rewards (outside the Supply): any one that is left.
+                for i in 0..cards::NUM_REWARDS {
+                    if self.rewards[i] > 0 {
+                        out.push(Choice::Card(cards::FIRST_REWARD + i as CardId));
+                    }
+                }
+            }
             K::Gain => {
                 for c in self.supply_cards() {
                     // Potion: "up to $X" admits Potion-cost cards only when the reference cost has a
-                    // Potion; "exactly" needs the Potion to match.
+                    // Potion; "exactly" needs the Potion to match; "less than" is no part larger and not equal.
                     let pc = cards::potion_cost(c);
-                    let cost_ok = if f.exact { self.cost(c) == f.max && pc == f.potion } else { self.cost(c) <= f.max && (f.potion || !pc) };
+                    let cost = self.cost(c);
+                    let cost_ok = if f.exact {
+                        cost == f.max && pc == f.potion
+                    } else if f.less {
+                        cost <= f.max && (f.potion || !pc) && !(cost == f.max && pc == f.potion)
+                    } else {
+                        cost <= f.max && (f.potion || !pc)
+                    };
                     let named_ok = !f.excl_named || !self.turn.named_for_war_chest.has(c);
                     // Smugglers: further restricted to cards the player to `f.player`'s right
                     // gained on their last turn.
@@ -1084,7 +1315,9 @@ impl GameState {
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
                 let lo = if f.count == 0 { 0 } else { f.last };
                 match f.filter {
-                    Filter::ActionCostUpTo(n) => select_choices(z, f.ordered, lo, need, |c| self.action_cost_ok(n, c), out),
+                    Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
+                        select_choices(z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out)
+                    }
                     filter => select_choices(z, f.ordered, lo, need, |c| filter.matches(c), out),
                 }
                 if rem_min == 0 {
@@ -1114,6 +1347,11 @@ impl GameState {
                     }
                 }
             }
+            K::Name if f.then == Then::JourneymanDraw => {
+                for (c, _) in self.journeyman_offer(f.player).iter() {
+                    out.push(Choice::Card(c));
+                }
+            }
             K::Name => {
                 for (c, _) in self.name_offer(f.player).iter() {
                     out.push(Choice::Card(c));
@@ -1131,8 +1369,19 @@ impl GameState {
                     out.push(Choice::Position(255));
                 }
             }
-            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::NativeVillageAdd | K::RevealUntil => {}
+            K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
+            K::Overpay => {
+                let max = self.turn.coins.min(OVERPAY_CAP) as u8;
+                for coins in 0..=max {
+                    out.push(Choice::Overpay(coins));
+                }
+                if f.source == id::STONEMASON && self.turn.potions > 0 {
+                    for coins in 0..=max {
+                        out.push(Choice::OverpayPotion(coins));
+                    }
+                }
+            }
         }
     }
 
@@ -1143,6 +1392,19 @@ impl GameState {
         match (f.kind, choice) {
             (K::Gain, Choice::Card(c)) => {
                 self.stack.pop();
+                // Butcher: the Coffers a card costing more than the base needs are spent now.
+                if f.pay_coffers {
+                    let spend = self.cost(c).saturating_sub(f.min) as u16;
+                    if spend > 0 {
+                        self.players[pi].coffers -= spend;
+                        sink.event(Event::SpendCoffers { player: p, n: spend });
+                    }
+                }
+                // Soothsayer: a player who gains the Curse draws a card; the draw goes below the gain's own
+                // reactions (Watchtower) so they resolve first.
+                if f.then == Then::DrawIfGained && self.supply.get(c) > 0 {
+                    self.stack.push(Frame { depth: f.depth, ..draw_frame(p, f.source, 1) });
+                }
                 // Replace: the gain's destination (and any attack) is keyed off the gained
                 // card's type rather than the frame's normal `dest`.
                 let dest = if f.then == Then::GainedTypeDestAttack && (cards::is(c, ACTION) || cards::is(c, TREASURE)) {
@@ -1153,7 +1415,11 @@ impl GameState {
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
-                let gained = self.gain(p, c, dest, false, f.source, sink);
+                let gained = if f.from_side {
+                    self.gain_side(p, c, dest, f.source, sink)
+                } else {
+                    self.gain(p, c, dest, false, f.source, sink)
+                };
                 for fr in &mut self.stack.frames[base..self.stack.len as usize] {
                     fr.depth = f.depth;
                 }
@@ -1173,6 +1439,13 @@ impl GameState {
                             let (vs, n) = self.victims(sink);
                             for &v in &vs[..n] {
                                 self.gain(v, id::CURSE, Dest::Discard, false, f.source, sink);
+                            }
+                        }
+                        // Horn of Plenty: a Victory card gained trashes the Horn (if it is still in play).
+                        Then::HornTrash if cards::is(c, VICTORY) => {
+                            if self.players[pi].in_play.remove(f.source) {
+                                self.trash.add(f.source, 1);
+                                sink.event(Event::Trash { player: p, card: f.source });
                             }
                         }
                         Then::ScheduleDuration { times } => {
@@ -1218,6 +1491,11 @@ impl GameState {
             }
             (K::Select, _) => self.finish_select(f, sink),
             (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
+            (K::Overpay, Choice::Overpay(_) | Choice::OverpayPotion(_)) => {
+                let (coins, potion) = choice.as_overpay().unwrap();
+                self.stack.pop();
+                self.finish_buy(p, f.source, coins, potion, f.depth, sink);
+            }
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
                 if f.act != Act::Reveal {
@@ -1282,6 +1560,75 @@ impl GameState {
                 }
             }
             (kind, ch) => unreachable!("choice {ch:?} not valid for frame {kind:?}"),
+        }
+    }
+
+    /// `p` adds `n` Coffers tokens to their mat (`source` gave them).
+    pub(crate) fn give_coffers<S: EventSink>(&mut self, p: u8, source: CardId, n: u16, sink: &mut S) {
+        self.players[p as usize].coffers += n;
+        sink.event(Event::Coffers { player: p, source, n });
+    }
+
+    /// The card `card` was just bought and its overpay (`coins`, `potion`; 0 and false = none) is
+    /// settled: pay it, push the card's overpay ability (below the frames its gain triggers push,
+    /// so they are asked first: the ability is a when-gain effect like the others), gain the card.
+    pub(crate) fn finish_buy<S: EventSink>(&mut self, p: u8, card: CardId, coins: u8, potion: bool, depth: u8, sink: &mut S) {
+        if coins > 0 || potion {
+            self.turn.coins -= coins as u16;
+            if potion {
+                self.turn.potions -= 1;
+            }
+            sink.event(Event::Overpay { player: p, card, coins, potion });
+            match card {
+                id::FARRIER => self.turn.extra_draw = self.turn.extra_draw.saturating_add(coins),
+                // Two Actions each costing exactly the amount overpaid (Potion included), one at a time.
+                id::STONEMASON => {
+                    for _ in 0..2 {
+                        self.stack.push(Frame {
+                            exact: true, potion, depth,
+                            ..gain_frame(p, card, coins, Filter::Action, Dest::Discard)
+                        });
+                    }
+                }
+                // Per $1: a card from the discard pile onto the deck, in the order chosen.
+                id::HERALD if coins > 0 => self.stack.push(Frame {
+                    ordered: true, depth,
+                    ..select(p, card, Zone::Discard, Act::Topdeck, Filter::Any, coins, coins, Then::Nothing)
+                }),
+                // Played once per $1, from where it is (the discard pile), not moving.
+                id::INFIRMARY => {
+                    for nth in (1..=coins).rev() {
+                        self.stack.push(Frame {
+                            zone: Zone::Discard, subject: card, count: nth, depth,
+                            ..Frame::new(K::PlayEffects, p, card)
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.gain(p, card, Dest::Discard, true, NO_SOURCE, sink);
+        self.on_buy_effects(p, card, sink);
+    }
+
+    /// Cornucopia & Guilds "when you gain" effects: Footpad's draw (any player gaining a card in an
+    /// Action phase, in games using it), Ferryman's copy of its pile's card and Farmhands' set-aside.
+    /// Gated by the caller on `cards::CG_GAIN_TRIGGER_MASK` and the Ferryman pile.
+    pub(crate) fn run_cg_gain_triggers<S: EventSink>(&mut self, p: u8, c: CardId, _to: Dest, sink: &mut S) {
+        if c == id::FERRYMAN && self.ferryman != 0 {
+            self.gain_side(p, self.ferryman, Dest::Discard, id::FERRYMAN, sink);
+        }
+        // Farmhands: may set aside an Action or Treasure from the hand to play at the start of the next
+        // turn (below Footpad's draw, so a card it draws can be the one set aside).
+        if c == id::FARMHANDS {
+            self.stack.push(Frame {
+                zone: Zone::Hand, act: Act::SetAside, filter: Filter::ActionOrTreasure, min: 0, max: 1,
+                then: Then::HoldUntilNextTurn,
+                ..Frame::new(K::Select, p, id::FARMHANDS)
+            });
+        }
+        if self.in_supply(id::FOOTPAD) && self.turn.phase == Phase::Action {
+            self.stack.push(draw_frame(p, id::FOOTPAD, 1));
         }
     }
 
@@ -1379,7 +1726,9 @@ impl GameState {
                     // resolutions; one is enough). `MultiplierFinalize` sits below all `times`
                     // resolutions (and everything they push) and checks the tally once they've
                     // all unwound.
-                    if cards::is(f.last, cards::DURATION) || f.last == id::PRINCE {
+                    // (Only for a card that plays another more than once: a card that plays one Action once, Crystal
+                    // Ball or Shop, does not stay in play with it.)
+                    if times >= 2 && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE) {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = times;
                         self.turn.multiplier_successes = 0;
@@ -1525,6 +1874,75 @@ impl GameState {
                     self.prince_hold(f);
                 }
             }
+            Then::GainLess { count } => {
+                if f.count > 0 {
+                    // Each card is chosen and gained on its own (the second choice sees the first gain).
+                    for _ in 0..count {
+                        self.stack.push(Frame {
+                            less: true, potion: cards::potion_cost(f.last), depth: f.depth,
+                            ..gain_frame(p, f.source, self.cost(f.last), Filter::Any, Dest::Discard)
+                        });
+                    }
+                }
+            }
+            Then::JoustReward => {
+                if f.count > 0 {
+                    // The Province stays set aside until Clean-up; the Reward (if any is left) comes to the hand.
+                    let ps = &mut self.players[p as usize];
+                    if ps.set_aside.remove(f.last) {
+                        ps.cleanup_aside.add(f.last, 1);
+                    }
+                    self.stack.push(Frame { from_side: true, depth: f.depth, ..gain_frame(p, f.source, u8::MAX, Filter::Any, Dest::Hand) });
+                }
+            }
+            Then::BonusIfPicked { actions, buys } => {
+                if f.count > 0 {
+                    self.turn.actions += actions;
+                    self.turn.buys += buys;
+                    sink.bonus(p, f.source, actions, buys, 0, 0);
+                }
+            }
+            Then::CoffersPerPick(n) => {
+                if f.count > 0 {
+                    self.give_coffers(p, f.source, n as u16 * f.count as u16, sink);
+                }
+            }
+            Then::GainWithCoffers => {
+                if f.count > 0 {
+                    // Up to the trashed card's cost plus every Coffers token: tokens are only spent for
+                    // what the card chosen costs beyond that base (see `Frame::pay_coffers`).
+                    let base = self.cost(f.last);
+                    let max = (base as u16 + self.players[p as usize].coffers).min(u8::MAX as u16) as u8;
+                    self.stack.push(Frame {
+                        min: base, pay_coffers: true, potion: cards::potion_cost(f.last), depth: f.depth,
+                        ..gain_frame(p, f.source, max, Filter::Any, Dest::Discard)
+                    });
+                }
+            }
+            Then::RevealedToHand => {
+                let ps = &mut self.players[p as usize];
+                let rest = ps.set_aside;
+                ps.set_aside.clear();
+                ps.hand.add_all(&rest);
+                for (c, n) in rest.iter() {
+                    for _ in 0..n {
+                        sink.event(Event::Draw { player: p, card: c });
+                    }
+                }
+            }
+            Then::HoldUntilNextTurn => {
+                if f.count > 0 {
+                    let ps = &mut self.players[p as usize];
+                    if ps.set_aside.remove(f.last) {
+                        // (More distinct cards than the zone holds: the card stays in the hand.)
+                        if ps.farm_cards.has(f.last) || ps.farm_cards.iter().count() < crate::state::FARM_CAP {
+                            ps.farm_cards.add(f.last, 1);
+                        } else {
+                            ps.hand.add(f.last, 1);
+                        }
+                    }
+                }
+            }
             Then::TreasureMapGold => {
                 if f.count > 0 && f.self_trashed {
                     // Paid off: the Map that trashed itself was used. (A lone Map trashing itself
@@ -1536,7 +1954,13 @@ impl GameState {
                 }
             }
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
-            Then::GainedTypeStatBonus
+            Then::DrawIfGained
+            | Then::HornTrash
+            | Then::JesterGain
+            | Then::JourneymanDraw
+            | Then::OneOfEachToHand
+            | Then::KeepMatchingDiscardRest
+            | Then::GainedTypeStatBonus
             | Then::GainedTypeDestAttack
             | Then::YesCoinsElseGainSubject(_)
             | Then::MoveMatchingToHand(_)
@@ -1576,10 +2000,16 @@ impl GameState {
                 ModeOpt::TrashFromSupply(filt) => self.stack.push(select(p, f.source, Zone::Supply, Act::Trash, filt, 1, 1, Then::Nothing)),
                 ModeOpt::GainFromTrash(filt) => self.stack.push(select(p, f.source, Zone::Trash, Act::Gain, filt, 1, 1, Then::Nothing)),
                 ModeOpt::NativeVillageAdd => self.stack.push(Frame::new(K::NativeVillageAdd, p, f.source)),
+                ModeOpt::GainMany(c, dest, n) => {
+                    for _ in 0..n {
+                        self.stack.push(gain_frame(p, f.source, u8::MAX, Filter::Card(c), dest));
+                    }
+                }
                 ModeOpt::Actions(_)
                 | ModeOpt::Buys(_)
                 | ModeOpt::Coins(_)
                 | ModeOpt::Gain(..)
+                | ModeOpt::GainSubject { .. }
                 | ModeOpt::DiscardHandDraw { .. }
                 | ModeOpt::TrashSelfRevealVpPerTreasureType
                 | ModeOpt::NativeVillageTake => {}
@@ -1609,6 +2039,11 @@ impl GameState {
                 }
                 ModeOpt::Gain(c, dest) => {
                     self.gain(p, c, dest, false, f.source, sink);
+                }
+                // Jester: a copy of the discarded card (`subject`) for the victim or for the attacker.
+                ModeOpt::GainSubject { to_chooser } => {
+                    let who = if to_chooser { f.chooser } else { p };
+                    self.gain(who, f.subject, Dest::Discard, false, f.source, sink);
                 }
                 ModeOpt::DiscardHandDraw { draw, attack_min_hand } => {
                     let base2 = self.stack.len as usize;
@@ -1662,6 +2097,7 @@ impl GameState {
                     }
                 }
                 ModeOpt::Cards(_)
+                | ModeOpt::GainMany(..)
                 | ModeOpt::TrashFromHand(_)
                 | ModeOpt::DiscardFromHand(_)
                 | ModeOpt::TrashFromSupply(_)
@@ -1765,6 +2201,12 @@ impl GameState {
         for (c, k) in self.players[pi].prince_cards.iter() {
             self.turn.start_pending.push(crate::state::PendingDuration { card: id::PRINCE, times: k, arg: c, used: false });
         }
+        // Farmhands: each card set aside is played at the start of this turn.
+        for (c, k) in self.players[pi].farm_cards.iter() {
+            for _ in 0..k {
+                self.turn.start_pending.push(crate::state::PendingDuration { card: id::FARMHANDS, times: 1, arg: c, used: false });
+            }
+        }
         if self.in_supply(id::CLERK) {
             let k = self.players[pi].hand.get(id::CLERK);
             if k > 0 {
@@ -1782,7 +2224,7 @@ impl GameState {
     /// cards are different effects). Entries with the same name are interchangeable here (one
     /// choice; the first of them resolves).
     fn start_effect_name(e: &crate::state::PendingDuration) -> CardId {
-        if e.card == id::PRINCE { e.arg } else { e.card }
+        if e.card == id::PRINCE || e.card == id::FARMHANDS { e.arg } else { e.card }
     }
 
     /// An effect no other effect's order can matter to: nothing to decide, no cards drawn or put
@@ -1874,6 +2316,16 @@ impl GameState {
                     self.turn.prince_play = false;
                 }
             }
+            id::FARMHANDS => {
+                // The card set aside when the Farmhands was gained is played now, from set aside into play
+                // (no Action used), then it is an ordinary card in play.
+                if self.players[p as usize].farm_cards.remove(e.arg) {
+                    self.players[p as usize].in_play.add(e.arg, 1);
+                    sink.depth(0);
+                    sink.event(Event::StartPlay { player: p, source: id::FARMHANDS, card: e.arg });
+                    self.resolve_effects(e.arg, p, 0, sink);
+                }
+            }
             _ => self.resolve_duration_start(p, e, sink),
         }
     }
@@ -1951,6 +2403,50 @@ impl GameState {
                     } else {
                         self.players[p].deck_known.push_top(c);
                         sink.event(Event::Topdeck { player: f.player, card: c });
+                    }
+                }
+            }
+            Then::OneOfEachToHand => {
+                // Carnival: one of each differently named card to the hand, the rest discarded.
+                let p = f.player as usize;
+                let revealed = self.players[p].set_aside;
+                self.players[p].set_aside.clear();
+                for (c, n) in revealed.iter() {
+                    self.players[p].hand.add(c, 1);
+                    sink.event(Event::Draw { player: f.player, card: c });
+                    if n > 1 {
+                        self.players[p].discard.add(c, n - 1);
+                        for _ in 1..n {
+                            sink.event(Event::Discard { player: f.player, card: c });
+                        }
+                    }
+                }
+            }
+            Then::KeepMatchingDiscardRest => {
+                // Hunting Party, Journeyman: the revealed cards that match go to the hand, the rest are
+                // discarded. Matching is decided against the hand as it was before any of them join it.
+                let p = f.player as usize;
+                let revealed = self.players[p].set_aside;
+                self.players[p].set_aside.clear();
+                let mut keep = Counts::EMPTY;
+                for (c, n) in revealed.iter() {
+                    if self.filter_ok(f.player, f.filter, c) {
+                        keep.set(c, n);
+                    }
+                }
+                for (c, n) in revealed.iter() {
+                    let kept = keep.get(c);
+                    if kept > 0 {
+                        self.players[p].hand.add(c, kept);
+                        for _ in 0..kept {
+                            sink.event(Event::Draw { player: f.player, card: c });
+                        }
+                    }
+                    if n > kept {
+                        self.players[p].discard.add(c, n - kept);
+                        for _ in kept..n {
+                            sink.event(Event::Discard { player: f.player, card: c });
+                        }
                     }
                 }
             }

@@ -176,7 +176,9 @@ fn cost_reduction_round_trips_through_the_text_format() {
 
 #[test]
 fn unimplemented_cards_cannot_be_in_a_kingdom() {
-    let not_ready: Vec<CardId> = (cards::FIRST_KINGDOM..cards::NUM_CARDS as CardId).filter(|&c| !cards::is_ready(c)).collect();
+    // (The Rewards are never kingdom cards, ready or not.)
+    let not_ready: Vec<CardId> =
+        (cards::FIRST_KINGDOM..cards::NUM_CARDS as CardId).filter(|&c| cards::is_kingdom(c) && !cards::is_ready(c)).collect();
     for &c in &not_ready {
         assert!(!cards::kingdom_cards().any(|k| k == c));
         let err = text::parse_kingdom(cards::name(c)).unwrap_err();

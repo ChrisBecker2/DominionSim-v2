@@ -361,6 +361,9 @@
     add("Coins", "$" + t.coins);
     // Alchemy: only in games with a Potion pile.
     if (view.supply.some((c) => c.name === "Potion")) add("Potions", String(t.potions || 0));
+    // Cornucopia & Guilds: the turn player's Coffers (spend them with the Buy phase's button).
+    const cur = view.players[t.player];
+    if (cur && cur.coffers) add("Coffers", String(cur.coffers));
     if (view.gameOver) {
       const g = el("span", "gameover");
       const names = view.winners.map((p) => "P" + (p + 1)).join(", ");
@@ -476,6 +479,10 @@
       if (p.islandMat.length) panel.appendChild(zoneRow("Island mat", p.islandMat));
       // Cards set aside by Princes (public): each is played at the start of the owner's turns.
       if (p.princeCards.length) panel.appendChild(zoneRow("Set aside by Prince", p.princeCards));
+      // Cornucopia & Guilds: Coffers tokens, cards a Farmhands set aside, a Province Joust set aside.
+      if (p.coffers) panel.appendChild(el("div", "zone coffers", `Coffers: ${p.coffers}`));
+      if (p.farmCards.length) panel.appendChild(zoneRow("Set aside by Farmhands", p.farmCards));
+      if (p.cleanupAside.length) panel.appendChild(zoneRow("Set aside until Clean-up", p.cleanupAside));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 
       row.appendChild(panel);
@@ -492,6 +499,9 @@
       tdName.appendChild(cardChip(c.name));
       // The printed cost, "$3" or "$2P" (P = Potion).
       tdName.appendChild(el("span", "cost", " " + (c.costLabel || "$" + c.cost)));
+      // Young Witch's extra pile is a Supply pile; Ferryman's and the Rewards are not in the Supply.
+      if (c.bane) tdName.appendChild(el("span", "cost", " Bane"));
+      if (c.side) tdName.appendChild(el("span", "cost", " (not in the Supply)"));
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
       if (c.count === 0) tdCount.className = "count-0";
@@ -767,9 +777,9 @@
   let gameRequiredKingdom = null;
 
   const SETS_KEY = "dominion.cardSets";
-  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo (matches
-  // `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32 };
+  // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
+  // bit 6 = Cornucopia & Guilds (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

@@ -46,7 +46,7 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
 /// Seed templates: Big Money, and Big Money + X for every allowed kingdom card X (1 and 2 copies).
 pub fn templates(space: &SearchSpace) -> Vec<Genome> {
     let mut out = vec![big_money()];
-    for c in space.gainable.iter().copied().filter(|&c| c >= cards::FIRST_KINGDOM) {
+    for c in space.gainable.iter().copied().filter(|&c| c >= cards::FIRST_KINGDOM && !cards::is_reward(c)) {
         out.push(big_money_with(&[(c, 1)]));
         out.push(big_money_with(&[(c, 2)]));
     }
@@ -55,7 +55,7 @@ pub fn templates(space: &SearchSpace) -> Vec<Genome> {
 
 /// "Big Money + X + Y" for a random pair.
 pub fn random_pair(space: &SearchSpace, rng: &mut Rng) -> Genome {
-    let kingdom: Vec<CardId> = space.gainable.iter().copied().filter(|&c| c >= cards::FIRST_KINGDOM).collect();
+    let kingdom: Vec<CardId> = space.gainable.iter().copied().filter(|&c| c >= cards::FIRST_KINGDOM && !cards::is_reward(c)).collect();
     if kingdom.len() < 2 {
         return big_money();
     }

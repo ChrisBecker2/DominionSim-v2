@@ -79,7 +79,24 @@ impl GainListEvaluator<'_> {
                 p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
-        p + self.vp_token_value(root, leaf, me)
+        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me)
+    }
+
+    /// Coffers tokens gained this turn, net of those spent: a token is +$1 in a future hand, worth
+    /// `vp_per_coin` while the game has turns left to spend it (nothing in the last turn). On the
+    /// preference scale: more than any play preference, never more than a gain-list difference, so a
+    /// token spent to reach a listed card is repaid by that card, while one spent without changing
+    /// the buy is a loss, and +Coffers beats nothing but not a better buy.
+    fn coffers_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        let delta = leaf.players[me as usize].coffers as f64 - root.players[me as usize].coffers as f64;
+        if delta == 0.0 {
+            return 0.0;
+        }
+        let w = &self.tie_break.weights;
+        if dominion_search::estimated_turns_left(root, w) - 1.0 <= 0.0 {
+            return 0.0;
+        }
+        delta * w.vp_per_coin
     }
 
     /// VP tokens gained this turn (Investment, Monument, Bishop), in VP, on the preference scale
@@ -272,6 +289,7 @@ pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
             | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }
     ) || (matches!(d.kind, DecisionKind::Mode { .. }) && d.player == turn_player)
         || is_treasure_effect_decision(turn_player, d)
+        || is_overpay_decision(turn_player, d)
         || is_start_effect_decision(turn_player, d)
 }
 
@@ -297,11 +315,24 @@ pub fn is_treasure_effect_decision(turn_player: u8, d: &Decision) -> bool {
         && matches!(d.kind, DecisionKind::Select { .. } | DecisionKind::YesNo { .. } | DecisionKind::Mode { .. })
 }
 
-/// Bank is worth $1 per Treasure in play, so it's best played after every other Treasure: while
-/// another Treasure is still in `me`'s hand, playing Bank now is never considered.
+/// How much to overpay for the card just bought shapes the turn (Stonemason's gains, Herald's
+/// topdecks, Infirmary's draws and trashes, Farrier's cards): searched like the play order.
+pub fn is_overpay_decision(turn_player: u8, d: &Decision) -> bool {
+    d.player == turn_player && matches!(d.kind, DecisionKind::Overpay { .. })
+}
+
+/// Bank is worth $1 per Treasure in play, and Horn of Plenty gains up to $1 per name in play, so
+/// they are best played after every other Treasure: while another Treasure is still in `me`'s
+/// hand, playing them now is never considered.
 fn bank_too_early(state: &GameState, me: u8, c: CardId) -> bool {
-    c == dominion_engine::cards::id::BANK
-        && state.players[me as usize].hand.iter().any(|(x, _)| x != dominion_engine::cards::id::BANK && state.is_treasure(x))
+    use dominion_engine::cards::id;
+    let hand = &state.players[me as usize].hand;
+    match c {
+        id::BANK => hand.iter().any(|(x, _)| x != id::BANK && state.is_treasure(x)),
+        // Horn of Plenty counts the names in play: after every other Treasure (Bank may follow it).
+        id::HORN_OF_PLENTY => hand.iter().any(|(x, _)| x != id::HORN_OF_PLENTY && x != id::BANK && state.is_treasure(x)),
+        _ => false,
+    }
 }
 
 const PLAY_TT_BITS: u32 = 16;

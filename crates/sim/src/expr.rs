@@ -39,6 +39,8 @@ pub enum Var {
     /// Cards I own with a Potion in their cost (Familiar, Golem, ...), wherever they are: handy for
     /// "buy a Potion only while I have fewer than N of them" rules.
     PotionCards,
+    /// Coffers tokens I have (Cornucopia & Guilds): each is +$1 whenever I spend it in the Buy phase.
+    Coffers,
     /// Buys remaining this turn.
     Buys,
     /// Actions remaining this turn.
@@ -67,6 +69,7 @@ impl Var {
             Var::Coins => view.turn().coins as i64,
             Var::Potions => view.turn().potions as i64,
             Var::PotionCards => view.my_cards().iter().filter(|&(c, _)| cards::potion_cost(c)).map(|(_, n)| n as i64).sum(),
+            Var::Coffers => view.coffers() as i64,
             Var::Buys => view.turn().buys as i64,
             Var::Actions => view.turn().actions as i64,
             Var::Money => money_value(&view.my_cards()),
@@ -89,6 +92,7 @@ impl Var {
             "my_turn" | "myturn" => Var::MyTurn,
             "coins" => Var::Coins,
             "buys" => Var::Buys,
+            "coffers" => Var::Coffers,
             "potions" => Var::Potions,
             "potion_cards" | "potioncards" => Var::PotionCards,
             "actions" => Var::Actions,
@@ -117,7 +121,7 @@ pub enum Expr {
     /// `count(Card)`: copies of `Card` this player owns anywhere (deck+hand+discard+in play).
     Count(CardId),
     /// `count_type(action|treasure|victory|curse|attack|reaction)`.
-    CountType(u8),
+    CountType(u16),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
     /// `wins_game`: gaining this entry's card ends the game this turn with me winning outright.

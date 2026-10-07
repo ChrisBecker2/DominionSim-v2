@@ -48,6 +48,9 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         if c < cards::FIRST_KINGDOM || c == cards::id::POTION {
             return Err(format!("{name:?} is a basic card, not a kingdom card"));
         }
+        if cards::is_reward(c) {
+            return Err(format!("{name:?} is a Reward (gained by Joust), not a kingdom card"));
+        }
         if out.contains(&c) {
             return Err(format!("{name:?} listed twice in --kingdom"));
         }
@@ -80,13 +83,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\" and/or \"promo\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\" and/or \"cornucopia\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\" and/or \"promo\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\" and/or \"cornucopia\")".into());
     }
     Ok(out)
 }

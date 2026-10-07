@@ -26,7 +26,12 @@ impl SearchSpace {
     /// `kingdom_pool`: kingdom cards that can appear in games; `forbidden`: cards we may not use.
     pub fn new(kingdom_pool: &[CardId], forbidden: &[CardId]) -> SearchSpace {
         let basics = [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER];
-        let gainable = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c)).collect();
+        let mut gainable: Vec<CardId> = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c)).collect();
+        // Joust brings the Rewards, which are not in the Supply but can be gained from it: a rule may
+        // name one (their order in the gain list is the strategy's preference when Joust offers them).
+        if gainable.contains(&id::JOUST) {
+            gainable.extend((cards::FIRST_REWARD..cards::NUM_CARDS as CardId).filter(|c| !forbidden.contains(c)));
+        }
         SearchSpace {
             gainable,
             trashable: vec![id::CURSE, id::ESTATE, id::COPPER, id::SILVER],

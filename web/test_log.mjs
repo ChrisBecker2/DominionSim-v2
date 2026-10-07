@@ -196,6 +196,9 @@ deck: 5 Copper, 3 Estate, 2 Copper
   check("Caravan: solid orange", cls("Caravan").includes("duration") && !cls("Caravan").some((x) => x.startsWith("dual")), chipClass(types["Caravan"]));
   check("Moat: solid blue", cls("Moat").includes("reaction") && !cls("Moat").some((x) => x.startsWith("dual")), chipClass(types["Moat"]));
   check("Harem still treasure/victory", cls("Harem").includes("dual-treasure-victory"));
+  // Prince is an Action-Duration-Command since the 2022 errata: orange like the other Durations.
+  check("Prince: solid orange (a Duration)", cls("Prince").includes("duration") && !cls("Prince").some((x) => x.startsWith("dual")), chipClass(types["Prince"]));
+  check("card_info carries the Reward and Command types", types["Courser"].includes("reward") && types["Prince"].includes("command"));
   const css = readFileSync(new URL("./style.css", import.meta.url), "utf8");
   check("split chip CSS uses the duration/treasure and duration/reaction tokens",
     /\.card\.dual-duration-treasure\s*\{[^}]*var\(--c-duration\)[^}]*var\(--c-treasure\)/.test(css) &&
@@ -288,6 +291,44 @@ deck: 2 Copper, 3 Estate
   I.w.choose(smithy.index);
   v = I.view();
   check("log: Prince plays its card at the start of the turn", v.log.some((l) => l === "Player 1's Prince plays Smithy"), v.log.join(" | "));
+}
+
+// --- Cornucopia & Guilds: Coffers, the piles outside the Supply, Overpay ------------------------
+{
+  const I = await instance();
+  I.load(`players: 2
+kingdom: Young Witch, Joust, Ferryman, Farrier, Smithy, Village
+bane: Hamlet
+ferryman: Shop
+side piles: Shop=9, Coronet=1, Courser=0, Demesne=1, Housecarl=1, Huge Turnip=1, Renown=1
+turn: 3  player: 1  phase: buy  actions: 0  buys: 1  coins: 5
+
+[player 1]
+hand: Estate
+deck: 5 Copper
+coffers: 2
+farmhands: Village
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+`);
+  let v = I.view();
+  const side = v.supply.filter((c) => c.side).map((c) => c.name);
+  check("the piles outside the Supply are listed and marked", side.includes("Shop") && side.includes("Courser") && side.length === 7, side.join(","));
+  check("the Bane pile is marked", v.supply.some((c) => c.name === "Hamlet" && c.bane));
+  check("the view shows the Coffers", v.players[0].coffers === 2 && v.players[0].farmCards.length === 1);
+  const labels = v.pending.choices.map((c) => c.label);
+  check("the Buy phase offers spending a token", labels.includes("Spend a Coffers token (+$1)"), labels.join(" | "));
+  const farrier = v.pending.choices.find((c) => c.label === "Buy Farrier");
+  I.w.choose(farrier.index);
+  v = I.view();
+  check("overpaying is asked after the buy", /overpay for Farrier by up to \$3/.test(v.pending.description), v.pending.description);
+  const o = v.pending.choices.map((c) => c.label);
+  check("the overpay choices", o[0] === "Don't overpay" && o.includes("Overpay $3"), o.join(" | "));
+  I.w.choose(v.pending.choices.find((c) => c.label === "Overpay $2").index);
+  v = I.view();
+  check("log: the overpay", v.log.some((l) => l.trim() === "Player 1 overpays $2 for Farrier"), v.log.join(" | "));
 }
 
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");

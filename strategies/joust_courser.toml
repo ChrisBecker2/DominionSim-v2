@@ -1,0 +1,40 @@
+# Joust and Rewards (Cornucopia & Guilds) — Joust is a Peddler that turns a Province in hand into a
+# Reward in hand. The Rewards are not in the Supply, but a [[gain]] rule can name them: when Joust
+# offers the Rewards the list decides, so this one prefers Courser, then Renown, then Demesne.
+# Needs Joust in the kingdom (a Reward rule asks for it): pair with `--kingdom auto`.
+
+name = "Joust Courser"
+description = "Big Money with two Jousts; Courser first among the Rewards."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Courser"
+
+[[gain]]
+card = "Renown"
+
+[[gain]]
+card = "Demesne"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Joust"
+if = "count(Joust) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Joust"

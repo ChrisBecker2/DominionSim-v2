@@ -18,7 +18,7 @@ pub fn counts_of(cards: &[CardId]) -> Counts {
 /// zones wiped to empty. Tests build exact scenarios with `set_hand`/`set_deck_known`/etc.;
 /// nothing from the (discarded) initial deal leaks through, so unset zones read as empty.
 pub fn new_state(kingdom: &[CardId], num_players: usize) -> GameState {
-    let cfg = GameConfig { num_players, kingdom: kingdom.to_vec(), seed: 0x5EED_1234, max_turns: 500 };
+    let cfg = GameConfig { num_players, kingdom: kingdom.to_vec(), seed: 0x5EED_1234, max_turns: 500, ..Default::default() };
     let mut g = GameState::new(&cfg);
     // Drain the initial 5-card deals (lands on some early decision, which we discard) so the
     // engine is in a well-formed post-setup state before we clear it back out below.
@@ -77,7 +77,7 @@ pub fn empty_pile(g: &mut GameState, card: CardId) {
 
 /// Total cards across supply, trash and every player zone (a conservation invariant).
 pub fn total_cards(g: &GameState) -> u32 {
-    let mut t = g.supply.total() + g.trash.total();
+    let mut t = g.supply.total() + g.trash.total() + g.side_pile_cards();
     for p in 0..g.num_players as usize {
         t += g.players[p].all_cards().total();
     }

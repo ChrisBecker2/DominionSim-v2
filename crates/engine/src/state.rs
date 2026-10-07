@@ -17,13 +17,67 @@ pub const STACK_CAP: usize = 48;
 pub const PENDING_DURATIONS_CAP: usize = 12;
 /// Max distinct Action cards the player's Princes hold at once (`PlayerState::prince_cards`).
 pub const PRINCE_CAP: usize = 8;
+/// Max distinct cards a player's Farmhands hold set aside at once (`PlayerState::farm_cards`).
+pub const FARM_CAP: usize = 8;
 /// Max start-of-turn effects pending at once (`TurnState::start_pending`): every pending
-/// Duration entry, one per Prince'd card, and Clerk (one merged entry).
-pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + 1;
+/// Duration entry, one per Prince'd card, one per Farmhands-held card, and Clerk (one merged entry).
+pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_CAP + 1;
 /// Max distinct cards `DurationHeld` tracks in one turn (see its doc comment): generous for a
 /// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
 /// multiplied one).
 pub const DURATION_HELD_CAP: usize = 8;
+
+/// The card ids that have a pile in the Supply: a `u128` for ids below 128 and a `u64` for the
+/// rest (Cornucopia & Guilds took the id count past 128).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct SupplyMask {
+    pub lo: u128,
+    pub hi: u64,
+}
+
+/// Iterator over the card ids of a `SupplyMask`, in id order.
+pub struct SupplyCards {
+    lo: u128,
+    hi: u64,
+}
+
+impl Iterator for SupplyCards {
+    type Item = CardId;
+    #[inline]
+    fn next(&mut self) -> Option<CardId> {
+        if self.lo != 0 {
+            let c = self.lo.trailing_zeros() as CardId;
+            self.lo &= self.lo - 1;
+            Some(c)
+        } else if self.hi != 0 {
+            let c = 128 + self.hi.trailing_zeros() as CardId;
+            self.hi &= self.hi - 1;
+            Some(c)
+        } else {
+            None
+        }
+    }
+}
+
+impl SupplyMask {
+    #[inline(always)]
+    pub fn has(&self, c: CardId) -> bool {
+        if c < 128 { self.lo & (1u128 << c) != 0 } else { self.hi & (1u64 << (c - 128)) != 0 }
+    }
+    #[inline]
+    pub fn insert(&mut self, c: CardId) {
+        if c < 128 {
+            self.lo |= 1u128 << c;
+        } else {
+            self.hi |= 1u64 << (c - 128);
+        }
+    }
+    /// Whether any card of either mask word is in the Supply (the gain-trigger gates).
+    #[inline(always)]
+    pub fn any(&self, lo: u128, hi: u64) -> bool {
+        (self.lo & lo) != 0 || (self.hi & hi) != 0
+    }
+}
 
 /// A compact multiset of (card, count) pairs for `TurnState::duration_held`: a plain `Counts`
 /// would work (and is what the very first version of this used) but costs 128 bytes on `TurnState`
@@ -207,6 +261,13 @@ impl<const N: usize> SmallMultiset<N> {
             c.add(card, n);
         }
         c
+    }
+    /// Add every entry into `c`.
+    #[inline]
+    pub fn add_into(&self, c: &mut Counts) {
+        for (card, n) in self.iter() {
+            c.add(card, n);
+        }
     }
     /// Take (and clear) every entry at once (Native Village: "put all the cards from your mat
     /// into your hand").
@@ -439,6 +500,16 @@ pub struct PlayerState {
     /// in play for the rest of the game: cleanup keeps this many of each in play. A Prince that
     /// set nothing aside is discarded as usual.
     pub prince_stays: SmallMultiset<3>,
+    /// Coffers tokens (Cornucopia & Guilds): each can be removed during the player's turn for +$1
+    /// (`Choice::Coffers` at the Buy decision; Butcher spends them inside its own gain).
+    pub coffers: u16,
+    /// Farmhands (Cornucopia & Guilds): the Actions and Treasures set aside when this player gained
+    /// a Farmhands, each played at the start of their next turn (`GameState::run_start_order`). Face
+    /// up (public); they count as owned.
+    pub farm_cards: SmallMultiset<FARM_CAP>,
+    /// Cards set aside until Clean-up, when they are discarded (Joust's Province: not in the hand,
+    /// not in play, and not in `set_aside`, which other effects empty). Counts as owned.
+    pub cleanup_aside: SmallMultiset<2>,
 }
 
 impl PlayerState {
@@ -460,10 +531,13 @@ impl PlayerState {
         c.add_all(&self.in_play);
         c.add_all(&self.set_aside);
         c.add_all(&self.passed);
-        c.add_all(&self.held.counts());
-        c.add_all(&self.native_village_mat.counts());
-        c.add_all(&self.island_mat.counts());
-        c.add_all(&self.prince_cards.counts());
+        // The small zones add straight into the total (no temporary `Counts` per zone).
+        self.held.add_into(&mut c);
+        self.native_village_mat.add_into(&mut c);
+        self.island_mat.add_into(&mut c);
+        self.prince_cards.add_into(&mut c);
+        self.farm_cards.add_into(&mut c);
+        self.cleanup_aside.add_into(&mut c);
         c
     }
     pub fn vp(&self) -> i32 {
@@ -481,6 +555,9 @@ pub fn vp_of_cards(all: &Counts) -> i32 {
                 id::GARDENS => total / 10,
                 id::DUKE => all.get(id::DUCHY) as i32,
                 id::VINEYARD => (all.count_type(cards::ACTION) / 3) as i32,
+                // 2 VP per 5 differently named cards; Demesne: 1 VP per Gold.
+                id::FAIRGROUNDS => 2 * (all.iter().count() as i32 / 5),
+                id::DEMESNE => all.get(id::GOLD) as i32,
                 _ => cards::def(c).vp as i32,
             };
             per * n as i32
@@ -611,6 +688,12 @@ pub struct TurnState {
     /// function (the bots' `GainListEvaluator`) tell "used up" from "had a card taken". Tiny
     /// fixed record, per-turn bookkeeping, not part of the text format (reset on load).
     pub used_up: SmallMultiset<4>,
+    /// Cards to draw at Clean-up on top of the usual 5 (3 after an Outpost): Farrier's overpay.
+    pub extra_draw: u8,
+    /// Merchant Guild plays this turn: each pays +1 Coffers per card gained in the Buy phase.
+    pub guilds: u8,
+    /// Cards the turn's player has gained during this Buy phase (Merchant Guild).
+    pub gained_in_buy: u8,
 }
 
 impl TurnState {
@@ -645,6 +728,9 @@ impl TurnState {
             start_pending: StartList::EMPTY,
             prince_play: false,
             used_up: SmallMultiset::EMPTY,
+            extra_draw: 0,
+            guilds: 0,
+            gained_in_buy: 0,
         }
     }
 }
@@ -711,6 +797,17 @@ pub enum Filter {
     NonAction,
     /// An Action card other than the named card (Golem: "other than Golem cards").
     ActionNot(CardId),
+    /// Any card except the named one (Journeyman: "cards without that name").
+    NotCard(CardId),
+    /// A card the player has no copy of in their hand (Hunting Party). Decided against the live hand
+    /// (`GameState::filter_ok`); `matches` can only say "any".
+    NotInHand,
+    /// An Action card the player has no copy of in play (Shop). Decided against the live play area
+    /// (`GameState::filter_ok`); `matches` can only say "an Action".
+    NotInPlayAction,
+    /// An Action that is not a Reward, and a Treasure that is not a Reward (Coronet: "a non-Reward Action").
+    ActionNotReward,
+    TreasureNotReward,
 }
 
 impl Filter {
@@ -729,6 +826,11 @@ impl Filter {
             Filter::Either(a, b) => c == a || c == b,
             Filter::NonAction => !cards::is(c, cards::ACTION),
             Filter::ActionNot(x) => c != x && cards::is(c, cards::ACTION),
+            Filter::NotCard(x) => c != x,
+            Filter::NotInHand => true,
+            Filter::NotInPlayAction => cards::is(c, cards::ACTION),
+            Filter::ActionNotReward => cards::is(c, cards::ACTION) && !cards::is(c, cards::REWARD),
+            Filter::TreasureNotReward => cards::is(c, cards::TREASURE) && !cards::is(c, cards::REWARD),
             Filter::ActionCostUpTo(n) => {
                 cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c)
             }
@@ -860,6 +962,38 @@ pub enum Then {
     /// by the Prince (`PlayerState::prince_cards`), which then stays in play for the rest of the
     /// game (`PlayerState::prince_stays`, with the Throne Room / King's Court playing it).
     PrinceHold,
+    /// Select: +`actions` Actions and +`buys` Buys if a card was picked (Hamlet's two discards).
+    BonusIfPicked { actions: u8, buys: u8 },
+    /// Select: +`n` Coffers per card picked (Plaza's Treasure).
+    CoffersPerPick(u8),
+    /// Select (Butcher, trash from hand): if a card was picked, gain a card costing up to its cost
+    /// plus the Coffers the player has, spending as many as the gain needs beyond its cost.
+    GainWithCoffers,
+    /// Select (Advisor): once the chosen card is discarded, every other revealed card goes to the hand.
+    RevealedToHand,
+    /// RevealTop (Carnival): one of each differently named revealed card goes to the hand, the rest
+    /// are discarded.
+    OneOfEachToHand,
+    /// RevealUntil (Hunting Party, Journeyman): the revealed cards matching the frame's `filter` go to
+    /// the hand, the rest are discarded.
+    KeepMatchingDiscardRest,
+    /// Select (`Act::SetAside`, Farmhands' gain trigger): the picked card, in `set_aside`, is held
+    /// until the start of the player's next turn (`PlayerState::farm_cards`).
+    HoldUntilNextTurn,
+    /// Gain (Soothsayer's Curse): the player draws a card if the gain happens.
+    DrawIfGained,
+    /// Gain (Horn of Plenty): if the gained card is a Victory card, trash the Horn (`source`) from play.
+    HornTrash,
+    /// TopCard (Jester): a Victory card gives the victim a Curse; otherwise the attacker (`chooser`)
+    /// picks who gains a copy.
+    JesterGain,
+    /// Name (Journeyman): once a card is named, reveal until 3 cards without that name.
+    JourneymanDraw,
+    /// Select (Joust, `Act::SetAside`, a Province from the hand): the Province is set aside until Clean-up
+    /// (`PlayerState::cleanup_aside`) and a Reward is gained to the hand.
+    JoustReward,
+    /// Select (Stonemason, trash from hand): gain `count` cards each costing less than the trashed card.
+    GainLess { count: u8 },
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -930,6 +1064,16 @@ pub struct Frame {
     pub potion: bool,
     /// Gain: may be declined (`Choice::Pass`), e.g. University's "you may gain".
     pub optional: bool,
+    /// Gain: strictly cheaper than `max` (with `potion`: the Potion part counts too): every part of
+    /// the cost no larger, and not equal (Stonemason's trash gains).
+    pub less: bool,
+    /// Gain (Butcher): `min` is the base cost; a card costing more spends that many Coffers, and
+    /// `max` is the base plus the Coffers the player has.
+    pub pay_coffers: bool,
+    /// Gain (Young Witch's Curse): skipped when the player reveals a Bane from their hand.
+    pub bane_blocks: bool,
+    /// Gain: the choices are the Rewards (non-Supply, Joust) instead of the Supply piles.
+    pub from_side: bool,
 }
 
 impl Frame {
@@ -960,6 +1104,10 @@ impl Frame {
             reveal_source: false,
             potion: false,
             optional: false,
+            less: false,
+            pay_coffers: false,
+            bane_blocks: false,
+            from_side: false,
         }
     }
 }
@@ -1033,6 +1181,12 @@ pub enum FrameKind {
     /// resolves next (`DecisionKind::StartOrder`). Pops once none are left. See
     /// `GameState::run_start_order`.
     StartOrder,
+    /// Overpaying for the card just bought (`source`): asks how much extra to pay
+    /// (`DecisionKind::Overpay`), then gains the card and resolves its overpay ability.
+    Overpay,
+    /// Take the top card of `player`'s deck (chance-aware), move it by `act` (Jester: discard it) and
+    /// run `then` on it.
+    TopCard,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1097,11 +1251,17 @@ pub struct GameConfig {
     pub seed: u64,
     /// Game ends (as if piles ran out) once this many total turns have been taken.
     pub max_turns: u16,
+    /// Young Witch's Bane pile: a Kingdom card costing $2 or $3 that is not in `kingdom`. `None` =
+    /// chosen from the kingdom when a Young Witch needs one (`cards::default_bane`).
+    pub bane: Option<CardId>,
+    /// Ferryman's pile: an unused Kingdom card costing $3 or $4, outside the Supply. `None` = chosen
+    /// from the kingdom when a Ferryman needs one (`cards::default_ferryman`).
+    pub ferryman: Option<CardId>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200 }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None }
     }
 }
 
@@ -1111,7 +1271,15 @@ pub struct GameState {
     pub players: [PlayerState; MAX_PLAYERS],
     pub supply: Counts,
     /// Bitmask of card ids whose piles are part of this game's supply.
-    pub in_supply: u128,
+    pub in_supply: SupplyMask,
+    /// Young Witch's Bane card (its pile is an ordinary Supply pile), 0 when there is none.
+    pub bane: CardId,
+    /// Ferryman's pile: its card (0 = none) and how many are left. Not in the Supply: gained only by
+    /// gaining a Ferryman (`GameState::gain_side`).
+    pub ferryman: CardId,
+    pub ferryman_left: u8,
+    /// The Rewards left (`cards::FIRST_REWARD + i`), outside the Supply: gained only by Joust.
+    pub rewards: [u8; cards::NUM_REWARDS],
     pub trash: Counts,
     pub turn: TurnState,
     pub stack: FrameStack,
@@ -1147,10 +1315,10 @@ impl GameState {
         let n = cfg.num_players;
         assert!((2..=MAX_PLAYERS).contains(&n), "player count must be 2..={MAX_PLAYERS}");
         let mut supply = Counts::EMPTY;
-        let mut in_supply = 0u128;
+        let mut in_supply = SupplyMask::default();
         let mut put = |c: CardId, k: u8| {
             supply.set(c, k);
-            in_supply |= 1 << c;
+            in_supply.insert(c);
         };
         put(id::COPPER, 60 - 7 * n as u8);
         put(id::SILVER, 40);
@@ -1159,11 +1327,27 @@ impl GameState {
         put(id::DUCHY, victory_pile_size(n));
         put(id::PROVINCE, province_pile_size(n));
         put(id::CURSE, 10 * (n as u8 - 1));
-        let needs_potion = cfg.kingdom.iter().any(|&k| cards::potion_cost(k));
+        // Cornucopia & Guilds set-up piles: Ferryman's (outside the Supply) and Young Witch's Bane
+        // (an extra Supply pile; needed too when the Ferryman pile is Young Witch).
+        let has = |c: CardId| cfg.kingdom.contains(&c);
+        let ferryman = if has(id::FERRYMAN) {
+            cfg.ferryman.or_else(|| cards::default_ferryman(&cfg.kingdom, cfg.bane.unwrap_or(0))).unwrap_or(0)
+        } else {
+            0
+        };
+        let bane = if has(id::YOUNG_WITCH) || ferryman == id::YOUNG_WITCH {
+            cfg.bane.or_else(|| cards::default_bane(&cfg.kingdom, ferryman)).unwrap_or(0)
+        } else {
+            0
+        };
+        // The Bane pile is a Supply pile like the kingdom's (no allocation: this runs per game).
+        let extra_bane = if bane != 0 && !has(bane) { Some(bane) } else { None };
+        let kingdom = || cfg.kingdom.iter().copied().chain(extra_bane);
+        let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
             put(id::POTION, 16);
         }
-        for &k in &cfg.kingdom {
+        for k in kingdom() {
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
@@ -1176,11 +1360,20 @@ impl GameState {
             };
             put(k, pile);
         }
+        let pile_size = |k: CardId| if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 };
+        let mut rewards = [0u8; cards::NUM_REWARDS];
+        if has(id::JOUST) {
+            rewards = [if n == 2 { 1 } else { 2 }; cards::NUM_REWARDS];
+        }
         let mut s = GameState {
             num_players: n as u8,
             players: [PlayerState::default(); MAX_PLAYERS],
             supply,
             in_supply,
+            bane,
+            ferryman,
+            ferryman_left: if ferryman != 0 { pile_size(ferryman) } else { 0 },
+            rewards,
             trash: Counts::EMPTY,
             turn: TurnState { phase: Phase::Setup, ..TurnState::start(0, 1) },
             stack: FrameStack::default(),
@@ -1191,9 +1384,14 @@ impl GameState {
             pause_at_turn_start: false,
             pending: Pending::None,
         };
+        // Baker's set-up (also when the Baker is the Bane or Ferryman card): each player gets +1 Coffers.
+        let baker = has(id::BAKER) || bane == id::BAKER || ferryman == id::BAKER;
         for p in 0..n {
             s.players[p].deck_unknown.set(id::COPPER, 7);
             s.players[p].deck_unknown.set(id::ESTATE, 3);
+            if baker {
+                s.players[p].coffers = 1;
+            }
         }
         s.push_opening_deal();
         s
@@ -1262,22 +1460,19 @@ impl GameState {
 
     #[inline]
     pub fn in_supply(&self, c: CardId) -> bool {
-        self.in_supply & (1u128 << c) != 0
+        self.in_supply.has(c)
     }
 
     /// The card ids of this game's supply piles, in id order (walks the `in_supply` bitmask, so
     /// it costs one step per pile rather than one per card id).
     #[inline]
-    pub fn supply_cards(&self) -> impl Iterator<Item = CardId> {
-        let mut bits = self.in_supply;
-        std::iter::from_fn(move || {
-            if bits == 0 {
-                return None;
-            }
-            let c = bits.trailing_zeros() as CardId;
-            bits &= bits - 1;
-            Some(c)
-        })
+    pub fn supply_cards(&self) -> SupplyCards {
+        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi }
+    }
+
+    /// The cards left in the piles outside the Supply (Ferryman's and the Rewards).
+    pub fn side_pile_cards(&self) -> u32 {
+        self.ferryman_left as u32 + self.rewards.iter().map(|&n| n as u32).sum::<u32>()
     }
 
     pub fn empty_piles(&self) -> u32 {

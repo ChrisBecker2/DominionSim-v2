@@ -43,7 +43,9 @@ pub(crate) fn fixed_choice<E: Evaluator>(eval: &E, s: &GameState, me: u8, d: &De
 
 pub(crate) fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
-        && (state.turn.phase == Phase::CleanupDraw || (state.turn.phase == Phase::Buy && state.turn.buys == 0))
+        && (state.turn.phase == Phase::CleanupDraw
+            // The last Buy is used and nothing it caused is still to resolve (an overpay's gains, a reaction).
+            || (state.turn.phase == Phase::Buy && state.turn.buys == 0 && state.stack.is_empty()))
 }
 
 #[derive(Clone, Copy)]
@@ -685,6 +687,7 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::PlayAction, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
+        (DecisionKind::Buy, Choice::Coffers) => "Spend a Coffers (+$1)".to_string(),
         (DecisionKind::Buy, _) => "End buys".to_string(),
         (DecisionKind::PlayTreasure, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayTreasure, _) => "End treasures".to_string(),
@@ -707,6 +710,11 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::DeckPosition { .. }, _) => "?".to_string(),
         (DecisionKind::StartOrder, Choice::Card(c)) => format!("Start of turn: resolve {} first", cards::name(c)),
         (DecisionKind::StartOrder, _) => "?".to_string(),
+        (DecisionKind::Overpay { .. }, Choice::Overpay(0)) => "don't overpay".to_string(),
+        (DecisionKind::Overpay { .. }, c) => match c.as_overpay() {
+            Some((coins, potion)) => format!("overpay ${coins}{}", if potion { " and a Potion" } else { "" }),
+            None => "?".to_string(),
+        },
     };
     let choice_card = match choice {
         Choice::Card(c) => Some(c),

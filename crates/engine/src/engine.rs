@@ -16,6 +16,7 @@
 use crate::cards::{self, id, CardId, ACTION, NUM_CARDS};
 use crate::counts::Counts;
 use crate::state::{Act, Dest, DurationHeld, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
+pub use crate::effects::OVERPAY_CAP;
 
 /// What kind of input is needed. Deliberately generic: a new card should almost always be
 /// expressible as a composition of these, not a new variant.
@@ -62,6 +63,11 @@ pub enum DecisionKind {
     /// the rest are asked again. Choices: `Choice::Card(card)`, one per distinct pending effect: the
     /// Duration (or Clerk) card whose effect it is, or for a Prince the card it plays.
     StartOrder,
+    /// Overpay for `card`, just bought (Cornucopia & Guilds): pay any amount beyond its cost, up to
+    /// `max_coins` of the coins left; `potion` when a Potion may be paid as well (Stonemason: "Gain 2
+    /// Action cards each costing the amount overpaid", Potion included). Choices:
+    /// `Choice::Overpay(coins)` / `Choice::OverpayPotion(coins)`, `Overpay(0)` meaning no overpay.
+    Overpay { card: CardId, max_coins: u8, potion: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -108,14 +114,41 @@ pub enum Choice {
     /// A deck position (see `DecisionKind::DeckPosition`): `0` = top, `1..=max_known` = below the
     /// Nth known top card, `255` = the bottom.
     Position(u8),
+    /// Buy phase: remove one Coffers token for +$1 (offered at the `Buy` decision while the player has
+    /// a token and a Buy; "at any time during your turn" in the rules, and the Buy decision comes
+    /// before every buy and every overpay).
+    Coffers,
+    /// An overpay of this many coins (see `DecisionKind::Overpay`); 0 = no overpay.
+    Overpay(u8),
+    /// An overpay of this many coins and a Potion.
+    OverpayPotion(u8),
+}
+
+impl Choice {
+    /// The overpay choice for `coins` and a Potion if `potion`. (Two variants rather than one with a
+    /// flag: a `Choice` stays two bytes, which the `ChoiceBuf` copies in every decision rely on.)
+    #[inline]
+    pub fn overpay(coins: u8, potion: bool) -> Choice {
+        if potion { Choice::OverpayPotion(coins) } else { Choice::Overpay(coins) }
+    }
+    /// `(coins, potion)` of an overpay choice.
+    #[inline]
+    pub fn as_overpay(self) -> Option<(u8, bool)> {
+        match self {
+            Choice::Overpay(c) => Some((c, false)),
+            Choice::OverpayPotion(c) => Some((c, true)),
+            _ => None,
+        }
+    }
 }
 
 /// `Event::Gain::source` for a gain with no source card (a plain buy).
 pub const NO_SOURCE: CardId = u8::MAX;
 
 /// Must cover the largest possible choice list: one entry per supply pile (up to `NUM_CARDS`,
-/// currently 113) plus a little headroom, since decisions like Buy or War Chest can offer every
-/// affordable/eligible pile at once.
+/// currently 158) plus headroom, since decisions like Buy or War Chest can offer every
+/// affordable/eligible pile at once, and an overpay offers every amount (up to `OVERPAY_CAP`, with and
+/// without a Potion).
 pub const CHOICE_CAP: usize = 128;
 
 /// A fixed-capacity list of choices. Slots past `len` are never read, so they're left
@@ -201,6 +234,12 @@ pub enum Event {
     /// `source` (a Prince) plays the card it holds at the start of `player`'s turn.
     StartPlay { player: u8, source: CardId, card: CardId },
     Reaction { player: u8, card: CardId },
+    /// `source` gives `player` `n` Coffers tokens.
+    Coffers { player: u8, source: CardId, n: u16 },
+    /// `player` removes `n` Coffers tokens for +$n.
+    SpendCoffers { player: u8, n: u16 },
+    /// `player` overpays `coins` (and a Potion) for `card`, which they have just bought.
+    Overpay { player: u8, card: CardId, coins: u8, potion: bool },
     /// Masquerade: `player` passes `card` to `to`, once every passing player has chosen.
     Pass { player: u8, card: CardId, to: u8 },
     /// Vanilla bonuses `source` just gave `player` (+Actions, +Buys, +$, +VP tokens; never
@@ -465,6 +504,9 @@ impl GameState {
                         out.push(Choice::Card(c));
                     }
                 }
+                if self.players[p].coffers > 0 {
+                    out.push(Choice::Coffers);
+                }
                 out.push(Choice::Pass);
             }
             DecisionKind::PlayTreasure => {
@@ -504,6 +546,11 @@ impl GameState {
                 self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
+            (Phase::Buy, Choice::Coffers) => {
+                self.players[p as usize].coffers -= 1;
+                self.turn.coins += 1;
+                sink.event(Event::SpendCoffers { player: p, n: 1 });
+            }
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && cards::is_choice_free(c) => {
                 self.play_free_treasure(c, 1, sink);
             }
@@ -532,8 +579,13 @@ impl GameState {
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
                 sink.depth(1);
-                self.gain(p, c, Dest::Discard, true, NO_SOURCE, sink);
-                self.on_buy_effects(p, c, sink);
+                // Overpay (Cornucopia & Guilds): with something to spare, ask how much first.
+                if cards::has_overpay(c) && (self.turn.coins > 0 || (c == id::STONEMASON && self.turn.potions > 0)) {
+                    self.stack.push(Frame { depth: 1, ..Frame::new(FrameKind::Overpay, p, c) });
+                } else {
+                    self.gain(p, c, Dest::Discard, true, NO_SOURCE, sink);
+                    self.on_buy_effects(p, c, sink);
+                }
             }
             // Ending the Buy phase (a plain Pass on the `Buy` decision, with or without buys
             // still remaining — declining to spend them is legal): goes through the same
@@ -591,8 +643,15 @@ impl GameState {
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
         self.turn.buys += cards::def(c).buys * n;
         self.turn.potions += cards::def(c).potions * n;
-        // Philosopher's Stone's value is dynamic, so it is shown like Bank's.
-        let stone = if c == id::PHILOSOPHERS_STONE { self.philosophers_stone_coins(p) * n as u16 } else { 0 };
+        // Philosopher's Stone's value is dynamic, so it is shown like Bank's; so is Huge Turnip's ($1 per
+        // Coffers, the two it gives each time included).
+        let mut stone = if c == id::PHILOSOPHERS_STONE { self.philosophers_stone_coins(p) * n as u16 } else { 0 };
+        if c == id::HUGE_TURNIP {
+            for _ in 0..n {
+                self.give_coffers(p, c, 2, sink);
+                stone += self.players[p as usize].coffers;
+            }
+        }
         self.turn.coins += stone;
         // A Treasure's own printed value is not repeated; its extras (+Buy, Duration "now"
         // bonus, Merchant's +$1) are, indented under the play.
@@ -686,6 +745,16 @@ impl GameState {
     fn end_buy_phase<S: EventSink>(&mut self, sink: &mut S) {
         if !self.turn.treasury_offered {
             self.turn.treasury_offered = true;
+            // Merchant Guild: +1 Coffers per card gained this Buy phase, per play.
+            if self.turn.guilds > 0 {
+                let n = self.turn.guilds as u16 * self.turn.gained_in_buy as u16;
+                if n > 0 {
+                    let p = self.turn.player;
+                    self.players[p as usize].coffers += n;
+                    sink.depth(0);
+                    sink.event(Event::Coffers { player: p, source: id::MERCHANT_GUILD, n });
+                }
+            }
             self.push_end_of_turn_offers();
             if !self.stack.is_empty() {
                 return;
@@ -724,7 +793,8 @@ impl GameState {
         let outpost_played = self.turn.duration_held.has(id::OUTPOST);
         let grant_extra = outpost_played && !self.turn.is_extra_turn;
         self.turn.outpost_grants_extra = grant_extra;
-        let draw_n = if outpost_played { 3 } else { 5 };
+        // Farrier's overpay adds to the hand drawn now.
+        let draw_n = (if outpost_played { 3u8 } else { 5 }).saturating_add(self.turn.extra_draw);
         // Other players' failed Outposts from the previous turn are discarded now.
         for q in 0..self.num_players as usize {
             if q != p && !self.players[q].discard_next_cleanup.is_empty() {
@@ -754,28 +824,44 @@ impl GameState {
             ps.pending_durations_len = kept as u8;
         }
 
-        let hand = self.players[p].hand;
-        let play = self.players[p].in_play;
-        // Duration cards (and any Throne Room/King's Court that multiplied one) held for next
-        // turn stay in play; everything else in play, plus the whole hand, discards as usual.
-        let mut kept = Counts::EMPTY;
-        for (c, n) in self.turn.duration_held.iter() {
-            kept.set(c, n.min(play.get(c)));
+        if self.turn.duration_held.is_empty() && self.players[p].prince_stays.is_empty() {
+            // The common turn: nothing stays in play, so the hand and play area both discard.
+            let ps = &mut self.players[p];
+            let (hand, play) = (ps.hand, ps.in_play);
+            ps.discard.add_all(&hand);
+            ps.discard.add_all(&play);
+            ps.hand.clear();
+            ps.in_play.clear();
+        } else {
+            let hand = self.players[p].hand;
+            let play = self.players[p].in_play;
+            // Duration cards (and any Throne Room/King's Court that multiplied one) held for next
+            // turn stay in play; everything else in play, plus the whole hand, discards as usual.
+            let mut kept = Counts::EMPTY;
+            for (c, n) in self.turn.duration_held.iter() {
+                kept.set(c, n.min(play.get(c)));
+            }
+            // Prince: a Prince holding a card (and the Throne Room / King's Court that played it)
+            // stays in play for the rest of the game.
+            if !self.players[p].prince_stays.is_empty() {
+                self.prince_keep(&mut kept, &play);
+            }
+            let mut discard_part = play;
+            for (c, _) in kept.iter() {
+                discard_part.set(c, play.get(c) - kept.get(c));
+            }
+            let ps = &mut self.players[p];
+            ps.discard.add_all(&hand);
+            ps.discard.add_all(&discard_part);
+            ps.hand.clear();
+            ps.in_play = kept;
         }
-        // Prince: a Prince holding a card (and the Throne Room / King's Court that played it)
-        // stays in play for the rest of the game.
-        if !self.players[p].prince_stays.is_empty() {
-            self.prince_keep(&mut kept, &play);
-        }
-        let mut discard_part = play;
-        for (c, _) in kept.iter() {
-            discard_part.set(c, play.get(c) - kept.get(c));
-        }
+        // Joust's Province: set aside until now.
         let ps = &mut self.players[p];
-        ps.discard.add_all(&hand);
-        ps.discard.add_all(&discard_part);
-        ps.hand.clear();
-        ps.in_play = kept;
+        if !ps.cleanup_aside.is_empty() {
+            let aside = ps.cleanup_aside.take_all();
+            aside.add_into(&mut ps.discard);
+        }
         self.turn.phase = Phase::CleanupDraw;
         self.stack.push(Frame { max: draw_n, ..Frame::new(FrameKind::Draw, p as u8, 0) });
     }
@@ -788,7 +874,13 @@ impl GameState {
     /// `Ok(None)` when deck and discard are both empty.
     pub(crate) fn take_top<S: EventSink>(&mut self, p: u8, sink: &mut S) -> Result<Option<CardId>, NeedChance> {
         let ps = &mut self.players[p as usize];
-        if ps.deck_known.is_empty() && ps.deck_unknown.is_empty() {
+        if let Some(c) = ps.deck_known.pop_top() {
+            return Ok(Some(c));
+        }
+        // Nothing known on top: the unknown multiset is the deck; once it is empty the discard
+        // pile is shuffled in (an idempotent change, so a chance step can redo this).
+        let mut total = ps.deck_unknown.total();
+        if total == 0 {
             if ps.discard.is_empty() {
                 return Ok(None);
             }
@@ -796,14 +888,11 @@ impl GameState {
             ps.deck_unknown.add_all(&d);
             ps.discard.clear();
             sink.event(Event::Shuffle { player: p });
-        }
-        if let Some(c) = ps.deck_known.pop_top() {
-            return Ok(Some(c));
+            total = ps.deck_unknown.total();
         }
         if self.chance_mode {
             return Err(NeedChance(p));
         }
-        let total = ps.deck_unknown.total();
         let c = ps.deck_unknown.nth(self.rng.below(total));
         ps.deck_unknown.remove(c);
         Ok(Some(c))
@@ -821,6 +910,40 @@ impl GameState {
         if !self.supply.remove(c) {
             return false;
         }
+        self.finish_gain(p, c, to, on_buy, source, sink);
+        true
+    }
+
+    /// Gain `c` from a pile outside the Supply (Ferryman's pile, a Reward): the same as `gain` for
+    /// what happens next, but only effects that name the pile (Ferryman's gain, Joust) may call it.
+    pub(crate) fn gain_side<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, source: CardId, sink: &mut S) -> bool {
+        if !self.take_side(c) {
+            return false;
+        }
+        self.finish_gain(p, c, to, false, source, sink);
+        true
+    }
+
+    /// Take one card of `c` from the Ferryman pile or the Rewards, if any is left.
+    fn take_side(&mut self, c: CardId) -> bool {
+        if cards::is_reward(c) {
+            let n = &mut self.rewards[(c - cards::FIRST_REWARD) as usize];
+            if *n == 0 {
+                return false;
+            }
+            *n -= 1;
+            true
+        } else if c == self.ferryman && c != 0 && self.ferryman_left > 0 {
+            self.ferryman_left -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// What follows a card leaving its pile: it arrives, is logged, and its gain triggers run.
+    #[inline(always)]
+    fn finish_gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, sink: &mut S) {
         let ps = &mut self.players[p as usize];
         match to {
             Dest::Hand => ps.hand.add(c, 1),
@@ -836,11 +959,16 @@ impl GameState {
         if self.in_supply(id::SMUGGLERS) && p == self.turn.player {
             self.turn.gained_this_turn.add_or_drop(c, 1);
         }
-        if self.turn.phase == Phase::Buy && cards::is(c, cards::VICTORY) {
-            self.turn.gained_victory_in_buy = true;
+        if self.turn.phase == Phase::Buy {
+            if cards::is(c, cards::VICTORY) {
+                self.turn.gained_victory_in_buy = true;
+            }
+            // Merchant Guild counts the turn player's own gains.
+            if p == self.turn.player {
+                self.turn.gained_in_buy = self.turn.gained_in_buy.saturating_add(1);
+            }
         }
         self.run_gain_triggers(p, c, to, on_buy, sink);
-        true
     }
 
     /// The zone a gain destination corresponds to, for triggers that need to find the gained
@@ -869,13 +997,18 @@ impl GameState {
         // Cheap fast path for the overwhelmingly common case (no Prosperity/Seaside gain-watcher
         // card in this game at all): one bitwise AND against the supply mask, instead of walking
         // the trigger table and probing hand/in-play for every gain of every game.
-        if self.in_supply & (cards::GAIN_TRIGGER_CARDS_MASK | cards::SEASIDE_GAIN_TRIGGER_MASK) == 0 {
+        if !self.in_supply.any(cards::GAIN_TRIGGER_CARDS_MASK | cards::SEASIDE_GAIN_TRIGGER_MASK, cards::CG_GAIN_TRIGGER_MASK)
+            && self.ferryman == 0
+        {
             return;
         }
-        if self.in_supply & cards::SEASIDE_GAIN_TRIGGER_MASK != 0 {
+        if self.in_supply.hi & cards::CG_GAIN_TRIGGER_MASK != 0 || self.ferryman != 0 {
+            self.run_cg_gain_triggers(p, c, to, sink);
+        }
+        if self.in_supply.lo & cards::SEASIDE_GAIN_TRIGGER_MASK != 0 {
             self.run_seaside_gain_triggers(p, c, to, sink);
         }
-        if self.in_supply & cards::GAIN_TRIGGER_CARDS_MASK == 0 {
+        if self.in_supply.lo & cards::GAIN_TRIGGER_CARDS_MASK == 0 {
             return;
         }
         let pi = p as usize;
@@ -1011,7 +1144,7 @@ impl GameState {
     /// Card-specific effects that happen specifically because a card was *bought* (not gained
     /// any other way): the one place for them, parallel to `may_buy`. Runs after the bought
     /// card's own gain (and its triggers) have resolved.
-    fn on_buy_effects<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
+    pub(crate) fn on_buy_effects<S: EventSink>(&mut self, p: u8, c: CardId, sink: &mut S) {
         if c == id::MINT {
             // 2nd edition: trash only non-Duration Treasures (1st edition trashed all Treasures).
             let treasures = self.players[p as usize].in_play;

@@ -32,7 +32,7 @@ fn main() {
     let kingdom = vec![id::SENTRY, id::MILITIA, id::WITCH, id::MERCHANT, id::POACHER];
     let (mut x, mut y) = (Timed { s: &a, log: vec![] }, Timed { s: &b, log: vec![] });
     for seed in 1..=games {
-        let mut st = GameState::new(&GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200 });
+        let mut st = GameState::new(&GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200, ..Default::default() });
         let t = Instant::now();
         let mut agents: [&mut dyn Agent; 2] = [&mut y, &mut x];
         play_game(&mut st, &mut agents, &mut NoEvents);

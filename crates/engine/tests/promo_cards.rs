@@ -74,7 +74,8 @@ fn prince_is_a_promo_action_costing_eight() {
     let d = cards::def(id::PRINCE);
     assert_eq!((d.cost, d.vp), (8, 0));
     assert_eq!(cards::set_of(id::PRINCE), CardSet::Promo);
-    assert!(cards::is(id::PRINCE, cards::ACTION) && !cards::is(id::PRINCE, cards::DURATION));
+    // Action-Duration-Command since the 2022 errata (see `prince_is_a_duration_that_schedules_nothing`).
+    assert!(cards::is(id::PRINCE, cards::ACTION) && cards::is(id::PRINCE, cards::DURATION) && cards::is(id::PRINCE, cards::COMMAND));
     assert!(cards::is_order_sensitive(id::PRINCE), "it takes an Action out of the hand");
     assert!(cards::is_kingdom(id::PRINCE) && cards::is_ready(id::PRINCE));
     assert_eq!(cards::set_by_name("Promo"), Some(CardSet::Promo));

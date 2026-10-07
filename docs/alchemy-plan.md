@@ -159,6 +159,12 @@ card only has to say which kind of comparison it makes:
 | "Exactly the same cost" includes the Potion | `exact: true` with the Potion copied (Upgrade's `GainUpTo { exact }`, Swindler) | Upgrade, Swindler | Saboteur (1E), Replace-like exact gains, Taxman/Stonemason-style "costing exactly" |
 | Looks only at coins ("+$1 per $1 it costs", "half its cost in VP") | `GameState::cost` (coins only) | Salvager, Bishop, Apprentice (+2 Cards for a Potion is its own extra), Forge (sums coins; its gain is Potion-free) | Butcher, Taxman-style coin counts |
 | Reductions/increases change coins only; a Potion stays or stays absent | `GameState::cost` reductions | Bridge, Quarry, Peddler | Highway, Bridge Troll, Canal, Ferry token, Inventor, Princess; Debt-cost cards |
+| "Costing less than" (strictly): no part of the cost larger and not equal; `$` and `P` are orthogonal ("$1 is not greater than, less than, or equal to P", wiki: Cost) | Gain frame with `less`, `potion` = the trashed card's | Stonemason's trash gains (a Golem $4P: a Smithy $4, a Familiar $3P and a Transmute $0P qualify, a Golem does not; a Smithy $4: no Potion card) | Develop-like "less than" effects |
+| "Up to $X more than the trashed card, X = Coffers spent": the limit keeps the trashed card's Potion | `Then::GainWithCoffers` (Gain frame `pay_coffers`) | Butcher | |
+| "Exactly $1 more": the Potion copied | `GainUpTo { plus: 1, exact }` | Remake | |
+| "Exactly the amount overpaid", Potion included (Overpay, official rules: Potions may be overpaid with, "only meaningful with Stonemason") | Gain frame `exact`, `potion` from `Choice::OverpayPotion` | Stonemason's overpay ($0P: Transmute; $2P: Apothecary...) | |
+| Costing "up to $N" from a count of names in play: never a Potion card | `gain_frame(.., N, ..)` | Horn of Plenty | |
+| A cost range for a set-up pile ($2-$3 Bane, $3-$4 Ferryman): coins only, Potion cards never qualify, the "+" of an overpay card is only a reminder | `cards::pile_eligible` | Young Witch's Bane, Ferryman's pile | |
 | "$X or more" includes Potion cards whose coins reach $X | not built yet: compare `cost(c) >= X` and ignore the Potion | none in these sets | Patrician, Treasure Hunter-style checks |
 | A range "$X to $Y" excludes Potion cards | not built yet: `X <= cost(c) <= Y && !potion_cost(c)` | none in these sets | Rogue, Graverobber, Knights-like ranges |
 

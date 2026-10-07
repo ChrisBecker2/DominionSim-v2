@@ -134,7 +134,7 @@ fn pirate_plays_when_offered() {
     use dominion_engine::CardId;
     let strat = load("big_money_ultimate.toml");
     let kingdom: Vec<CardId> = vec![id::PIRATE];
-    let mut g = GameState::new(&GameConfig { num_players: 2, kingdom, seed: 1, max_turns: 50 });
+    let mut g = GameState::new(&GameConfig { num_players: 2, kingdom, seed: 1, max_turns: 50, ..Default::default() });
     let _ = g.advance(&mut NoEvents); // drain the initial deals
     g.players[0].hand = dominion_engine::Counts::EMPTY;
     g.players[0].hand.add(id::PIRATE, 1);

@@ -1,14 +1,14 @@
 use crate::cards::{CardId, NUM_CARDS};
 
-/// Slots in a `Counts`: one per card id, padded to 64 so a `Counts` is exactly one cache line
-/// and whole-set operations are fixed-width (vectorizable). Unused slots are always zero.
-/// (128 lanes = two cache lines since Seaside and Prosperity took the id count past 64.)
-pub const LANES: usize = 128;
+/// Slots in a `Counts`: one per card id, padded to a multiple of 32 so whole-set operations are
+/// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
+/// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128.)
+pub const LANES: usize = 160;
 const _: () = assert!(NUM_CARDS <= LANES, "more cards than Counts lanes: widen LANES");
 
-/// A multiset of cards stored as per-card counts. `Copy`, 128 bytes, never allocates.
+/// A multiset of cards stored as per-card counts. `Copy`, 160 bytes, never allocates.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(align(64))]
+#[repr(align(32))]
 pub struct Counts(pub [u8; LANES]);
 
 impl Default for Counts {
@@ -48,12 +48,34 @@ impl Counts {
     }
     #[inline]
     pub fn total(&self) -> u32 {
-        self.0.iter().map(|&x| x as u32).sum()
+        // Sum of absolute differences against zero is a horizontal byte sum: 16 lanes per
+        // instruction (SSE2 is part of the x86-64 baseline; other targets sum the bytes).
+        #[cfg(target_arch = "x86_64")]
+        // SAFETY: SSE2 is always available on x86-64; `Counts` is 32-byte aligned and `LANES` is a
+        // multiple of 16, so every 16-byte load below is aligned and in bounds.
+        unsafe {
+            use std::arch::x86_64::*;
+            let zero = _mm_setzero_si128();
+            let mut acc = zero;
+            let p = self.0.as_ptr() as *const __m128i;
+            for i in 0..LANES / 16 {
+                acc = _mm_add_epi64(acc, _mm_sad_epu8(_mm_load_si128(p.add(i)), zero));
+            }
+            (_mm_cvtsi128_si64(acc) + _mm_cvtsi128_si64(_mm_unpackhi_epi64(acc, acc))) as u32
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            self.0.iter().map(|&x| x as u32).sum()
+        }
     }
     #[inline]
     pub fn is_empty(&self) -> bool {
-        // Whole-line compare (vectorized), rather than a short-circuiting scan.
-        self.0 == [0; LANES]
+        // OR every word together: branch-free and vectorized, without a library compare call.
+        let mut acc = 0u64;
+        for w in 0..LANES / 8 {
+            acc |= self.word(w);
+        }
+        acc == 0
     }
     #[inline]
     pub fn add_all(&mut self, other: &Counts) {
@@ -66,10 +88,10 @@ impl Counts {
         self.0 = [0; LANES];
     }
     /// Count of cards matching a type flag (see `cards::ACTION` etc.).
-    pub fn count_type(&self, flag: u8) -> u32 {
+    pub fn count_type(&self, flag: u16) -> u32 {
         self.iter().filter(|&(c, _)| crate::cards::is(c, flag)).map(|(_, n)| n as u32).sum()
     }
-    pub fn any_type(&self, flag: u8) -> bool {
+    pub fn any_type(&self, flag: u16) -> bool {
         self.iter().any(|(c, _)| crate::cards::is(c, flag))
     }
     /// Iterate (card, count) for nonzero counts, in card-id order. Hands, decks and piles hold

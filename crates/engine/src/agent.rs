@@ -72,6 +72,41 @@ impl<'a> PlayerView<'a> {
     pub fn my_vp(&self) -> i32 {
         self.state.players[self.me as usize].vp()
     }
+    /// The card the pending decision is about (`Decision::subject`: the card a Jester discarded, for its
+    /// Mode decision), or `None` with no decision pending.
+    pub fn pending_subject(&self) -> Option<CardId> {
+        self.state.pending_decision().map(|d| d.subject)
+    }
+    /// My Coffers tokens (Cornucopia & Guilds).
+    pub fn coffers(&self) -> u16 {
+        self.state.players[self.me as usize].coffers
+    }
+    /// `p`'s Coffers tokens: public (the mat is face up).
+    pub fn coffers_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].coffers
+    }
+    /// Young Witch's Bane card, 0 when there is none.
+    pub fn bane(&self) -> CardId {
+        self.state.bane
+    }
+    /// Ferryman's pile card (0 when there is none) and how many of it are left.
+    pub fn ferryman_pile(&self) -> (CardId, u8) {
+        (self.state.ferryman, self.state.ferryman_left)
+    }
+    /// Rewards left in their pile (`cards::FIRST_REWARD + i`, outside the Supply).
+    pub fn rewards_left(&self) -> [u8; crate::cards::NUM_REWARDS] {
+        self.state.rewards
+    }
+    /// The Action and Treasure cards `p`'s Farmhands have set aside (public): played at the start of
+    /// their next turn.
+    pub fn farm_cards_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].farm_cards.counts()
+    }
+    /// Whether the rules let the current player buy `c` right now beyond cost and pile (Grand
+    /// Market with a Copper in play).
+    pub fn may_buy(&self, c: CardId) -> bool {
+        self.state.may_buy(c)
+    }
     /// My Native Village mat (Seaside): full contents, since it's private to its owner.
     pub fn native_village_mat(&self) -> Counts {
         self.state.players[self.me as usize].native_village_mat.counts()
@@ -83,8 +118,16 @@ impl<'a> PlayerView<'a> {
     }
 
     // --- Public information ---
+    /// Cards left in `c`'s pile: a Supply pile, Ferryman's pile or a Reward (the piles outside the
+    /// Supply are counted here too, so `supply(Courser)` reads the Rewards pile).
     pub fn supply(&self, c: CardId) -> u8 {
-        self.state.supply.get(c)
+        if crate::cards::is_reward(c) {
+            self.state.rewards[(c - crate::cards::FIRST_REWARD) as usize]
+        } else if c == self.state.ferryman && c != 0 && !self.state.in_supply(c) {
+            self.state.ferryman_left
+        } else {
+            self.state.supply.get(c)
+        }
     }
     pub fn in_supply(&self, c: CardId) -> bool {
         self.state.in_supply(c)

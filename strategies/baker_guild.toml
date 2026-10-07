@@ -1,0 +1,39 @@
+# Baker / Merchant Guild (Cornucopia & Guilds) — a Coffers deck. Everyone starts with a Coffers token
+# in games with Baker; Baker is a cantrip that adds one, and Merchant Guild (+1 Buy, +$1) pays a
+# token per card gained in its Buy phase. The bot spends tokens when they reach a better card in
+# the list below, and saves them otherwise.
+# Needs Baker and Merchant Guild in the kingdom: pair with `--kingdom auto`.
+
+name = "Baker Guild"
+description = "Baker and Merchant Guild: Coffers smooth the buys."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Merchant Guild"
+if = "count(Merchant Guild) < 2"
+
+[[gain]]
+card = "Baker"
+if = "count(Baker) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Baker"
+
+[[play]]
+card = "Merchant Guild"

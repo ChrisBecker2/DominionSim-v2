@@ -208,7 +208,7 @@ card = \"Silver\"
     kingdom.push(id::INVESTMENT);
     let (mut trashed_for_vp, mut coin_modes) = (0, 0);
     for g in 0..30u64 {
-        let cfg = GameConfig { num_players: 2, kingdom: kingdom.clone(), seed: Rng::derive(7, g).next_u64(), max_turns: 200 };
+        let cfg = GameConfig { num_players: 2, kingdom: kingdom.clone(), seed: Rng::derive(7, g).next_u64(), max_turns: 200, ..Default::default() };
         let mut state = GameState::new(&cfg);
         let (mut a, mut b) = (StrategyAgent::new(&bm), StrategyAgent::new(&bm));
         let mut agents: [&mut dyn Agent; 2] = [&mut a, &mut b];

@@ -1,21 +1,27 @@
-//! Card identities and static definitions: Base Set, Intrigue, Seaside and Prosperity (all 2nd
-//! edition) and Alchemy (one edition; Possession is not implemented, by decision).
+//! Card identities and static definitions: Base Set, Intrigue, Seaside, Prosperity and Cornucopia &
+//! Guilds (all 2nd edition), Alchemy (one edition; Possession is not implemented, by decision) and
+//! the Prince promo.
 
 use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
 pub type CardId = u8;
-pub const NUM_CARDS: usize = 126;
+pub const NUM_CARDS: usize = 158;
 
 // Type flags.
-pub const ACTION: u8 = 1;
-pub const TREASURE: u8 = 2;
-pub const VICTORY: u8 = 4;
-pub const CURSE_T: u8 = 8;
-pub const ATTACK: u8 = 16;
-pub const REACTION: u8 = 32;
+pub const ACTION: u16 = 1;
+pub const TREASURE: u16 = 2;
+pub const VICTORY: u16 = 4;
+pub const CURSE_T: u16 = 8;
+pub const ATTACK: u16 = 16;
+pub const REACTION: u16 = 32;
 /// Stays in play with effects on a later turn (Seaside).
-pub const DURATION: u8 = 64;
+pub const DURATION: u16 = 64;
+/// The six non-Supply cards Joust gains (Cornucopia & Guilds).
+pub const REWARD: u16 = 128;
+/// Prince's other type: it only stops Command cards from playing each other, and no Command card
+/// exists here besides Prince itself, so it is a flag with no rules of its own.
+pub const COMMAND: u16 = 256;
 
 pub mod id {
     use super::CardId;
@@ -151,6 +157,58 @@ pub mod id {
     pub const POTION: CardId = 124;
     // Promo
     pub const PRINCE: CardId = 125;
+    // Cornucopia & Guilds (2nd edition)
+    pub const CANDLESTICK_MAKER: CardId = 126;
+    pub const HAMLET: CardId = 127;
+    pub const FARRIER: CardId = 128;
+    pub const STONEMASON: CardId = 129;
+    pub const MENAGERIE: CardId = 130;
+    pub const SHOP: CardId = 131;
+    pub const INFIRMARY: CardId = 132;
+    pub const ADVISOR: CardId = 133;
+    pub const FARMHANDS: CardId = 134;
+    pub const PLAZA: CardId = 135;
+    pub const REMAKE: CardId = 136;
+    pub const YOUNG_WITCH: CardId = 137;
+    pub const HERALD: CardId = 138;
+    pub const BAKER: CardId = 139;
+    pub const BUTCHER: CardId = 140;
+    pub const CARNIVAL: CardId = 141;
+    pub const FERRYMAN: CardId = 142;
+    pub const FOOTPAD: CardId = 143;
+    pub const HORN_OF_PLENTY: CardId = 144;
+    pub const HUNTING_PARTY: CardId = 145;
+    pub const JESTER: CardId = 146;
+    pub const JOURNEYMAN: CardId = 147;
+    pub const JOUST: CardId = 148;
+    pub const MERCHANT_GUILD: CardId = 149;
+    pub const SOOTHSAYER: CardId = 150;
+    pub const FAIRGROUNDS: CardId = 151;
+    // The Rewards: not in the Supply, gained only by Joust (see `FIRST_REWARD`).
+    pub const CORONET: CardId = 152;
+    pub const COURSER: CardId = 153;
+    pub const DEMESNE: CardId = 154;
+    pub const HOUSECARL: CardId = 155;
+    pub const HUGE_TURNIP: CardId = 156;
+    pub const RENOWN: CardId = 157;
+}
+
+/// The first of the six Rewards (card ids are contiguous: `FIRST_REWARD..FIRST_REWARD + 6`).
+pub const FIRST_REWARD: CardId = id::CORONET;
+/// The number of different Rewards.
+pub const NUM_REWARDS: usize = 6;
+
+/// Whether `card` is one of the six Rewards (non-Supply cards only Joust gains).
+#[inline(always)]
+pub fn is_reward(card: CardId) -> bool {
+    card >= FIRST_REWARD
+}
+
+/// Whether buying `card` may be overpaid for (Cornucopia & Guilds: a "+" in the cost): the
+/// overpay ability happens when it is gained (see `GameState::apply_overpay`).
+#[inline]
+pub fn has_overpay(card: CardId) -> bool {
+    matches!(card, id::FARRIER | id::STONEMASON | id::INFIRMARY | id::HERALD)
 }
 
 /// The expansion a card comes from.
@@ -168,11 +226,15 @@ pub enum CardSet {
     Alchemy,
     /// Promo cards (Prince).
     Promo,
+    /// Cornucopia & Guilds 2nd edition (Coffers, Overpay, the Rewards).
+    CornucopiaGuilds,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 6] =
-        [CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo];
+    pub const ALL: [CardSet; 7] = [
+        CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
+        CardSet::CornucopiaGuilds,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -182,6 +244,7 @@ impl CardSet {
             CardSet::Prosperity => "Prosperity",
             CardSet::Alchemy => "Alchemy",
             CardSet::Promo => "Promo",
+            CardSet::CornucopiaGuilds => "Cornucopia & Guilds",
         }
     }
 }
@@ -196,7 +259,7 @@ pub struct CardDef {
     pub potion: bool,
     /// Potions produced when played as a Treasure (Potion: 1).
     pub potions: u8,
-    pub types: u8,
+    pub types: u16,
     /// Treasure value when played as a treasure, or +$ when played as an action.
     pub coins: u8,
     pub vp: i8,
@@ -249,7 +312,7 @@ pub enum OnPlay {
     OrderSensitive,
 }
 
-const fn c(name: &'static str, cost: u8, types: u8, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
+const fn c(name: &'static str, cost: u8, types: u16, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
     CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
 }
 
@@ -276,6 +339,17 @@ const fn alchemy(d: CardDef) -> CardDef {
 /// A Promo card.
 const fn promo(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Promo, ..d }
+}
+
+/// A Cornucopia & Guilds card.
+const fn cg(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::CornucopiaGuilds, ..d }
+}
+
+/// Not implemented yet: can't be put in a kingdom.
+#[allow(dead_code)]
+const fn todo(d: CardDef) -> CardDef {
+    CardDef { ready: false, ..d }
 }
 
 /// The card's cost includes a Potion.
@@ -377,7 +451,9 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     seaside(choice_free(c("Astrolabe", 3, TREASURE | DURATION, 1, 0, 0, 0, 1))),
     seaside(choice_free(c("Fishing Village", 3, ACTION | DURATION, 1, 0, 0, 2, 0))),
     seaside(order_sensitive(c("Lookout", 3, ACTION, 0, 0, 0, 1, 0))), // trash / discard / keep the top; a later draw takes the kept one
-    seaside(choice_free(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
+    // Draws when the player to its owner's right gains a card: played before a Curse-giving Attack (Witch,
+    // Familiar, Soothsayer...) it draws for each Curse, so the order against those matters.
+    seaside(has_choice(c("Monkey", 3, ACTION | DURATION, 0, 0, 0, 0, 0))),
     seaside(order_sensitive(c("Sea Chart", 3, ACTION, 0, 0, 1, 1, 0))), // reveals the top; a miss stays known for a later draw
     seaside(has_choice(c("Smugglers", 3, ACTION, 0, 0, 0, 0, 0))), // what to gain
     seaside(order_sensitive(c("Warehouse", 3, ACTION, 0, 0, 3, 1, 0))), // what to discard (may be the +Actions card in hand)
@@ -442,7 +518,43 @@ pub static CARDS: [CardDef; NUM_CARDS] = [
     alchemy(order_sensitive(c("Apprentice", 5, ACTION, 0, 0, 0, 1, 0))), // what to trash (may be the +Actions card in hand)
     alchemy(potion_card(choice_free(c("Potion", 4, TREASURE, 0, 0, 0, 0, 0)))),
     // ---- Promo. ----
-    promo(order_sensitive(c("Prince", 8, ACTION, 0, 0, 0, 0, 0))), // sets a non-Duration Action costing up to $4 aside (may be the +Actions card in hand)
+    // Action-Duration-Command since the 2022 errata. It schedules nothing as a Duration: its
+    // start-of-turn effect is the Prince bookkeeping (`PlayerState::prince_cards`).
+    promo(order_sensitive(c("Prince", 8, ACTION | DURATION | COMMAND, 0, 0, 0, 0, 0))), // sets a non-Duration Action costing up to $4 aside (may be the +Actions card in hand)
+    // ---- Cornucopia & Guilds (2nd edition). Coffers and overpay are in `effects.rs`/`engine.rs`. ----
+    cg(choice_free(c("Candlestick Maker", 2, ACTION, 0, 0, 0, 1, 1))), // +1 Coffers
+    cg(order_sensitive(c("Hamlet", 2, ACTION, 0, 0, 1, 1, 0))), // discard for +Action / +Buy (may be the +Actions card in hand)
+    cg(choice_free(c("Farrier", 2, ACTION, 0, 0, 1, 1, 1))), // overpay is at the buy, not a play decision
+    cg(order_sensitive(c("Stonemason", 2, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain (may be the +Actions card in hand)
+    cg(order_sensitive(c("Menagerie", 3, ACTION, 0, 0, 0, 1, 0))), // reads the hand: cards drawn first can make a duplicate
+    cg(order_sensitive(c("Shop", 3, ACTION, 1, 0, 1, 0, 0))), // plays an Action from the hand for free: better before spending an Action on it
+    cg(order_sensitive(c("Infirmary", 3, ACTION, 0, 0, 1, 0, 0))), // what to trash (may be the +Actions card in hand)
+    cg(order_sensitive(c("Advisor", 4, ACTION, 0, 0, 0, 1, 0))), // reveals the top 3 of the deck, an opponent discards one
+    cg(choice_free(c("Farmhands", 4, ACTION, 0, 0, 1, 2, 0))), // the set-aside is on gain, not on play
+    cg(order_sensitive(c("Plaza", 4, ACTION, 0, 0, 1, 2, 0))), // may discard a Treasure
+    cg(order_sensitive(c("Remake", 4, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain, twice (may be the +Actions card in hand)
+    cg(order_sensitive(c("Young Witch", 4, ACTION | ATTACK, 0, 0, 2, 0, 0))), // what to discard (may be the +Actions card in hand)
+    cg(order_sensitive(c("Herald", 4, ACTION, 0, 0, 1, 1, 0))), // reveals the top card and plays it
+    cg(choice_free(c("Baker", 5, ACTION, 0, 0, 1, 1, 0))), // +1 Coffers
+    cg(order_sensitive(c("Butcher", 5, ACTION, 0, 0, 0, 0, 0))), // what to trash and gain, Coffers spent (may be the +Actions card in hand)
+    cg(order_sensitive(c("Carnival", 5, ACTION, 0, 0, 0, 0, 0))), // reveals the top 4 of the deck
+    cg(order_sensitive(c("Ferryman", 5, ACTION, 0, 0, 2, 1, 0))), // what to discard (may be the +Actions card in hand)
+    cg(choice_free(c("Footpad", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // +2 Coffers; only victims act
+    cg(has_choice(c("Horn of Plenty", 5, TREASURE, 0, 0, 0, 0, 0))), // gains a card; best played after the other Treasures
+    cg(order_sensitive(c("Hunting Party", 5, ACTION, 0, 0, 1, 1, 0))), // reveals the hand and the top of the deck
+    cg(has_choice(c("Jester", 5, ACTION | ATTACK, 2, 0, 0, 0, 0))), // who gains the copy
+    cg(order_sensitive(c("Journeyman", 5, ACTION, 0, 0, 0, 0, 0))), // names a card and reveals from the deck
+    cg(has_choice(c("Joust", 5, ACTION, 1, 0, 1, 1, 0))), // may set aside a Province for a Reward
+    cg(choice_free(c("Merchant Guild", 5, ACTION, 1, 0, 0, 0, 1))), // the Coffers come at the end of the Buy phase
+    cg(has_choice(c("Soothsayer", 5, ACTION | ATTACK, 0, 0, 0, 0, 0))), // gains a Gold (a reshuffle can draw it)
+    cg(c("Fairgrounds", 6, VICTORY, 0, 0, 0, 0, 0)), // 2 VP per 5 differently named cards (`state::vp_of_cards`)
+    // ---- The Rewards: cost $0*, not in the Supply, gained only by Joust. ----
+    cg(has_choice(c("Coronet", 0, ACTION | TREASURE | REWARD, 0, 0, 0, 0, 0))), // which Action and Treasure to play twice
+    cg(has_choice(c("Courser", 0, ACTION | REWARD, 0, 0, 0, 0, 0))), // two of four options
+    cg(has_choice(c("Demesne", 0, ACTION | VICTORY | REWARD, 0, 0, 0, 2, 2))), // gains a Gold (a reshuffle can draw it)
+    cg(has_choice(c("Housecarl", 0, ACTION | REWARD, 0, 0, 0, 0, 0))), // draws per Action in play: best after the +Actions cards
+    cg(choice_free(c("Huge Turnip", 0, TREASURE | REWARD, 0, 0, 0, 0, 0))), // +2 Coffers, +$1 per Coffers
+    cg(choice_free(c("Renown", 0, ACTION | REWARD, 0, 0, 0, 0, 1))), // cards cost $2 less
 ];
 
 /// Whether `card` is an [`OnPlay::ChoiceFree`] action.
@@ -485,7 +597,7 @@ pub fn cost_string(card: CardId) -> String {
     format!("${}{}", cost(card), if potion_cost(card) { "P" } else { "" })
 }
 #[inline(always)]
-pub fn is(card: CardId, flag: u8) -> bool {
+pub fn is(card: CardId, flag: u16) -> bool {
     CARDS[card as usize].types & flag != 0
 }
 #[inline(always)]
@@ -542,6 +654,12 @@ pub enum ModeOpt {
     NativeVillageAdd,
     /// Native Village's 2nd option: put every card from the mat into hand (immediate).
     NativeVillageTake,
+    /// Jester: gain a copy of the frame's `subject` for the victim (`to_chooser: false`) or for the
+    /// player who chooses (the attacker).
+    GainSubject { to_chooser: bool },
+    /// Courser: gain `n` copies of a card, one gain at a time (frames, so that the draw an earlier option
+    /// pushed resolves first: "do the options in the order listed").
+    GainMany(CardId, Dest, u8),
 }
 
 /// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
@@ -559,7 +677,10 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::Either(..) => ("a", "card"),
         Filter::NonAction => ("a", "non-Action card"),
         Filter::ActionNot(_) => ("an", "Action"),
-        Filter::ActionCostUpTo(_) => ("an", "Action"),
+        Filter::ActionCostUpTo(_) | Filter::NotInPlayAction => ("an", "Action"),
+        Filter::NotCard(_) | Filter::NotInHand => ("a", "card"),
+        Filter::ActionNotReward => ("an", "Action other than a Reward"),
+        Filter::TreasureNotReward => ("a", "Treasure other than a Reward"),
     }
 }
 
@@ -604,6 +725,9 @@ impl ModeOpt {
             ModeOpt::TrashSelfRevealVpPerTreasureType => "Trash this for +1 VP per Treasure type in hand".to_string(),
             ModeOpt::NativeVillageAdd => "Put the top card of your deck on your Native Village mat".to_string(),
             ModeOpt::NativeVillageTake => "Put the cards on your Native Village mat into your hand".to_string(),
+            ModeOpt::GainMany(c, _, n) => format!("Gain {n} {}s", name(c)),
+            ModeOpt::GainSubject { to_chooser: false } => "They gain a copy".to_string(),
+            ModeOpt::GainSubject { to_chooser: true } => "You gain a copy".to_string(),
         }
     }
 }
@@ -621,6 +745,8 @@ pub fn modes(card: CardId) -> &'static [ModeOpt] {
         id::TORTURER => &[ModeOpt::DiscardFromHand(2), ModeOpt::Gain(id::CURSE, Dest::Hand)],
         id::INVESTMENT => &[ModeOpt::Coins(1), ModeOpt::TrashSelfRevealVpPerTreasureType],
         id::NATIVE_VILLAGE => &[ModeOpt::NativeVillageAdd, ModeOpt::NativeVillageTake],
+        id::JESTER => &[ModeOpt::GainSubject { to_chooser: false }, ModeOpt::GainSubject { to_chooser: true }],
+        id::COURSER => &[ModeOpt::Cards(2), ModeOpt::Actions(2), ModeOpt::Coins(2), ModeOpt::GainMany(id::SILVER, Dest::Discard, 4)],
         _ => &[],
     }
 }
@@ -715,6 +841,7 @@ pub fn start_order_sensitive(card: CardId) -> bool {
     matches!(
         card,
         id::HAVEN | id::BLOCKADE | id::PIRATE | id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR | id::PRINCE | id::CLERK
+            | id::FARMHANDS
     )
 }
 
@@ -724,6 +851,12 @@ pub fn start_order_sensitive(card: CardId) -> bool {
 /// one cheap bitmask test for the overwhelming majority of games with none of these.
 pub const SEASIDE_GAIN_TRIGGER_MASK: u128 =
     (1u128 << id::MONKEY) | (1u128 << id::BLOCKADE) | (1u128 << id::PIRATE) | (1u128 << id::SAILOR);
+
+/// Cornucopia & Guilds cards with a "when you gain" effect or a passive on gains (Footpad, Farmhands,
+/// Ferryman), over the second mask word (`GameState::in_supply.hi`): the gate of
+/// `GameState::run_cg_gain_triggers`. Ferryman's and a Farmhands Ferryman pile are checked apart.
+pub const CG_GAIN_TRIGGER_MASK: u64 =
+    (1u64 << (id::FOOTPAD - 128)) | (1u64 << (id::FARMHANDS - 128)) | (1u64 << (id::FERRYMAN - 128));
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
 
@@ -738,10 +871,11 @@ pub fn is_ready(card: CardId) -> bool {
     CARDS[card as usize].ready
 }
 
-/// Whether `card` is a kingdom card (not a basic card: Copper..Curse, Platinum, Colony).
+/// Whether `card` is a kingdom card (not a basic card: Copper..Curse, Platinum, Colony, Potion, and
+/// not one of the Rewards).
 #[inline(always)]
 pub fn is_kingdom(card: CardId) -> bool {
-    card >= FIRST_KINGDOM && !is_optional_basic(card)
+    card >= FIRST_KINGDOM && !is_optional_basic(card) && !is_reward(card)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -776,6 +910,8 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "prosperity" => Some(CardSet::Prosperity),
         "alchemy" => Some(CardSet::Alchemy),
         "promo" => Some(CardSet::Promo),
+        "cornucopia & guilds" | "cornucopia and guilds" | "cornucopia" | "guilds" | "c&g" | "cg" | "cornucopia_guilds"
+        | "cornucopiaguilds" => Some(CardSet::CornucopiaGuilds),
         _ => None,
     }
 }
@@ -825,6 +961,53 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
     out
 }
 
+/// Whether `c` can be the Bane (cost $2 or $3) or Ferryman's pile (cost $3 or $4): a playable
+/// Kingdom card whose coins cost is in `lo..=hi`. The "+" of an overpay card is only a reminder
+/// (Infirmary costs $3), but a Potion in the cost is not a plain $2 or $3 or $4, so those never
+/// qualify. A card that needs a set-up pile of its own (Young Witch, Ferryman) never qualifies
+/// by default, but may be named explicitly.
+pub fn pile_eligible(c: CardId, lo: u8, hi: u8) -> bool {
+    is_kingdom(c) && is_ready(c) && !potion_cost(c) && (lo..=hi).contains(&cost(c))
+}
+
+/// A pick among the unused playable Kingdom cards costing `lo..=hi` that depends only on the
+/// kingdom (not on a game's seed, and not on the order it is listed in), so a fixed kingdom has
+/// the same set-up piles in every game of a batch. Eligible cards come from the sets the kingdom
+/// draws on (plus Cornucopia & Guilds, whose cards ask for them), never a card already in the
+/// kingdom, `taken`, or one that needs a set-up pile of its own (Young Witch, Ferryman).
+/// Allocation-free: `GameState::new` runs once per simulated game.
+fn default_setup_pile(kingdom: &[CardId], taken: CardId, salt: u64, lo: u8, hi: u8) -> Option<CardId> {
+    let in_sets = |c: CardId| {
+        set_of(c) == CardSet::CornucopiaGuilds || kingdom.iter().any(|&k| is_kingdom(k) && set_of(k) == set_of(c))
+    };
+    let eligible = |c: CardId| {
+        pile_eligible(c, lo, hi) && in_sets(c) && !kingdom.contains(&c) && c != taken && !matches!(c, id::YOUNG_WITCH | id::FERRYMAN)
+    };
+    let n = kingdom_cards().filter(|&c| eligible(c)).count();
+    if n == 0 {
+        return None;
+    }
+    let mut h: u64 = salt;
+    for &c in kingdom {
+        let mut x = (c as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        x ^= x >> 29;
+        h = h.wrapping_add(x.wrapping_mul(0xBF58_476D_1CE4_E5B9));
+    }
+    kingdom_cards().filter(|&c| eligible(c)).nth((h >> 20) as usize % n)
+}
+
+/// Young Witch's Bane when the game does not name one: a $2 or $3 Kingdom card not in `kingdom`
+/// and not `ferryman` (0 = none).
+pub fn default_bane(kingdom: &[CardId], ferryman: CardId) -> Option<CardId> {
+    default_setup_pile(kingdom, ferryman, 0xBA, 2, 3)
+}
+
+/// Ferryman's pile when the game does not name one: a $3 or $4 Kingdom card not in `kingdom` and
+/// not `bane` (0 = none).
+pub fn default_ferryman(kingdom: &[CardId], bane: CardId) -> Option<CardId> {
+    default_setup_pile(kingdom, bane, 0xFE, 3, 4)
+}
+
 /// Appends Potion to a kingdom list when any card in it has a Potion in its cost (re-sorted).
 pub fn add_potion_if_needed(k: &mut Vec<CardId>) {
     if !k.contains(&id::POTION) && k.iter().any(|&c| potion_cost(c)) {
@@ -854,11 +1037,12 @@ mod tests {
                 "Copper", "Silver", "Gold", "Curse",
                 "Moat", "Merchant", "Village", "Militia", "Smithy", "Council Room", "Festival", "Laboratory", "Market", "Witch",
                 "Bridge", "Torturer", "Harem",
-                "Lighthouse", "Astrolabe", "Fishing Village", "Monkey", "Caravan", "Cutpurse", "Sailor", "Tide Pools", "Bazaar", "Corsair",
+                "Lighthouse", "Astrolabe", "Fishing Village", "Caravan", "Cutpurse", "Sailor", "Tide Pools", "Bazaar", "Corsair",
                 "Merchant Ship", "Outpost", "Pirate", "Sea Witch", "Treasury", "Wharf",
                 "Clerk", "Monument", "Quarry", "Worker's Village", "Charlatan", "City", "Collection", "Rabble", "Grand Market",
                 "Hoard", "Peddler", "Platinum",
                 "Herbalist", "Alchemist", "Familiar", "Philosopher's Stone", "Potion",
+                "Candlestick Maker", "Farrier", "Farmhands", "Baker", "Footpad", "Merchant Guild", "Huge Turnip", "Renown",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
         );
@@ -872,6 +1056,8 @@ mod tests {
                 "Haven", "Native Village", "Lookout", "Sea Chart", "Warehouse", "Island", "Salvager", "Treasure Map",
                 "Watchtower", "Bishop", "Vault", "Expand", "Forge", "King's Court",
                 "Transmute", "Apothecary", "Scrying Pool", "Golem", "Apprentice", "Prince",
+                "Hamlet", "Stonemason", "Menagerie", "Shop", "Infirmary", "Advisor", "Plaza", "Remake", "Young Witch", "Herald",
+                "Butcher", "Carnival", "Ferryman", "Hunting Party", "Journeyman",
             ],
             "the order-sensitive set changed: a card belongs here if playing a choice-free +Actions card before it can make it worse"
         );

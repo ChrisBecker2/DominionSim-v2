@@ -4,7 +4,7 @@ use dominion_engine::*;
 
 /// Total cards across supply, trash and every player zone.
 fn total_cards(g: &GameState) -> u32 {
-    let mut t = g.supply.total() + g.trash.total();
+    let mut t = g.supply.total() + g.trash.total() + g.side_pile_cards();
     for p in 0..g.num_players as usize {
         t += g.players[p].all_cards().total();
     }
@@ -22,7 +22,7 @@ fn random_games_conserve_cards_and_terminate() {
             kingdom.swap(i, j);
         }
         kingdom.truncate(10);
-        let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 400 });
+        let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 400, ..Default::default() });
         let start = total_cards(&g) + 10 * n as u32; // starting decks come from outside supply... except Copper
         let _ = start;
         g.pause_at_turn_start = game % 2 == 0; // exercise turn-boundary pauses too

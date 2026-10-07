@@ -184,7 +184,7 @@ fn a_prince_smithy_strategy_plays_whole_games() {
     let mut prince_turns = 0u32;
     for seed in 0..40u64 {
         for swap in [false, true] {
-            let cfg = dominion_engine::GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200 };
+            let cfg = dominion_engine::GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200, ..Default::default() };
             let mut g = GameState::new(&cfg);
             let mut a = StrategyAgent::new(&ps);
             let mut b = StrategyAgent::new(&bm);

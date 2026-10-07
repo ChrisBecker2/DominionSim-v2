@@ -51,7 +51,7 @@ fn zero_allocations_per_game_after_warmup() {
 
     let mut agent_a = StrategyAgent::new(&bm);
     let mut agent_b = StrategyAgent::new(&smithy);
-    let mut cfg = GameConfig { num_players: 2, kingdom: dominion_engine::cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200 };
+    let mut cfg = GameConfig { num_players: 2, kingdom: dominion_engine::cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, ..Default::default() };
 
     // Warm-up: absorb any one-time lazy initialization (allocator arenas, TLS, etc.) before
     // we start counting.

@@ -618,6 +618,7 @@ fn monkey_draws_when_the_player_to_its_owners_right_gains_a_card() {
     let mut g = new_state(&[id::MONKEY, id::WORKSHOP], 3);
     set_hand(&mut g, 0, &[id::WORKSHOP]);
     set_in_play(&mut g, 1, &[id::MONKEY]);
+    inject_pending(&mut g, 1, id::MONKEY, 1, 0);
     set_deck_known(&mut g, 1, &[id::ESTATE]);
     play(&mut g, id::WORKSHOP);
     choose(&mut g, Choice::Card(id::SILVER)); // player 0 gains a Silver
@@ -633,6 +634,7 @@ fn monkey_draws_from_an_attackers_gains_during_the_attackers_own_turn() {
     let mut g = new_state(&[id::MONKEY, id::WITCH], 3);
     set_hand(&mut g, 0, &[id::WITCH]);
     set_in_play(&mut g, 2, &[id::MONKEY]);
+    inject_pending(&mut g, 2, id::MONKEY, 1, 0);
     set_deck_known(&mut g, 2, &[id::ESTATE]);
     play(&mut g, id::WITCH);
     assert!(g.players[1].discard.has(id::CURSE));

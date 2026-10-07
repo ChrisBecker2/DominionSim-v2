@@ -8,7 +8,8 @@ included:
   Venture.
 
 > Card text is from memory (the wiki blocks automated fetches). The tests and a check
-> against the physical cards are the specification.
+> against the physical cards are the specification. Checked against the wiki afterwards: see
+> section 6 (rules audit); where it differs from the text below, section 6 is right.
 
 ## 1. The cards
 
@@ -54,7 +55,7 @@ included:
 | 4 | Clerk | Action–Reaction–Attack | +$2. Each other player with 5+ cards in hand puts one onto their deck. At the start of your turn, you may play this from your hand. |
 | 4 | Investment | Treasure | Trash a card from hand. Choose: +$1; or trash this to reveal your hand for +1 VP per differently named Treasure. |
 | 4 | Monument | Action | +$2 +1 VP. |
-| 4 | Quarry | Treasure | $1. While in play, Action cards cost $2 less. |
+| 4 | Quarry | Treasure | $1. This turn, Action cards cost $2 less. |
 | 4 | Tiara | Treasure | +1 Buy. This turn, gains may go onto your deck. You may play a Treasure from your hand twice. |
 | 4 | Worker's Village | Action | +1 Card +2 Actions +1 Buy. |
 | 5 | Charlatan | Action–Attack | +$3. Each other player gains a Curse. In games using this, Curse is also a Treasure worth $1. |
@@ -62,7 +63,7 @@ included:
 | 5 | Collection | Treasure | $2 +1 Buy. This turn, when you gain an Action card, +1 VP. |
 | 5 | Crystal Ball | Treasure | $1. Look at the top card: you may trash it, discard it, or, if it's an Action or Treasure, play it. |
 | 5 | Magnate | Action | Reveal your hand: +1 Card per Treasure in it. |
-| 5 | Mint | Action | You may reveal a Treasure from hand to gain a copy. When you buy this, trash all non-Duration Treasures you have in play. |
+| 5 | Mint | Action | You may reveal a Treasure from hand to gain a copy. When you gain this, trash all non-Duration Treasures you have in play. |
 | 5 | Rabble | Action–Attack | +3 Cards. Each other player reveals their top 3, discards Actions and Treasures, puts the rest back in any order. |
 | 5 | Vault | Action | +2 Cards. Discard any number for +$1 each. Each other player may discard 2 cards to draw 1. |
 | 5 | War Chest | Treasure | The player to your left names a card; gain a card up to $5 not named for War Chests this turn. |
@@ -98,7 +99,8 @@ included:
    - statics in play: Hoard, Collection, Tiara topdeck, Sailor, Monkey, Blockade;
    - the per-turn gain record (Smugglers reads the right-hand player's last turn).
 
-   Buy-only triggers (Mint's trash, Hoard's "if you bought it") get an `on_buy` flag.
+   Buy-only triggers (Hoard's "if you bought it") get an `on_buy` flag. Mint's trash is a plain
+   "when you gain this" (2022 errata), whoever gains it and however.
 5. **Durations.**
    - Cards with future effects stay in play past cleanup, in a per-player `duration` zone.
      They still count as "in play" for Sea Chart and Peddler.
@@ -115,7 +117,7 @@ included:
 7. **Attack immunity:** Lighthouse in play, alongside Moat in hand. Corsair's lingering effect is
    a per-player "trash the first Silver/Gold played" flag.
 8. **Extra turns (Outpost):** cleanup draws 3 and the next turn is the same player's (not a 3rd
-   in a row). Extra turns count as turns for the tie-break.
+   in a row). Extra turns do not count as turns for the "fewer turns wins" tie-break.
 9. **VP tokens:** a `vp_tokens` field per player, added to scores (Monument, Bishop, Collection,
    Investment).
 10. **Platinum and Colony:** a per-game `colonies` flag. Colony emptying also ends the game.
@@ -163,7 +165,8 @@ included:
   Market.
   - Not covered (1st edition only): Loan, Venture, Mountebank, Talisman, Goons, Counting House,
     Trade Route (+tokens), Royal Seal.
-  - Mint changed in 2nd edition: its on-buy trash skips Durations.
+  - Mint changed in 2nd edition: it trashes only non-Duration Treasures, and when it is gained
+    (any gain), not only bought.
 - **2nd-edition-only cards** (tests written from the card text): Monkey, Sea Chart, Blockade,
   Sailor, Tide Pools, Corsair, Pirate, Sea Witch, Astrolabe, Anvil, Clerk, Investment, Tiara,
   Charlatan, Collection, Crystal Ball, Magnate and War Chest.
@@ -207,3 +210,68 @@ it couldn't be reproduced).
 **Totals since Base + Intrigue:** full bots 282k/s to 207k/s (-27%), fast mode 1.75M/s to 1.53M/s
 (-13%). A dedicated performance pass (profiler, then possibly per-game compact card ids) is the
 next item once the sets are integrated.
+
+## 6. Rules audit against the wiki (2026-10)
+
+Every Seaside and Prosperity card, Platinum and Colony were re-read against the DominionStrategy
+wiki (card text at its latest version, FAQ sections, and the Duration, Attack, Attack immunity,
+Reaction, Gain, Set aside, Reveal and Clean-up pages). Costs, types, vanilla bonuses and pile
+sizes were compared by script (all equal). Tests: `crates/engine/tests/rules_audit.rs`.
+
+**Fixed**
+
+- **Mint** trashes the non-Duration Treasures in play when it is *gained* (2022 errata), not only
+  bought; Tiara's "put it onto your deck" is still offered for that Mint.
+- **Quarry, Hoard, Collection, Tiara** are "this turn" effects: they count each *play* (twice
+  with Tiara: Quarry takes $4 off, Hoard gains two Golds, Collection gives 2 VP) and survive the
+  card leaving play (a Mint trashing them). `GameState::plays_this_turn`.
+- **Colony pile**: 8 with 2 players, 12 with 3 or more (it was the Province count: 15 and 18
+  with 5 and 6 players).
+- **Outpost's extra turn** does not count for the "fewer turns wins" tie-break.
+- **Investment** played twice (Tiara): the second play cannot trash it again, so it reveals and
+  scores nothing.
+- **Monkey** draws only while its effect lasts ("until your next turn"; it was still in play, and
+  still drawing, during its owner's next turn), and once per play (a Throne Roomed Monkey draws
+  twice per gain). It reads its pending next-turn entry.
+- **Corsair and Blockade**: "attack immunity only works if it is in force as the Attack is
+  played". A Moat revealed (or a Lighthouse in play) when they were played now protects from the
+  Silver/Gold trashing and from the Curse (`PlayerState::shielded`, kept in the text format);
+  a Lighthouse played later does not. A Silver or Gold played by an effect (Crystal Ball, Tiara)
+  is trashed by Corsair too.
+- **Pirate**: each copy in hand is its own reaction (it offered one per player), players react
+  in turn order from the turn's player, and a Pirate played on another player's turn no longer
+  counts as one of that turn's played Actions (Conspirator) or as held for that turn's cleanup.
+- **Clerk** counts the victim's hand when it resolves, after a Diplomat has been revealed (a
+  hand left with 4 cards is not affected).
+- **Herbalist**: counts plays ("once this turn, when you discard a Treasure", 2022): a Throne
+  Roomed Herbalist puts back up to two; and it cannot put an Astrolabe that stays in play onto
+  the deck (that was a bug: the Astrolabe's next-turn bonus would stay scheduled).
+- Charlatan's Curse-as-Treasure also applies to **Ironworks** (+$1), **Replace** (onto the
+  deck) and **Courtier** (two types); see the Intrigue plan.
+
+**Checked, no change**: Anvil, Watchtower, Bishop, Monument, Worker's Village, City, Crystal Ball,
+Magnate, Rabble, Vault, War Chest, Grand Market, Bank, Expand, Forge, King's Court, Peddler,
+Platinum; Haven, Lighthouse (an Attack-immunity card in play), Native Village, Astrolabe, Fishing
+Village, Lookout, Sea Chart, Smugglers, Warehouse, Caravan, Cutpurse, Island, Salvager, Tide
+Pools, Treasure Map, Bazaar, Merchant Ship, Outpost, Sea Witch, Tactician, Treasury (the January
+2026 errata went back to "when you discard this from play, if you didn't gain a Victory card in
+your Buy phase"; the end-of-Buy-phase offer here is the same thing), Wharf, Throne Room and
+King's Court with Durations.
+
+**Open (not fixed)**
+
+- **Gains onto the deck cannot be reacted to**: Watchtower, Tiara and Sailor see only gains to
+  the discard pile or the hand (`gain_dest_zone`). Bureaucrat's Silver, Treasure Map's Golds and
+  Replace's Action/Treasure go straight onto the deck. By the rules Replace gains to the discard
+  pile first and then moves the card, so a Watchtower could trash it there; a Watchtower trashing
+  a Silver onto the deck is a move nobody makes, so this is rarely visible.
+- **Sailor with Throne Room or King's Court**: the entry has one `used` flag, so a doubled Sailor
+  can play one gained Duration, not two.
+- **Moat is revealed automatically** against every Attack (`GameState::immune`); the rules let
+  a player choose not to, which only matters against Attacks that can help the victim (Minion's new
+  hand, Scrying Pool). A Moat that arrives in hand after the Attack was played (a Diplomat's
+  draw) is not seen either.
+- A Cutpurse or Bureaucrat checks the victim's hand when played; a Diplomat reveal that then
+  draws a Copper or Victory card changes nothing for them (the Clerk, Militia and Minion check
+  late).
+- Harem was renamed Farm in 2023 (same card); the name here is the 2nd-edition printing's.

@@ -1748,6 +1748,7 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::NotInHand => ("a card you have no copy of in hand".into(), "cards you have no copy of in hand".into()),
         Filter::ActionNotReward => ("an Action card other than a Reward".into(), "Action cards other than Rewards".into()),
         Filter::TreasureNotReward => ("a Treasure other than a Reward".into(), "Treasures other than Rewards".into()),
+        Filter::TreasureToDiscard => ("a Treasure".into(), "Treasures".into()),
         Filter::NotInPlayAction => (
             "an Action card you have no copy of in play".into(),
             "Action cards you have no copy of in play".into(),

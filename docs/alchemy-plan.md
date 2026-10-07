@@ -9,7 +9,8 @@ Alchemy has one edition: 12 kingdom cards plus the basic Potion. This simulator 
 
 > Card text is from memory: the wiki blocks automated fetches (an Anubis proof-of-work page), as
 > it did for the earlier sets. The tests and the rulings below are the specification;
-> check them against the physical cards when convenient.
+> check them against the physical cards when convenient. Checked against the wiki afterwards:
+> see section 8 (rules audit); it overrides the text above where they differ.
 
 ## 1. Cards
 
@@ -72,8 +73,11 @@ Treasury is: their offers are made at the end of the turn, not during the play.
    same `YesNo`, only if a Potion is in play), then Herbalist (a `Select`, `Act::Topdeck` from
    `Zone::InPlay`, 0..1 Treasures, one per copy in play). **Fixed order: Treasury, Alchemist,
    Herbalist.** A player may order such triggers; this order lets both the Alchemist and the
-   Potion go back (Herbalist's Treasure goes on top of the Alchemist). One physical card is one
-   offer, whatever Throne Room did to it.
+   Potion go back (Herbalist's Treasure goes on top of the Alchemist). Alchemist and Treasury are
+   one offer per physical card in play, whatever Throne Room did to it; Herbalist (2022 text:
+   "once this turn, when you discard a Treasure from play") is one offer per *play*, so a
+   Throne Roomed Herbalist may put back two Treasures. A Duration Treasure that stays in play
+   (Astrolabe) is not discarded, so it cannot be put back.
 7. **New generic pieces.** `FrameKind::RevealUntil` (reveal until `max` cards match `filter`:
    Scrying Pool until a non-Action, Golem 2 Actions other than Golem), `Filter::{Either,
    NonAction, ActionNot}`, `Frame::{potion, optional}` (an optional `Gain` offers `Pass`:
@@ -202,3 +206,21 @@ gain-frame check one more, `PlayerState::held` is 9 bytes per player, `Frame` gr
 The numbers are not comparable with the older tables in `seaside-prosperity-plan.md` (the
 strategy files and the machine differ). 125 card ids still fit the 128 lanes of `Counts` and
 the `u128` supply mask.
+
+## 8. Rules audit against the wiki (2026-10)
+
+The 11 cards and the Potion were re-read against the wiki (latest text, FAQs, the 2022 errata).
+Costs, types and vanilla bonuses match. Tests: `crates/engine/tests/rules_audit.rs`.
+
+**Fixed**: Herbalist counts plays (a Throne Roomed Herbalist can put back two Treasures) and
+cannot put back an Astrolabe that is staying in play (see section 2, point 6).
+
+**Checked, no change**: Transmute (each type, Curse gives nothing, Charlatan's Curse is a
+Treasure), Vineyard, Apothecary, Scrying Pool (clockwise from the player, reveals until a
+non-Action and reshuffles if needed, Moat protects), University (no Potion cards, optional),
+Alchemist (offered at the end of the Buy phase, equal to "at the start of Clean-up"), Familiar,
+Philosopher's Stone (deck and discard pile only, recomputed per play), Golem (the two Actions
+are not in hand, so a Throne Room among them cannot target the other), Apprentice, Potion
+(16 in the supply, one per game with a card with a Potion in its cost).
+
+**Open**: none beyond the Moat and deck-gain notes in the Seaside/Prosperity plan.

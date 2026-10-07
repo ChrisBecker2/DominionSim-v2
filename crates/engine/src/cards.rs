@@ -682,6 +682,7 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::NotCard(_) | Filter::NotInHand => ("a", "card"),
         Filter::ActionNotReward => ("an", "Action other than a Reward"),
         Filter::TreasureNotReward => ("a", "Treasure other than a Reward"),
+        Filter::TreasureToDiscard => ("a", "Treasure"),
     }
 }
 
@@ -763,7 +764,8 @@ pub fn modes(card: CardId) -> &'static [ModeOpt] {
 pub enum GainTriggerZone {
     /// A reaction in the gainer's hand (Watchtower).
     Hand,
-    /// A static card in the gainer's play area (Hoard, Collection, Tiara).
+    /// A card the gainer played this turn (Hoard, Collection, Tiara): once per play, and still
+    /// active if it has left play since (`GameState::plays_this_turn`).
     InPlay,
 }
 
@@ -794,7 +796,7 @@ pub static GAIN_TRIGGERS: &[(CardId, GainTriggerZone, GainTrigger)] = &[
 /// `u128` AND when this game's kingdom has none of them, instead of probing hand/in-play on
 /// every single gain.
 pub const GAIN_TRIGGER_CARDS_MASK: u128 =
-    (1u128 << id::WATCHTOWER) | (1u128 << id::HOARD) | (1u128 << id::COLLECTION) | (1u128 << id::TIARA);
+    (1u128 << id::WATCHTOWER) | (1u128 << id::HOARD) | (1u128 << id::COLLECTION) | (1u128 << id::TIARA) | (1u128 << id::MINT);
 
 /// Reaction cards that offer an optional effect (not a block) when another player plays an
 /// Attack: `(card, minimum hand size to reveal, cards drawn, cards then discarded)`. Moat's

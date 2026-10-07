@@ -593,8 +593,9 @@ pub fn potion_cost(card: CardId) -> bool {
     CARDS[card as usize].potion
 }
 /// "$2P" / "$4": the cost as printed on the card.
+/// Printed cost: "$3", "$2P", and "$2+" for a card you may overpay for (Stonemason, Herald).
 pub fn cost_string(card: CardId) -> String {
-    format!("${}{}", cost(card), if potion_cost(card) { "P" } else { "" })
+    format!("${}{}{}", cost(card), if has_overpay(card) { "+" } else { "" }, if potion_cost(card) { "P" } else { "" })
 }
 #[inline(always)]
 pub fn is(card: CardId, flag: u16) -> bool {

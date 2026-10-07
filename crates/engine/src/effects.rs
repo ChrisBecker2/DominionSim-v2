@@ -817,19 +817,18 @@ impl GameState {
 
     /// (remaining min, remaining max, eligible cards at/above the canonical bound) for a Select.
     fn select_bounds(&self, f: &Frame) -> (u8, u8, u32) {
-        match f.filter {
-            Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
-                self.select_bounds_by(f, |c| self.filter_ok(f.player, f.filter, c))
-            }
-            filter => self.select_bounds_by(f, |c| filter.matches(c)),
-        }
+        self.select_bounds_by(f, |c| self.filter_ok(f.player, f.filter, c))
     }
 
     /// Whether `c` passes `filter` for player `p` right now: the filters that read the state are
-    /// decided here (the cost of an Action now, the live hand and play area), the rest by
-    /// `Filter::matches`.
+    /// decided here (the cost of an Action now, the live hand and play area, and "Treasure",
+    /// which includes Curse in games with Charlatan), the rest by `Filter::matches`.
     pub(crate) fn filter_ok(&self, p: u8, filter: Filter, c: CardId) -> bool {
         match filter {
+            Filter::Treasure => self.is_treasure(c),
+            Filter::NonCopperTreasure => c != id::COPPER && self.is_treasure(c),
+            Filter::ActionOrTreasure => cards::is(c, ACTION) || self.is_treasure(c),
+            Filter::TreasureNotReward => self.is_treasure(c) && !cards::is(c, cards::REWARD),
             Filter::ActionCostUpTo(n) => self.action_cost_ok(n, c),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
@@ -977,12 +976,7 @@ impl GameState {
                     // any reaction that resolves first (Diplomat) already ran, so the zone's
                     // current size is the right one to compute the mandatory count from.
                     let z = self.zone(p, f.zone);
-                    let avail: u32 = match f.filter {
-                        Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
-                            z.iter().filter(|&(c, _)| self.filter_ok(p, f.filter, c)).map(|(_, n)| n as u32).sum()
-                        }
-                        filter => z.iter().filter(|&(c, _)| filter.matches(c)).map(|(_, n)| n as u32).sum(),
-                    };
+                    let avail: u32 = z.iter().filter(|&(c, _)| self.filter_ok(p, f.filter, c)).map(|(_, n)| n as u32).sum();
                     let excess = avail.saturating_sub(f.max as u32) as u8;
                     f.min = excess;
                     f.max = excess;
@@ -1299,7 +1293,7 @@ impl GameState {
                     // Smugglers: further restricted to cards the player to `f.player`'s right
                     // gained on their last turn.
                     let record_ok = !f.gain_from_record || self.players[self.right_of(f.player) as usize].last_turn_gains.has(c);
-                    if self.supply.get(c) > 0 && cost_ok && named_ok && record_ok && f.filter.matches(c) {
+                    if self.supply.get(c) > 0 && cost_ok && named_ok && record_ok && self.filter_ok(f.player, f.filter, c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -1314,12 +1308,7 @@ impl GameState {
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
                 let lo = if f.count == 0 { 0 } else { f.last };
-                match f.filter {
-                    Filter::ActionCostUpTo(_) | Filter::NotInPlayAction | Filter::NotInHand => {
-                        select_choices(z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out)
-                    }
-                    filter => select_choices(z, f.ordered, lo, need, |c| filter.matches(c), out),
-                }
+                select_choices(z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out);
                 if rem_min == 0 {
                     out.push(Choice::Pass);
                 }
@@ -2454,7 +2443,7 @@ impl GameState {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;
                 for (c, n) in revealed.iter() {
-                    if filter.matches(c) {
+                    if self.filter_ok(f.player, filter, c) {
                         self.players[p].set_aside.set(c, 0);
                         self.players[p].hand.add(c, n);
                         for _ in 0..n {
@@ -2467,7 +2456,7 @@ impl GameState {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;
                 for (c, n) in revealed.iter() {
-                    if !f.filter.matches(c) {
+                    if !self.filter_ok(f.player, f.filter, c) {
                         self.players[p].set_aside.set(c, 0);
                         self.players[p].discard.add(c, n);
                         for _ in 0..n {
@@ -2483,7 +2472,7 @@ impl GameState {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;
                 for (c, n) in revealed.iter() {
-                    if filter.matches(c) {
+                    if self.filter_ok(f.player, filter, c) {
                         self.players[p].set_aside.set(c, 0);
                         self.players[p].discard.add(c, n);
                         for _ in 0..n {

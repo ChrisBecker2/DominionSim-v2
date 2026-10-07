@@ -2218,3 +2218,51 @@ fn coronet_in_the_buy_phase_is_a_treasure_and_both_parts_are_optional() {
     pass(&mut g); // not the Gold
     assert_eq!(g.turn.phase, Phase::Buy);
 }
+
+// ---- Charlatan makes Curse a Treasure: every "Treasure" choice includes it. ----
+
+#[test]
+fn with_charlatan_coronet_may_play_a_curse_twice() {
+    let mut g = new_state(&[id::JOUST, id::CHARLATAN, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::CORONET, id::CURSE]);
+    set_deck_known(&mut g, 0, &junk(8));
+    play(&mut g, id::CORONET);
+    // No Action to play; then the Treasure: the Curse ($1 under Charlatan), twice.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }));
+    assert_eq!(choices(&g), vec![Choice::Card(id::CURSE), Choice::Pass]);
+    choose(&mut g, Choice::Card(id::CURSE));
+    assert_eq!(g.turn.coins, 2);
+
+    // Without Charlatan the Curse isn't a Treasure: nothing to pick.
+    let mut g = new_state(&[id::JOUST, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::CORONET, id::CURSE]);
+    set_deck_known(&mut g, 0, &junk(8));
+    play(&mut g, id::CORONET);
+    assert!(g.players[0].hand.has(id::CURSE));
+    assert_eq!(g.turn.coins, 0);
+}
+
+#[test]
+fn with_charlatan_mine_and_bandit_treat_a_curse_as_a_treasure() {
+    // Mine trashes the Curse ($0) and gains a Treasure up to $3 to hand.
+    let mut g = new_state(&[id::MINE, id::CHARLATAN], 2);
+    set_hand(&mut g, 0, &[id::MINE, id::CURSE]);
+    play(&mut g, id::MINE);
+    expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(id::CURSE)));
+    choose(&mut g, Choice::Card(id::CURSE));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::SILVER));
+    // (The Silver went to hand and was auto-played on entering the Buy phase.)
+    let p0 = &g.players[0];
+    assert!(g.trash.has(id::CURSE) && (p0.hand.has(id::SILVER) || p0.in_play.has(id::SILVER)), "trash {:?} hand {:?}", g.trash, p0.hand);
+
+    // Bandit: a revealed Curse is a non-Copper Treasure the victim must trash.
+    let mut g = new_state(&[id::BANDIT, id::CHARLATAN], 2);
+    set_hand(&mut g, 0, &[id::BANDIT]);
+    set_deck_known(&mut g, 1, &[id::CURSE, id::ESTATE]);
+    play(&mut g, id::BANDIT);
+    drain_selects(&mut g);
+    assert!(g.trash.has(id::CURSE), "trash: {:?}", g.trash);
+}

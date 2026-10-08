@@ -426,17 +426,36 @@ section, .panel {
 #sim-panel { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
 .sim-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
 .sim-controls input[type=number] { width: 90px; }
-#sim-summary { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; margin-bottom: 6px; }
+#sim-summary { font-size: 13px; margin-bottom: 8px; }
+.sim-seats { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: baseline; }
+.sim-seat { flex-wrap: wrap; }
+.sim-seat-rate { font-size: 20px; font-variant-numeric: tabular-nums; }
+.sim-seat-name { font-weight: 600; }
+.sim-line { margin-top: 3px; }
 .sim-stat { display: inline-flex; align-items: center; gap: 6px; }
 .sim-stat.muted, .muted { color: var(--text-dim); }
 .sim-key { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .chart-title { font-size: 13px; font-weight: 600; margin: 4px 0; }
+.chart-caption { font-size: 12px; color: var(--text-dim); margin: 2px 0 6px; max-width: 70ch; }
+.chart-note { padding: 12px 0; font-size: 13px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 14px; }
+.chart-cell { min-width: 0; }
+.chart-cell-title { font-size: 12px; font-weight: 600; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .legend-line { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
 .chart-wrap { position: relative; }
 .chart-svg { display: block; max-width: 100%; }
 .chart-svg .grid { stroke: var(--border); stroke-width: 1; opacity: 0.6; }
+.chart-svg .grid.zero { stroke: var(--text-dim); opacity: 0.9; }
+.chart-svg .grid.ref { stroke: var(--text-dim); stroke-dasharray: 4 3; opacity: 0.9; }
+.chart-svg .series-band { opacity: 0.16; stroke: none; }
+.chart-svg .bar { opacity: 0.6; }
+.chart-svg .zero-label { font-size: 11px; font-weight: 600; }
+.chart-svg .row-label { fill: var(--text); font-size: 12px; }
+.chart-svg .row-value { fill: var(--text); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart-svg .row-ci { fill: var(--text-dim); font-size: 11px; font-weight: 400; }
+.chart-svg .whisker { stroke-width: 3; stroke-linecap: round; }
 .chart-svg .tick, .chart-svg .axis-label { fill: var(--text-dim); font-size: 11px; }
 .chart-svg .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-svg .end-dot { stroke: var(--panel); stroke-width: 2; }
@@ -446,6 +465,7 @@ section, .panel {
   border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 12px #0003; pointer-events: none; }
 .chart-tip .tip-head { color: var(--text-dim); margin-bottom: 2px; }
 .chart-tip .tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.sim-table-scroll { overflow-x: auto; max-width: 100%; max-height: 360px; overflow-y: auto; }
 .sim-table { border-collapse: collapse; font-size: 12px; margin-top: 8px; font-variant-numeric: tabular-nums; }
 .sim-table th, .sim-table td { padding: 2px 10px; border-bottom: 1px solid var(--border); text-align: right; }
 .sim-table th:first-child, .sim-table td:first-child { text-align: left; }

@@ -613,7 +613,7 @@
         new Uint8Array(w.memory.buffer, sp, b.length).set(b);
         let okSim, out;
         try {
-          okSim = w.simulate(sp, m.games, m.seed);
+          okSim = w.simulate(sp, m.games, m.seed, m.flags | 0, m.first | 0);
           out = new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()));
         } catch (e) {
           const len = w.panic_message_len();
@@ -1647,11 +1647,17 @@
   function showGameChart() {
     const stats = api.gameStats();
     const seatsNow = api.getSeats();
-    simResult = mergeSims([stats], seatsNow.length);
+    simResult = SS.mergeSims([stats], seatsNow.length);
     simResult.names = seatsNow.map((seat, i) => `P${i + 1} ${botNames[seat] || ""}`.trim());
     simResult.single = true;
     $("sim-status").textContent = stats.finished ? "This game (Run Game)" : "This game so far";
     renderSim();
+  }
+
+  // simulate() flags: 1 = record the cards each seat owns per turn (only while the Deck composition
+  // chart is selected, so plain runs stay fast).
+  function simFlags() {
+    return $("sim-metric").value === "deck" ? 1 : 0;
   }
 
   function simulateHere(games) {
@@ -1660,9 +1666,9 @@
     const seatsNow = api.getSeats();
     const p = wasm.alloc(state.length);
     new Uint8Array(wasm.memory.buffer, p, state.length).set(state);
-    const out = JSON.parse(ok(wasm.simulate(p, games, 1000)));
+    const out = JSON.parse(ok(wasm.simulate(p, games, 1000, simFlags(), 0)));
     wasm.dealloc(p, state.length);
-    simResult = mergeSims([out], seatsNow.length);
+    simResult = SS.mergeSims([out], seatsNow.length);
     simResult.names = seatsNow.map((seat, i) => `P${i + 1} ${botNames[seat] || ""}`.trim());
     $("sim-status").textContent = `${simResult.games.toLocaleString()} games (in the page)`;
     renderSim();
@@ -1694,6 +1700,7 @@
       const players = seatsNow.length;
       const per = Math.ceil(games / workers.length);
       const jobs = [];
+      const flags = simFlags();
       let assigned = 0;
       workers.forEach((p, i) => {
         const n = Math.min(per, games - assigned);
@@ -1708,7 +1715,9 @@
           };
           p.worker.onerror = (e) => reject(new Error(e.message || "worker failed"));
           // Distinct shuffle seeds per worker; the same inputs give the same results.
-          p.worker.postMessage({ type: "sim", id: i, state, seats: seatsNow, games: n, seed: 1000 + i });
+          // Worker i plays games [first, first + n) of one seeded sequence, so the merged result
+          // does not depend on how many workers there are.
+          p.worker.postMessage({ type: "sim", id: i, state, seats: seatsNow, games: n, seed: 1000, first: assigned - n, flags });
         }));
       });
       let done = 0;
@@ -1718,7 +1727,7 @@
       }, () => {}));
       const parts = await Promise.race([Promise.all(jobs), cancelled]);
       if (run !== simRun) return;
-      simResult = mergeSims(parts, players);
+      simResult = SS.mergeSims(parts, players);
       simResult.seconds = (performance.now() - t0) / 1000;
       simResult.names = seatsNow.map((seat, p) => `P${p + 1} ${botNames[seat] || ""}`.trim());
       $("sim-status").textContent = `${simResult.games.toLocaleString()} games in ${simResult.seconds.toFixed(2)} s`;
@@ -1737,53 +1746,149 @@
     }
   }
 
-  function mergeSims(parts, players) {
-    const add = (a, b) => {
-      const out = a.slice();
-      b.forEach((x, i) => (out[i] = (out[i] || 0) + x));
-      return out;
-    };
-    const r = { games: 0, capped: 0, lengthSum: 0, players: [] };
-    for (let p = 0; p < players; p++) r.players.push({ vp: [], money: [], buys: [], count: [], wins: 0, winsAt: [] });
-    for (const part of parts) {
-      r.games += part.games;
-      r.capped += part.capped;
-      r.lengthSum += part.lengthSum;
-      part.players.forEach((q, p) => {
-        const t = r.players[p];
-        t.vp = add(t.vp, q.vp);
-        t.money = add(t.money, q.money);
-        t.buys = add(t.buys, q.buys);
-        t.count = add(t.count, q.count);
-        t.winsAt = add(t.winsAt, q.winsAt);
-        t.wins += q.wins;
-      });
-    }
-    return r;
-  }
+  const SS = window.SimStats;
 
-  const METRICS = {
-    vp: { title: "Average VP after each turn", y: "VP", fmt: (v) => v.toFixed(1) },
-    money: { title: "Average money per turn ($ spent + left over)", y: "$", fmt: (v) => "$" + v.toFixed(2) },
-    buys: { title: "Average cards bought per turn", y: "buys", fmt: (v) => v.toFixed(2) },
-    winturn: { title: "Games won, by the winner's turn number", y: "% of games", fmt: (v) => v.toFixed(1) + "%" },
+  const seatColor = (p) => `var(--series-${p + 1})`;
+  const signed = (v, d) => {
+    const text = Math.abs(v).toFixed(d === undefined ? 1 : d);
+    return +text === 0 ? text : (v >= 0 ? "+" : "−") + text;
   };
+  const pctText = (frac) => (100 * frac).toFixed(1) + "%";
 
-  // Series per player: points {x: turn, y: value}. Per-turn averages only where enough games
-  // reached that turn (at least 5% of games) so the tail isn't a handful of long games.
-  function seriesFor(metric) {
-    const r = simResult;
-    return r.players.map((q, p) => {
-      const pts = [];
-      if (metric === "winturn") {
-        q.winsAt.forEach((w, i) => pts.push({ x: i + 1, y: (100 * w) / r.games }));
-      } else {
-        q.count.forEach((c, i) => {
-          if (c >= Math.max(1, r.games * 0.05)) pts.push({ x: i + 1, y: q[metric][i] / c });
-        });
+  // Each metric builds a chart description from the merged sums:
+  //   lines:     { series: [{name, color, pts: [{x, y, lo?, hi?, sd?}]}], m }
+  //   intervals: { rows: [{label, color, p, lo, hi, n}] }
+  //   cards:     { cards: [{name, series}] }          (small multiples, one panel per card)
+  //   message:   { text }
+  const SIM_NOTE_SINGLE = "Needs a simulation of many games, not a single game.";
+
+  function buildChart(metric) {
+    const r = simResult, names = r.names;
+    const seatSeries = (lists) => lists.map((pts, p) => ({ name: names[p], color: seatColor(p), pts }));
+    const BAND = "Line: average over games. Shaded band: ±1 standard deviation across games (about two thirds of games fall inside). ";
+    const OWN_TURN = "Turn = that seat's own turn number; each turn averages the games that reached it.";
+    const stat = (metric !== "vp" && metric !== "money" && metric !== "buys" && metric !== "winturn") && r.single;
+    if (stat) return { kind: "message", text: SIM_NOTE_SINGLE };
+    switch (metric) {
+      case "winrate": {
+        const ws = SS.winStats(r);
+        const rows = ws.seats.map((s, p) => ({ label: names[p], color: seatColor(p), p: s.p, lo: s.lo, hi: s.hi, n: r.games }));
+        return {
+          kind: "intervals",
+          title: "Win rate with 95% confidence interval",
+          caption: "Dot: share of games won (ties split). Bar: the range the true win rate probably lies in. Dashed line: 50%, an even matchup. Bars that overlap 50% (or each other) are not clearly different at this many games.",
+          rows,
+        };
       }
-      return { name: r.names[p], color: `var(--series-${p + 1})`, pts };
-    });
+      case "first": {
+        if (!r.fresh) return { kind: "message", text: "Turn-order results need a simulation from a new game (nobody has played yet)." };
+        const ws = SS.winStats(r);
+        const rows = [];
+        ws.seats.forEach((s, p) => {
+          if (s.first) rows.push({ label: `${names[p]} going first`, color: seatColor(p), p: s.first.p, lo: s.first.lo, hi: s.first.hi, n: s.first.n });
+          if (s.second) rows.push({ label: `${names[p]} going second`, color: seatColor(p), p: s.second.p, lo: s.second.lo, hi: s.second.hi, n: s.second.n });
+        });
+        const fa = ws.firstAll;
+        return {
+          kind: "intervals",
+          title: "Win rate by turn order",
+          caption: `From a new game the seats are shuffled for every game, so each goes first about half the time. Overall the first player wins ${pctText(fa.p)} (95% CI ${pctText(fa.lo)}–${pctText(fa.hi)}); a seat that wins more when going first than second is helped by the turn order.`,
+          rows,
+        };
+      }
+      case "cumwin": {
+        const series = seatSeries(SS.cumulativeWins(r));
+        return {
+          kind: "lines",
+          title: "Cumulative win probability by turn",
+          caption: "Height at turn t: share of all games that were over, with this seat the winner, by its t-th turn. The line levels off at the seat's overall win rate; a seat that climbs earlier wins faster.",
+          series,
+          m: { fmt: (v) => v.toFixed(1) + "%", xLabel: "turn" },
+        };
+      }
+      case "length": {
+        const d = SS.lengthDistribution(r);
+        return {
+          kind: "lines",
+          title: "How long games last",
+          caption: `Share of games by the number of turns each player took. Mean ${d.mean.toFixed(1)}, median ${d.median} turns` + (r.capped ? `; ${r.capped} games hit the turn limit and are left out.` : "."),
+          series: [{ name: "games", color: "var(--text-dim)", pts: d.pts }],
+          m: { fmt: (v) => v.toFixed(1) + "%", bars: true, noLegend: true, xLabel: "turns in the game", tipHead: (x) => `${x} turns` },
+        };
+      }
+      case "vp":
+        return {
+          kind: "lines",
+          title: "Average VP after each turn",
+          caption: BAND + OWN_TURN,
+          series: seatSeries(SS.meanSeries(r, "vp", "vpSq")),
+          m: { fmt: (v) => v.toFixed(1), band: true, zero: true },
+        };
+      case "vpdiff": {
+        const diffs = SS.vpDifference(r);
+        const two = r.players.length === 2;
+        const series = diffs.map((d) => ({ name: `${names[d.a]} − ${names[d.b]}`, color: seatColor(two ? d.a : d.b), pts: d.pts }));
+        return {
+          kind: "lines",
+          title: "VP difference over time",
+          caption: "Line: average VP of " + (two ? names[0] + " minus " + names[1] : "the first seat minus each other seat") + ", after turns both had played. Above the zero line the first seat is ahead. Shaded band: ±1 standard deviation across games. " + OWN_TURN,
+          series,
+          m: { fmt: (v) => signed(v), band: true, zero: true, zeroLabels: two ? [{ text: `${names[0]} ahead`, color: seatColor(0) }, { text: `${names[1]} ahead`, color: seatColor(1) }] : null },
+        };
+      }
+      case "money":
+        return {
+          kind: "lines",
+          title: "Average money per turn ($ spent + left over)",
+          caption: BAND + "Money is what the seat could spend that turn. " + OWN_TURN,
+          series: seatSeries(SS.meanSeries(r, "money", "moneySq", true)),
+          m: { fmt: (v) => "$" + v.toFixed(2), band: true },
+        };
+      case "buys":
+        return {
+          kind: "lines",
+          title: "Average cards bought per turn",
+          caption: BAND + OWN_TURN,
+          series: seatSeries(SS.meanSeries(r, "buys", "buysSq", true)),
+          m: { fmt: (v) => v.toFixed(2), band: true },
+        };
+      case "provCum":
+      case "duchyCum":
+      case "colonyCum": {
+        const word = { provCum: "Province", duchyCum: "Duchy", colonyCum: "Colony" }[metric];
+        const plural = word === "Duchy" ? "Duchies" : word === "Colony" ? "Colonies" : word + "s";
+        if (!r.single && !r.players.some((q) => q[metric].some((v) => v > 0))) return { kind: "message", text: `No ${plural} were bought in these games.` };
+        return {
+          kind: "lines",
+          title: `${plural} bought by turn (cumulative average)`,
+          caption: `Average number of ${plural} the seat has bought by the end of each of its turns (a finished game keeps its final total). The turn where a line takes off is when that seat starts greening. ` + OWN_TURN,
+          series: seatSeries(r.single ? SS.meanSeries(r, metric) : SS.carriedSeries(r, metric, metric.replace("Cum", "End"))),
+          m: { fmt: (v) => v.toFixed(2) },
+        };
+      }
+      case "winturn": {
+        const series = r.players.map((q, p) => ({ name: names[p], color: seatColor(p), pts: q.winsAt.map((w, i) => ({ x: i + 1, y: (100 * w) / r.games })) }));
+        return {
+          kind: "lines",
+          title: "Games won, by the winner's turn number",
+          caption: "Share of all games that this seat won on its t-th turn (the turn the game ended).",
+          series: trimToActive(series),
+          m: { fmt: (v) => v.toFixed(1) + "%" },
+        };
+      }
+      case "deck": {
+        const cards = SS.deckSeries(r, 0.5, 12);
+        if (!cards) return { kind: "message", text: "Deck composition was not recorded for this run.", needsDeck: true };
+        return {
+          kind: "cards",
+          title: "Cards owned after each turn",
+          caption: `Average number of copies of each card a seat owns after its t-th turn, for cards that average more than 0.5 copies at some point (most-owned first, at most 12). ${OWN_TURN}`,
+          cards: cards.map((c) => ({ name: c.name, series: seatSeries(c.perSeat) })),
+          series: seatSeries(cards.length ? cards[0].perSeat : r.players.map(() => [])),
+        };
+      }
+    }
+    return { kind: "message", text: "Unknown chart." };
   }
 
   // Win-turn curves are zero for the early turns and after the last win; show only the span where
@@ -1795,48 +1900,137 @@
     return series.map((s) => ({ ...s, pts: s.pts.filter((p) => p.x >= lo && p.x <= hi) }));
   }
 
+  // The panel header: each seat's win rate with its 95% interval, and the head-to-head margin.
+  function renderSimSummary(r) {
+    const summary = $("sim-summary");
+    summary.innerHTML = "";
+    const seats = el("div", "sim-seats");
+    if (r.single) {
+      r.players.forEach((q, p) => {
+        const item = el("span", "sim-stat");
+        const key = el("span", "sim-key");
+        key.style.background = seatColor(p);
+        item.appendChild(key);
+        item.appendChild(document.createTextNode(`${r.names[p]}: `));
+        item.appendChild(el("b", null, q.wins > 0 ? "won" : "lost"));
+        seats.appendChild(item);
+      });
+      summary.appendChild(seats);
+      summary.appendChild(el("div", "sim-line muted", "One game: pick a chart to see its turn-by-turn record."));
+      return;
+    }
+    const ws = SS.winStats(r);
+    ws.seats.forEach((s, p) => {
+      const item = el("span", "sim-stat sim-seat");
+      const key = el("span", "sim-key");
+      key.style.background = seatColor(p);
+      item.appendChild(key);
+      item.appendChild(el("span", "sim-seat-name", r.names[p]));
+      item.appendChild(el("b", "sim-seat-rate", pctText(s.p)));
+      item.appendChild(el("span", "muted", `95% CI ${pctText(s.lo)}–${pctText(s.hi)}`));
+      seats.appendChild(item);
+    });
+    summary.appendChild(seats);
+    ws.margins.forEach((m) => {
+      const A = r.names[m.a], B = r.names[m.b];
+      const ci = `95% CI ${signed(m.lo)} to ${signed(m.hi)}`;
+      let text;
+      if (m.lo > 0) text = `${A} beats ${B} by ${m.d.toFixed(1)} points (${ci})`;
+      else if (m.hi < 0) text = `${B} beats ${A} by ${(-m.d).toFixed(1)} points (${ci})`;
+      else text = `${A} and ${B} are not clearly different: ${signed(m.d)} points (${ci})`;
+      summary.appendChild(el("div", "sim-line", text));
+    });
+    const finished = r.games - r.capped;
+    const bits = [`${r.games.toLocaleString()} games`, `average game ${finished ? (r.lengthSum / finished).toFixed(1) : "-"} turns`];
+    if (r.capped) bits.push(`${r.capped} hit the turn limit`);
+    if (r.fresh && ws.firstAll) bits.push(`first player wins ${pctText(ws.firstAll.p)}`);
+    summary.appendChild(el("div", "sim-line muted", bits.join(" · ")));
+  }
+
   function renderSim() {
     if (!simResult) return;
     const r = simResult;
-    const summary = $("sim-summary");
-    summary.innerHTML = "";
-    r.players.forEach((q, p) => {
-      const item = el("span", "sim-stat");
-      const key = el("span", "sim-key");
-      key.style.background = `var(--series-${p + 1})`;
-      item.appendChild(key);
-      item.appendChild(document.createTextNode(`${r.names[p]}: `));
-      item.appendChild(el("b", null, r.single ? (q.wins > 0 ? "won" : "lost") : `${((100 * q.wins) / r.games).toFixed(1)}% wins`));
-      summary.appendChild(item);
-    });
-    const finished = r.games - r.capped;
-    summary.appendChild(el("span", "sim-stat muted", `average game ${finished ? (r.lengthSum / finished).toFixed(1) : "-"} turns each` + (r.capped ? ` · ${r.capped} hit the turn limit` : "")));
+    renderSimSummary(r);
     const metric = $("sim-metric").value;
-    const series = metric === "winturn" ? trimToActive(seriesFor(metric)) : seriesFor(metric);
-    drawLineChart($("sim-chart"), series, METRICS[metric]);
-    renderSimTable(series, METRICS[metric]);
+    const desc = buildChart(metric);
+    const host = $("sim-chart");
+    host.innerHTML = "";
+    host.appendChild(el("div", "chart-title", desc.title || ""));
+    if (desc.kind === "message") {
+      host.appendChild(el("div", "muted chart-note", desc.text));
+    } else {
+      if (desc.kind === "lines" && !desc.m.noLegend) host.appendChild(legendFor(desc.series));
+      if (desc.kind === "cards") host.appendChild(legendFor(desc.series));
+      host.appendChild(el("div", "chart-caption", desc.caption));
+      if (desc.kind === "lines") drawLineChart(host, desc.series, desc.m);
+      else if (desc.kind === "intervals") drawIntervals(host, desc.rows);
+      else if (desc.kind === "cards") {
+        const grid = el("div", "chart-grid");
+        host.appendChild(grid);
+        desc.cards.forEach((c) => {
+          const cell = el("div", "chart-cell");
+          cell.appendChild(el("div", "chart-cell-title", c.name));
+          grid.appendChild(cell);
+          drawLineChart(cell, c.series, { fmt: (v) => v.toFixed(2), tickFmt: (v) => String(+v.toFixed(2)), compact: true });
+        });
+        if (!desc.cards.length) host.appendChild(el("div", "muted chart-note", "No card averages more than 0.5 copies."));
+      }
+    }
+    renderSimTable(desc);
   }
 
-  function renderSimTable(series, m) {
+  function legendFor(series) {
+    const legend = el("div", "chart-legend");
+    series.forEach((s) => {
+      const item = el("span", "legend-item");
+      const key = el("span", "legend-line");
+      key.style.background = s.color;
+      item.appendChild(key);
+      item.appendChild(document.createTextNode(s.name));
+      legend.appendChild(item);
+    });
+    return legend;
+  }
+
+  // The numbers behind the chart, as a table (scrolls inside its box on narrow screens).
+  function renderSimTable(desc) {
     const box = $("sim-table");
     box.hidden = !$("sim-table-toggle").checked;
     box.innerHTML = "";
-    const xs = [...new Set(series.flatMap((s) => s.pts.map((p) => p.x)))].sort((a, b) => a - b);
+    if (desc.kind === "message") return;
     const table = el("table", "sim-table");
     const head = el("tr");
-    head.appendChild(el("th", null, "Turn"));
-    series.forEach((s) => head.appendChild(el("th", null, s.name)));
-    table.appendChild(head);
-    xs.forEach((x) => {
-      const tr = el("tr");
-      tr.appendChild(el("td", null, String(x)));
-      series.forEach((s) => {
-        const pt = s.pts.find((p) => p.x === x);
-        tr.appendChild(el("td", null, pt ? m.fmt(pt.y) : ""));
+    const rowsOut = [];
+    if (desc.kind === "intervals") {
+      ["", "win rate", "95% low", "95% high", "games"].forEach((h) => head.appendChild(el("th", null, h)));
+      desc.rows.forEach((row) => rowsOut.push([row.label, pctText(row.p), pctText(row.lo), pctText(row.hi), String(Math.round(row.n))]));
+    } else {
+      let cols = desc.series, fmt = desc.m ? desc.m.fmt : (v) => v.toFixed(2);
+      if (desc.kind === "cards") {
+        fmt = (v) => v.toFixed(2);
+        cols = desc.cards.flatMap((c) => c.series.map((s) => ({ name: `${c.name} · ${s.name}`, pts: s.pts })));
+      }
+      const xs = [...new Set(cols.flatMap((s) => s.pts.map((p) => p.x)))].sort((a, b) => a - b);
+      head.appendChild(el("th", null, desc.m && desc.m.bars ? "Turns" : "Turn"));
+      cols.forEach((s) => head.appendChild(el("th", null, s.name)));
+      xs.forEach((x) => {
+        const row = [String(x)];
+        cols.forEach((s) => {
+          const pt = s.pts.find((p) => p.x === x);
+          row.push(pt ? fmt(pt.y) + (pt.sd !== undefined && desc.kind === "lines" ? ` ± ${pt.sd.toFixed(1)}` : "") : "");
+        });
+        rowsOut.push(row);
       });
+    }
+    table.appendChild(head);
+    rowsOut.forEach((cells) => {
+      const tr = el("tr");
+      cells.forEach((c) => tr.appendChild(el("td", null, c)));
       table.appendChild(tr);
     });
-    box.appendChild(table);
+    const scroller = el("div", "sim-table-scroll");
+    scroller.appendChild(table);
+    box.appendChild(scroller);
   }
 
   const SVGNS = "http://www.w3.org/2000/svg";
@@ -1847,79 +2041,101 @@
     return e;
   }
 
-  function niceTicks(max, count) {
-    if (max <= 0) return [0, 1];
-    const raw = max / count;
+  // Round tick values covering [lo, hi].
+  function niceTicks(lo, hi, count) {
+    if (!(hi > lo)) hi = lo + 1;
+    const raw = (hi - lo) / count;
     const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((st) => raw <= st) || 10 * mag;
+    const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((st) => raw <= st * 1.0000001) || 10 * mag;
     const ticks = [];
-    for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(+v.toFixed(10));
-    if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+    const first = Math.floor(lo / step + 1e-9) * step;
+    for (let v = first; v < hi + step * 0.999; v += step) {
+      ticks.push(+v.toFixed(10));
+      if (v >= hi - step * 1e-9) break;
+    }
     return ticks;
   }
 
+  // One chart of lines (or bars) over x. Series points: {x, y, lo?, hi?, sd?}. Options (m):
+  // fmt, band (draw lo..hi), zero (y axis may go below 0, with a zero line), bars, compact
+  // (small multiple: no end labels), noLegend, xLabel, zeroLabels, tipHead.
   function drawLineChart(host, series, m) {
-    host.innerHTML = "";
     const all = series.flatMap((s) => s.pts);
     if (!all.length) {
-      host.appendChild(el("div", "muted", "No data."));
+      host.appendChild(el("div", "muted chart-note", "No data."));
       return;
     }
-    host.appendChild(el("div", "chart-title", m.title));
-    // Legend: line keys in seat order (mirrors the marks).
-    const legend = el("div", "chart-legend");
-    series.forEach((s) => {
-      const item = el("span", "legend-item");
-      const key = el("span", "legend-line");
-      key.style.background = s.color;
-      item.appendChild(key);
-      item.appendChild(document.createTextNode(s.name));
-      legend.appendChild(item);
-    });
-    host.appendChild(legend);
-
-    const W = Math.max(320, host.clientWidth || 800), H = 280;
-    const pad = { l: 48, r: 130, t: 10, b: 30 };
-    const xMax = Math.max(...all.map((p) => p.x)), xMin = Math.min(...all.map((p) => p.x));
-    const ticks = niceTicks(Math.max(...all.map((p) => p.y)), 5);
-    const yMax = ticks[ticks.length - 1] || 1;
-    const X = (x) => pad.l + ((x - xMin) / Math.max(1, xMax - xMin)) * (W - pad.l - pad.r);
-    const Y = (y) => H - pad.b - (y / yMax) * (H - pad.t - pad.b);
-    const root = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "chart-svg", role: "img", "aria-label": m.title });
+    const compact = !!m.compact;
+    const W = Math.max(compact ? 200 : 300, host.clientWidth || 800), H = compact ? 150 : 280;
+    const pad = compact ? { l: 34, r: 8, t: 8, b: 24 } : { l: 44, r: 112, t: 10, b: 34 };
+    if (!compact && W < 520) pad.r = 70; // short end labels on phones
+    if (m.bars) pad.r = 16;
+    const xs = all.map((p) => p.x);
+    const xLo = Math.min(...xs) - (m.bars ? 0.5 : 0), xHi = Math.max(...xs) + (m.bars ? 0.5 : 0);
+    const vals = all.flatMap((p) => (m.band && p.lo !== undefined ? [p.lo, p.hi] : [p.y]));
+    const lowest = Math.min(...vals), highest = Math.max(...vals);
+    const ticks = niceTicks(lowest < 0 || m.zero ? Math.min(lowest, 0) : 0, Math.max(highest, 0), compact ? 3 : 5);
+    const yLo = ticks[0], yHi = ticks[ticks.length - 1];
+    const X = (x) => pad.l + ((x - xLo) / Math.max(1e-9, xHi - xLo)) * (W - pad.l - pad.r);
+    const Y = (y) => H - pad.b - ((y - yLo) / Math.max(1e-9, yHi - yLo)) * (H - pad.t - pad.b);
+    const root = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "chart-svg", role: "img" }, null);
     // Recessive grid + axes.
     ticks.forEach((t) => {
-      svg("line", { x1: pad.l, x2: W - pad.r, y1: Y(t), y2: Y(t), class: "grid" }, root);
-      const lab = svg("text", { x: pad.l - 8, y: Y(t) + 4, class: "tick", "text-anchor": "end" }, root);
-      lab.textContent = m.fmt(t).replace(/\.0+(?=%|$)/, "");
+      svg("line", { x1: pad.l, x2: W - pad.r, y1: Y(t), y2: Y(t), class: t === 0 && yLo < 0 ? "grid zero" : "grid" }, root);
+      const lab = svg("text", { x: pad.l - 6, y: Y(t) + 4, class: "tick", "text-anchor": "end" }, root);
+      lab.textContent = m.tickFmt ? m.tickFmt(t) : m.fmt(t).replace(/\.0+(?=%|$)/, "");
     });
-    const xStep = Math.max(1, Math.ceil((xMax - xMin) / 12));
-    for (let x = xMin; x <= xMax; x += xStep) {
-      const lab = svg("text", { x: X(x), y: H - pad.b + 18, class: "tick", "text-anchor": "middle" }, root);
+    const xFirst = Math.ceil(xLo), xLast = Math.floor(xHi);
+    const xStep = Math.max(1, Math.ceil((xLast - xFirst) / (compact ? 6 : 12)));
+    for (let x = xFirst; x <= xLast; x += xStep) {
+      const lab = svg("text", { x: X(x), y: H - pad.b + 15, class: "tick", "text-anchor": "middle" }, root);
       lab.textContent = String(x);
     }
-    const xl = svg("text", { x: (pad.l + W - pad.r) / 2, y: H - 2, class: "axis-label", "text-anchor": "middle" }, root);
-    xl.textContent = "turn";
-    // Lines (2px), with a direct label at each line's end.
+    if (!compact) {
+      const xl = svg("text", { x: (pad.l + W - pad.r) / 2, y: H - 3, class: "axis-label", "text-anchor": "middle" }, root);
+      xl.textContent = m.xLabel || "turn";
+    }
+    if (m.zeroLabels) {
+      m.zeroLabels.forEach((zl, i) => {
+        const t = svg("text", { x: pad.l + 6, y: i === 0 ? pad.t + 12 : H - pad.b - 6, class: "zero-label", style: `fill:${zl.color}` }, root);
+        t.textContent = (i === 0 ? "↑ " : "↓ ") + zl.text;
+      });
+    }
     const ends = [];
     series.forEach((s) => {
       if (!s.pts.length) return;
+      if (m.bars) {
+        const w = Math.max(1, ((W - pad.l - pad.r) / (xHi - xLo)) * 0.8);
+        s.pts.forEach((p) => {
+          svg("rect", { x: X(p.x) - w / 2, width: w, y: Y(p.y), height: Math.max(0, Y(yLo) - Y(p.y)), class: "bar", style: `fill:${s.color}` }, root);
+        });
+        return;
+      }
+      if (m.band && s.pts[0].lo !== undefined) {
+        const top = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.hi).toFixed(1)}`).join("");
+        const bottom = s.pts.slice().reverse().map((p) => `L${X(p.x).toFixed(1)},${Y(p.lo).toFixed(1)}`).join("");
+        svg("path", { d: top + bottom + "Z", class: "series-band", style: `fill:${s.color}` }, root);
+      }
       const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
       svg("path", { d, class: "series-line", style: `stroke:${s.color}` }, root);
       const last = s.pts[s.pts.length - 1];
       ends.push({ s, x: X(last.x), y: Y(last.y) });
     });
-    // End labels stay above the x axis and stack upward when they would overlap.
-    ends.sort((a, b) => b.y - a.y);
-    ends.forEach((e, i) => {
-      const floor = i === 0 ? H - pad.b - 8 : ends[i - 1].y - 14;
-      e.y = Math.min(e.y, floor);
-    });
-    ends.forEach((e) => {
-      svg("circle", { cx: e.x, cy: Y(e.s.pts[e.s.pts.length - 1].y), r: 4, class: "end-dot", style: `fill:${e.s.color}` }, root);
-      const t = svg("text", { x: e.x + 8, y: e.y + 4, class: "end-label" }, root);
-      t.textContent = e.s.name;
-    });
-    // Crosshair + tooltip listing every series at the hovered turn.
+    // End labels (seat name) stay above the x axis and stack upward when they would overlap.
+    if (!compact && !m.bars) {
+      ends.sort((a, b) => b.y - a.y);
+      ends.forEach((e, i) => {
+        const floor = i === 0 ? H - pad.b - 8 : ends[i - 1].y - 14;
+        e.y = Math.min(e.y, floor);
+      });
+      const room = Math.floor((pad.r - 12) / 6.2);
+      ends.forEach((e) => {
+        svg("circle", { cx: e.x, cy: Y(e.s.pts[e.s.pts.length - 1].y), r: 4, class: "end-dot", style: `fill:${e.s.color}` }, root);
+        const t = svg("text", { x: e.x + 8, y: e.y + 4, class: "end-label" }, root);
+        t.textContent = e.s.name.length > room ? e.s.name.slice(0, Math.max(2, room - 1)) + "…" : e.s.name;
+      });
+    }
+    // Crosshair + tooltip listing every series at the hovered x.
     const cross = svg("line", { y1: pad.t, y2: H - pad.b, class: "crosshair", visibility: "hidden" }, root);
     const tip = el("div", "chart-tip");
     tip.hidden = true;
@@ -1927,25 +2143,26 @@
     const show = (clientX) => {
       const box = root.getBoundingClientRect();
       const px = ((clientX - box.left) / box.width) * W;
-      const x = Math.max(xMin, Math.min(xMax, Math.round(xMin + ((px - pad.l) / (W - pad.l - pad.r)) * (xMax - xMin))));
+      const lo = Math.ceil(xLo), hi = Math.floor(xHi);
+      const x = Math.max(lo, Math.min(hi, Math.round(xLo + ((px - pad.l) / (W - pad.l - pad.r)) * (xHi - xLo))));
       cross.setAttribute("x1", X(x));
       cross.setAttribute("x2", X(x));
       cross.setAttribute("visibility", "visible");
       tip.innerHTML = "";
-      tip.appendChild(el("div", "tip-head", `Turn ${x}`));
+      tip.appendChild(el("div", "tip-head", m.tipHead ? m.tipHead(x) : `Turn ${x}`));
       series.forEach((s) => {
         const pt = s.pts.find((p) => p.x === x);
         const row = el("div", "tip-row");
         const key = el("span", "legend-line");
         key.style.background = s.color;
         row.appendChild(key);
-        row.appendChild(el("b", null, pt ? m.fmt(pt.y) : "–"));
-        row.appendChild(document.createTextNode(" " + s.name));
+        row.appendChild(el("b", null, pt ? m.fmt(pt.y) + (pt.sd !== undefined && m.band ? ` ± ${pt.sd.toFixed(1)}` : "") : "–"));
+        row.appendChild(document.createTextNode(m.noLegend ? "" : " " + s.name));
         tip.appendChild(row);
       });
       tip.hidden = false;
       const left = (X(x) / W) * box.width;
-      tip.style.left = `${Math.min(left + 12, box.width - 220)}px`;
+      tip.style.left = `${Math.max(0, Math.min(left + 12, box.width - (compact ? 150 : 230)))}px`;
     };
     hit.addEventListener("pointermove", (e) => show(e.clientX));
     hit.addEventListener("pointerleave", () => {
@@ -1955,6 +2172,43 @@
     const wrap = el("div", "chart-wrap");
     wrap.appendChild(root);
     wrap.appendChild(tip);
+    host.appendChild(wrap);
+  }
+
+  // Dot-and-whisker chart of win rates: rows {label, color, p, lo, hi, n} (fractions), a dashed
+  // line at 50%, the value written above each whisker.
+  function drawIntervals(host, rows) {
+    const W = Math.max(280, host.clientWidth || 700), rowH = 58;
+    const pad = { l: 14, r: 14, t: 6, b: 24 };
+    const H = pad.t + rows.length * rowH + pad.b;
+    let lo = Math.min(50, ...rows.map((r) => 100 * r.lo)) - 3, hi = Math.max(50, ...rows.map((r) => 100 * r.hi)) + 3;
+    lo = Math.max(0, Math.floor(lo / 10) * 10);
+    hi = Math.min(100, Math.ceil(hi / 10) * 10);
+    const X = (v) => pad.l + ((v - lo) / (hi - lo)) * (W - pad.l - pad.r);
+    const root = svg("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "chart-svg", role: "img" }, null);
+    const step = hi - lo <= 40 ? 5 : 10;
+    for (let v = lo; v <= hi; v += step) {
+      svg("line", { x1: X(v), x2: X(v), y1: pad.t, y2: H - pad.b, class: v === 50 ? "grid ref" : "grid" }, root);
+      const lab = svg("text", { x: X(v), y: H - pad.b + 15, class: "tick", "text-anchor": "middle" }, root);
+      lab.textContent = v + "%";
+    }
+    rows.forEach((row, i) => {
+      const y0 = pad.t + i * rowH;
+      const g = svg("g", {}, root);
+      svg("title", {}, g).textContent = `${row.label}: ${pctText(row.p)} (95% CI ${pctText(row.lo)}–${pctText(row.hi)}), ${Math.round(row.n).toLocaleString()} games`;
+      const name = svg("text", { x: pad.l, y: y0 + 14, class: "row-label" }, g);
+      name.textContent = row.label;
+      const val = svg("text", { x: pad.l, y: y0 + 29, class: "row-value" }, g);
+      val.textContent = pctText(row.p);
+      const ci = svg("tspan", { class: "row-ci", dx: 8 }, val);
+      ci.textContent = `95% CI ${pctText(row.lo)}–${pctText(row.hi)}`;
+      const y = y0 + 44;
+      svg("line", { x1: X(100 * row.lo), x2: X(100 * row.hi), y1: y, y2: y, class: "whisker", style: `stroke:${row.color}` }, g);
+      [row.lo, row.hi].forEach((v) => svg("line", { x1: X(100 * v), x2: X(100 * v), y1: y - 5, y2: y + 5, class: "whisker", style: `stroke:${row.color}` }, g));
+      svg("circle", { cx: X(100 * row.p), cy: y, r: 5, class: "end-dot", style: `fill:${row.color}` }, g);
+    });
+    const wrap = el("div", "chart-wrap");
+    wrap.appendChild(root);
     host.appendChild(wrap);
   }
 
@@ -2074,7 +2328,14 @@
         simulate();
       }
     });
-    $("sim-metric").addEventListener("change", () => renderSim());
+    $("sim-metric").addEventListener("change", () => {
+      // Deck composition is only recorded when asked for: run again with it if this run lacks it.
+      if ($("sim-metric").value === "deck" && simResult && !simResult.single && !simResult.players.every((q) => q.owned) && !cancelSim) {
+        simulate();
+        return;
+      }
+      renderSim();
+    });
     $("sim-table-toggle").addEventListener("change", () => renderSim());
     window.addEventListener("resize", () => renderSim());
     $("btn-analyze").addEventListener("click", () => {
@@ -2235,10 +2496,23 @@
         }
       });
     }
-    // Test hook: open index.html#selftest-chart to simulate in the page and draw the chart.
+    // Test hook: open index.html#selftest-chart-<metric> to simulate in the page and draw the chart.
+    // Optional "&seats=4,2" (bot ids per seat, see Show/seat lists), "&games=1000", "&table".
     if (location.hash.startsWith("#selftest-chart")) {
-      $("sim-metric").value = location.hash.split("-")[2] || "vp";
-      simulateHere(1000);
+      const [head, ...rest] = location.hash.split("&");
+      const opts = new URLSearchParams(rest.join("&"));
+      $("sim-metric").value = head.split("-")[2] || "vp";
+      if (opts.get("seats")) opts.get("seats").split(",").forEach((id, p) => api.setSeat(p, parseInt(id, 10)));
+      if (opts.has("table")) $("sim-table-toggle").checked = true;
+      if (opts.has("only")) {
+        // Screenshots: show just the Simulation panel.
+        document.querySelector("header").style.display = "none";
+        $("text-panel").style.display = "none";
+        document.querySelector("main").style.display = "block";
+        [...$("game-panel").children].forEach((c) => { if (c.id !== "sim-panel") c.style.display = "none"; });
+      }
+      render();
+      simulateHere(parseInt(opts.get("games") || "1000", 10));
     }
     if (location.hash === "#selftest-analyze2") { api.resume(); render(); $("btn-analyze").click(); }
     // Test hook: open index.html#selftest-crash to exercise the crash panel.

@@ -145,10 +145,25 @@
           <button id="btn-simulate" class="primary" title="Play this many games from the current position with each seat's controller">Simulate from here</button>
           <label>Show
             <select id="sim-metric">
-              <option value="vp">VP over time</option>
-              <option value="money">Money per turn</option>
-              <option value="buys">Buys per turn</option>
-              <option value="winturn">Win turn</option>
+              <optgroup label="Who wins">
+                <option value="winrate">Win rate (95% interval)</option>
+                <option value="cumwin">Win probability by turn</option>
+                <option value="winturn">Win turn</option>
+                <option value="length">Game length</option>
+                <option value="first">First vs second player</option>
+              </optgroup>
+              <optgroup label="Progress">
+                <option value="vp" selected>VP over time</option>
+                <option value="vpdiff">VP difference</option>
+                <option value="money">Money per turn</option>
+                <option value="buys">Buys per turn</option>
+              </optgroup>
+              <optgroup label="What they buy">
+                <option value="provCum">Provinces bought</option>
+                <option value="duchyCum">Duchies bought</option>
+                <option value="colonyCum">Colonies bought</option>
+                <option value="deck">Deck composition</option>
+              </optgroup>
             </select>
           </label>
           <label class="checkbox"><input type="checkbox" id="sim-table-toggle"> table</label>
@@ -173,6 +188,7 @@
 <script>
 const WASM_BASE64 = "__WASM_BASE64__";
 /*__GRAPH_JS__*/
+/*__SIMSTATS_JS__*/
 /*__APP_JS__*/
 </script>
 </body>

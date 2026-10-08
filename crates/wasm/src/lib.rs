@@ -896,11 +896,13 @@ fn controller_choice(
 // Simulation from the current position (runs in workers; results are summed across workers)
 // -----------------------------------------------------------------------------------------
 
-/// Counts buys and coins spent (Buy events) during a turn.
+/// Counts buys, coins spent and Province/Duchy/Colony buys (Buy events) during a turn.
 #[derive(Default)]
 struct BuyTally {
     bought: u32,
     spent: u32,
+    /// Provinces, Duchies, Colonies bought.
+    green: [u32; 3],
 }
 
 impl dominion_engine::EventSink for BuyTally {
@@ -908,6 +910,12 @@ impl dominion_engine::EventSink for BuyTally {
         if let Event::Buy { card, .. } = e {
             self.bought += 1;
             self.spent += cards::cost(card) as u32;
+            match card {
+                id::PROVINCE => self.green[0] += 1,
+                id::DUCHY => self.green[1] += 1,
+                id::COLONY => self.green[2] += 1,
+                _ => {}
+            }
         }
     }
 }
@@ -923,26 +931,59 @@ pub extern "C" fn state_bytes_current() -> i32 {
     })
 }
 
+/// `simulate` flag: also record, per turn, the cards each seat owns (JSON `owned`).
+const SIM_DECK: u32 = 1;
 /// Play `games` games from the position at `state_ptr` with this instance's seat controllers,
-/// seeding game g's shuffles from (`seed`, g). Writes JSON of per-player sums, indexed by the
-/// player's own turn number t (index t-1): vp (after the turn), money (coins that turn: spent +
-/// left over), buys (cards bought), count (games that reached that turn); wins and winsAt (by the
-/// winner's turn count; a shared win counts 1/k); plus total game length in turns.
+/// seeding game g's shuffles from (`seed`, g) for g in `first_game..first_game + games` (so a run can be split into ranges that add up to the whole). Writes JSON of sums (the page adds them across
+/// workers and divides by counts), indexed by the player's own turn number t (index t-1):
+/// - vp (after the turn) and vpSq (its squares), money (coins that turn: spent + left over) and
+///   moneySq, buys (cards bought) and buysSq, count (games that reached that turn);
+/// - provCum, duchyCum, colonyCum: Provinces / Duchies / Colonies bought up to and including the
+///   turn, summed over the games that reached it; provEnd, duchyEnd, colonyEnd: the same totals
+///   at the seat's last turn, indexed by that turn (to carry finished games forward: the average
+///   over all games by turn t is (cum[t] + sum of end[<t]) / games);
+/// - wins and winsSq (sum of squared win shares) and winsAt (by the winner's turn count; a
+///   shared win counts 1/k); firstGames / firstWins: games the seat went first in, and its wins
+///   in them (so the second-player rate is the rest);
+/// - owned (only with `SIM_DECK`): card name -> per turn, the sum over games of how many copies
+///   the seat owned after the turn;
+/// plus, per game, total length in turns (lengthSum, lengthHist by length), and `pairs`: for each
+/// seat q > 0, the VP difference (seat 0 minus q) after each turn both had played (n games, sum,
+/// sq) and the sum of squared win-share margins (marginSq). `fresh` says whether the start
+/// position was a new game (so first-player numbers mean something).
 #[no_mangle]
-pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
+pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, first_game: u32) -> i32 {
     let start = state_from_ptr(state_ptr);
     let r = APP.with(|cell| {
         let mut guard = cell.borrow_mut();
         let app = &mut *guard;
         let n = start.num_players as usize;
+        let fresh = start.turn.number == 1 && start.turn.player == 0 && (0..n).all(|p| start.players[p].turns_taken == 0);
+        let want_deck = flags & SIM_DECK != 0;
         let mut vp = vec![Vec::<f64>::new(); n];
+        let mut vp_sq = vec![Vec::<f64>::new(); n];
         let mut money = vec![Vec::<f64>::new(); n];
+        let mut money_sq = vec![Vec::<f64>::new(); n];
         let mut buys = vec![Vec::<f64>::new(); n];
+        let mut buys_sq = vec![Vec::<f64>::new(); n];
         let mut count = vec![Vec::<f64>::new(); n];
+        let mut green = vec![vec![Vec::<f64>::new(); n]; 3];
+        let mut green_end = vec![vec![Vec::<f64>::new(); n]; 3];
+        let mut owned = vec![Vec::<f64>::new(); n]; // [turn * NUM_CARDS + card]
         let mut wins = vec![0f64; n];
+        let mut wins_sq = vec![0f64; n];
         let mut wins_at = vec![Vec::<f64>::new(); n];
+        let mut first_games = vec![0f64; n];
+        let mut first_wins = vec![0f64; n];
+        let mut length_hist = Vec::<f64>::new();
         let mut length_sum = 0f64;
         let mut capped = 0u32;
+        // Seat 0 minus seat q (index q): VP difference per turn, and win-share margin squares.
+        let mut pair_n = vec![Vec::<f64>::new(); n];
+        let mut pair_sum = vec![Vec::<f64>::new(); n];
+        let mut pair_sq = vec![Vec::<f64>::new(); n];
+        let mut margin_sq = vec![0f64; n];
+        let mut vp_hist = vec![Vec::<i32>::new(); n];
         let bump = |v: &mut Vec<f64>, i: usize, x: f64| {
             if v.len() <= i {
                 v.resize(i + 1, 0.0);
@@ -954,7 +995,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
         // so who goes first is random too. Physical seat i is played by seat `order[i]`'s
         // controller, and its results are reported under that seat.
         let new_game = start.turn.phase == Phase::Setup;
-        for g in 0..games {
+        for g in first_game..first_game + games {
             let mut s = start;
             s.chance_mode = false;
             s.pause_at_turn_start = false;
@@ -967,6 +1008,12 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
                 }
             }
             let seats: [u32; MAX_PLAYERS] = std::array::from_fn(|i| app.seats[order[i]]);
+            let first = order[s.turn.player as usize];
+            first_games[first] += 1.0;
+            for h in vp_hist.iter_mut() {
+                h.clear();
+            }
+            let mut run_green = [[0u32; 3]; MAX_PLAYERS];
             let mut tally = BuyTally::default();
             let (mut cur_player, mut cur_number) = (s.turn.player as usize, s.turn.number);
             let mut leftover = s.turn.coins as u32;
@@ -977,10 +1024,31 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
                     let p = cur_player;
                     let t = s.players[p].turns_taken.max(1) as usize - 1;
                     let seat = order[p];
-                    bump(&mut vp[seat], t, s.players[p].vp() as f64);
-                    bump(&mut money[seat], t, (tally.spent + leftover) as f64);
+                    let score = s.players[p].vp();
+                    let m = (tally.spent + leftover) as f64;
+                    bump(&mut vp[seat], t, score as f64);
+                    bump(&mut vp_sq[seat], t, (score as f64) * (score as f64));
+                    bump(&mut money[seat], t, m);
+                    bump(&mut money_sq[seat], t, m * m);
                     bump(&mut buys[seat], t, tally.bought as f64);
+                    bump(&mut buys_sq[seat], t, (tally.bought as f64) * (tally.bought as f64));
                     bump(&mut count[seat], t, 1.0);
+                    for k in 0..3 {
+                        run_green[seat][k] += tally.green[k];
+                        bump(&mut green[k][seat], t, run_green[seat][k] as f64);
+                    }
+                    if vp_hist[seat].len() <= t {
+                        vp_hist[seat].resize(t + 1, i32::MIN);
+                    }
+                    vp_hist[seat][t] = score;
+                    if want_deck {
+                        if owned[seat].len() < (t + 1) * cards::NUM_CARDS {
+                            owned[seat].resize((t + 1) * cards::NUM_CARDS, 0.0);
+                        }
+                        for (c, k) in s.players[p].all_cards().iter() {
+                            owned[seat][t * cards::NUM_CARDS + c as usize] += k as f64;
+                        }
+                    }
                     tally = BuyTally::default();
                     cur_player = s.turn.player as usize;
                     cur_number = s.turn.number;
@@ -1000,6 +1068,25 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
                     }
                 }
             }
+            for q in 1..n {
+                for t in 0..vp_hist[0].len().min(vp_hist[q].len()) {
+                    let (a, b) = (vp_hist[0][t], vp_hist[q][t]);
+                    if a != i32::MIN && b != i32::MIN {
+                        let d = (a - b) as f64;
+                        bump(&mut pair_n[q], t, 1.0);
+                        bump(&mut pair_sum[q], t, d);
+                        bump(&mut pair_sq[q], t, d * d);
+                    }
+                }
+            }
+            // Each seat's running totals when its last turn ended (to carry forward past the end).
+            for p in 0..n {
+                if let Some(last) = vp_hist[p].len().checked_sub(1) {
+                    for k in 0..3 {
+                        bump(&mut green_end[k][p], last, run_green[p][k] as f64);
+                    }
+                }
+            }
             if !s.is_game_over() {
                 capped += 1;
                 continue;
@@ -1007,31 +1094,88 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32) -> i32 {
             let w = s.winners();
             let k = w.count_ones() as f64;
             let mut longest = 0;
+            let share = |p: usize| if w & (1 << p) != 0 { 1.0 / k } else { 0.0 };
             for p in 0..n {
                 longest = longest.max(s.players[p].turns_taken);
-                if w & (1 << p) != 0 {
-                    wins[order[p]] += 1.0 / k;
-                    bump(&mut wins_at[order[p]], s.players[p].turns_taken.max(1) as usize - 1, 1.0 / k);
+                let o = share(p);
+                if o > 0.0 {
+                    let seat = order[p];
+                    wins[seat] += o;
+                    wins_sq[seat] += o * o;
+                    bump(&mut wins_at[seat], s.players[p].turns_taken.max(1) as usize - 1, o);
+                    if seat == first {
+                        first_wins[seat] += o;
+                    }
                 }
             }
+            let mut by_seat = [0f64; MAX_PLAYERS];
+            for p in 0..n {
+                by_seat[order[p]] = share(p);
+            }
+            for q in 1..n {
+                let d = by_seat[0] - by_seat[q];
+                margin_sq[q] += d * d;
+            }
+            bump(&mut length_hist, longest as usize, 1.0);
             length_sum += longest as f64;
         }
         let arr = |v: &[f64]| format!("[{}]", v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(","));
         let players: Vec<String> = (0..n)
             .map(|p| {
-                format!(
-                    "{{\"vp\":{},\"money\":{},\"buys\":{},\"count\":{},\"wins\":{},\"winsAt\":{}}}",
+                let mut o = format!(
+                    "{{\"vp\":{},\"vpSq\":{},\"money\":{},\"moneySq\":{},\"buys\":{},\"buysSq\":{},\"count\":{},\
+                     \"provCum\":{},\"duchyCum\":{},\"colonyCum\":{},\"provEnd\":{},\"duchyEnd\":{},\"colonyEnd\":{},\"wins\":{},\"winsSq\":{},\"winsAt\":{},\
+                     \"firstGames\":{},\"firstWins\":{}",
                     arr(&vp[p]),
+                    arr(&vp_sq[p]),
                     arr(&money[p]),
+                    arr(&money_sq[p]),
                     arr(&buys[p]),
+                    arr(&buys_sq[p]),
                     arr(&count[p]),
+                    arr(&green[0][p]),
+                    arr(&green[1][p]),
+                    arr(&green[2][p]),
+                    arr(&green_end[0][p]),
+                    arr(&green_end[1][p]),
+                    arr(&green_end[2][p]),
                     wins[p],
-                    arr(&wins_at[p])
+                    wins_sq[p],
+                    arr(&wins_at[p]),
+                    first_games[p],
+                    first_wins[p]
+                );
+                if want_deck {
+                    let turns = owned[p].len() / cards::NUM_CARDS;
+                    let by_card: Vec<String> = (0..cards::NUM_CARDS)
+                        .filter(|&c| (0..turns).any(|t| owned[p][t * cards::NUM_CARDS + c] > 0.0))
+                        .map(|c| {
+                            let per_turn: Vec<f64> = (0..turns).map(|t| owned[p][t * cards::NUM_CARDS + c]).collect();
+                            format!("{}:{}", jstr(cards::name(c as u8)), arr(&per_turn))
+                        })
+                        .collect();
+                    o.push_str(&format!(",\"owned\":{{{}}}", by_card.join(",")));
+                }
+                o.push('}');
+                o
+            })
+            .collect();
+        let pairs: Vec<String> = (1..n)
+            .map(|q| {
+                format!(
+                    "{{\"a\":0,\"b\":{q},\"n\":{},\"sum\":{},\"sq\":{},\"marginSq\":{}}}",
+                    arr(&pair_n[q]),
+                    arr(&pair_sum[q]),
+                    arr(&pair_sq[q]),
+                    margin_sq[q]
                 )
             })
             .collect();
         Ok::<String, String>(format!(
-            "{{\"games\":{games},\"capped\":{capped},\"lengthSum\":{length_sum},\"players\":[{}]}}",
+            "{{\"games\":{games},\"capped\":{capped},\"lengthSum\":{length_sum},\"lengthHist\":{},\"fresh\":{fresh},\
+             \"pairs\":[{}],\"players\":[{}]}}",
+            arr(&length_hist),
+            pairs.join(","),
             players.join(",")
         ))
     });

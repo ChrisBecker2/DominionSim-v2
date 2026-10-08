@@ -35,5 +35,7 @@ node (Join-Path $repoRoot "web\test_log.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test_log.mjs reported failures (exit $LASTEXITCODE)" }
 node (Join-Path $repoRoot "web\test_workers.mjs")
 if ($LASTEXITCODE -ne 0) { throw "web/test_workers.mjs reported failures (exit $LASTEXITCODE)" }
+node (Join-Path $repoRoot "web\test_sim.mjs")
+if ($LASTEXITCODE -ne 0) { throw "web/test_sim.mjs reported failures (exit $LASTEXITCODE)" }
 
 Write-Host "`nDone. Open web\dist\index.html directly in a browser."

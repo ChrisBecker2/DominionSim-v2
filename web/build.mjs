@@ -54,6 +54,7 @@ function main() {
   html = html.replace("/*__STYLE__*/", () => style);
   html = html.replace("__WASM_BASE64__", () => wasmBase64);
   html = html.replace("/*__GRAPH_JS__*/", () => readFileSync(join(webDir, "graph.js"), "utf8"));
+  html = html.replace("/*__SIMSTATS_JS__*/", () => readFileSync(join(webDir, "simstats.js"), "utf8"));
   html = html.replace("/*__APP_JS__*/", () => appJs);
   html = html.replace("__BUILD_STAMP__", () => buildStamp());
 

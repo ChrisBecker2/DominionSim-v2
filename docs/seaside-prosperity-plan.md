@@ -216,7 +216,7 @@ next item once the sets are integrated.
 Every Seaside and Prosperity card, Platinum and Colony were re-read against the DominionStrategy
 wiki (card text at its latest version, FAQ sections, and the Duration, Attack, Attack immunity,
 Reaction, Gain, Set aside, Reveal and Clean-up pages). Costs, types, vanilla bonuses and pile
-sizes were compared by script (all equal). Tests: `crates/engine/tests/rules_audit.rs`.
+sizes were compared by script (all equal). Tests: the set's test file (`crates/engine/tests/*_cards.rs`), and `cross_set.rs` for rules that cross sets (formerly `rules_audit.rs`).
 
 **Fixed**
 

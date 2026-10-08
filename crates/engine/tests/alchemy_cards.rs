@@ -1537,3 +1537,28 @@ fn alchemy_set_plumbing() {
     assert!(k.contains(&id::POTION));
     assert_eq!(k.iter().filter(|&&c| cards::is_kingdom(c)).count(), 10);
 }
+
+#[test]
+fn herbalist_cannot_put_an_astrolabe_that_stays_in_play_onto_the_deck() {
+    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::ASTROLABE, id::COPPER]);
+    play(&mut g, id::HERBALIST);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    pass(&mut g); // end of the Buy phase: Herbalist's offer
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::COPPER)) && c.contains(&Choice::Pass));
+    assert!(!c.contains(&Choice::Card(id::ASTROLABE)), "it is kept for next turn, not discarded: {c:?}");
+}
+
+#[test]
+fn herbalist_may_put_an_astrolabe_from_last_turn_onto_the_deck() {
+    // Played on the previous turn, it is discarded at this cleanup like any other card.
+    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST]);
+    set_in_play(&mut g, 0, &[id::ASTROLABE]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(id::ASTROLABE)));
+}

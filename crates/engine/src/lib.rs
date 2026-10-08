@@ -14,6 +14,7 @@ pub mod counts;
 pub mod effects;
 pub mod engine;
 pub mod rng;
+pub mod sets;
 pub mod state;
 pub mod text;
 

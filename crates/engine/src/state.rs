@@ -551,23 +551,12 @@ impl PlayerState {
     }
 }
 
-/// Victory points of a whole collection of cards (Gardens counts the collection's size, Duke
-/// its Duchies).
+/// Victory points of a whole collection of cards (a card whose score varies, like Gardens, says so in its
+/// set: `SetRules::vp`).
 pub fn vp_of_cards(all: &Counts) -> i32 {
     let total = all.total() as i32;
     all.iter()
-        .map(|(c, n)| {
-            let per = match c {
-                id::GARDENS => total / 10,
-                id::DUKE => all.get(id::DUCHY) as i32,
-                id::VINEYARD => (all.count_type(cards::ACTION) / 3) as i32,
-                // 2 VP per 5 differently named cards; Demesne: 1 VP per Gold.
-                id::FAIRGROUNDS => 2 * (all.iter().count() as i32 / 5),
-                id::DEMESNE => all.get(id::GOLD) as i32,
-                _ => cards::def(c).vp as i32,
-            };
-            per * n as i32
-        })
+        .map(|(c, n)| crate::sets::vp(c, all, total) * n as i32)
         .sum()
 }
 
@@ -1359,45 +1348,28 @@ impl GameState {
         put(id::DUCHY, victory_pile_size(n));
         put(id::PROVINCE, province_pile_size(n));
         put(id::CURSE, 10 * (n as u8 - 1));
-        // Cornucopia & Guilds set-up piles: Ferryman's (outside the Supply) and Young Witch's Bane
-        // (an extra Supply pile; needed too when the Ferryman pile is Young Witch).
+        // Cornucopia & Guilds set-up piles: Ferryman's (outside the Supply), Young Witch's Bane (an extra Supply pile),
+        // the Rewards and Baker's Coffers.
         let has = |c: CardId| cfg.kingdom.contains(&c);
-        let ferryman = if has(id::FERRYMAN) {
-            cfg.ferryman.or_else(|| cards::default_ferryman(&cfg.kingdom, cfg.bane.unwrap_or(0))).unwrap_or(0)
-        } else {
-            0
-        };
-        let bane = if has(id::YOUNG_WITCH) || ferryman == id::YOUNG_WITCH {
-            cfg.bane.or_else(|| cards::default_bane(&cfg.kingdom, ferryman)).unwrap_or(0)
-        } else {
-            0
-        };
+        let cg = crate::sets::cornucopia_guilds::setup(cfg, n);
+        let (ferryman, bane) = (cg.ferryman, cg.bane);
         // The Bane pile is a Supply pile like the kingdom's (no allocation: this runs per game).
         let extra_bane = if bane != 0 && !has(bane) { Some(bane) } else { None };
         let kingdom = || cfg.kingdom.iter().copied().chain(extra_bane);
         let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
-            put(id::POTION, 16);
+            put(id::POTION, crate::sets::pile_size(id::POTION, n).unwrap());
         }
         for k in kingdom() {
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
-            let pile = match k {
-                id::PLATINUM => 12,
-                id::POTION => 16,
-                // 8 with 2 players, 12 with 3 or more (unlike the Provinces, 5 and 6 players add none).
-                id::COLONY => victory_pile_size(n),
-                _ if cards::is(k, cards::VICTORY) => victory_pile_size(n),
-                _ => 10,
-            };
+            // A set may size its own piles (Platinum 12, Potion 16); otherwise a Victory pile is 8 with 2 players and 12
+            // with 3 or more (Colony too: unlike the Provinces, 5 and 6 players add none), any other pile 10.
+            let pile = crate::sets::pile_size(k, n).unwrap_or(if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 });
             put(k, pile);
         }
         let pile_size = |k: CardId| if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 };
-        let mut rewards = [0u8; cards::NUM_REWARDS];
-        if has(id::JOUST) {
-            rewards = [if n == 2 { 1 } else { 2 }; cards::NUM_REWARDS];
-        }
         let mut s = GameState {
             num_players: n as u8,
             players: [PlayerState::default(); MAX_PLAYERS],
@@ -1406,7 +1378,7 @@ impl GameState {
             bane,
             ferryman,
             ferryman_left: if ferryman != 0 { pile_size(ferryman) } else { 0 },
-            rewards,
+            rewards: cg.rewards,
             trash: Counts::EMPTY,
             turn: TurnState { phase: Phase::Setup, ..TurnState::start(0, 1) },
             stack: FrameStack::default(),
@@ -1417,14 +1389,10 @@ impl GameState {
             pause_at_turn_start: false,
             pending: Pending::None,
         };
-        // Baker's set-up (also when the Baker is the Bane or Ferryman card): each player gets +1 Coffers.
-        let baker = has(id::BAKER) || bane == id::BAKER || ferryman == id::BAKER;
         for p in 0..n {
             s.players[p].deck_unknown.set(id::COPPER, 7);
             s.players[p].deck_unknown.set(id::ESTATE, 3);
-            if baker {
-                s.players[p].coffers = 1;
-            }
+            s.players[p].coffers = cg.starting_coffers;
         }
         s.push_opening_deal();
         s
@@ -1496,10 +1464,7 @@ impl GameState {
     /// place for them): Grand Market can't be bought with a Copper in play.
     #[inline]
     pub fn may_buy(&self, c: CardId) -> bool {
-        match c {
-            id::GRAND_MARKET => !self.players[self.turn.player as usize].in_play.has(id::COPPER),
-            _ => true,
-        }
+        crate::sets::may_buy(self, c)
     }
 
     #[inline]

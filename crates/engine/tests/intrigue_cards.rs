@@ -2369,3 +2369,97 @@ fn throne_room_with_diplomat() {
     // 1st resolution: hand became 3 (<=5) -> +2 Actions. 2nd: hand became 5 (<=5) -> +2 more.
     assert_eq!(g.turn.actions, 4, "0 (Throne Room) + 2 + 2");
 }
+
+fn is_yes_no(d: &Decision) -> bool {
+    matches!(d.kind, DecisionKind::YesNo { .. })
+}
+
+/// Answer a Diplomat's "discard 3 cards" by discarding `card` for as long as it is Diplomat's
+/// own discard that is asked (some picks are applied without asking when only one card is legal).
+fn discard_for_diplomat(g: &mut GameState, card: CardId) {
+    while let Some(Decision { kind: DecisionKind::Select { act: Act::Discard, .. }, source: Some(id::DIPLOMAT), .. }) =
+        g.pending_decision()
+    {
+        choose(g, Choice::Card(card));
+    }
+}
+
+#[test]
+fn a_diplomat_can_be_revealed_again_while_the_hand_still_has_five_cards() {
+    let mut g = new_state(&[id::MILITIA, id::DIPLOMAT], 2);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    let Step::Decision(d) = play(&mut g, id::MILITIA) else { panic!() };
+    assert!(is_yes_no(&d) && d.player == 1);
+    choose(&mut g, Choice::Yes); // draw 2 (8 cards), discard 3
+    discard_for_diplomat(&mut g, id::COPPER);
+    // Five cards left and the Diplomat is still in hand: again.
+    assert_eq!(g.players[1].hand.total(), 5);
+    let d = expect_decision(&mut g);
+    assert!(is_yes_no(&d) && d.player == 1, "{d:?}");
+    choose(&mut g, Choice::Yes); // 7 cards, discard 3: 4 left
+    discard_for_diplomat(&mut g, id::ESTATE);
+    assert_eq!(g.players[1].hand.total(), 4);
+    let d = expect_decision(&mut g);
+    assert!(!is_yes_no(&d), "a hand of four cards can't reveal it again: {d:?}");
+}
+
+/// Answer Diplomat's "discard 3" with the lowest-numbered card each time (never the Moat, which is
+/// numbered above Copper and Estate).
+fn discard_forced(g: &mut GameState) {
+    let mut n = 0;
+    while let Some(Decision { kind: DecisionKind::Select { act: Act::Discard, .. }, .. }) = g.pending_decision() {
+        let c = choices(g)[0];
+        choose(g, c);
+        n += 1;
+    }
+    assert!(n >= 1);
+}
+
+fn is_moat_decision(d: &Decision) -> bool {
+    matches!(d.kind, DecisionKind::YesNo { act: Act::Reveal }) && d.subject == id::MOAT
+}
+
+/// The index of Minion's "discard your hand, +4 Cards" mode among the pending Mode decision's options.
+fn minion_redraw_mode(d: &Decision) -> u8 {
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    cards::modes(id::MINION)
+        .iter()
+        .position(|o| matches!(o, cards::ModeOpt::DiscardHandDraw { .. }))
+        .expect("Minion's redraw option") as u8
+}
+
+#[test]
+fn a_moat_drawn_by_a_diplomat_reaction_can_still_be_revealed() {
+    let mut g = new_state(&[id::WITCH, id::MOAT, id::DIPLOMAT], 2);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 1, &[id::MOAT, id::COPPER]);
+    // Diplomat comes first: it is the only Reaction in the hand when the Witch is played.
+    let Step::Decision(d) = play(&mut g, id::WITCH) else { panic!() };
+    assert_eq!((d.player, d.subject), (1, id::DIPLOMAT));
+    choose(&mut g, Choice::Yes); // draw Moat and Copper, then discard 3
+    discard_forced(&mut g);
+    assert!(g.players[1].hand.has(id::MOAT));
+    let d = expect_decision(&mut g);
+    assert!(is_moat_decision(&d), "the new Moat is offered: {d:?}");
+    choose(&mut g, Choice::Yes);
+    assert!(!g.players[1].discard.has(id::CURSE), "blocked");
+}
+
+#[test]
+fn moat_declined_against_minion_leaves_the_player_with_a_new_hand_of_four() {
+    let mut g = new_state(&[id::MINION, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::MINION]);
+    set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD, id::GOLD, id::GOLD, id::COPPER]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 4]);
+    play(&mut g, id::MINION);
+    moat(&mut g, false);
+    let d = expect_decision(&mut g);
+    choose(&mut g, Choice::Mode(minion_redraw_mode(&d)));
+    assert_eq!(g.players[1].hand, counts_of(&[id::GOLD; 4]), "the declined Moat went with the old hand");
+    assert_eq!(g.players[1].discard.get(id::MOAT), 1);
+}

@@ -1,35 +1,20 @@
-//! Reactions that act on a card gained straight onto the deck (Watchtower trashes it, Sailor plays
-//! it), Replace's gain-then-topdeck order, Sailor's per-play uses under Throne Room / King's Court,
-//! and Moat as a choice (revealed or not, per Attack, also when it arrives after the Attack was
-//! played). See `docs/seaside-prosperity-plan.md` §6, `docs/intrigue-plan.md` §7 and
-//! `docs/alchemy-plan.md` §8 for the rulings.
+//! Reactions that act on a card gained straight onto the deck by another set's card (Watchtower
+//! trashes it, Sailor plays it, Tiara puts it back) and Replace's gain-then-topdeck order. See
+//! `docs/seaside-prosperity-plan.md` §6, `docs/intrigue-plan.md` §7 and `docs/alchemy-plan.md` §8
+//! for the rulings. Moat and Lighthouse as a choice are in `base_cards.rs` / `seaside_cards.rs`,
+//! Sailor's per-play uses in `seaside_cards.rs`.
 
 mod common;
 use common::*;
-use dominion_engine::cards::{self, id};
-use dominion_engine::state::{self, Frame, FrameKind};
-use dominion_engine::text::{format_state, parse_state};
+use dominion_engine::cards::id;
+use dominion_engine::state::{Frame, FrameKind};
 use dominion_engine::*;
 
 fn top_down(g: &GameState, p: usize) -> Vec<CardId> {
     g.players[p].deck_known.iter_top_down().collect()
 }
 
-/// Answer Diplomat's "discard 3" with the lowest-numbered card each time (never the Moat, which is
-/// numbered above Copper and Estate).
-fn discard_forced(g: &mut GameState) {
-    let mut n = 0;
-    while let Some(Decision { kind: DecisionKind::Select { act: Act::Discard, .. }, .. }) = g.pending_decision() {
-        let c = choices(g)[0];
-        choose(g, c);
-        n += 1;
-    }
-    assert!(n >= 1);
-}
 
-fn is_moat_decision(d: &Decision) -> bool {
-    matches!(d.kind, DecisionKind::YesNo { act: Act::Reveal }) && d.subject == id::MOAT
-}
 
 /// Gain a card costing up to `max_cost` onto player 0's deck, as a real effect would ("gains it onto
 /// the deck" is how Bureaucrat, Treasure Map and Replace's older wording put a card there).
@@ -212,254 +197,25 @@ fn watchtower_trashing_replaces_gain_stops_the_topdeck_and_spares_an_older_copy(
 // Sailor: one use per play
 // ===========================================================================
 
-fn sailor(g: &GameState) -> state::PendingDuration {
-    let ps = &g.players[0];
-    ps.pending_durations[..ps.pending_durations_len as usize].iter().find(|e| e.card == id::SAILOR).copied().expect("a Sailor entry")
-}
 
-/// Workshop gains a Caravan (a Duration): the Sailor offer follows. Returns whether one came.
-fn workshop_gains_caravan(g: &mut GameState) -> bool {
-    play(g, id::WORKSHOP);
-    let step = choose(g, Choice::Card(id::CARAVAN));
-    matches!(step, Step::Decision(Decision { kind: DecisionKind::YesNo { act: Act::Play }, source: Some(id::SAILOR), .. }))
-}
 
-#[test]
-fn a_throne_roomed_sailor_plays_two_gained_durations_not_three() {
-    let mut g = new_state(&[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
-    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
-    play(&mut g, id::THRONE_ROOM);
-    choose(&mut g, Choice::Card(id::SAILOR));
-    let e = sailor(&g);
-    assert_eq!((e.times, e.used), (2, 0));
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::Yes);
-    assert_eq!(sailor(&g).used, 1);
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::Yes);
-    assert_eq!(sailor(&g).used, 2);
-    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 2);
-    assert!(!workshop_gains_caravan(&mut g), "the third gained Duration is not offered");
-    assert_eq!(g.players[0].discard.get(id::CARAVAN), 1);
-}
 
-#[test]
-fn a_kings_courted_sailor_plays_three_gained_durations_not_four() {
-    let mut g = new_state(&[id::KINGS_COURT, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
-    set_hand(&mut g, 0, &[id::KINGS_COURT, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
-    play(&mut g, id::KINGS_COURT);
-    choose(&mut g, Choice::Card(id::SAILOR));
-    assert_eq!(sailor(&g).times, 3);
-    for _ in 0..3 {
-        assert!(workshop_gains_caravan(&mut g));
-        choose(&mut g, Choice::Yes);
-    }
-    assert!(!workshop_gains_caravan(&mut g));
-    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 3);
-}
 
-#[test]
-fn two_separate_sailors_give_one_use_each() {
-    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
-    set_hand(&mut g, 0, &[id::SAILOR, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
-    play(&mut g, id::SAILOR);
-    play(&mut g, id::SAILOR);
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::Yes);
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::Yes);
-    assert!(!workshop_gains_caravan(&mut g));
-    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 2);
-}
 
-#[test]
-fn declining_the_offer_still_spends_that_sailors_use() {
-    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
-    set_hand(&mut g, 0, &[id::SAILOR, id::WORKSHOP, id::WORKSHOP]);
-    play(&mut g, id::SAILOR);
-    g.turn.actions = 3;
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::No);
-    assert!(!workshop_gains_caravan(&mut g));
-}
 
-#[test]
-fn sailors_partly_spent_uses_survive_the_text_format_and_old_saves_still_load() {
-    let mut g = new_state(&[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
-    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::WORKSHOP]);
-    play(&mut g, id::THRONE_ROOM);
-    choose(&mut g, Choice::Card(id::SAILOR));
-    assert!(workshop_gains_caravan(&mut g));
-    choose(&mut g, Choice::Yes);
-    // Back at the PlayAction decision, one of two uses spent.
-    expect_decision(&mut g);
-    let text = format_state(&g);
-    assert!(text.contains("Sailor x2 (used 1)"), "{text}");
-    let back = parse_state(&text).unwrap();
-    let find = |g: &GameState| sailor(g);
-    assert_eq!(find(&back), find(&g));
-    assert_eq!((find(&back).times, find(&back).used), (2, 1));
-
-    // The older marker: "(used)" meant every use was spent.
-    let old = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor x2 (used)")).unwrap();
-    assert_eq!((find(&old).times, find(&old).used), (2, 2));
-    let single = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor (used)")).unwrap();
-    assert_eq!((find(&single).times, find(&single).used), (1, 1));
-    let fresh = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor x2")).unwrap();
-    assert_eq!(find(&fresh).used, 0);
-}
 
 // ===========================================================================
 // Moat is a choice
 // ===========================================================================
 
-#[test]
-fn moat_declined_so_the_attack_hits() {
-    let mut g = new_state(&[id::WITCH, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::MOAT]);
-    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
-    play(&mut g, id::WITCH);
-    moat(&mut g, false);
-    assert_eq!(g.players[1].discard, counts_of(&[id::CURSE]));
-    assert_eq!(g.players[1].hand, counts_of(&[id::MOAT]));
-    assert_eq!(g.players[0].hand.total(), 2, "Witch's +2 Cards either way");
-}
 
-#[test]
-fn moat_revealed_so_the_attack_is_blocked_and_the_reveal_is_logged() {
-    let mut g = new_state(&[id::WITCH, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::MOAT]);
-    let Step::Decision(d) = play(&mut g, id::WITCH) else { panic!() };
-    assert_eq!((d.player, d.source, d.subject), (1, Some(id::WITCH), id::MOAT), "asked of the attacked player, naming the Attack");
-    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Reveal });
-    let mut ev: Vec<Event> = Vec::new();
-    choose_ev(&mut g, Choice::Yes, &mut ev);
-    assert!(g.players[1].discard.is_empty());
-    assert!(g.players[1].hand.has(id::MOAT), "Moat stays in the hand");
-    assert!(ev.iter().any(|e| matches!(e, Event::Reaction { player: 1, card: id::MOAT })), "{ev:?}");
-}
 
-#[test]
-fn a_player_without_a_reaction_is_never_asked() {
-    let mut g = new_state(&[id::WITCH, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE]);
-    let step = play(&mut g, id::WITCH);
-    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "{step:?}");
-    assert_eq!(g.players[1].discard, counts_of(&[id::CURSE]));
-}
 
-#[test]
-fn each_attacked_player_chooses_for_themselves_in_turn_order() {
-    let mut g = new_state(&[id::WITCH, id::MOAT], 3);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::MOAT]);
-    set_hand(&mut g, 2, &[id::MOAT]);
-    let Step::Decision(d) = play(&mut g, id::WITCH) else { panic!() };
-    assert_eq!(d.player, 1);
-    let Step::Decision(d) = choose(&mut g, Choice::Yes) else { panic!() };
-    assert!(is_moat_decision(&d));
-    assert_eq!(d.player, 2);
-    choose(&mut g, Choice::No);
-    assert!(g.players[1].discard.is_empty());
-    assert_eq!(g.players[2].discard, counts_of(&[id::CURSE]));
-}
 
-#[test]
-fn moat_is_chosen_again_for_every_attack() {
-    // Throne Room plays Militia twice: reveal for the first, not the second.
-    let mut g = new_state(&[id::THRONE_ROOM, id::MILITIA, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MILITIA]);
-    let victim = [id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::COPPER];
-    set_hand(&mut g, 1, &victim);
-    play(&mut g, id::THRONE_ROOM);
-    choose(&mut g, Choice::Card(id::MILITIA));
-    moat(&mut g, true);
-    assert_eq!(g.players[1].hand, counts_of(&victim), "the first play is blocked");
-    moat(&mut g, false);
-    // Discard down to 3: the player to choose is player 1.
-    let d = g.pending_decision().expect("discard");
-    assert_eq!(d.player, 1);
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }));
-}
 
-#[test]
-fn a_moat_drawn_by_a_diplomat_reaction_can_still_be_revealed() {
-    let mut g = new_state(&[id::WITCH, id::MOAT, id::DIPLOMAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
-    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
-    set_deck_known(&mut g, 1, &[id::MOAT, id::COPPER]);
-    // Diplomat comes first: it is the only Reaction in the hand when the Witch is played.
-    let Step::Decision(d) = play(&mut g, id::WITCH) else { panic!() };
-    assert_eq!((d.player, d.subject), (1, id::DIPLOMAT));
-    choose(&mut g, Choice::Yes); // draw Moat and Copper, then discard 3
-    discard_forced(&mut g);
-    assert!(g.players[1].hand.has(id::MOAT));
-    let d = expect_decision(&mut g);
-    assert!(is_moat_decision(&d), "the new Moat is offered: {d:?}");
-    choose(&mut g, Choice::Yes);
-    assert!(!g.players[1].discard.has(id::CURSE), "blocked");
-}
 
-#[test]
-fn a_moat_that_never_arrives_is_not_offered_and_the_attack_hits() {
-    let mut g = new_state(&[id::WITCH, id::MOAT, id::DIPLOMAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
-    set_deck_known(&mut g, 1, &[id::COPPER, id::COPPER]);
-    play(&mut g, id::WITCH);
-    choose(&mut g, Choice::Yes);
-    discard_forced(&mut g);
-    let d = expect_decision(&mut g);
-    assert!(!is_moat_decision(&d), "{d:?}");
-    assert_eq!(g.players[1].discard.get(id::CURSE), 1);
-}
 
-#[test]
-fn lighthouse_still_protects_without_any_decision() {
-    let mut g = new_state(&[id::WITCH, id::MOAT, id::LIGHTHOUSE], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::MOAT]);
-    set_in_play(&mut g, 1, &[id::LIGHTHOUSE]);
-    let step = play(&mut g, id::WITCH);
-    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "no question asked: {step:?}");
-    assert!(g.players[1].discard.is_empty());
-}
 
-#[test]
-fn moat_declined_against_minion_leaves_the_player_with_a_new_hand_of_four() {
-    let mut g = new_state(&[id::MINION, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::MINION]);
-    set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
-    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD, id::GOLD, id::GOLD, id::COPPER]);
-    set_deck_known(&mut g, 0, &[id::COPPER; 4]);
-    play(&mut g, id::MINION);
-    moat(&mut g, false);
-    let d = expect_decision(&mut g);
-    choose(&mut g, Choice::Mode(minion_redraw_mode(&d)));
-    assert_eq!(g.players[1].hand, counts_of(&[id::GOLD; 4]), "the declined Moat went with the old hand");
-    assert_eq!(g.players[1].discard.get(id::MOAT), 1);
-}
 
-/// The index of Minion's "discard your hand, +4 Cards" mode among the pending Mode decision's options.
-fn minion_redraw_mode(d: &Decision) -> u8 {
-    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
-    cards::modes(id::MINION)
-        .iter()
-        .position(|o| matches!(o, cards::ModeOpt::DiscardHandDraw { .. }))
-        .expect("Minion's redraw option") as u8
-}
 
-#[test]
-fn attacked_players_share_one_reveal_per_attack_the_second_moat_copy_is_not_asked() {
-    let mut g = new_state(&[id::WITCH, id::MOAT], 2);
-    set_hand(&mut g, 0, &[id::WITCH]);
-    set_hand(&mut g, 1, &[id::MOAT, id::MOAT]);
-    play(&mut g, id::WITCH);
-    let step = moat(&mut g, true);
-    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "{step:?}");
-}
 

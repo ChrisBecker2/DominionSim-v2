@@ -210,7 +210,7 @@ the `u128` supply mask.
 ## 8. Rules audit against the wiki (2026-10)
 
 The 11 cards and the Potion were re-read against the wiki (latest text, FAQs, the 2022 errata).
-Costs, types and vanilla bonuses match. Tests: `crates/engine/tests/rules_audit.rs`.
+Costs, types and vanilla bonuses match. Tests: the set's test file (`crates/engine/tests/*_cards.rs`), and `cross_set.rs` for rules that cross sets (formerly `rules_audit.rs`).
 
 **Fixed**: Herbalist counts plays (a Throne Roomed Herbalist can put back two Treasures) and
 cannot put back an Astrolabe that is staying in play (see section 2, point 6).

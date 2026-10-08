@@ -43,6 +43,10 @@ use serde::Deserialize;
 
 use crate::expr::Expr;
 
+// The bot defaults of each expansion's cards (child module: sees this file's private items).
+#[path = "defaults/mod.rs"]
+mod defaults;
+
 // -------------------------------------------------------------------------------------------
 // TOML schema
 // -------------------------------------------------------------------------------------------
@@ -354,35 +358,10 @@ impl Strategy {
             }
             DecisionKind::Gain { .. } => self.choose_gain(view, decision, choices),
             DecisionKind::Select { from, act, filter, min, max, ordered } => {
-                // Scrying Pool: the owner decides, for each player's revealed top card, whether it is
-                // discarded (`Card`) or put back (`Pass`).
-                if act == Act::Discard && from == Zone::Revealed && decision.source == Some(id::SCRYING_POOL) {
-                    return self.choose_scry(view, decision, choices);
-                }
-                if act == Act::SetAside && decision.source == Some(id::PRINCE) {
-                    return self.choose_prince_card(view, choices);
-                }
-                // Captain: the Action from the Supply to play (now, or at the start of the next turn).
-                if act == Act::Play && from == Zone::Supply && decision.source == Some(id::CAPTAIN) {
-                    return self.choose_captain_card(view, decision, choices);
-                }
-                // Advisor, Envoy: the player to the left picks which of the revealed cards the revealer loses.
-                if act == Act::Discard && matches!(decision.source, Some(id::ADVISOR | id::ENVOY)) && decision.player != decision.for_player {
-                    return iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(choices[0]);
-                }
-                // Plaza: a Copper for a Coffers token (a token is at least the $1 the Copper would be).
-                if act == Act::Discard && decision.source == Some(id::PLAZA) {
-                    return if has_card(choices, id::COPPER) { Choice::Card(id::COPPER) } else { Choice::Pass };
-                }
-                if act == Act::SetAside && decision.source == Some(id::FARMHANDS) {
-                    return self.choose_farmhands_card(view, choices);
-                }
-                if act == Act::SetAside && decision.source == Some(id::JOUST) {
-                    return if has_card(choices, id::PROVINCE) && view.rewards_left().iter().any(|&n| n > 0) {
-                        Choice::Card(id::PROVINCE)
-                    } else {
-                        Choice::Pass
-                    };
+                // A card with a policy of its own for this decision (Scrying Pool, Prince, Captain, Advisor, Plaza,
+                // Farmhands, Joust, Herbalist...): the `SetDefaults` of its set.
+                if let Some(c) = decision.source.and_then(|src| defaults::select(self, view, decision, src, act, from, choices)) {
+                    return c;
                 }
                 match act {
                     Act::Discard => self.choose_discard(view, from, filter, choices, min, max, ordered),
@@ -440,67 +419,14 @@ impl Strategy {
     /// group, by card.
     fn choose_start_order(&self, choices: &[Choice]) -> Choice {
         let group = |c: CardId| -> u8 {
-            match c {
-                id::HAVEN | id::BLOCKADE | id::PIRATE => 0,
-                id::TIDE_POOLS | id::SEA_WITCH | id::SAILOR => 3,
-                id::CLERK | id::CAPTAIN => 2,
+            defaults::start_order_group(c).unwrap_or(match c {
                 // Any other Action is a Prince's card, unless it is a plain bonus Duration.
                 _ if cards::is(c, cards::DURATION) => 1,
                 _ if cards::is(c, ACTION) => 2,
                 _ => 1,
-            }
+            })
         };
         iter_cards(choices).min_by_key(|&c| (group(c), c)).map(Choice::Card).unwrap_or(choices[0])
-    }
-
-    /// Captain's Action from the Supply: the strategy's own [[play]] rules first, in their order; else
-    /// the best line of the turn, searched when there is a real choice; else the most useful card
-    /// (`prince_card_score`). The card is played now or at the start of the turn, using no Action.
-    fn choose_captain_card(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
-        if let Some(c) = self.captain_stated_pick(view, choices) {
-            return c;
-        }
-        if self.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
-            if let Some(c) = crate::eval::search_play_choice(self, view) {
-                if choices.contains(&c) {
-                    return c;
-                }
-            }
-        }
-        self.captain_default_pick(choices)
-    }
-
-    /// `choose_captain_card` without the search (used inside the search's own playouts).
-    fn captain_rule_pick(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        self.captain_stated_pick(view, choices).unwrap_or_else(|| self.captain_default_pick(choices))
-    }
-
-    fn captain_stated_pick(&self, view: &PlayerView, choices: &[Choice]) -> Option<Choice> {
-        self.play.iter().find_map(|(card, cond)| {
-            (has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))).then_some(Choice::Card(*card))
-        })
-    }
-
-    fn captain_default_pick(&self, choices: &[Choice]) -> Choice {
-        iter_cards(choices)
-            .max_by_key(|&c| (prince_card_score(c), std::cmp::Reverse(c)))
-            .map(Choice::Card)
-            .unwrap_or(choices[0])
-    }
-
-    /// The Action costing up to $4 in hand for a Prince to hold: the strategy's own [[play]]
-    /// rules first, in their order; else the most useful card (`prince_card_score`). It is played
-    /// at the start of every turn without using an Action, so being a terminal costs nothing.
-    fn choose_prince_card(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        for (card, cond) in &self.play {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
-                return Choice::Card(*card);
-            }
-        }
-        iter_cards(choices)
-            .max_by_key(|&c| (prince_card_score(c), std::cmp::Reverse(c)))
-            .map(Choice::Card)
-            .unwrap_or(choices[0])
     }
 
     // -----------------------------------------------------------------------------------------
@@ -543,24 +469,8 @@ impl Strategy {
     /// make with the remaining Buys is left alone): Farrier, Herald (up to the cards in the discard
     /// pile) and Infirmary (up to 3).
     fn choose_overpay(&self, view: &PlayerView, card: CardId, max_coins: u8, potion: bool) -> Choice {
-        if card == id::STONEMASON {
-            let mut best: Option<(usize, u8, bool)> = None;
-            for pot in [false, true] {
-                if pot && !potion {
-                    continue;
-                }
-                for x in 0..=max_coins {
-                    if x == 0 && !pot {
-                        continue;
-                    }
-                    if let Some(rank) = self.best_gain_rank(view, x, Filter::Action, true, pot) {
-                        if best.map_or(true, |(r, _, _)| rank < r) {
-                            best = Some((rank, x, pot));
-                        }
-                    }
-                }
-            }
-            return best.map_or(Choice::Overpay(0), |(_, x, pot)| Choice::overpay(x, pot));
+        if let Some(c) = defaults::overpay(self, view, card, max_coins, potion) {
+            return c;
         }
         let mut spare = max_coins as u32;
         if view.turn().buys > 0 {
@@ -569,11 +479,7 @@ impl Strategy {
                 spare = spare.saturating_sub(view.cost(c) as u32);
             }
         }
-        let cap = match card {
-            id::HERALD => view.discard().total() + 1,
-            id::INFIRMARY => 3,
-            _ => u32::MAX,
-        };
+        let cap = defaults::overpay_cap(view, card);
         Choice::Overpay(spare.min(cap).min(max_coins as u32) as u8)
     }
 
@@ -587,28 +493,6 @@ impl Strategy {
                 && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card));
             ok.then_some(*card)
         })
-    }
-
-    /// Farmhands' set-aside: an Action that cannot be played this turn (no Actions left, or already in
-    /// the Buy phase), the best one by what it gives; otherwise nothing (a Treasure set aside is as
-    /// much as it would give now).
-    fn choose_farmhands_card(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let stuck = view.phase() == dominion_engine::Phase::Buy || view.turn().actions == 0;
-        if !stuck {
-            return Choice::Pass;
-        }
-        iter_cards(choices)
-            .filter(|&c| cards::is(c, ACTION))
-            .max_by_key(|&c| (prince_card_score(c), std::cmp::Reverse(c)))
-            .map(Choice::Card)
-            .unwrap_or(Choice::Pass)
-    }
-
-    /// Joust's Reward when the gain list names none of them: Renown, Courser, Demesne, Coronet,
-    /// Housecarl, Huge Turnip (the community's order of the Rewards).
-    fn default_reward(choices: &[Choice]) -> Option<CardId> {
-        const ORDER: [CardId; 6] = [id::RENOWN, id::COURSER, id::DEMESNE, id::CORONET, id::HOUSECARL, id::HUGE_TURNIP];
-        ORDER.iter().copied().find(|&c| has_card(choices, c))
     }
 
     /// Position of `card` in the gain list (first entry for it whose condition holds), or None.
@@ -687,7 +571,7 @@ impl Strategy {
             return Choice::Pass;
         }
         // Joust's Reward (a gain from outside the Supply) when the list names none of them.
-        if let Some(r) = Strategy::default_reward(choices) {
+        if let Some(r) = defaults::default_side_gain(choices) {
             return Choice::Card(r);
         }
         // Nothing in the buy list is affordable/legal here (e.g. a small Workshop/Remodel gain
@@ -764,22 +648,10 @@ impl Strategy {
             .min_by_key(|&c| (self.play_rank_of(c), c))
     }
 
-    /// Default (unstated) check for Actions that can cost more than they give: Tactician only
-    /// when the hand couldn't buy anything on the gain list anyway (it discards the hand for
-    /// next turn's +5 Cards), Treasure Map only with a second Map in hand (alone it just trashes
-    /// itself). Everything else is worth playing.
+    /// Default (unstated) check for Actions that can cost more than they give (Tactician, Treasure Map: the card's set
+    /// says, `SetDefaults::worth_playing`). Everything else is worth playing.
     fn default_worth_playing(&self, view: &PlayerView, card: CardId) -> bool {
-        match card {
-            id::TACTICIAN => {
-                let hand = view.hand();
-                let money: u32 = view.turn().coins as u32
-                    + hand.iter().filter(|&(c, _)| view.is_treasure(c)).map(|(c, n)| cards::def(c).coins as u32 * n as u32).sum::<u32>();
-                let potion = hand.has(id::POTION) || view.turn().potions > 0;
-                self.best_gain_rank(view, money.min(u8::MAX as u32) as u8, Filter::Any, false, potion).is_none()
-            }
-            id::TREASURE_MAP => view.hand().get(id::TREASURE_MAP) >= 2,
-            _ => true,
-        }
+        defaults::worth_playing(self, view, card)
     }
 
     /// Which action to play (or what a Throne Room plays). With a real choice, the bot searches
@@ -821,8 +693,8 @@ impl Strategy {
     /// The play choice by rule order alone (stated [[play]] rules, then the default order), without
     /// searching. Used in search playouts.
     pub fn rule_play(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
-        if decision.source == Some(id::CAPTAIN) {
-            return self.captain_rule_pick(view, choices);
+        if let Some(c) = defaults::rule_play(self, view, decision, choices) {
+            return c;
         }
         self.best_play(view, choices, decision.play_times > 1).map(Choice::Card).unwrap_or(Choice::Pass)
     }
@@ -1024,47 +896,6 @@ impl Strategy {
     // Alchemy: Scrying Pool's keep-or-discard and Herbalist's Treasure.
     // -----------------------------------------------------------------------------------------
 
-    /// Scrying Pool, for the top card `choices` offers (`Card(c)` = discard it, `Pass` = put it
-    /// back). On my own deck: discard what I don't want to draw: Curses and Victory-only cards,
-    /// and Treasures worth less than the average card the discard would let me reach instead
-    /// (the average money of my deck's non-Action cards); keep every Action (the reveal-until
-    /// draws them all), Potions and good Treasures. On an opponent's deck, the reverse: discard the cards
-    /// they'd like to draw (Actions, Silver or better, Potions) and leave their junk on top.
-    fn choose_scry(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
-        let Some(c) = iter_cards(choices).next() else { return Choice::Pass };
-        let discard = if decision.for_player == view.me() {
-            if cards::is(c, ACTION) || c == id::POTION {
-                false
-            } else if c == id::CURSE || (cards::is(c, VICTORY) && !cards::is(c, TREASURE)) {
-                true
-            } else {
-                let deck = view.deck();
-                let (mut money, mut n) = (0u32, 0u32);
-                for (x, k) in deck.iter().filter(|&(x, _)| !cards::is(x, ACTION)) {
-                    money += cards::def(x).coins as u32 * k as u32;
-                    n += k as u32;
-                }
-                // value(c) < average, compared without division.
-                n > 0 && (cards::def(c).coins as u32) * n < money
-            }
-        } else {
-            cards::is(c, ACTION) || c == id::POTION || (cards::is(c, TREASURE) && cards::def(c).coins >= 2)
-        };
-        if discard { Choice::Card(c) } else { Choice::Pass }
-    }
-
-    /// Herbalist: put the best Treasure in play on the deck: a Potion if the gain list wants a
-    /// card with a Potion in its cost that is still in the supply (so next turn can buy it),
-    /// else the Treasure worth the most; never a Curse (Charlatan's Treasure Curse) or a worthless
-    /// Treasure (an unwanted Potion): then nothing.
-    fn choose_herbalist_topdeck(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let wants_potion_card = self.buy.iter().any(|(c, _)| cards::potion_cost(*c) && view.in_supply(*c) && view.supply(*c) > 0);
-        let key = |c: CardId| (wants_potion_card && c == id::POTION, cards::def(c).coins, c);
-        iter_cards(choices)
-            .filter(|&c| c != id::CURSE && (cards::def(c).coins > 0 || (wants_potion_card && c == id::POTION)))
-            .max_by_key(|&c| key(c)).map(Choice::Card).unwrap_or(Choice::Pass)
-    }
-
     // -----------------------------------------------------------------------------------------
     // Hidden information (Wishing Well / Secret Passage / Masquerade).
     // -----------------------------------------------------------------------------------------
@@ -1073,30 +904,8 @@ impl Strategy {
     /// War Chest owner's left, naming a card to deny them) are opposite in spirit, so they're
     /// told apart by `decision.source`, the same way `choose_mode` dispatches per-card.
     fn choose_name(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
-        if decision.source == Some(id::WAR_CHEST) {
-            return self.choose_war_chest_name(view, choices);
-        }
-        // Journeyman: name the card that is worst to draw, by how many of it there are to be skipped:
-        // Curses, then Victory cards, then Coppers; with none of those, a card not in the deck at all.
-        if decision.source == Some(id::JOURNEYMAN) {
-            let mut seen = view.deck();
-            seen.add_all(view.discard());
-            let junk = |c: CardId| -> u32 {
-                if c == id::CURSE {
-                    4
-                } else if cards::is(c, VICTORY) && !cards::is(c, ACTION) && !cards::is(c, TREASURE) {
-                    3
-                } else if c == id::COPPER {
-                    2
-                } else {
-                    0
-                }
-            };
-            let best = iter_cards(choices).max_by_key(|&c| (junk(c) * seen.get(c) as u32, std::cmp::Reverse(c)));
-            if let Some(c) = best.filter(|&c| junk(c) * seen.get(c) as u32 > 0) {
-                return Choice::Card(c);
-            }
-            return iter_cards(choices).find(|&c| seen.get(c) == 0).or(best).map(Choice::Card).unwrap_or(choices[0]);
+        if let Some(c) = decision.source.and_then(|src| defaults::name(self, view, decision, src, choices)) {
+            return c;
         }
         // Wishing Well: name the most likely card from the honest view (highest count in the
         // deck, or the discard if the deck is empty — the same source the engine offers from),
@@ -1110,19 +919,6 @@ impl Strategy {
             }
         };
         iter_cards(choices).max_by_key(|&c| (source.get(c), value(c))).map(Choice::Card).unwrap_or_else(|| choices[0])
-    }
-
-    /// War Chest, as the namer: deny the most expensive card up to $5 (a card costing more is
-    /// never reachable by War Chest's own gain anyway, so naming it denies nothing), guessing
-    /// it's the biggest prize the owner was after. A simple heuristic, not adversarially optimal
-    /// (we don't model the owner's own strategy).
-    fn choose_war_chest_name(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        iter_cards(choices)
-            .filter(|&c| view.cost(c) <= 5)
-            .max_by_key(|&c| view.cost(c))
-            .or_else(|| iter_cards(choices).min_by_key(|&c| view.cost(c)))
-            .map(Choice::Card)
-            .unwrap_or_else(|| choices[0])
     }
 
     /// `PlayTreasure`: with `search_play`, searched with the strategy's own scoring exactly like
@@ -1161,8 +957,11 @@ impl Strategy {
             if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c)) {
                 return Choice::Card(c);
             }
-            // Horn of Plenty (it counts names) before Bank (it counts Treasures, the Horn too).
-            return Choice::Card(if has_card(choices, id::HORN_OF_PLENTY) { id::HORN_OF_PLENTY } else { id::BANK });
+            // The Treasures that count the others, in their order (Horn of Plenty counts names, before Bank, which counts
+            // Treasures, the Horn too).
+            if let Some(c) = iter_cards(choices).filter_map(|c| defaults::plays_last_rank(c).map(|r| (r, c))).min() {
+                return Choice::Card(c.1);
+            }
         }
         Choice::Pass
     }
@@ -1276,115 +1075,7 @@ impl Strategy {
     /// Fast rule-order defaults (`search_play = false`, or the Torturer victim, which is never
     /// searched): one cheap heuristic per mode card.
     fn default_mode(&self, view: &PlayerView, card: CardId, choices: &[Choice]) -> Choice {
-        match card {
-            id::PAWN => self.default_pawn(view, choices),
-            id::STEWARD => self.default_steward(view, choices),
-            id::NOBLES => self.default_nobles(view, choices),
-            id::MINION => self.default_minion(view, choices),
-            id::COURTIER => self.default_courtier(choices),
-            id::LURKER => self.default_lurker(view, choices),
-            id::TORTURER => self.default_torturer(view, choices),
-            id::INVESTMENT => self.default_investment(view, choices),
-            id::NATIVE_VILLAGE => self.default_native_village(view, choices),
-            id::JESTER => self.default_jester(view, choices),
-            id::COURSER => self.default_courser(view, choices),
-            _ => choices[0],
-        }
-    }
-
-    /// Jester: the copy is mine if the gain list names the card or it costs $3 or more, else the victim's
-    /// (a Copper or an Estate-like card is no help to me, and the Jester's other effect, the Curse, is
-    /// not this choice).
-    fn default_jester(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let card = view.pending_subject();
-        let mine = card.is_some_and(|c| self.gain_rank(view, c).is_some() || cards::cost(c) >= 3);
-        let want = ModeOpt::GainSubject { to_chooser: mine };
-        let pick = cards::modes(id::JESTER).iter().position(|o| *o == want).map(|i| Choice::Mode(i as u8));
-        pick.filter(|c| choices.contains(c)).unwrap_or(choices[0])
-    }
-
-    /// Courser (two different options): +2 Actions first when the hand holds Actions and none are left,
-    /// then +$2 and the Silvers; +2 Cards last.
-    fn default_courser(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let want_actions = view.hand().any_type(ACTION) && view.turn().actions == 0;
-        let prefs: [fn(&ModeOpt) -> bool; 4] =
-            if want_actions { [is_actions, is_coins, is_gain_many, is_cards] } else { [is_coins, is_gain_many, is_cards, is_actions] };
-        for pred in prefs {
-            if let Some(c) = find_mode(id::COURSER, choices, pred) {
-                return c;
-            }
-        }
-        choices[0]
-    }
-
-    /// Native Village: take the mat once it holds 2+ cards, or once it holds any and this turn
-    /// could use them now (no actions left to keep chaining, or a thin hand); otherwise keep
-    /// adding to it.
-    fn default_native_village(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let mat_size = view.native_village_mat().total();
-        let needs_them_now = mat_size >= 1 && (view.turn().actions == 0 || view.hand().total() <= 1);
-        let take = mat_size >= 2 || needs_them_now;
-        let pred: fn(&ModeOpt) -> bool = if take { is_native_village_take } else { is_native_village_add };
-        find_mode(id::NATIVE_VILLAGE, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// Investment: trash it for VP once the hand already holds decent Treasure diversity (3+
-    /// differently-named Treasures), otherwise the safe +$1.
-    fn default_investment(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let distinct = view.hand().iter().filter(|&(c, _)| view.is_treasure(c)).count();
-        let pred: fn(&ModeOpt) -> bool = if distinct >= 3 { is_trash_self_investment } else { is_coins };
-        find_mode(id::INVESTMENT, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// Pawn: +1 Card and +$1, unless the hand holds an action but there are no actions left to
-    /// play it with, then +1 Action first.
-    fn default_pawn(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let want_action = view.hand().any_type(ACTION) && view.turn().actions == 0;
-        let prefs: [fn(&ModeOpt) -> bool; 4] =
-            if want_action { [is_actions, is_cards, is_coins, is_buys] } else { [is_cards, is_coins, is_actions, is_buys] };
-        for pred in prefs {
-            if let Some(c) = find_mode(id::PAWN, choices, pred) {
-                return c;
-            }
-        }
-        choices[0]
-    }
-
-    /// Steward: trash 2 if the hand has 2+ cards the trash rules want gone, else +2 Cards.
-    fn default_steward(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let junk: u32 = view.hand().iter().filter(|&(c, _)| self.wants_trash(view, c)).map(|(_, n)| n as u32).sum();
-        let pred: fn(&ModeOpt) -> bool = if junk >= 2 { is_trash_hand } else { is_cards };
-        find_mode(id::STEWARD, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// Nobles: +2 Actions if the hand holds 2+ Action cards, else +3 Cards.
-    fn default_nobles(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let pred: fn(&ModeOpt) -> bool = if view.hand().count_type(ACTION) >= 2 { is_actions } else { is_cards };
-        find_mode(id::NOBLES, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// Minion: +$2, unless a fresh 4-card hand is worth more: keep the hand when the treasure
-    /// in hand plus $2 (and any other Minions in hand, each good for at least $2 more) beats 4
-    /// cards drawn at the deck's average money per card.
-    fn default_minion(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let (hand_money, redraw) = Self::hand_vs_redraw(view);
-        let keep = hand_money + 2 + 2 * view.hand().get(id::MINION) as u32;
-        let pred: fn(&ModeOpt) -> bool = if redraw > keep as f64 { is_discard_hand_draw } else { is_coins };
-        find_mode(id::MINION, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// The treasure money in my hand, and what a new hand of 4 cards is worth on average (by the
-    /// money of the deck, reshuffling the discard in if the deck is short).
-    fn hand_vs_redraw(view: &PlayerView) -> (u32, f64) {
-        let money = |c: &Counts| -> u32 {
-            c.iter().filter(|&(x, _)| cards::is(x, TREASURE)).map(|(x, n)| cards::def(x).coins as u32 * n as u32).sum()
-        };
-        let mut pool = view.deck();
-        if pool.total() < 4 {
-            pool.add_all(view.discard());
-        }
-        let redraw = if pool.total() == 0 { 0.0 } else { 4.0 * money(&pool) as f64 / pool.total() as f64 };
-        (money(view.hand()), redraw)
+        defaults::default_mode(self, view, card, choices).unwrap_or(choices[0])
     }
 
     /// Revealing a blocking Reaction (Moat) to an Attack: always, except against an Attack that can
@@ -1392,60 +1083,14 @@ impl Strategy {
     /// is worth more than the hand held (the comparison `default_minion` makes). Scrying Pool is
     /// always blocked: its player judges my top card, and judging never helps the one judged.
     fn reveal_to_attack(&self, view: &PlayerView, decision: &Decision) -> Choice {
-        if decision.source == Some(id::MINION) && view.hand().total() >= 5 {
-            let (hand_money, redraw) = Self::hand_vs_redraw(view);
-            if redraw > hand_money as f64 {
-                return Choice::No;
-            }
-        }
-        Choice::Yes
-    }
-
-    /// Courtier: +$3, then gain a Gold, then +1 Buy, then +1 Action (in that priority order,
-    /// across however many picks the revealed card unlocked).
-    fn default_courtier(&self, choices: &[Choice]) -> Choice {
-        let prefs: [fn(&ModeOpt) -> bool; 4] = [is_coins, is_gain, is_buys, is_actions];
-        for pred in prefs {
-            if let Some(c) = find_mode(id::COURTIER, choices, pred) {
-                return c;
-            }
-        }
-        choices[0]
-    }
-
-    /// Lurker: gain an Action from the trash if it holds one the gain list wants; otherwise
-    /// trash from the Supply the costliest Action the strategy doesn't want (the actual trash
-    /// target is then chosen by `choose_trash`'s `Zone::Supply` branch).
-    fn default_lurker(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let trash_has_wanted = view.trash().iter().any(|(c, _)| cards::is(c, ACTION) && self.gain_rank(view, c).is_some());
-        let pred: fn(&ModeOpt) -> bool = if trash_has_wanted { is_gain_trash } else { is_trash_supply };
-        find_mode(id::LURKER, choices, pred).unwrap_or(choices[0])
-    }
-
-    /// Torturer's victim: gain the Curse only if discarding 2 would throw away more value than a
-    /// Curse costs later. Heuristic: discard 2 if the hand has at least 2 cards that are
-    /// Victory/Curse/Copper or otherwise excess (unwanted per the trash rules); otherwise gain
-    /// the Curse to hand. Always used regardless of `search_play` (a reactive decision during
-    /// someone else's turn, not this player's own play to search).
-    fn default_torturer(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
-        let expendable: u32 = view
-            .hand()
-            .iter()
-            .filter(|&(c, _)| c == id::COPPER || cards::is(c, VICTORY) || cards::is(c, CURSE_T) || self.wants_trash(view, c))
-            .map(|(_, n)| n as u32)
-            .sum();
-        let pred: fn(&ModeOpt) -> bool = if expendable >= 2 { is_discard_hand } else { is_gain };
-        find_mode(id::TORTURER, choices, pred).unwrap_or(choices[0])
+        decision.source.and_then(|attack| defaults::reveal_to_attack(self, view, decision, attack)).unwrap_or(Choice::Yes)
     }
 
     // -----------------------------------------------------------------------------------------
     // Topdeck (Harbinger / Bureaucrat victim / Artisan / Sentry order).
     // -----------------------------------------------------------------------------------------
 
-    fn choose_topdeck(&self, view: &PlayerView, choices: &[Choice], from: Zone, filter: Filter, ordered: bool) -> Choice {
-        if from == Zone::InPlay {
-            return self.choose_herbalist_topdeck(view, choices);
-        }
+    fn choose_topdeck(&self, _view: &PlayerView, choices: &[Choice], from: Zone, filter: Filter, ordered: bool) -> Choice {
         if ordered {
             // Sentry: put cards back one at a time; the LAST pick ends up on top, so place the
             // worse remaining card first and save the better one for last.
@@ -1587,7 +1232,7 @@ const START_ORDER_SEARCH_ALL: bool = false;
 /// Whether a start-of-turn order decision offers a play: Clerk, or a card a Prince plays (any
 /// Action that isn't a Duration, which are the effects' own cards).
 fn start_order_has_play(choices: &[Choice]) -> bool {
-    iter_cards(choices).any(|c| c == id::CLERK || c == id::CAPTAIN || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
+    iter_cards(choices).any(|c| defaults::start_order_play(c) || (cards::is(c, ACTION) && !cards::is(c, cards::DURATION)))
 }
 
 /// How good a card is to have played free at the start of every turn: cards, actions, buys and
@@ -1601,10 +1246,9 @@ fn prince_card_score(c: CardId) -> i32 {
     s
 }
 
-/// Treasures best played after every other one: Bank counts the Treasures in play, Horn of Plenty
-/// the differently named cards.
+/// Treasures best played after every other one (Bank, Horn of Plenty: `SetDefaults::plays_last_rank`).
 fn plays_last(c: CardId) -> bool {
-    c == id::BANK || c == id::HORN_OF_PLENTY
+    defaults::plays_last_rank(c).is_some()
 }
 
 fn iter_cards(choices: &[Choice]) -> impl Iterator<Item = CardId> + '_ {

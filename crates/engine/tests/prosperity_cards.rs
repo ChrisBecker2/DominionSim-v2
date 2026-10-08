@@ -1478,3 +1478,148 @@ fn passing_on_treasure_play_plays_the_remaining_plain_treasures() {
     assert_eq!(g.turn.coins, 4);
     assert!(g.players[0].hand.has(id::BANK));
 }
+
+fn is_yes_no(d: &Decision) -> bool {
+    matches!(d.kind, DecisionKind::YesNo { .. })
+}
+
+/// Answer a Diplomat's "discard 3 cards" by discarding `card` for as long as it is Diplomat's
+/// own discard that is asked (some picks are applied without asking when only one card is legal).
+fn discard_for_diplomat(g: &mut GameState, card: CardId) {
+    while let Some(Decision { kind: DecisionKind::Select { act: Act::Discard, .. }, source: Some(id::DIPLOMAT), .. }) =
+        g.pending_decision()
+    {
+        choose(g, Choice::Card(card));
+    }
+}
+
+#[test]
+fn colonies_are_8_with_two_players_and_12_with_three_to_six() {
+    for (n, want) in [(2, 8), (3, 12), (4, 12), (5, 12), (6, 12)] {
+        assert_eq!(new_state(&[id::PLATINUM, id::COLONY], n).supply.get(id::COLONY), want, "{n} players");
+    }
+}
+
+#[test]
+fn a_quarry_played_twice_with_tiara_takes_four_off_action_costs() {
+    let mut g = new_state(&[id::TIARA, id::QUARRY, id::KINGS_COURT], 2);
+    set_hand(&mut g, 0, &[id::TIARA, id::QUARRY]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::TIARA);
+    choose(&mut g, Choice::Card(id::QUARRY)); // played twice
+    assert_eq!(g.cost(id::KINGS_COURT), 3, "$7 less $2 per play of Quarry");
+    assert_eq!(g.cost(id::GOLD), 6, "only Action cards get cheaper");
+}
+
+#[test]
+fn quarrys_discount_lasts_the_turn_even_if_a_mint_trashes_the_quarry() {
+    let mut g = new_state(&[id::QUARRY, id::MINT, id::KINGS_COURT], 2);
+    set_hand(&mut g, 0, &[id::QUARRY, id::SILVER]);
+    expect_decision(&mut g); // both Treasures auto-play: $3, and Mint costs $5 - $2
+    g.turn.buys = 2;
+    assert_eq!(g.cost(id::MINT), 3);
+    g.apply(Choice::Card(id::MINT), &mut NoEvents).unwrap();
+    assert!(g.trash.has(id::QUARRY), "Mint trashes the Quarry it was bought with");
+    assert_eq!(g.cost(id::KINGS_COURT), 5, "Actions still cost $2 less");
+}
+
+#[test]
+fn a_hoard_played_twice_with_tiara_gains_two_golds_for_a_bought_victory_card() {
+    let mut g = new_state(&[id::TIARA, id::HOARD], 2);
+    set_hand(&mut g, 0, &[id::TIARA, id::HOARD]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::TIARA);
+    choose(&mut g, Choice::Card(id::HOARD)); // played twice: $4
+    assert_eq!(g.turn.coins, 4);
+    g.apply(Choice::Card(id::ESTATE), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].discard.get(id::GOLD), 2);
+}
+
+#[test]
+fn a_hoard_still_pays_gold_for_a_bought_victory_card_after_a_mint_trashed_it() {
+    let mut g = new_state(&[id::HOARD, id::MINT], 2);
+    set_hand(&mut g, 0, &[id::HOARD, id::GOLD, id::GOLD]);
+    expect_decision(&mut g); // $8
+    g.turn.buys = 2;
+    g.apply(Choice::Card(id::MINT), &mut NoEvents).unwrap();
+    assert!(g.trash.has(id::HOARD) && g.players[0].in_play.is_empty());
+    expect_decision(&mut g);
+    g.apply(Choice::Card(id::ESTATE), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].discard.get(id::GOLD), 1, "this turn's Hoard still applies");
+}
+
+#[test]
+fn a_collection_played_twice_with_tiara_gives_two_vp_per_gained_action_card() {
+    let mut g = new_state(&[id::TIARA, id::COLLECTION, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::TIARA, id::COLLECTION]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::TIARA);
+    choose(&mut g, Choice::Card(id::COLLECTION));
+    g.apply(Choice::Card(id::VILLAGE), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].vp_tokens, 2);
+}
+
+#[test]
+fn tiara_still_offers_to_topdeck_a_mint_that_trashes_the_tiara() {
+    let mut g = new_state(&[id::TIARA, id::MINT], 2);
+    set_hand(&mut g, 0, &[id::TIARA, id::GOLD, id::GOLD]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::TIARA);
+    pass(&mut g); // nothing to play twice yet: the Golds are auto-played next
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    g.apply(Choice::Card(id::MINT), &mut NoEvents).unwrap();
+    assert!(g.trash.has(id::TIARA) && g.trash.get(id::GOLD) == 2);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }), "{d:?}");
+    g.apply(Choice::Card(id::MINT), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::MINT));
+}
+
+#[test]
+fn an_investment_played_twice_cannot_be_trashed_for_vp_by_its_second_play() {
+    let mut g = new_state(&[id::TIARA, id::INVESTMENT], 2);
+    set_hand(&mut g, 0, &[id::TIARA, id::INVESTMENT, id::COPPER, id::COPPER, id::SILVER, id::ESTATE]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::TIARA);
+    choose(&mut g, Choice::Card(id::INVESTMENT)); // played twice
+    choose(&mut g, Choice::Card(id::ESTATE)); // 1st play: trash a card from hand
+    let trash_self = cards::modes(id::INVESTMENT)
+        .iter()
+        .position(|m| matches!(m, cards::ModeOpt::TrashSelfRevealVpPerTreasureType))
+        .unwrap() as u8;
+    choose(&mut g, Choice::Mode(trash_self)); // trash this: Copper and Silver in hand
+    assert_eq!(g.players[0].vp_tokens, 2);
+    assert!(g.trash.has(id::INVESTMENT));
+    choose(&mut g, Choice::Card(id::COPPER)); // 2nd play: trash a card from hand
+    choose(&mut g, Choice::Mode(trash_self)); // nothing left to trash
+    assert_eq!(g.players[0].vp_tokens, 2, "no second payout");
+    assert_eq!(g.trash.get(id::INVESTMENT), 1);
+}
+
+#[test]
+fn a_victim_left_with_four_cards_by_a_diplomat_does_not_topdeck_for_clerk() {
+    let mut g = new_state(&[id::CLERK, id::DIPLOMAT], 2);
+    g.turn.turn_start_resolved = true; // no Clerk start-of-turn offer
+    set_hand(&mut g, 0, &[id::CLERK]);
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    let Step::Decision(d) = play(&mut g, id::CLERK) else { panic!() };
+    assert!(is_yes_no(&d) && d.player == 1);
+    choose(&mut g, Choice::Yes); // 7 cards, discard 3: 4 left
+    discard_for_diplomat(&mut g, id::COPPER);
+    let d = expect_decision(&mut g);
+    assert_eq!((d.player, d.kind), (0, DecisionKind::Buy), "Clerk found only four cards: nothing to put back");
+    assert_eq!(g.players[1].hand.total(), 4);
+}
+
+#[test]
+fn a_clerk_still_hits_a_victim_with_five_cards_who_did_not_react() {
+    let mut g = new_state(&[id::CLERK], 2);
+    g.turn.turn_start_resolved = true; // no Clerk start-of-turn offer
+    set_hand(&mut g, 0, &[id::CLERK]);
+    set_hand(&mut g, 1, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::ESTATE]);
+    let Step::Decision(d) = play(&mut g, id::CLERK) else { panic!() };
+    assert_eq!(d.player, 1);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, min: 1, max: 1, .. }), "{d:?}");
+}

@@ -2032,3 +2032,280 @@ fn throne_room_on_throne_room_on_a_duration_and_a_non_duration_keeps_one_throne_
     assert_eq!((ip.get(id::THRONE_ROOM), ip.get(id::CARAVAN), ip.get(id::VILLAGE)), (1, 1, 0));
     assert_eq!(g.players[0].hand.total(), 5 + 2);
 }
+
+fn is_yes_no(d: &Decision) -> bool {
+    matches!(d.kind, DecisionKind::YesNo { .. })
+}
+
+#[test]
+fn an_outposts_extra_turn_does_not_count_towards_the_fewer_turns_tiebreak() {
+    let mut g = new_state(&[id::OUTPOST], 2);
+    set_hand(&mut g, 0, &[id::OUTPOST]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 10]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 10]);
+    play(&mut g, id::OUTPOST);
+    pass(&mut g); // the Outpost turn ends: player 0's first turn
+    assert!(g.turn.is_extra_turn);
+    assert_eq!(g.players[0].turns_taken, 1);
+    pass(&mut g); // the extra turn ends
+    assert_eq!(g.turn.player, 1);
+    assert_eq!(g.players[0].turns_taken, 1, "the extra turn is not a turn taken for the tie-break");
+    pass(&mut g); // player 1's turn ends: one turn each, equal scores
+    assert_eq!(g.players[1].turns_taken, 1);
+    assert_eq!(g.winners(), 0b11, "same number of turns, same score: a shared win, not a win for player 1");
+}
+
+#[test]
+fn a_moat_revealed_when_corsair_is_played_protects_from_its_silver_trashing() {
+    let mut g = new_state(&[id::CORSAIR, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::CORSAIR]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    play(&mut g, id::CORSAIR);
+    moat(&mut g, true);
+    assert_eq!(g.players[0].shielded, 0b10);
+    reset_turn(&mut g, 1);
+    set_hand(&mut g, 1, &[id::SILVER, id::GOLD]);
+    expect_decision(&mut g);
+    assert!(g.trash.is_empty(), "the Moat player's Silver and Gold are left alone");
+}
+
+#[test]
+fn a_lighthouse_in_play_when_corsair_is_played_protects_but_one_played_later_does_not() {
+    // In play at the time: protected.
+    let mut g = new_state(&[id::CORSAIR, id::LIGHTHOUSE], 2);
+    set_hand(&mut g, 0, &[id::CORSAIR]);
+    set_in_play(&mut g, 1, &[id::LIGHTHOUSE]);
+    play(&mut g, id::CORSAIR);
+    reset_turn(&mut g, 1);
+    set_hand(&mut g, 1, &[id::SILVER]);
+    expect_decision(&mut g);
+    assert!(g.trash.is_empty());
+
+    // Played afterwards, on the victim's own turn: too late.
+    let mut g = new_state(&[id::CORSAIR, id::LIGHTHOUSE], 2);
+    set_hand(&mut g, 0, &[id::CORSAIR]);
+    play(&mut g, id::CORSAIR);
+    assert_eq!(g.players[0].shielded, 0);
+    reset_turn(&mut g, 1);
+    set_hand(&mut g, 1, &[id::LIGHTHOUSE, id::SILVER]);
+    play(&mut g, id::LIGHTHOUSE);
+    expect_decision(&mut g);
+    assert!(g.trash.has(id::SILVER), "Lighthouse protects only from Attacks played while it is in play");
+}
+
+#[test]
+fn a_moat_revealed_when_blockade_is_played_protects_from_its_curse() {
+    let mut g = new_state(&[id::BLOCKADE, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::BLOCKADE]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    play(&mut g, id::BLOCKADE);
+    moat(&mut g, true);
+    choose(&mut g, Choice::Card(id::SILVER)); // set aside
+    pass(&mut g); // end player 0's turn
+    pass(&mut g); // player 1 plays no Action
+    g.turn.coins = 3;
+    buy(&mut g, id::SILVER);
+    assert!(!g.players[1].all_cards().has(id::CURSE), "the Moat player gains no Curse");
+}
+
+#[test]
+fn the_shield_against_lingering_attacks_survives_the_text_format() {
+    let mut g = new_state(&[id::CORSAIR, id::MOAT], 3);
+    g.players[0].shielded = 0b110;
+    let text = format_state(&g);
+    assert!(text.contains("shielded: 2 3"), "{text}");
+    let back = parse_state(&text).unwrap();
+    assert_eq!(back.players[0].shielded, 0b110);
+    assert_eq!(back.players[1].shielded, 0);
+}
+
+#[test]
+fn monkey_stops_drawing_when_its_owners_next_turn_starts() {
+    // The Monkey is still in play during its owner's next turn, but the effect has ended: a
+    // Witch curse to the player on the owner's right draws nothing.
+    let mut g = new_state(&[id::MONKEY, id::WITCH], 2);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    set_in_play(&mut g, 0, &[id::MONKEY]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::WITCH);
+    assert_eq!(g.players[0].hand.total(), 2, "just the Witch's own +2 Cards");
+
+    // Played this turn, the effect is on from the moment it is played.
+    let mut g = new_state(&[id::MONKEY, id::WITCH], 2);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    set_in_play(&mut g, 0, &[id::MONKEY]);
+    inject_pending(&mut g, 0, id::MONKEY, 1, 0);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::WITCH);
+    assert_eq!(g.players[0].hand.total(), 3);
+}
+
+#[test]
+fn a_monkey_played_twice_draws_two_cards_per_card_the_player_on_its_right_gains() {
+    let mut g = new_state(&[id::MONKEY, id::WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    set_in_play(&mut g, 1, &[id::MONKEY]);
+    inject_pending(&mut g, 1, id::MONKEY, 2, 0); // Throne Room or King's Court: two plays
+    set_deck_known(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!(g.players[1].hand.total(), 2);
+}
+
+#[test]
+fn each_pirate_in_hand_may_be_played_when_a_treasure_is_gained() {
+    let mut g = new_state(&[id::PIRATE, id::WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    set_hand(&mut g, 1, &[id::PIRATE, id::PIRATE]);
+    play(&mut g, id::WORKSHOP);
+    let Step::Decision(d) = choose(&mut g, Choice::Card(id::SILVER)) else { panic!() };
+    assert!(is_yes_no(&d) && d.player == 1);
+    let Step::Decision(d) = choose(&mut g, Choice::Yes) else { panic!() };
+    assert!(is_yes_no(&d) && d.player == 1, "the second Pirate: {d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[1].in_play.get(id::PIRATE), 2);
+    assert_eq!(g.players[1].pending_durations[0].times, 2);
+}
+
+#[test]
+fn players_react_with_pirates_in_turn_order_starting_with_the_turn_player() {
+    let mut g = new_state(&[id::PIRATE, id::WORKSHOP], 3);
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::PIRATE]);
+    set_hand(&mut g, 1, &[id::PIRATE]);
+    set_hand(&mut g, 2, &[id::PIRATE]);
+    play(&mut g, id::WORKSHOP);
+    let mut order = Vec::new();
+    let mut step = choose(&mut g, Choice::Card(id::SILVER));
+    while let Step::Decision(d) = step {
+        if !is_yes_no(&d) {
+            break;
+        }
+        order.push(d.player);
+        step = choose(&mut g, Choice::No);
+    }
+    assert_eq!(order, vec![0, 1, 2]);
+}
+
+#[test]
+fn a_pirate_another_player_plays_does_not_count_as_an_action_you_played() {
+    // Conspirator needs 3 Actions played this turn, counting itself: Workshop and Conspirator are
+    // two, however many Pirates other players play in between.
+    let mut g = new_state(&[id::CONSPIRATOR, id::WORKSHOP, id::PIRATE], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::CONSPIRATOR]);
+    set_hand(&mut g, 1, &[id::PIRATE]);
+    g.turn.actions = 3;
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::SILVER));
+    choose(&mut g, Choice::Yes); // player 1 plays the Pirate
+    play(&mut g, id::CONSPIRATOR);
+    assert_eq!(g.turn.actions, 1, "3 - Workshop - Conspirator: no +1 Action");
+    assert_eq!(g.turn.coins, 2);
+}
+
+fn sailor(g: &GameState) -> state::PendingDuration {
+    let ps = &g.players[0];
+    ps.pending_durations[..ps.pending_durations_len as usize].iter().find(|e| e.card == id::SAILOR).copied().expect("a Sailor entry")
+}
+
+/// Workshop gains a Caravan (a Duration): the Sailor offer follows. Returns whether one came.
+fn workshop_gains_caravan(g: &mut GameState) -> bool {
+    play(g, id::WORKSHOP);
+    let step = choose(g, Choice::Card(id::CARAVAN));
+    matches!(step, Step::Decision(Decision { kind: DecisionKind::YesNo { act: Act::Play }, source: Some(id::SAILOR), .. }))
+}
+
+#[test]
+fn a_throne_roomed_sailor_plays_two_gained_durations_not_three() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::SAILOR));
+    let e = sailor(&g);
+    assert_eq!((e.times, e.used), (2, 0));
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::Yes);
+    assert_eq!(sailor(&g).used, 1);
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::Yes);
+    assert_eq!(sailor(&g).used, 2);
+    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 2);
+    assert!(!workshop_gains_caravan(&mut g), "the third gained Duration is not offered");
+    assert_eq!(g.players[0].discard.get(id::CARAVAN), 1);
+}
+
+#[test]
+fn a_kings_courted_sailor_plays_three_gained_durations_not_four() {
+    let mut g = new_state(&[id::KINGS_COURT, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
+    set_hand(&mut g, 0, &[id::KINGS_COURT, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
+    play(&mut g, id::KINGS_COURT);
+    choose(&mut g, Choice::Card(id::SAILOR));
+    assert_eq!(sailor(&g).times, 3);
+    for _ in 0..3 {
+        assert!(workshop_gains_caravan(&mut g));
+        choose(&mut g, Choice::Yes);
+    }
+    assert!(!workshop_gains_caravan(&mut g));
+    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 3);
+}
+
+#[test]
+fn two_separate_sailors_give_one_use_each() {
+    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
+    set_hand(&mut g, 0, &[id::SAILOR, id::SAILOR, id::WORKSHOP, id::WORKSHOP, id::WORKSHOP]);
+    play(&mut g, id::SAILOR);
+    play(&mut g, id::SAILOR);
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::Yes);
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::Yes);
+    assert!(!workshop_gains_caravan(&mut g));
+    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 2);
+}
+
+#[test]
+fn declining_the_offer_still_spends_that_sailors_use() {
+    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
+    set_hand(&mut g, 0, &[id::SAILOR, id::WORKSHOP, id::WORKSHOP]);
+    play(&mut g, id::SAILOR);
+    g.turn.actions = 3;
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::No);
+    assert!(!workshop_gains_caravan(&mut g));
+}
+
+#[test]
+fn sailors_partly_spent_uses_survive_the_text_format_and_old_saves_still_load() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::CARAVAN], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SAILOR, id::WORKSHOP, id::WORKSHOP]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::SAILOR));
+    assert!(workshop_gains_caravan(&mut g));
+    choose(&mut g, Choice::Yes);
+    // Back at the PlayAction decision, one of two uses spent.
+    expect_decision(&mut g);
+    let text = format_state(&g);
+    assert!(text.contains("Sailor x2 (used 1)"), "{text}");
+    let back = parse_state(&text).unwrap();
+    let find = |g: &GameState| sailor(g);
+    assert_eq!(find(&back), find(&g));
+    assert_eq!((find(&back).times, find(&back).used), (2, 1));
+
+    // The older marker: "(used)" meant every use was spent.
+    let old = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor x2 (used)")).unwrap();
+    assert_eq!((find(&old).times, find(&old).used), (2, 2));
+    let single = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor (used)")).unwrap();
+    assert_eq!((find(&single).times, find(&single).used), (1, 1));
+    let fresh = parse_state(&text.replace("Sailor x2 (used 1)", "Sailor x2")).unwrap();
+    assert_eq!(find(&fresh).used, 0);
+}
+
+#[test]
+fn lighthouse_still_protects_without_any_decision() {
+    let mut g = new_state(&[id::WITCH, id::MOAT, id::LIGHTHOUSE], 2);
+    set_hand(&mut g, 0, &[id::WITCH]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    set_in_play(&mut g, 1, &[id::LIGHTHOUSE]);
+    let step = play(&mut g, id::WITCH);
+    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "no question asked: {step:?}");
+    assert!(g.players[1].discard.is_empty());
+}

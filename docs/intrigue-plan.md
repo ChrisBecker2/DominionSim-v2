@@ -216,7 +216,7 @@ Diplomat, Mill, Secret Passage, Courtier, Patrol and Replace.
 
 The Base set and Intrigue were re-read card by card against the wiki (latest card text, FAQ
 sections, the Reaction, Attack immunity, Gain, Reveal, Set aside and Clean-up pages; costs, types
-and vanilla bonuses compared by script: all equal). Tests: `crates/engine/tests/rules_audit.rs`.
+and vanilla bonuses compared by script: all equal). Tests: the set's test file (`crates/engine/tests/*_cards.rs`), and `cross_set.rs` for rules that cross sets (formerly `rules_audit.rs`).
 
 **Fixed**
 

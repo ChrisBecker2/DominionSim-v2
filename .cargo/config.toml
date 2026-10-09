@@ -5,4 +5,4 @@
 # native thread's stack is megabytes larger by default). Give the wasm module more headroom;
 # native targets are unaffected (this only applies under `[target.wasm32-unknown-unknown]`).
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "link-args=-zstack-size=4194304"]
+rustflags = ["-C", "link-args=-zstack-size=16777216"]

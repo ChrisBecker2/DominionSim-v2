@@ -18,6 +18,15 @@ use crate::agent::StrategyAgent;
 use crate::stats::StratStats;
 use crate::strategy::Strategy;
 
+/// Make rayon's worker threads big enough for the bots' searches (they recurse over copies of the `GameState`, which is a few KB each):
+/// the default stack of a worker is too small once a game state is this large. Call before the first parallel batch; later calls do nothing.
+pub fn init_thread_pool() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rayon::ThreadPoolBuilder::new().stack_size(64 << 20).build_global();
+    });
+}
+
 pub struct MatchConfig {
     pub games: u64,
     pub kingdom: Vec<CardId>,
@@ -31,6 +40,7 @@ pub struct MatchConfig {
 /// each group also starts from a random seating, so every relative order comes up. Returns one
 /// `StratStats` per input strategy, in input order.
 pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats> {
+    init_thread_pool();
     let p = strategies.len();
     assert!((2..=MAX_PLAYERS).contains(&p), "match needs 2..={MAX_PLAYERS} strategies, got {p}");
 

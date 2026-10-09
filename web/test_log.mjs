@@ -207,6 +207,45 @@ deck: 5 Copper, 3 Estate, 2 Copper
   check("light and dark tokens exist for duration, treasure, reaction", ["--c-duration", "--c-treasure", "--c-reaction"].every((t) => css.includes(t + ":") && dark.includes(t + ":")));
 }
 
+// --- Dark Ages: chips, the Knights and Ruins piles in the supply, Shelters in the starting decks -----
+{
+  const src = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  const a = src.indexOf("// <chip-class>");
+  const z = src.indexOf("// </chip-class>");
+  const body = src.slice(src.indexOf("\n", a) + 1, z);
+  const chipClass = new Function(body + "\nreturn chipClass;")();
+  const I = await instance();
+  I.w.card_info();
+  const types = Object.fromEntries(JSON.parse(I.rd()).map((c) => [c.name, c.types]));
+  const cls = (n) => chipClass(types[n]).split(" ");
+  check("Ruins: their own colour", cls("Survivors").includes("ruins") && cls("Abandoned Mine").includes("ruins"));
+  check("Shelters carry the shelter mark over their own type", cls("Hovel").includes("reaction") && cls("Hovel").includes("shelter") && cls("Overgrown Estate").includes("victory") && cls("Necropolis").includes("action") && cls("Necropolis").includes("shelter"));
+  check("Knights are attacks; Dame Josephine is also a Victory card", cls("Sir Martin").includes("attack") && cls("Dame Josephine").includes("dual-action-victory"));
+  check("card_info carries the Dark Ages types", types["Cultist"].includes("looter") && types["Sir Vander"].includes("knight") && types["Hovel"].includes("shelter"));
+  const css = readFileSync(new URL("./style.css", import.meta.url), "utf8");
+  const dark = css.slice(css.indexOf("prefers-color-scheme: dark"));
+  check("light and dark tokens exist for ruins and the shelter edge", ["--c-ruins", "--c-shelter-edge"].every((t) => css.includes(t + ":") && dark.includes(t + ":")));
+
+  // A Dark Ages kingdom: the Knights and Ruins are one entry each, with the top card and the count; the starting decks have the Shelters.
+  const names = "Knights, Cultist, Hermit, Urchin, Bandit Camp, Rats, Market Square, Forager, Armory, Sage";
+  const k = enc.encode(names);
+  const p = I.w.alloc(k.length);
+  new Uint8Array(I.w.memory.buffer, p, k.length).set(k);
+  I.w.new_game(2, p, k.length, 5n, 0);
+  let v = I.view();
+  const pile = (name) => v.supply.find((c) => c.pile === name);
+  check("the Knights pile is one supply entry (the top Knight, 10 left)", pile("Knights") && pile("Knights").count === 10 && /^(Dame|Sir) /.test(pile("Knights").name), JSON.stringify(pile("Knights")));
+  check("the Ruins pile is one supply entry (the top Ruins, 10 left)", pile("Ruins") && pile("Ruins").count === 10 && types[pile("Ruins").name].includes("ruins"), JSON.stringify(pile("Ruins")));
+  check("no other Knight or Ruins is listed", v.supply.filter((c) => types[c.name].includes("knight") || types[c.name].includes("ruins")).length === 2);
+  check("Spoils, Madman and Mercenary are listed as piles outside the Supply", ["Spoils", "Madman", "Mercenary"].every((n) => v.supply.some((c) => c.name === n && c.side)));
+  I.w.resume();
+  v = I.view();
+  const owned = (pl) => pl.hand.concat(pl.inPlay, pl.deckUnknown, pl.deckTop).reduce((n, c) => n + c.count, 0);
+  const has = (pl, name) => pl.hand.concat(pl.inPlay, pl.deckUnknown).some((c) => c.name === name);
+  check("the decks hold Hovel, Necropolis and Overgrown Estate instead of Estates", v.players.every((pl) => ["Hovel", "Necropolis", "Overgrown Estate"].every((n) => has(pl, n)) && !has(pl, "Estate")), JSON.stringify(v.players[0].hand));
+  check("padded_kingdom draws Dark Ages cards for set bit 128", (() => { I.w.padded_kingdom(2, 128, 3n); const r = JSON.parse(I.rd()); return r.kingdom.split(", ").length >= 10; })());
+}
+
 // New game waits before the deal: Simulate from here deals fresh opening hands per game.
 {
   const { w, view } = await instance();

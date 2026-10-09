@@ -4,6 +4,11 @@ use dominion_engine::cards::{self, id, CardId, ACTION};
 
 use crate::genome::{Genome, List, Rule};
 
+/// Whether a rule for `c` plays an Action: an Action card, or the Knights pile (a rule for "Knights" plays whichever Knight is in hand).
+pub fn is_action(c: CardId) -> bool {
+    cards::is(c, ACTION) || c == id::KNIGHTS
+}
+
 #[derive(Clone, Debug)]
 pub struct SearchSpace {
     /// Cards a candidate may put in `[[gain]]` rules (basic cards plus allowed kingdom cards).
@@ -30,7 +35,7 @@ impl SearchSpace {
         // Joust brings the Rewards, which are not in the Supply but can be gained from it: a rule may
         // name one (their order in the gain list is the strategy's preference when Joust offers them).
         if gainable.contains(&id::JOUST) {
-            gainable.extend((cards::FIRST_REWARD..cards::NUM_CARDS as CardId).filter(|c| !forbidden.contains(c)));
+            gainable.extend((cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId).filter(|c| !forbidden.contains(c)));
         }
         SearchSpace {
             gainable,
@@ -47,7 +52,7 @@ impl SearchSpace {
 
     /// Action cards a candidate can gain (the only cards worth a `[[play]]` rule).
     pub fn actions(&self) -> impl Iterator<Item = CardId> + '_ {
-        self.gainable.iter().copied().filter(|&c| cards::is(c, ACTION))
+        self.gainable.iter().copied().filter(|&c| is_action(c))
     }
 
     pub fn max_rules(&self, list: List) -> usize {
@@ -65,7 +70,7 @@ impl SearchSpace {
     pub fn sanitize(&self, g: &mut Genome) {
         g.gain.retain(|r| self.gainable.contains(&r.card));
         let gained: Vec<CardId> = g.gain.iter().map(|r| r.card).collect();
-        g.play.retain(|r| cards::is(r.card, ACTION) && gained.contains(&r.card));
+        g.play.retain(|r| is_action(r.card) && gained.contains(&r.card));
         g.trash.retain(|r| self.trashable.contains(&r.card));
         // A mode rule needs a card the strategy gains, offered in this kingdom pool, and a real option.
         g.mode.retain(|r| self.modal.contains(&r.card) && gained.contains(&r.card) && (r.opt as usize) < cards::modes(r.card).len());

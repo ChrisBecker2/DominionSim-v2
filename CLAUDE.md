@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages and a few
 promos (all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**
@@ -16,7 +16,7 @@ promos (all 2nd edition where there is one).
   and explores strategies. `crates/lab` — native server + Strategy Lab page driving `evolve`.
 
 Layout: one module per expansion, so reading a card means reading one place. `crates/engine/src/sets/{base,
-intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds}.rs` each hold, for their cards: the ids (`ids`),
+intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds,dark_ages}.rs` each hold, for their cards: the ids (`ids`),
 the `(id, CardDef)` table, and an `impl SetRules` with the play effect, modes table, Duration start-of-turn
 effect, gain / buy / cleanup triggers, overpay, bonus VP, reaction data and masks (anything not overridden is a
 no-op). Their card-specific frame handlers (`impl GameState`) sit below. `sets/mod.rs` builds the one `CARDS`
@@ -43,6 +43,13 @@ turn); each set's `choice_free_and_order_sensitive_cards` test (list the new car
 deliberately), `cards::tests` and `sim/tests/obvious_play.rs` check both against exact search.
 A new card: its id in the set's `ids` and its line in `CARDS` (ids are dense; the next free one), its
 `play` arm, then whichever other `SetRules` methods it needs, then tests in the set's test file.
+
+Dark Ages adds two generic mechanisms (details in `docs/dark-ages-plan.md`): *mixed piles* (the Knights and the Ruins:
+one Supply pile of different cards, only the top card known; the members are in `in_supply`, the pile's size sits on the
+top card's `supply` count, and the next top is drawn from the cards nobody has seen when the top is taken, so the state
+holds no hidden order; `KNIGHTS` / `RUINS` are marker ids that name the pile in kingdoms and strategies) and the *trash
+queue* (every trash goes through `GameState::trash_card`; "when you trash this" effects and Market Square are put on the
+stack by `flush_trash_triggers` after the selection that trashed the cards has finished picking).
 
 Conventions: agents only see `PlayerView` (honest information). Multi-card picks use canonical
 non-decreasing card-id order (`canonical_picks`). Goal of the project: discover strategies that

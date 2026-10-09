@@ -54,7 +54,7 @@ fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
     }
     let mut out = Vec::new();
     for n in names {
-        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\", \"Prosperity\", \"Alchemy\", \"Promo\" or \"Cornucopia & Guilds\")"))?;
+        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\", \"Prosperity\", \"Alchemy\", \"Promo\", \"Cornucopia & Guilds\" or \"Dark Ages\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }

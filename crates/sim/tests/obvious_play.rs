@@ -67,7 +67,9 @@ impl Evaluator for FullSearch<'_> {
 /// choice-free for that reason (docs/alchemy-plan.md); only the shortcut's "play all of them" is
 /// not exact for it, which this test, about the order of Actions, does not cover.
 fn free_actions() -> Vec<CardId> {
-    cards::kingdom_cards().filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE).collect()
+    // The Dark Ages cards that no kingdom contains (the Knights, Necropolis, the Ruins) are played from the hand all the same.
+    let others = (id::NECROPOLIS..=id::SIR_VANDER).filter(|&c| !cards::is_kingdom(c) && cards::is(c, cards::ACTION));
+    cards::kingdom_cards().chain(others).filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE).collect()
 }
 
 fn names(cs: &[CardId]) -> String {
@@ -100,7 +102,7 @@ fn obvious_play_is_as_good_as_searching() {
         let text = format!(
             "players: 2\nkingdom: {}\nturn: 5  player: 1  phase: action  actions: {actions}  buys: 1  coins: 0\n\n\
              [player 1]\nhand: {}\ndeck: {}\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n",
-            names(&free),
+            names(&free.iter().copied().filter(|&c| cards::is_kingdom(c)).collect::<Vec<_>>()),
             names(&hand),
             names(&deck)
         );

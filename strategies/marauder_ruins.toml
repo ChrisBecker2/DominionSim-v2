@@ -1,0 +1,38 @@
+# Marauder and Cultist (Dark Ages) — a Ruins attack: every play of a Looter hands the other players a card from the Ruins pile
+# (which fills the pile quickly, so the game can end on piles) and a Marauder gives a Spoils ($3 once) on top. Two Marauders
+# and two Cultists, then Big Money. The kingdom needs a Looter to bring the Ruins: pair with `--kingdom auto`.
+
+name = "Marauder Ruins"
+description = "Big Money with Marauders and Cultists handing out Ruins."
+
+[[gain]]
+card = "Province"
+if = "money > 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Cultist"
+if = "count(Cultist) < 2"
+
+[[gain]]
+card = "Marauder"
+if = "count(Marauder) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Cultist"
+
+[[play]]
+card = "Marauder"

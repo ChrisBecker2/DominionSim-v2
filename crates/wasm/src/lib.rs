@@ -775,10 +775,15 @@ fn game_over_summary(state: &GameState) -> Vec<String> {
         Some(EndReason::ProvincesGone) => "the Province pile is empty".to_string(),
         Some(EndReason::ColoniesGone) => "the Colony pile is empty".to_string(),
         Some(EndReason::PilesEmpty) => {
-            let piles: Vec<&str> = (0..cards::NUM_CARDS as u8)
+            let mut piles: Vec<&str> = (0..cards::FIRST_PILE_CARD)
                 .filter(|&c| state.in_supply(c) && state.supply.get(c) == 0)
                 .map(cards::name)
                 .collect();
+            for (pile, name) in [(&dominion_engine::sets::dark_ages::RUINS_PILE, "Ruins"), (&dominion_engine::sets::dark_ages::KNIGHTS_PILE, "Knights")] {
+                if state.has_pile(pile) && state.pile_size(pile) == 0 {
+                    piles.push(name);
+                }
+            }
             format!("{} supply piles are empty ({})", piles.len(), piles.join(", "))
         }
         Some(EndReason::TurnLimit) => format!("the turn limit ({}) was reached", state.max_turns),
@@ -1000,6 +1005,10 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
             s.chance_mode = false;
             s.pause_at_turn_start = false;
             s.rng = Rng::derive(seed as u64, g as u64);
+            // A new game's Knights and Ruins piles are dealt again for each simulated game (the opening hands are drawn fresh below).
+            if start.turn.phase == Phase::Setup {
+                s.redeal_mixed_piles();
+            }
             let mut order: [usize; MAX_PLAYERS] = std::array::from_fn(|i| i);
             if new_game {
                 let mut r = Rng::derive(seed as u64 ^ 0x5EA7_0D3E, g as u64);
@@ -1472,6 +1481,10 @@ pub extern "C" fn card_info() -> i32 {
         (cards::DURATION, "duration"),
         (cards::REWARD, "reward"),
         (cards::COMMAND, "command"),
+        (cards::RUINS, "ruins"),
+        (cards::KNIGHT, "knight"),
+        (cards::LOOTER, "looter"),
+        (cards::SHELTER, "shelter"),
     ];
     let items: Vec<String> = (0..cards::NUM_CARDS as u8)
         .map(|c| {
@@ -1560,12 +1573,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 64 != 0 {
         v.push(cards::CardSet::CornucopiaGuilds);
     }
+    if sets_mask & 128 != 0 {
+        v.push(cards::CardSet::DarkAges);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1810,6 +1826,11 @@ fn render_event(e: &Event) -> String {
             format!("Player {} overpays ${coins}{} for {}", player + 1, if potion { " and a Potion" } else { "" }, cards::name(card))
         }
         Event::Pass { player, card, to } => format!("Player {} passes {} to Player {}", player + 1, cards::name(card), to + 1),
+        Event::Return { player, card } => format!("Player {} returns {} to its pile", player + 1, cards::name(card)),
+        Event::TakeFromTrash { player, card } => format!("Player {} puts {} from the trash into their hand", player + 1, cards::name(card)),
+        Event::DeckToDiscard { player, n } => {
+            format!("Player {} puts their deck ({n} card{}) into their discard pile", player + 1, if n == 1 { "" } else { "s" })
+        }
         Event::GameOver => "--- Game over ---".to_string(),
         Event::PlayAgain { player, card, source, nth } => {
             let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };
@@ -1898,6 +1919,20 @@ fn filter_noun(f: Filter) -> (String, String) {
             "an Action card you have no copy of in play".into(),
             "Action cards you have no copy of in play".into(),
         ),
+        Filter::Types(set) => match set {
+            dominion_engine::state::TypeSet::Attack => ("an Attack card".into(), "Attack cards".into()),
+            dominion_engine::state::TypeSet::Ruins => ("a Ruins".into(), "Ruins".into()),
+            dominion_engine::state::TypeSet::Action => ("an Action card".into(), "Action cards".into()),
+            dominion_engine::state::TypeSet::ActionNotDuration => ("a non-Duration Action card".into(), "non-Duration Action cards".into()),
+            dominion_engine::state::TypeSet::CurseRuinsShelterVictory => {
+                ("a Curse, Ruins, Shelter or Victory card".into(), "Curses, Ruins, Shelters and Victory cards".into())
+            }
+        },
+        Filter::NonTreasure => ("a non-Treasure card".into(), "non-Treasure cards".into()),
+        Filter::TreasureNonDuration => ("a non-Duration Treasure".into(), "non-Duration Treasures".into()),
+        Filter::CostAtLeast(n) => (format!("a card costing ${n} or more"), format!("cards costing ${n} or more")),
+        Filter::CostRange(lo, hi) => (format!("a card costing from ${lo} to ${hi}"), format!("cards costing from ${lo} to ${hi}")),
+        Filter::VictoryNot(c) => (format!("a Victory card other than {}", cards::name(c)), format!("Victory cards other than {}", cards::name(c))),
     }
 }
 
@@ -2181,7 +2216,15 @@ fn sequence_json(iter: impl Iterator<Item = u8>) -> String {
 }
 
 fn supply_json(state: &GameState) -> String {
-    let mut ids: Vec<u8> = (0..cards::NUM_CARDS as u8).filter(|&c| state.in_supply(c)).collect();
+    // The Knights and Ruins piles are one entry each, showing the top card (the only one that can be bought) and the cards left.
+    let mut ids: Vec<u8> = (0..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c)).collect();
+    let mut piles: Vec<(u8, u8, &'static str)> = Vec::new(); // (card shown, cards left, pile name)
+    for (pile, name) in [(&dominion_engine::sets::dark_ages::RUINS_PILE, "Ruins"), (&dominion_engine::sets::dark_ages::KNIGHTS_PILE, "Knights")] {
+        if state.has_pile(pile) {
+            piles.push((state.pile_top(pile).unwrap_or(pile.marker), state.pile_size(pile), name));
+        }
+    }
+    ids.extend(piles.iter().map(|p| p.0));
     // Victory (Colony alongside Province), then treasure high to low (Platinum alongside Gold),
     // then Curse, then kingdom cards cheapest first.
     const BASE_ORDER: [u8; 10] =
@@ -2198,8 +2241,15 @@ fn supply_json(state: &GameState) -> String {
                 jstr(cards::name(c)),
                 cards::cost(c),
                 jstr(&cards::cost_string(c)),
-                state.supply.get(c),
-                if c == state.bane && c != 0 { ",\"bane\":true" } else { "" }
+                match piles.iter().find(|p| p.0 == c) {
+                    Some(p) => p.1,
+                    None => state.supply.get(c),
+                },
+                match piles.iter().find(|p| p.0 == c) {
+                    Some(p) => format!(",\"pile\":\"{}\"", p.2),
+                    None if c == state.bane && c != 0 => ",\"bane\":true".to_string(),
+                    None => String::new(),
+                }
             )
         })
         .collect();
@@ -2219,6 +2269,16 @@ fn supply_json(state: &GameState) -> String {
     if state.in_supply(id::JOUST) {
         for (i, &n) in state.rewards.iter().enumerate() {
             side(cards::FIRST_REWARD + i as u8, n);
+        }
+    }
+    // Dark Ages: Spoils, Madman and Mercenary, while a card that gives them is in the game.
+    for (c, n, gainers) in [
+        (id::SPOILS, state.spoils, &[id::BANDIT_CAMP, id::MARAUDER, id::PILLAGE][..]),
+        (id::MADMAN, state.madman, &[id::HERMIT][..]),
+        (id::MERCENARY, state.mercenary, &[id::URCHIN][..]),
+    ] {
+        if n > 0 || gainers.iter().any(|&g| state.in_supply(g)) {
+            side(c, n);
         }
     }
     format!("[{}]", items.join(","))

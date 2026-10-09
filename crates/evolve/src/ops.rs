@@ -1,6 +1,6 @@
 //! Variation operators: seed templates, random rules, mutation and crossover.
 
-use dominion_engine::cards::{self, id, CardId, ACTION};
+use dominion_engine::cards::{self, id, CardId};
 use dominion_engine::rng::Rng;
 
 use crate::genome::{Atom, Genome, List, Op, Rule, Var};
@@ -36,7 +36,7 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
     let gold = g.gain.iter().position(|r| r.card == id::GOLD).unwrap_or(1);
     for (k, &(c, n)) in xs.iter().enumerate() {
         g.gain.insert(gold + k, Rule { card: c, opt: 0, conds: vec![cond(Var::Count(c), Op::Lt, n)] });
-        if cards::is(c, ACTION) {
+        if crate::space::is_action(c) {
             g.play.push(Rule::new(c));
         }
     }

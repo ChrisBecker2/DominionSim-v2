@@ -13,7 +13,7 @@ pub use crate::sets::CARDS;
 /// Reaction cards that block an Attack when revealed (Moat), reactions with an optional effect (Diplomat: `(card,
 /// minimum hand size, cards drawn, cards then discarded)`), and cards that make their owner immune to Attacks while in
 /// play (Lighthouse): the union of each set's `SetRules` constants.
-pub use crate::sets::{BLOCK_REACTIONS, IMMUNE_IN_PLAY, REACTION_EFFECTS};
+pub use crate::sets::{ATTACK_REACTIONS, BLOCK_REACTIONS, IMMUNE_IN_PLAY, REACTION_EFFECTS};
 // Kingdom set-up that belongs to one expansion.
 pub use crate::sets::alchemy::add_potion_if_needed;
 pub use crate::sets::cornucopia_guilds::{default_bane, default_ferryman};
@@ -32,12 +32,21 @@ pub const REWARD: u16 = 128;
 /// Prince's other type: it only stops Command cards from playing each other, and no Command card
 /// exists here besides Prince itself, so it is a flag with no rules of its own.
 pub const COMMAND: u16 = 256;
+/// The five Ruins (Dark Ages): Actions in the Ruins pile.
+pub const RUINS: u16 = 512;
+/// The ten Knights (Dark Ages).
+pub const KNIGHT: u16 = 1024;
+/// Cultist, Death Cart and Marauder (Dark Ages): any in the kingdom brings the Ruins pile.
+pub const LOOTER: u16 = 2048;
+/// Hovel, Necropolis and Overgrown Estate (Dark Ages): the starting-deck cards that replace the Estates.
+pub const SHELTER: u16 = 4096;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
     pub use crate::sets::alchemy::ids::*;
     pub use crate::sets::base::ids::*;
     pub use crate::sets::cornucopia_guilds::ids::*;
+    pub use crate::sets::dark_ages::ids::*;
     pub use crate::sets::intrigue::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
@@ -79,12 +88,14 @@ pub enum CardSet {
     Promo,
     /// Cornucopia & Guilds 2nd edition (Coffers, Overpay, the Rewards).
     CornucopiaGuilds,
+    /// Dark Ages (Shelters, Ruins, Knights, Spoils, trash-for-benefit).
+    DarkAges,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 7] = [
+    pub const ALL: [CardSet; 8] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
-        CardSet::CornucopiaGuilds,
+        CardSet::CornucopiaGuilds, CardSet::DarkAges,
     ];
 
     pub fn name(self) -> &'static str {
@@ -96,6 +107,7 @@ impl CardSet {
             CardSet::Alchemy => "Alchemy",
             CardSet::Promo => "Promo",
             CardSet::CornucopiaGuilds => "Cornucopia & Guilds",
+            CardSet::DarkAges => "Dark Ages",
         }
     }
 }
@@ -126,6 +138,8 @@ pub struct CardDef {
     /// Whether the card's effects are implemented. Cards that aren't can't be put in a kingdom
     /// (they would silently play as plain cards); see `intrigue_todo`.
     pub ready: bool,
+    /// Whether the card does something "when you trash this" (`SetRules::on_trash`): the other cards' trash costs nothing extra.
+    pub on_trash: bool,
 }
 
 /// What playing an Action card means for its player's choice of play order.
@@ -164,7 +178,7 @@ pub enum OnPlay {
 }
 
 pub(crate) const fn c(name: &'static str, cost: u8, types: u16, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
-    CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true }
+    CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true, on_trash: false }
 }
 
 /// A Seaside card.
@@ -195,6 +209,16 @@ pub(crate) const fn promo(d: CardDef) -> CardDef {
 /// A Cornucopia & Guilds card.
 pub(crate) const fn cg(d: CardDef) -> CardDef {
     CardDef { set: CardSet::CornucopiaGuilds, ..d }
+}
+
+/// A Dark Ages card.
+pub(crate) const fn da(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::DarkAges, ..d }
+}
+
+/// The card has a "when you trash this" effect.
+pub(crate) const fn on_trash(d: CardDef) -> CardDef {
+    CardDef { on_trash: true, ..d }
 }
 
 /// Not implemented yet: can't be put in a kingdom.
@@ -336,6 +360,18 @@ pub enum ModeOpt {
     /// Courser: gain `n` copies of a card, one gain at a time (frames, so that the draw an earlier option
     /// pushed resolves first: "do the options in the order listed").
     GainMany(CardId, Dest, u8),
+    /// Count: put a card from the hand onto the deck (as many as you can: forced when the hand has one).
+    TopdeckFromHand(u8),
+    /// Count: trash the whole hand.
+    TrashHand,
+    /// Graverobber's second option: trash a card matching `filter` from the hand, then gain a card costing up to `plus` more.
+    TrashGain { filter: Filter, plus: u8, dest: Dest },
+    /// Gain a card matching `Filter` from the trash to `Dest` (Graverobber: onto the deck).
+    GainFromTrashTo(Filter, Dest),
+    /// Catacombs' first option: put the revealed cards into the hand.
+    TakeRevealed,
+    /// Catacombs' second option: discard the revealed cards and draw `n` cards.
+    DiscardRevealedDraw(u8),
 }
 
 /// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
@@ -358,6 +394,10 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::ActionNotReward => ("an", "Action other than a Reward"),
         Filter::TreasureNotReward => ("a", "Treasure other than a Reward"),
         Filter::TreasureToDiscard => ("a", "Treasure"),
+        Filter::Types(_) | Filter::CostAtLeast(_) | Filter::CostRange(..) => ("a", "card"),
+        Filter::NonTreasure => ("a", "non-Treasure card"),
+        Filter::TreasureNonDuration => ("a", "Treasure"),
+        Filter::VictoryNot(_) => ("a", "Victory card"),
     }
 }
 
@@ -403,6 +443,20 @@ impl ModeOpt {
             ModeOpt::NativeVillageAdd => "Put the top card of your deck on your Native Village mat".to_string(),
             ModeOpt::NativeVillageTake => "Put the cards on your Native Village mat into your hand".to_string(),
             ModeOpt::GainMany(c, _, n) => format!("Gain {n} {}s", name(c)),
+            ModeOpt::TopdeckFromHand(_) => "Put a card from your hand onto your deck".to_string(),
+            ModeOpt::TrashHand => "Trash your hand".to_string(),
+            ModeOpt::TrashGain { plus, .. } => format!("Trash a card, gain a card costing up to ${plus} more"),
+            ModeOpt::GainFromTrashTo(f, dest) => {
+                let (a, noun) = filter_words(f);
+                let suffix = match dest {
+                    Dest::Hand => " to your hand",
+                    Dest::DeckTop => " onto your deck",
+                    Dest::Discard => "",
+                };
+                format!("Gain {a} {noun} from the trash{suffix}")
+            }
+            ModeOpt::TakeRevealed => "Put them into your hand".to_string(),
+            ModeOpt::DiscardRevealedDraw(n) => format!("Discard them and +{n} Cards"),
             ModeOpt::GainSubject { to_chooser: false } => "They gain a copy".to_string(),
             ModeOpt::GainSubject { to_chooser: true } => "You gain a copy".to_string(),
         }
@@ -439,6 +493,12 @@ pub fn start_order_sensitive(card: CardId) -> bool {
 }
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
+/// The last kingdom card id (the Dark Ages' kingdom cards end at Hunting Grounds; Shelters, Spoils, Madman,
+/// Mercenary, the Ruins pile and its five Ruins and the ten Knights follow).
+pub const LAST_KINGDOM: CardId = crate::sets::dark_ages::LAST_KINGDOM_DA;
+/// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
+/// the top card of the Knights or Ruins pile when it is in the Supply.
+pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
 
 #[inline(always)]
 pub fn set_of(card: CardId) -> CardSet {
@@ -455,7 +515,7 @@ pub fn is_ready(card: CardId) -> bool {
 /// not one of the Rewards).
 #[inline(always)]
 pub fn is_kingdom(card: CardId) -> bool {
-    card >= FIRST_KINGDOM && !is_optional_basic(card) && !is_reward(card)
+    card >= FIRST_KINGDOM && card <= LAST_KINGDOM && !is_optional_basic(card) && !is_reward(card)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -467,7 +527,7 @@ pub fn is_optional_basic(card: CardId) -> bool {
 
 /// Every kingdom card of every set that can be played (implemented).
 pub fn kingdom_cards() -> impl Iterator<Item = CardId> {
-    (FIRST_KINGDOM..NUM_CARDS as CardId).filter(|&c| is_kingdom(c) && is_ready(c))
+    (FIRST_KINGDOM..=LAST_KINGDOM).filter(|&c| is_kingdom(c) && is_ready(c))
 }
 
 /// The playable kingdom cards of one set.
@@ -492,6 +552,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "promo" => Some(CardSet::Promo),
         "cornucopia & guilds" | "cornucopia and guilds" | "cornucopia" | "guilds" | "c&g" | "cg" | "cornucopia_guilds"
         | "cornucopiaguilds" => Some(CardSet::CornucopiaGuilds),
+        "dark ages" | "darkages" | "dark_ages" | "da" => Some(CardSet::DarkAges),
         _ => None,
     }
 }
@@ -615,7 +676,8 @@ mod set_tests {
         assert_eq!(set_by_name("prosperity"), Some(CardSet::Prosperity));
         assert_eq!(set_by_name("Alchemy"), Some(CardSet::Alchemy));
         assert_eq!(set_by_name("promo"), Some(CardSet::Promo));
-        assert_eq!(set_by_name("Dark Ages"), None);
+        assert_eq!(set_by_name("Dark Ages"), Some(CardSet::DarkAges));
+        assert_eq!(set_by_name("nonsense"), None);
     }
 
     #[test]

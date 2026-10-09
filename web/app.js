@@ -199,7 +199,9 @@
   function chipClass(t) {
     // Duration cards are orange and Reactions blue, whatever else they are (Astrolabe,
     // Pirate, Moat, Diplomat...).
-    const primary = t.includes("curse")
+    const primary = t.includes("ruins")
+      ? "ruins"
+      : t.includes("curse")
       ? "curse"
       : t.includes("duration")
       ? "duration"
@@ -224,7 +226,7 @@
       : has("duration") && has("reaction")
       ? " dual-duration-reaction"
       : "";
-    return "card " + primary + dual + (has("attack") ? " attack" : "");
+    return "card " + primary + dual + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "");
   }
   // </chip-class>
 
@@ -502,6 +504,8 @@
       tdName.appendChild(el("span", "cost", " " + (c.costLabel || "$" + c.cost)));
       // Young Witch's extra pile is a Supply pile; Ferryman's and the Rewards are not in the Supply.
       if (c.bane) tdName.appendChild(el("span", "cost", " Bane"));
+      // The Knights and Ruins piles: one entry, showing the top card (the only one that can be bought) and how many are left.
+      if (c.pile) tdName.appendChild(el("span", "cost", ` (${c.pile} pile, top card)`));
       if (c.side) tdName.appendChild(el("span", "cost", " (not in the Supply)"));
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
@@ -779,8 +783,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

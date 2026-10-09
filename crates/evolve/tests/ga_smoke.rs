@@ -145,7 +145,7 @@ fn random_track_follows_the_official_colony_rule_per_scenario_and_is_reproducibl
 #[test]
 fn unknown_set_name_is_a_config_error() {
     let mut c = cfg();
-    c.sets = vec!["Dark Ages".into()];
+    c.sets = vec!["Nonexistent Set".into()];
     assert!(Setup::new(&c).is_err());
 }
 
@@ -187,4 +187,18 @@ fn the_opponents_cards_are_always_in_the_kingdom() {
     c.track = Track::Random { required: vec![], kingdoms_per_generation: 4 };
     let setup = Setup::new(&c).unwrap();
     assert!(setup.scenarios(&mut rng, 1).iter().all(|s| s.kingdom.contains(&cards::id::WITCH)));
+}
+
+#[test]
+fn random_track_with_dark_ages_runs_and_offers_the_knights_as_one_card() {
+    let mut c = cfg();
+    c.sets = vec!["Dark Ages".into()];
+    c.forbidden = vec![];
+    c.track = Track::Random { required: vec!["Cultist".into()], kingdoms_per_generation: 2 };
+    let setup = Setup::new(&c).unwrap();
+    assert!(setup.space.gainable.contains(&cards::id::KNIGHTS));
+    assert!(!setup.space.gainable.iter().any(|&k| cards::is(k, cards::KNIGHT)));
+    let p = run(&c, &Control::default(), &mut |_| {}).unwrap();
+    let r = p.result.expect("a result");
+    assert!(dominion_sim::Strategy::parse(&r.toml).is_ok(), "{}", r.toml);
 }

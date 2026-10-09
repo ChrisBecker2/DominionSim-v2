@@ -240,6 +240,12 @@ pub enum Event {
     SpendCoffers { player: u8, n: u16 },
     /// `player` overpays `coins` (and a Potion) for `card`, which they have just bought.
     Overpay { player: u8, card: CardId, coins: u8, potion: bool },
+    /// `card` goes back to its pile (a played Spoils or Madman, a Hermit exchanged for a Madman).
+    Return { player: u8, card: CardId },
+    /// `player` takes `card` out of the trash into their hand (Fortress, when it is trashed).
+    TakeFromTrash { player: u8, card: CardId },
+    /// `player` puts their whole deck (`n` cards) into their discard pile (Scavenger).
+    DeckToDiscard { player: u8, n: u16 },
     /// Masquerade: `player` passes `card` to `to`, once every passing player has chosen.
     Pass { player: u8, card: CardId, to: u8 },
     /// Vanilla bonuses `source` just gave `player` (+Actions, +Buys, +$, +VP tokens; never
@@ -684,6 +690,15 @@ impl GameState {
         if c == id::SILVER || c == id::GOLD {
             self.corsair_trashes_first_silver_or_gold(p, c, sink);
         }
+        // Spoils (+$3) goes back to the Spoils pile when it is played.
+        if c == id::SPOILS {
+            let ps = &mut self.players[p as usize];
+            ps.in_play.set(c, ps.in_play.get(c) - n);
+            self.spoils += n;
+            for _ in 0..n {
+                sink.event(Event::Return { player: p, card: c });
+            }
+        }
     }
 
     /// The offers made at the end of the Buy phase, before cleanup discards everything in play (Alchemist, Walled Village,
@@ -857,8 +872,14 @@ impl GameState {
         if !self.supply.remove(c) {
             return false;
         }
-        self.finish_gain(p, c, to, on_buy, source, sink);
+        self.finish_gain(p, c, to, on_buy, source, true, sink);
         true
+    }
+
+    /// Gain `c` for `p` from the Supply to `to`, as a gain effect (Workshop's) does: runs the gain triggers. For tools and tests that set
+    /// positions up; the game itself gains through frames. False when the pile has no `c` (a Knight or Ruins that is not on top).
+    pub fn gain_card<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, sink: &mut S) -> bool {
+        self.gain(p, c, to, false, NO_SOURCE, sink)
     }
 
     /// Gain `c` from a pile outside the Supply (Ferryman's pile, a Reward): the same as `gain` for
@@ -867,13 +888,24 @@ impl GameState {
         if !self.take_side(c) {
             return false;
         }
-        self.finish_gain(p, c, to, false, source, sink);
+        self.finish_gain(p, c, to, false, source, false, sink);
         true
     }
 
-    /// Take one card of `c` from the Ferryman pile or the Rewards, if any is left.
+    /// Take one card of `c` from the Ferryman pile, the Rewards or the Spoils, Madman and Mercenary piles, if any is left.
     fn take_side(&mut self, c: CardId) -> bool {
-        if cards::is_reward(c) {
+        if c == id::SPOILS || c == id::MADMAN || c == id::MERCENARY {
+            let n = match c {
+                id::SPOILS => &mut self.spoils,
+                id::MADMAN => &mut self.madman,
+                _ => &mut self.mercenary,
+            };
+            if *n == 0 {
+                return false;
+            }
+            *n -= 1;
+            true
+        } else if cards::is_reward(c) {
             let n = &mut self.rewards[(c - cards::FIRST_REWARD) as usize];
             if *n == 0 {
                 return false;
@@ -890,7 +922,7 @@ impl GameState {
 
     /// What follows a card leaving its pile: it arrives, is logged, and its gain triggers run.
     #[inline(always)]
-    fn finish_gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, sink: &mut S) {
+    pub(crate) fn finish_gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, from_supply: bool, sink: &mut S) {
         let ps = &mut self.players[p as usize];
         match to {
             Dest::Hand => ps.hand.add(c, 1),
@@ -898,6 +930,10 @@ impl GameState {
             Dest::Discard => ps.discard.add(c, 1),
         }
         sink.event(Event::Gain { player: p, card: c, to, source });
+        // The top card of the Knights or Ruins pile was taken: the next one is revealed (it is drawn from the cards nobody has seen).
+        if from_supply && c >= cards::FIRST_PILE_CARD {
+            self.advance_pile(c);
+        }
         // Smugglers' gain record: "a card the player to your right gained on their last turn"
         // means gained during *their own* turn specifically, so this excludes a victim's forced
         // gain during someone else's turn (Witch's Curse, Bandit's Gold...), which is `p !=

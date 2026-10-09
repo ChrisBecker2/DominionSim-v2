@@ -88,6 +88,7 @@ pub fn turn_hash(state: &GameState, me: u8) -> u64 {
     hash_player(&state.players[me as usize], &mut h);
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
+    (state.spoils, state.madman, state.mercenary).hash(&mut h);
     hash_stack(&state.stack, &mut h);
     // Phase is already inside `turn`, but a defensive explicit tag costs nothing and guards
     // against ever changing what `turn`'s Hash impl covers.

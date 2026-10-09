@@ -169,8 +169,11 @@ card only has to say which kind of comparison it makes:
 | "Exactly the amount overpaid", Potion included (Overpay, official rules: Potions may be overpaid with, "only meaningful with Stonemason") | Gain frame `exact`, `potion` from `Choice::OverpayPotion` | Stonemason's overpay ($0P: Transmute; $2P: Apothecary...) | |
 | Costing "up to $N" from a count of names in play: never a Potion card | `gain_frame(.., N, ..)` | Horn of Plenty | |
 | A cost range for a set-up pile ($2-$3 Bane, $3-$4 Ferryman): coins only, Potion cards never qualify, the "+" of an overpay card is only a reminder | `cards::pile_eligible` | Young Witch's Bane, Ferryman's pile | |
-| "$X or more" includes Potion cards whose coins reach $X | not built yet: compare `cost(c) >= X` and ignore the Potion | none in these sets | Patrician, Treasure Hunter-style checks |
-| A range "$X to $Y" excludes Potion cards | not built yet: `X <= cost(c) <= Y && !potion_cost(c)` | none in these sets | Rogue, Graverobber, Knights-like ranges |
+| "$X or more" includes Potion cards whose coins reach $X | `Filter::CostAtLeast(X)` (compares the current coin cost, ignores the Potion) | Sage ($3 or more: a Familiar $3P counts; tested in `dark_ages_cards.rs`) | Patrician, Treasure Hunter-style checks |
+| A range "$X to $Y" excludes Potion cards | `Filter::CostRange(X, Y)` (current coin cost in the range and no Potion) | Rogue, Graverobber ("from $3 to $6"), the Knights' attack; a Familiar $3P in the trash or on top of a deck does not qualify | |
+| "Costing less than this card" for a play from the Supply: no Potion card (a Potion part is never smaller) | `Filter::ActionCostUpTo(cost - 1)` (non-Duration Action, no Potion) | Band of Misfits | |
+| "Exactly $1 more": the Potion copied | `Then::PlayTrash { gain: true, plus: 1 }` (an exact Gain frame) | Procession | |
+| "Up to $3 more than the trashed card": the Potion kept | `ModeOpt::TrashGain` → `Then::GainUpTo` | Graverobber, Rebuild (Victory cards) | |
 
 Buying: one Potion produced per Potion played (`TurnState::potions`), one spent per Potion card
 bought; unspent Potions are lost at end of turn (tested).

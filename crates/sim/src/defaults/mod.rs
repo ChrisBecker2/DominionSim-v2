@@ -18,6 +18,7 @@ use crate::strategy::Strategy;
 mod alchemy;
 mod base;
 mod cornucopia_guilds;
+mod dark_ages;
 mod intrigue;
 mod promo;
 mod prosperity;
@@ -55,6 +56,10 @@ macro_rules! with_set {
                 type $S = cornucopia_guilds::CornucopiaGuilds;
                 $body
             }
+            CardSet::DarkAges => {
+                type $S = dark_ages::DarkAges;
+                $body
+            }
         }
     };
 }
@@ -69,6 +74,10 @@ pub(super) trait SetDefaults {
     }
     /// The fast rule-order choice for the mode decision of `card` (see `Strategy::default_mode`).
     fn default_mode(_s: &Strategy, _view: &PlayerView, _card: CardId, _choices: &[Choice]) -> Option<Choice> {
+        None
+    }
+    /// A yes/no decision caused by `source` (a card of this set) that has its own policy, before the shape-based defaults.
+    fn yes_no(_s: &Strategy, _view: &PlayerView, _decision: &Decision, _source: CardId) -> Option<Choice> {
         None
     }
     /// A `Name` decision caused by `source`.
@@ -123,6 +132,11 @@ pub(super) fn default_mode(s: &Strategy, view: &PlayerView, card: CardId, choice
     with_set!(cards::set_of(card), S => S::default_mode(s, view, card, choices))
 }
 
+pub(super) fn yes_no(s: &Strategy, view: &PlayerView, decision: &Decision) -> Option<Choice> {
+    let source = decision.source?;
+    with_set!(cards::set_of(source), S => S::yes_no(s, view, decision, source))
+}
+
 pub(super) fn name(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, choices: &[Choice]) -> Option<Choice> {
     with_set!(cards::set_of(source), S => S::name(s, view, decision, source, choices))
 }
@@ -169,4 +183,5 @@ pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
         .or_else(|| alchemy::Alchemy::default_side_gain(choices))
         .or_else(|| promo::Promo::default_side_gain(choices))
         .or_else(|| cornucopia_guilds::CornucopiaGuilds::default_side_gain(choices))
+        .or_else(|| dark_ages::DarkAges::default_side_gain(choices))
 }

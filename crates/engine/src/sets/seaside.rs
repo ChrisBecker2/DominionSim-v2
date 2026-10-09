@@ -162,8 +162,8 @@ impl SetRules for Seaside {
                 let ps = &mut g.players[p as usize];
                 let self_trashed = !g.turn.prince_play && ps.in_play.remove(id::TREASURE_MAP);
                 if self_trashed {
-                    g.trash.add(id::TREASURE_MAP, 1);
-                    sink.event(Event::Trash { player: p, card: id::TREASURE_MAP });
+                    g.trash_card(p, id::TREASURE_MAP, true, sink);
+                    g.flush_trash_triggers(0, sink);
                 }
                 // "Trash this and a Treasure Map from your hand": the second one is not optional.
                 g.stack.push(Frame {
@@ -356,8 +356,8 @@ impl GameState {
             self.turn.corsair_trashed_first = true;
             let ps = &mut self.players[p as usize];
             if ps.in_play.remove(c) {
-                self.trash.add(c, 1);
-                sink.event(Event::Trash { player: p, card: c });
+                self.trash_card(p, c, true, sink);
+                self.flush_trash_triggers(0, sink);
             }
         }
     }

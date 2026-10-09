@@ -4,6 +4,7 @@ use crate::cards::CardId;
 use crate::rng::Rng;
 use crate::state::KnownStack;
 use crate::counts::Counts;
+use crate::sets::dark_ages::MixedPile;
 use crate::engine::{Choice, ChoiceBuf, Decision, EventSink, Step};
 use crate::state::{GameState, Phase, TurnState, MAX_PLAYERS};
 
@@ -125,12 +126,49 @@ impl<'a> PlayerView<'a> {
             self.state.rewards[(c - crate::cards::FIRST_REWARD) as usize]
         } else if c == self.state.ferryman && c != 0 && !self.state.in_supply(c) {
             self.state.ferryman_left
+        } else if let Some(pile) = MixedPile::of_marker(c) {
+            // The Knights or Ruins pile (named by its marker): the cards left in it.
+            self.state.pile_size(pile)
+        } else if c == crate::cards::id::SPOILS {
+            self.state.spoils
+        } else if c == crate::cards::id::MADMAN {
+            self.state.madman
+        } else if c == crate::cards::id::MERCENARY {
+            self.state.mercenary
         } else {
             self.state.supply.get(c)
         }
     }
     pub fn in_supply(&self, c: CardId) -> bool {
-        self.state.in_supply(c)
+        match MixedPile::of_marker(c) {
+            Some(pile) => self.state.has_pile(pile),
+            None => self.state.in_supply(c),
+        }
+    }
+    /// The top card of the Knights or Ruins pile (named by `pile`: `KNIGHTS`, `RUINS`, or any of its cards): the one card of it that may be
+    /// bought or gained, `None` when the pile is empty or not in the game. Public.
+    pub fn pile_top(&self, pile: CardId) -> Option<CardId> {
+        MixedPile::of(pile).and_then(|p| self.state.pile_top(p))
+    }
+    /// The cards of the Knights or Ruins pile nobody has seen: the cards that the pile's hidden part is drawn from (all copies of each
+    /// card less those in any player's zones, the trash and the top of the pile), in the order of the pile's cards. Public.
+    pub fn pile_unseen(&self, pile: CardId) -> Counts {
+        let mut out = Counts::EMPTY;
+        if let Some(p) = MixedPile::of(pile) {
+            let unseen = self.state.pile_unseen(p);
+            for (i, m) in p.members().enumerate() {
+                out.set(m, unseen[i]);
+            }
+        }
+        out
+    }
+    /// Whether the players started with Shelters.
+    pub fn shelters(&self) -> bool {
+        self.state.shelters
+    }
+    /// The cards left in the Spoils, Madman and Mercenary piles (outside the Supply).
+    pub fn spoils_left(&self) -> u8 {
+        self.state.spoils
     }
     /// This game's supply piles (card ids, in id order).
     pub fn supply_cards(&self) -> impl Iterator<Item = CardId> + '_ {
@@ -241,6 +279,10 @@ impl<'a> PlayerView<'a> {
         let mut s = *self.state;
         s.chance_mode = true;
         s.pause_at_turn_start = false;
+        // The state's own RNG stream is the real game's: it would reveal the next card of the Knights or Ruins pile exactly as it will
+        // be. The hidden part of those piles is not stored in the state at all (only the top card is), so a determinization needs nothing
+        // but a stream of its own to draw the next reveals from.
+        s.rng = Rng::new(rng.next_u64());
         for p in 0..s.num_players {
             if p == self.me {
                 continue;

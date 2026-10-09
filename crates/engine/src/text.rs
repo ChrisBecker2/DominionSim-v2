@@ -36,6 +36,12 @@
 //! (the cards set aside by Farmhands, played at the start of the next turn) and `cleanup aside:`
 //! (Joust's Province). The turn line adds `extra_draw`, `guilds` and `gained_in_buy` while nonzero.
 //!
+//! Dark Ages: the Knights pile is one `kingdom:` entry (`Knights`; the Ruins pile comes with a Looter and is not listed), `supply:` lists the
+//! top card of each of those piles with the number of cards left in the pile (`Sir Martin=9`; the other cards of the pile are not listed and
+//! have none), and `side piles:` also holds `Spoils=`, `Madman=` and `Mercenary=`. The hidden part of those piles is not stored at all (the next
+//! top card is drawn from the cards nobody has seen when the top card is taken). Shelters are implied by the players' decks (`Hovel`,
+//! `Necropolis`, `Overgrown Estate` anywhere in them).
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -343,8 +349,12 @@ pub fn format_state(state: &GameState) -> String {
 
     out.push_str(&format!("players: {n}\n"));
 
+    // The members of the Knights and Ruins piles are not listed (the Knights pile is one kingdom card; the Ruins come with a Looter).
     let mut kingdom: Vec<CardId> =
-        (cards::FIRST_KINGDOM..cards::NUM_CARDS as CardId).filter(|&c| state.in_supply(c)).collect();
+        (cards::FIRST_KINGDOM..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c)).collect();
+    if state.has_pile(&crate::sets::dark_ages::KNIGHTS_PILE) {
+        kingdom.push(cards::id::KNIGHTS);
+    }
     kingdom.sort_by_key(|&c| cards::name(c));
     let kingdom_str = kingdom.iter().map(|&c| cards::name(c)).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("kingdom: {kingdom_str}\n"));
@@ -364,13 +374,23 @@ pub fn format_state(state: &GameState) -> String {
             side.push(format!("{}={}", cards::name(cards::FIRST_REWARD + i as CardId), n));
         }
     }
+    // Dark Ages: Spoils, Madman and Mercenary, while a card that gains them is in the game (or a pile has cards).
+    let da_pile = |n: u8, gainers: &[CardId], card: CardId, side: &mut Vec<String>| {
+        if n > 0 || gainers.iter().any(|&g| state.in_supply(g)) {
+            side.push(format!("{}={}", cards::name(card), n));
+        }
+    };
+    da_pile(state.spoils, &[cards::id::BANDIT_CAMP, cards::id::MARAUDER, cards::id::PILLAGE], cards::id::SPOILS, &mut side);
+    da_pile(state.madman, &[cards::id::HERMIT], cards::id::MADMAN, &mut side);
+    da_pile(state.mercenary, &[cards::id::URCHIN], cards::id::MERCENARY, &mut side);
     if !side.is_empty() {
         out.push_str(&format!("side piles: {}\n", side.join(", ")));
     }
 
     let mut supply_parts = Vec::new();
     for c in 0..cards::NUM_CARDS as CardId {
-        if state.in_supply(c) {
+        // A mixed pile lists only its top card (the other members have none).
+        if state.in_supply(c) && (c < cards::FIRST_PILE_CARD || state.supply.get(c) > 0) {
             supply_parts.push(format!("{}={}", cards::name(c), state.supply.get(c)));
         }
     }
@@ -646,6 +666,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         num_players, kingdom, seed, max_turns,
         bane: named(&bane_val, "bane")?,
         ferryman: named(&ferryman_val, "ferryman")?,
+        // The decks are read from the text; `shelters` is derived from them below.
+        shelters: Some(false),
     };
     let mut state = GameState::new(&cfg);
     state.stack = FrameStack::default();
@@ -655,6 +677,12 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     }
 
     if let Some((ln, s)) = &supply_val {
+        // The piles `new` dealt are replaced by what the text says: only the listed top card of a mixed pile has cards.
+        for pile in [&crate::sets::dark_ages::KNIGHTS_PILE, &crate::sets::dark_ages::RUINS_PILE] {
+            for m in pile.members() {
+                state.supply.set(m, 0);
+            }
+        }
         for pair in split_parts(s) {
             let (name_part, count_part) =
                 pair.split_once('=').ok_or_else(|| format!("line {ln}: expected 'Card=Count' in supply, found '{pair}'"))?;
@@ -682,6 +710,12 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 state.rewards[(id - cards::FIRST_REWARD) as usize] = count;
             } else if id == state.ferryman && id != 0 {
                 state.ferryman_left = count;
+            } else if id == cards::id::SPOILS {
+                state.spoils = count;
+            } else if id == cards::id::MADMAN {
+                state.madman = count;
+            } else if id == cards::id::MERCENARY {
+                state.mercenary = count;
             } else {
                 return Err(format!("line {ln}: '{}' is not a pile outside the Supply in this game", name_part.trim()));
             }
@@ -871,6 +905,11 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         return Err(format!("expected {num_players} '[player N]' blocks, found {seen}"));
     }
 
+    // Shelters were in the starting decks if any player holds one anywhere.
+    state.shelters = state.players[..num_players].iter().any(|ps| {
+        let all = ps.all_cards();
+        all.has(cards::id::HOVEL) || all.has(cards::id::NECROPOLIS) || all.has(cards::id::OVERGROWN_ESTATE)
+    });
     for ps in state.players[..num_players].iter_mut() {
         if ps.prince_stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
             ps.prince_stays.add(cards::id::PRINCE, 1);

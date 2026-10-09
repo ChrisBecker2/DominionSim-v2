@@ -31,6 +31,7 @@ use crate::state::{Dest, GameState, PendingDuration};
 pub mod alchemy;
 pub mod base;
 pub mod cornucopia_guilds;
+pub mod dark_ages;
 pub mod intrigue;
 pub mod promo;
 pub mod prosperity;
@@ -39,6 +40,7 @@ pub mod seaside;
 use alchemy::Alchemy;
 use base::Base;
 use cornucopia_guilds::CornucopiaGuilds;
+use dark_ages::DarkAges;
 use intrigue::Intrigue;
 use promo::Promo;
 use prosperity::Prosperity;
@@ -49,9 +51,9 @@ pub(crate) mod prelude {
     pub(crate) use super::SetRules;
     pub(crate) use crate::cards::{
         self, choice_free, has_choice, id, order_sensitive, plays, potion_card, with_p, CardDef, CardId, CardSet, ModeOpt,
-        ACTION, ATTACK, COMMAND, CURSE_T, DURATION, REACTION, REWARD, TREASURE, VICTORY,
+        ACTION, ATTACK, COMMAND, CURSE_T, DURATION, KNIGHT, LOOTER, REACTION, REWARD, RUINS, SHELTER, TREASURE, VICTORY,
     };
-    pub(crate) use crate::cards::{alchemy, c, cg, intrigue, promo, prosperity, seaside};
+    pub(crate) use crate::cards::{alchemy, c, cg, da, intrigue, on_trash, promo, prosperity, seaside};
     pub(crate) use crate::counts::Counts;
     pub(crate) use crate::effects::{draw_frame, gain_frame, mode_frame, select, take_top, ALL};
     pub(crate) use crate::engine::*;
@@ -92,6 +94,10 @@ macro_rules! with_set {
                 type $S = $crate::sets::cornucopia_guilds::CornucopiaGuilds;
                 $body
             }
+            $crate::cards::CardSet::DarkAges => {
+                type $S = $crate::sets::dark_ages::DarkAges;
+                $body
+            }
         }
     };
 }
@@ -108,10 +114,13 @@ pub(crate) trait SetRules {
     /// Cards with a "when you gain" effect or passive, as bits of `GameState::in_supply.lo` (ids below 128)
     /// and `.hi` (ids from 128): when none is in the game, `GameState::gain` skips every trigger.
     const GAIN_LO: u128 = 0;
-    const GAIN_HI: u64 = 0;
+    const GAIN_HI: u128 = 0;
     /// Reaction cards that, revealed from the hand when another player plays an Attack, leave their
     /// owner unaffected by it (Moat). Revealing is the owner's choice (`Then::BlockAttack`).
     const BLOCK_REACTIONS: &'static [CardId] = &[];
+    /// Reactions that, discarded or revealed from the hand when another player plays an Attack, do something of their own:
+    /// `(card, how it leaves the hand, what follows)` (Beggar: discard it to gain two Silvers). Asked in the Attack's reaction window.
+    const ATTACK_REACTIONS: &'static [(CardId, crate::state::Act, crate::state::Then)] = &[];
     /// Reactions that offer an optional effect (not a block) when another player plays an Attack:
     /// `(card, minimum hand size to reveal, cards drawn, cards then discarded)` (Diplomat).
     const REACTION_EFFECTS: &'static [(CardId, u8, u8, u8)] = &[];
@@ -192,6 +201,8 @@ pub(crate) trait SetRules {
     }
     /// The end of the Buy phase, before the cleanup offers (Merchant Guild's Coffers).
     fn end_of_buy<S: EventSink>(_g: &mut GameState, _sink: &mut S) {}
+    /// The "when you trash this" effect of `card` (the cards marked `on_trash`) for `p`, who was told to trash it: pushes frames or acts at once.
+    fn on_trash<S: EventSink>(_g: &mut GameState, _p: u8, _card: CardId, _sink: &mut S) {}
     /// Offers "when you discard this from play" (Treasury, Herbalist), pushed as frames.
     fn offers_on_discard(_g: &mut GameState) {}
     /// Offers "at the start of Clean-up" (Alchemist, Walled Village), pushed as frames.
@@ -215,10 +226,10 @@ pub(crate) trait SetRules {
 /// Number of cards of every set (ids are dense: `0..NUM_CARDS`).
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
-        + CornucopiaGuilds::CARDS.len();
+        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 7] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 8] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -226,6 +237,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Alchemy, Alchemy::CARDS),
         (CardSet::Promo, Promo::CARDS),
         (CardSet::CornucopiaGuilds, CornucopiaGuilds::CARDS),
+        (CardSet::DarkAges, DarkAges::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -281,9 +293,10 @@ macro_rules! concat_sets {
             + Prosperity::$name.len()
             + Alchemy::$name.len()
             + Promo::$name.len()
-            + CornucopiaGuilds::$name.len();
+            + CornucopiaGuilds::$name.len()
+            + DarkAges::$name.len();
         const A: [$T; N] = concat::<$T, N>(
-            &[Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name],
+            &[Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name, DarkAges::$name],
             $zero,
         );
         &A
@@ -292,6 +305,9 @@ macro_rules! concat_sets {
 
 /// Reaction cards that block an Attack when revealed (every set's `BLOCK_REACTIONS`).
 pub static BLOCK_REACTIONS: &[CardId] = concat_sets!(CardId, 0, BLOCK_REACTIONS);
+/// Reactions with an effect of their own to an Attack (every set's `ATTACK_REACTIONS`).
+pub static ATTACK_REACTIONS: &[(CardId, crate::state::Act, crate::state::Then)] =
+    concat_sets!((CardId, crate::state::Act, crate::state::Then), (0, crate::state::Act::Discard, crate::state::Then::Nothing), ATTACK_REACTIONS);
 /// Reactions with an optional effect (every set's `REACTION_EFFECTS`).
 pub static REACTION_EFFECTS: &[(CardId, u8, u8, u8)] = concat_sets!((CardId, u8, u8, u8), (0, 0, 0, 0), REACTION_EFFECTS);
 /// Cards whose owner is unaffected by Attacks while they are in play (every set's `IMMUNE_IN_PLAY`).
@@ -299,9 +315,9 @@ pub static IMMUNE_IN_PLAY: &[CardId] = concat_sets!(CardId, 0, IMMUNE_IN_PLAY);
 
 /// Bits of `in_supply.lo` / `.hi` of every card with a gain trigger, over all sets.
 pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO | Prosperity::GAIN_LO | Alchemy::GAIN_LO | Promo::GAIN_LO
-    | CornucopiaGuilds::GAIN_LO;
-pub const GAIN_HI: u64 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
-    | CornucopiaGuilds::GAIN_HI;
+    | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO;
+pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
+    | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -372,6 +388,10 @@ pub(crate) fn take_start_effect<S: EventSink>(g: &mut GameState, p: u8, e: &Pend
     with_set!(set_of(e.card), T => T::take_start_effect(g, p, e, sink))
 }
 
+pub(crate) fn on_trash<S: EventSink>(g: &mut GameState, p: u8, card: CardId, sink: &mut S) {
+    with_set!(set_of(card), T => T::on_trash(g, p, card, sink))
+}
+
 pub(crate) fn overpay_possible(g: &GameState, card: CardId) -> bool {
     with_set!(set_of(card), S => S::overpay_possible(g, card))
 }
@@ -398,7 +418,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
-    g.in_supply.any(GAIN_LO, GAIN_HI) || CornucopiaGuilds::gain_live_extra(g)
+    g.in_supply.any(GAIN_LO, GAIN_HI) || CornucopiaGuilds::gain_live_extra(g) || DarkAges::gain_live_extra(g)
 }
 
 /// Every "when you gain" trigger for `p` gaining `c` (moved to `to`). The order is the order the
@@ -408,6 +428,9 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
 pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
     if g.in_supply.hi & CornucopiaGuilds::GAIN_HI != 0 || CornucopiaGuilds::gain_live_extra(g) {
         CornucopiaGuilds::gain_triggers(g, p, c, to, on_buy, sink);
+    }
+    if g.in_supply.hi & DarkAges::GAIN_HI != 0 || DarkAges::gain_live_extra(g) {
+        DarkAges::gain_triggers(g, p, c, to, on_buy, sink);
     }
     if g.in_supply.lo & Seaside::GAIN_LO != 0 {
         Seaside::gain_triggers(g, p, c, to, on_buy, sink);
@@ -420,6 +443,7 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
 /// The end of the Buy phase (before the cleanup offers).
 pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
     CornucopiaGuilds::end_of_buy(g, sink);
+    DarkAges::end_of_buy(g, sink);
 }
 
 /// The offers made at the end of the Buy phase, pushed in the order below: the stack pops the last first, so

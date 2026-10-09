@@ -97,7 +97,19 @@ impl RulesOrNames {
 /// Built-in trash rules, used below the strategy's own `[[trash]]` rules (skipping any card the
 /// strategy lists itself): Curse, then Estate, then Copper (treasures never below
 /// `keep_treasure` in hand).
-const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[("Curse", None), ("Estate", None), ("Copper", None)];
+const DEFAULT_TRASH: &[(&str, Option<&str>)] = &[
+    ("Curse", None),
+    // Dark Ages junk: the Ruins, and the Shelters that do nothing (Hovel) or draw when trashed (Overgrown Estate).
+    ("Abandoned Mine", None),
+    ("Ruined Library", None),
+    ("Ruined Market", None),
+    ("Ruined Village", None),
+    ("Survivors", None),
+    ("Hovel", None),
+    ("Overgrown Estate", None),
+    ("Estate", None),
+    ("Copper", None),
+];
 
 /// Case/space-insensitive normalization for matching a `[[mode]] choose = "..."` string against
 /// `ModeOpt::label()`.
@@ -105,14 +117,26 @@ fn norm_label(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect()
 }
 
+/// The cards a rule naming `card` stands for: the card itself, or for the Knights or Ruins pile ("Knights", "Ruins") each of the pile's
+/// cards in turn (so a rule for "Knights" applies to whichever Knight is on top, or in the hand, and the rule's position and condition
+/// are the same for every one).
+fn expand_pile(card: CardId) -> Vec<CardId> {
+    match dominion_engine::sets::dark_ages::MixedPile::of_marker(card) {
+        Some(pile) => pile.members().collect(),
+        None => vec![card],
+    }
+}
+
 fn compile_rules(raw: &[BuyRuleRaw], what: &str) -> Result<Vec<(CardId, Option<Expr>)>, String> {
-    raw.iter()
-        .map(|r| {
-            let card = cards::by_name(&r.card).ok_or_else(|| format!("unknown card {:?} in {what} list", r.card))?;
-            let cond = r.cond.as_deref().map(Expr::parse).transpose()?;
-            Ok((card, cond))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for r in raw {
+        let card = cards::by_name(&r.card).ok_or_else(|| format!("unknown card {:?} in {what} list", r.card))?;
+        let cond = r.cond.as_deref().map(Expr::parse).transpose()?;
+        for c in expand_pile(card) {
+            out.push((c, cond.clone()));
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Deserialize, Default)]
@@ -199,7 +223,9 @@ impl Strategy {
         for rule in rules {
             let card = cards::by_name(&rule.card).ok_or_else(|| format!("unknown card {:?} in gain list", rule.card))?;
             let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
-            buy.push((card, cond));
+            for c in expand_pile(card) {
+                buy.push((c, cond.clone()));
+            }
         }
 
         let play = compile_rules(&raw.play.into_rules(), "play")?;
@@ -258,7 +284,10 @@ impl Strategy {
                 .never_gain
                 .iter()
                 .map(|n| cards::by_name(n).ok_or_else(|| format!("unknown card {n:?} in never_gain")))
-                .collect::<Result<_, _>>()?,
+                .collect::<Result<Vec<CardId>, _>>()?
+                .into_iter()
+                .flat_map(expand_pile)
+                .collect(),
             search_play: raw.search_play,
         })
     }
@@ -270,9 +299,22 @@ impl Strategy {
         let mut out = Vec::new();
         let mut push = |c: CardId| {
             // Potion joins the supply by itself whenever a Potion-cost card is in the kingdom.
-            // A Reward is never in the kingdom (Joust gains it): naming one asks for Joust.
-            let c = if cards::is_reward(c) { id::JOUST } else { c };
-            if c >= cards::FIRST_KINGDOM && c != id::POTION && !out.contains(&c) {
+            // A Reward is never in the kingdom (Joust gains it): naming one asks for Joust. The same for Madman (Hermit), Mercenary
+            // (Urchin) and a Knight (the Knights pile); the Ruins come with a Looter and Spoils with its gainers, so naming them
+            // asks for nothing.
+            let c = if cards::is_reward(c) {
+                id::JOUST
+            } else if c == id::MADMAN {
+                id::HERMIT
+            } else if c == id::MERCENARY {
+                id::URCHIN
+            } else if c >= cards::id::DAME_ANNA {
+                id::KNIGHTS
+            } else {
+                c
+            };
+            let kingdom = cards::is_kingdom(c);
+            if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
         };
@@ -375,6 +417,9 @@ impl Strategy {
                 }
             }
             DecisionKind::Mode { .. } => self.choose_mode(view, decision, choices),
+            DecisionKind::YesNo { .. } if defaults::yes_no(self, view, decision).is_some() => {
+                defaults::yes_no(self, view, decision).unwrap()
+            }
             DecisionKind::YesNo { act } => match act {
                 // A free extra play is (almost) always worth taking (Vassal).
                 Act::Play => Choice::Yes,
@@ -736,6 +781,8 @@ impl Strategy {
             -1000
         } else if cards::is(card, VICTORY) {
             -500
+        } else if cards::is(card, cards::RUINS) || card == id::HOVEL {
+            -400
         } else {
             cards::cost(card) as i32
         }
@@ -1392,8 +1439,11 @@ mod tests {
         assert_eq!(s.buy.len(), 2);
         assert_eq!(s.play_rank[id::VILLAGE as usize], 0);
         assert_eq!(s.play_rank[id::SMITHY as usize], 1);
-        // With no stated trash rules, the defaults: Curse, Estate, Copper.
-        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::CURSE, id::ESTATE, id::COPPER]);
+        // With no stated trash rules, the defaults: Curse, the Dark Ages junk (Ruins, Hovel, Overgrown Estate), Estate, Copper.
+        let names: Vec<&str> = s.trash.iter().map(|(c, _)| cards::name(*c)).collect();
+        assert_eq!(names.first(), Some(&"Curse"));
+        assert_eq!(&names[names.len() - 2..], ["Estate", "Copper"]);
+        assert!(names.contains(&"Hovel") && names.contains(&"Survivors"));
     }
 
     #[test]
@@ -1415,8 +1465,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.play.len(), 2);
-        // Stated Estate rule first (replacing the default Estate rule), then Curse and Copper defaults.
-        assert_eq!(s.trash.iter().map(|(c, _)| *c).collect::<Vec<_>>(), vec![id::ESTATE, id::CURSE, id::COPPER]);
+        // Stated Estate rule first (replacing the default Estate rule), then the other defaults.
+        let names: Vec<&str> = s.trash.iter().map(|(c, _)| cards::name(*c)).collect();
+        assert_eq!(names[0], "Estate");
+        assert_eq!(names[1], "Curse");
+        assert_eq!(*names.last().unwrap(), "Copper");
+        assert_eq!(names.iter().filter(|&&n| n == "Estate").count(), 1);
     }
 
     #[test]

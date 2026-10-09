@@ -49,16 +49,16 @@ fn buy_phase(g: &mut GameState, coins: u16) {
 
 #[test]
 fn the_set_has_26_kingdom_cards_and_6_rewards() {
-    assert_eq!(cards::NUM_CARDS, 161);
-    assert_eq!(CardSet::ALL.len(), 7);
+    assert_eq!(cards::NUM_CARDS, 218);
+    assert_eq!(CardSet::ALL.len(), 8);
     assert_eq!(cards::set_by_name("Cornucopia & Guilds"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(cards::set_by_name("cornucopia"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(CardSet::CornucopiaGuilds.name(), "Cornucopia & Guilds");
     let in_set = |set| (cards::FIRST_KINGDOM..cards::NUM_CARDS as CardId).filter(|&c| cards::is_kingdom(c) && cards::set_of(c) == set).count();
     assert_eq!(in_set(CardSet::CornucopiaGuilds), 26);
-    let rewards: Vec<&str> = (cards::FIRST_REWARD..cards::NUM_CARDS as CardId).map(cards::name).collect();
+    let rewards: Vec<&str> = (cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId).map(cards::name).collect();
     assert_eq!(rewards, ["Coronet", "Courser", "Demesne", "Housecarl", "Huge Turnip", "Renown"]);
-    for c in cards::FIRST_REWARD..cards::NUM_CARDS as CardId {
+    for c in cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId {
         assert!(cards::is_reward(c) && !cards::is_kingdom(c), "{} is not a kingdom card", cards::name(c));
         assert!(cards::is(c, cards::REWARD) && cards::set_of(c) == CardSet::CornucopiaGuilds);
         assert_eq!(cards::cost(c), 0, "the Rewards cost $0*");
@@ -2041,14 +2041,14 @@ fn rewards_are_not_in_the_supply_cannot_be_bought_or_gained_by_other_cards() {
     let mut g = new_state(&[id::JOUST, id::WORKSHOP, id::HORN_OF_PLENTY], 2);
     set_hand(&mut g, 0, &[id::WORKSHOP]);
     play(&mut g, id::WORKSHOP);
-    for r in cards::FIRST_REWARD..cards::NUM_CARDS as CardId {
+    for r in cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId {
         assert!(!choices(&g).contains(&Choice::Card(r)), "{}", cards::name(r));
     }
     // Buying: none offered with plenty of money.
     let mut g = new_state(&[id::JOUST], 2);
     buy_phase(&mut g, 20);
     expect_decision(&mut g);
-    for r in cards::FIRST_REWARD..cards::NUM_CARDS as CardId {
+    for r in cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId {
         assert!(!choices(&g).contains(&Choice::Card(r)));
     }
     // An empty Rewards pile does not count toward the end.

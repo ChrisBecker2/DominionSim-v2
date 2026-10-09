@@ -51,6 +51,11 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         if cards::is_reward(c) {
             return Err(format!("{name:?} is a Reward (gained by Joust), not a kingdom card"));
         }
+        // A Knight stands for the Knights pile (one kingdom card); Ruins, Shelters, Spoils, Madman and Mercenary come with the cards that give them.
+        let c = if c >= cards::id::DAME_ANNA { cards::id::KNIGHTS } else { c };
+        if !cards::is_kingdom(c) && !cards::is_optional_basic(c) {
+            return Err(format!("{name:?} is not a kingdom card (the Ruins come with a Looter, Shelters with Dark Ages, Spoils, Madman and Mercenary with their cards)"));
+        }
         if out.contains(&c) {
             return Err(format!("{name:?} listed twice in --kingdom"));
         }
@@ -83,13 +88,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\" and/or \"cornucopia\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\" and/or \"dark ages\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\" and/or \"cornucopia\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\" and/or \"dark ages\")".into());
     }
     Ok(out)
 }
@@ -141,6 +146,18 @@ mod tests {
     }
 
     #[test]
+    fn dark_ages_kingdoms_name_the_knights_as_one_pile() {
+        let k = resolve("Sir Martin,Dame Anna,Cultist,Rats,Hermit,Urchin,Squire,Forager,Sage,Altar", &[], 1);
+        assert!(k.is_err(), "two Knights are one kingdom card: nine cards");
+        let k = resolve("Sir Martin,Cultist,Rats,Hermit,Urchin,Squire,Forager,Sage,Altar,Catacombs", &[], 1).unwrap();
+        assert!(k.contains(&cards::id::KNIGHTS) && !k.contains(&cards::id::SIR_MARTIN));
+        assert!(resolve("Ruined Market,Cultist,Rats,Hermit,Urchin,Squire,Forager,Sage,Altar,Catacombs", &[], 1).is_err());
+        let r = resolve("random:dark ages", &[], 4).unwrap();
+        assert_eq!(r.len(), 10);
+        assert!(r.iter().all(|&c| cards::set_of(c) == CardSet::DarkAges && cards::is_kingdom(c)));
+    }
+
+    #[test]
     fn rejects_wrong_count() {
         assert!(resolve("Village,Smithy", &[], 1).is_err());
     }
@@ -170,7 +187,7 @@ mod tests {
     #[test]
     fn random_rejects_unknown_set() {
         // Every shipped set is recognized; use a genuinely unknown one.
-        assert!(resolve("random:dark-ages", &[], 1).is_err());
+        assert!(resolve("random:nonsense", &[], 1).is_err());
     }
 
     #[test]

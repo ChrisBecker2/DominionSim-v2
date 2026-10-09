@@ -1,0 +1,44 @@
+# Junk Dealer and Count (Dark Ages) — thin the deck with Junk Dealer (a cantrip that gives $1 and trashes a card) and pay
+# for it with Count's +$3 (gaining a Copper for the first choice, so there is always something to trash). Big Money endgame. Pair with `--kingdom auto`.
+
+name = "Junk Dealer Count"
+description = "Big Money with Junk Dealers thinning and a Count for payload."
+
+[[gain]]
+card = "Province"
+if = "money > 12"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Count"
+if = "count(Count) < 1"
+
+[[gain]]
+card = "Junk Dealer"
+if = "count(Junk Dealer) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Junk Dealer"
+
+[[play]]
+card = "Count"
+
+[[trash]]
+card = "Estate"
+
+[[trash]]
+card = "Copper"
+if = "count(Gold) >= 1"

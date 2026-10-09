@@ -262,13 +262,14 @@ impl GameState {
             }
             Some(c) => {
                 self.stack.pop();
-                self.trash.add(c, 1);
-                sink.event(Event::Trash { player: p, card: c });
                 let cost = self.cost(c);
                 self.stack.push(Frame {
                     chooser: f.chooser, max: cost, exact: true, potion: cards::potion_cost(c), dest: Dest::Discard, depth: f.depth,
                     ..Frame::new(K::Gain, p, f.source)
                 });
+                // The victim's "when you trash this" effects come before the gain.
+                self.trash_card(p, c, true, sink);
+                self.flush_trash_triggers(f.depth, sink);
             }
         }
         Run::Continue

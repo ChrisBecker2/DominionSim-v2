@@ -157,7 +157,14 @@ impl Expr {
         match self {
             Num(n) => *n,
             Var(v) => v.eval(view),
-            Count(c) => view.my_cards().get(*c) as i64,
+            Count(c) => match dominion_engine::sets::dark_ages::MixedPile::of_marker(*c) {
+                // `count(Knights)`: Knights owned, of any of the ten names.
+                Some(pile) => {
+                    let mine = view.my_cards();
+                    pile.members().map(|m| mine.get(m) as i64).sum()
+                }
+                None => view.my_cards().get(*c) as i64,
+            },
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
             WinsGame => card.is_some_and(|c| view.result_if_gained(c) == Some(1 << view.me())) as i64,

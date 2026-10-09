@@ -58,9 +58,18 @@ exhaustive):
   order there is the order frames are pushed in; read the comment above each before choosing where the set goes.
 * `pub use` of the set's ids in `cards::id` (`cards.rs`).
 
-Capacity (the build asserts it): `counts.rs` `LANES` must cover `NUM_CARDS` (a multiple of 32 keeps whole-game speed),
-and `SupplyMask` in `state.rs` is a `u128` plus a `u64`, so ids at 192 and above need it widened (and `GAIN_HI`,
-which is a `u64`, with it). `strategy.rs` and `eval.rs` size arrays by `NUM_CARDS`.
+Capacity (the build asserts it): `counts.rs` `LANES` must cover `NUM_CARDS` (a multiple of 32 keeps whole-game speed;
+224 since Dark Ages, which cost whole games about 5%), and `SupplyMask` in `state.rs` is two `u128`s (ids 0-255; `GAIN_HI` is
+a `u128` too), so ids at 256 and above need a third word. `strategy.rs` and `eval.rs` size arrays by `NUM_CARDS`.
+
+Things a set may need that the Dark Ages added, all generic: a *mixed pile* (`sets::dark_ages::MixedPile`: members with
+consecutive ids at the top of the id range, a marker id for the pile, the top card holds the pile size; see the plan);
+`SetRules::on_trash` (+ the `on_trash(..)` flag on the card's definition) for a "when you trash this" effect, with every
+trash going through `GameState::trash_card` and `flush_trash_triggers`; `SetRules::ATTACK_REACTIONS` (a card in hand that is
+discarded or revealed when another player plays an Attack and then does something); `Filter::Types`, `CostRange`,
+`CostAtLeast`; `FrameKind::Ask` (an optional effect with no card to act on); a Mode frame's `Then::ModeWindow` (one table
+serving two separate choices); non-Supply piles as `GameState` counters (`spoils`, `madman`, `mercenary`, taken with
+`gain_side`).
 
 New game state (a mat, a token, a per-turn counter): a field in `PlayerState` / `TurnState` (`state.rs`), counted in
 `PlayerState::all_cards` if its cards are the player's for scoring, written and parsed in `text.rs` (old saves must

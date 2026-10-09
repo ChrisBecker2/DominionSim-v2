@@ -1,0 +1,46 @@
+# Knights, Rebuild and Cultist (Dark Ages) — Big Money that attacks twice over: Knights (a rule for "Knights" buys whichever
+# Knight is on top of the pile; there is no need to name them) and Cultist hand out Ruins and trash the opponent's good
+# cards, and Rebuild turns Estates and Duchies into Provinces late in the game. Needs Knights and Cultist in the kingdom:
+# pair with `--kingdom auto`.
+
+name = "Knights Rebuild Cultist"
+description = "Big Money with Knights and Cultists attacking, and a Rebuild to upgrade the green cards."
+
+[[gain]]
+card = "Province"
+if = "money > 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Knights"
+if = "count(Knights) < 3"
+
+[[gain]]
+card = "Cultist"
+if = "count(Cultist) < 2"
+
+[[gain]]
+card = "Rebuild"
+if = "count(Rebuild) < 1 and provinces_left <= 6"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Cultist"
+
+[[play]]
+card = "Knights"
+
+[[play]]
+card = "Rebuild"

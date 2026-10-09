@@ -27,18 +27,18 @@ pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_C
 /// multiplied one).
 pub const DURATION_HELD_CAP: usize = 8;
 
-/// The card ids that have a pile in the Supply: a `u128` for ids below 128 and a `u64` for the
-/// rest (Cornucopia & Guilds took the id count past 128).
+/// The card ids that have a pile in the Supply: a `u128` for ids below 128 and another for ids
+/// 128 and up (Cornucopia & Guilds took the id count past 128, Dark Ages past 192).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct SupplyMask {
     pub lo: u128,
-    pub hi: u64,
+    pub hi: u128,
 }
 
 /// Iterator over the card ids of a `SupplyMask`, in id order.
 pub struct SupplyCards {
     lo: u128,
-    hi: u64,
+    hi: u128,
 }
 
 impl Iterator for SupplyCards {
@@ -62,19 +62,19 @@ impl Iterator for SupplyCards {
 impl SupplyMask {
     #[inline(always)]
     pub fn has(&self, c: CardId) -> bool {
-        if c < 128 { self.lo & (1u128 << c) != 0 } else { self.hi & (1u64 << (c - 128)) != 0 }
+        if c < 128 { self.lo & (1u128 << c) != 0 } else { self.hi & (1u128 << (c - 128)) != 0 }
     }
     #[inline]
     pub fn insert(&mut self, c: CardId) {
         if c < 128 {
             self.lo |= 1u128 << c;
         } else {
-            self.hi |= 1u64 << (c - 128);
+            self.hi |= 1u128 << (c - 128);
         }
     }
     /// Whether any card of either mask word is in the Supply (the gain-trigger gates).
     #[inline(always)]
-    pub fn any(&self, lo: u128, hi: u64) -> bool {
+    pub fn any(&self, lo: u128, hi: u128) -> bool {
         (self.lo & lo) != 0 || (self.hi & hi) != 0
     }
 }
@@ -815,6 +815,46 @@ pub enum Filter {
     /// staying in play for next turn (Astrolabe). Decided against the live game
     /// (`GameState::filter_ok`); `matches` can only say "a Treasure".
     TreasureToDiscard,
+    /// A card of a named group of types (see [`TypeSet`]): an Attack (Squire), a non-Duration Action (Procession), a Ruins (Cultist), ...
+    Types(TypeSet),
+    /// Any card that isn't a Treasure (Hermit), Curse counting as one under Charlatan (`GameState::filter_ok`).
+    NonTreasure,
+    /// A non-Duration Treasure (Counterfeit), Curse counting under Charlatan (`GameState::filter_ok`).
+    TreasureNonDuration,
+    /// A card costing at least `n` coins now, Potion or not (Sage: "costing $3 or more"; a Potion card with $3 counts).
+    CostAtLeast(u8),
+    /// A card with no Potion in its cost, costing from `lo` to `hi` coins now (Rogue, Graverobber, the Knights: "from $3 to $6").
+    CostRange(u8, u8),
+    /// A Victory card other than the named one (Rebuild).
+    VictoryNot(CardId),
+}
+
+/// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeSet {
+    /// Attack cards.
+    Attack,
+    /// Ruins.
+    Ruins,
+    /// Action cards.
+    Action,
+    /// Action cards that are not Durations.
+    ActionNotDuration,
+    /// A Curse, Ruins, Shelter or Victory card (Vagrant).
+    CurseRuinsShelterVictory,
+}
+
+impl TypeSet {
+    /// `(types of which a card needs at least one, types it may have none of)`.
+    pub const fn masks(self) -> (u16, u16) {
+        match self {
+            TypeSet::Attack => (cards::ATTACK, 0),
+            TypeSet::Ruins => (cards::RUINS, 0),
+            TypeSet::Action => (cards::ACTION, 0),
+            TypeSet::ActionNotDuration => (cards::ACTION, cards::DURATION),
+            TypeSet::CurseRuinsShelterVictory => (cards::CURSE_T | cards::RUINS | cards::SHELTER | cards::VICTORY, 0),
+        }
+    }
 }
 
 impl Filter {
@@ -842,6 +882,16 @@ impl Filter {
             Filter::ActionCostUpTo(n) => {
                 cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c)
             }
+            Filter::Types(set) => {
+                let (any, none) = set.masks();
+                let t = cards::def(c).types;
+                t & any != 0 && t & none == 0
+            }
+            Filter::NonTreasure => !cards::is(c, cards::TREASURE),
+            Filter::TreasureNonDuration => cards::is(c, cards::TREASURE) && !cards::is(c, cards::DURATION),
+            Filter::CostAtLeast(n) => cards::cost(c) >= n,
+            Filter::CostRange(lo, hi) => !cards::potion_cost(c) && (lo..=hi).contains(&cards::cost(c)),
+            Filter::VictoryNot(x) => c != x && cards::is(c, cards::VICTORY),
         }
     }
 }
@@ -1010,6 +1060,39 @@ pub enum Then {
     JoustReward,
     /// Select (Stonemason, trash from hand): gain `count` cards each costing less than the trashed card.
     GainLess { count: u8 },
+    /// YesNo (Market Square, discarded from the hand when one of its owner's cards is trashed): gain a Gold; offered again while another Market Square is in the hand.
+    MarketSquareGold,
+    /// YesNo (Beggar, discarded to another player's Attack): gain 2 Silvers, the first onto the deck.
+    BeggarGain,
+    /// YesNo (Urchin, trashed from play when another Attack is played): gain a Mercenary.
+    UrchinMercenary,
+    /// Select (Hermit, a non-Treasure from the discard pile): if none was picked, offer one from the hand.
+    HermitHand,
+    /// Select (Forager, trash): +$1 per differently named Treasure in the trash, counted once the trash's own effects are done.
+    ForagerCoins,
+    /// Select (Procession and Counterfeit, `Act::Play`): the picked card is played twice, then trashed if it can still be, and with
+    /// `gain` a card costing exactly `plus` more is gained (an Action).
+    PlayTrash { gain: bool, plus: u8 },
+    /// Select (the Knights' attack, trash from the victim's revealed cards): discard the rest; if a Knight was trashed, the attacker trashes
+    /// the Knight played (`source`).
+    KnightTrashed,
+    /// Select (Mercenary, trash from hand, up to 2): if two cards were trashed, +2 Cards, +$2 and the other players discard down to 3.
+    MercenaryBonus,
+    /// Select (Pillage, trash this from play): if it was trashed, gain 2 Spoils and the other players with 5 or more cards discard one of the attacker's choice.
+    PillageRest,
+    /// RevealTop (Ironmonger, the top card): +1 Action for an Action, +$1 for a Treasure and +1 Card for a Victory card, after the choice to discard it.
+    IronmongerReveal,
+    /// Name (Rebuild): reveal until a Victory card that was not named, trash it and gain a Victory card costing up to $3 more.
+    RebuildNamed,
+    /// Ask (Scavenger): put the deck into the discard pile.
+    DeckToDiscard,
+    /// Ask (Survivors): discard the revealed cards.
+    DiscardRevealedAsk,
+    /// Select (Death Cart, an Action from the hand): +$5 if one was trashed; otherwise the Death Cart itself may be trashed for it.
+    DeathCartHand,
+    /// Mode (Count): only the options `first..first + count` of the card's table are on offer in this frame, so that one table
+    /// serves a card that makes two separate choices.
+    ModeWindow { first: u8, count: u8 },
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1208,6 +1291,9 @@ pub enum FrameKind {
     /// Take the top card of `player`'s deck (chance-aware), move it by `act` (Jester: discard it) and
     /// run `then` on it.
     TopCard,
+    /// An optional effect with no card to act on (Scavenger's "put your deck into your discard pile", Survivors' "discard them"): Yes
+    /// runs `then`, No does nothing. Decision: `DecisionKind::YesNo`, subject 0.
+    Ask,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1278,11 +1364,40 @@ pub struct GameConfig {
     /// Ferryman's pile: an unused Kingdom card costing $3 or $4, outside the Supply. `None` = chosen
     /// from the kingdom when a Ferryman needs one (`cards::default_ferryman`).
     pub ferryman: Option<CardId>,
+    /// Whether the starting decks hold the three Shelters (Hovel, Necropolis, Overgrown Estate) instead of the three Estates.
+    /// `None` = the official rule, decided by the game's seed (`cards::uses_shelters`): always when every kingdom card is from
+    /// Dark Ages, never when none is, otherwise when a randomly chosen kingdom card is.
+    pub shelters: Option<bool>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None }
+    }
+}
+
+/// How many trashed cards wait for their "when you trash this" effects (`GameState::trash_queue`).
+pub const TRASH_QUEUE_CAP: usize = 12;
+
+/// Cards trashed whose effects have not been put on the stack yet: `(player told to trash, card, whether it was the player's own)`.
+/// A selection that trashes several cards trashes them all first and then resolves what they do (`Dark Ages`, "Count"); the queue
+/// is flushed into frames when the selection finishes (`GameState::flush_trash_triggers`). Empty between effects.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TrashQueue {
+    pub items: [(u8, CardId, bool); TRASH_QUEUE_CAP],
+    pub len: u8,
+}
+
+impl Default for TrashQueue {
+    fn default() -> Self {
+        TrashQueue { items: [(0, 0, false); TRASH_QUEUE_CAP], len: 0 }
+    }
+}
+
+impl TrashQueue {
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 }
 
@@ -1301,6 +1416,14 @@ pub struct GameState {
     pub ferryman_left: u8,
     /// The Rewards left (`cards::FIRST_REWARD + i`), outside the Supply: gained only by Joust.
     pub rewards: [u8; cards::NUM_REWARDS],
+    /// The Dark Ages piles outside the Supply: Spoils (15), Madman (10) and Mercenary (10), each 0 in a game without a card that gains it.
+    pub spoils: u8,
+    pub madman: u8,
+    pub mercenary: u8,
+    /// Whether the players started with Shelters (Hovel's reaction to a gained Victory card is live).
+    pub shelters: bool,
+    /// Trashed cards whose "when you trash this" effects are still to be put on the stack (see `TrashQueue`).
+    pub trash_queue: TrashQueue,
     pub trash: Counts,
     pub turn: TurnState,
     pub stack: FrameStack,
@@ -1356,6 +1479,8 @@ impl GameState {
         // The Bane pile is a Supply pile like the kingdom's (no allocation: this runs per game).
         let extra_bane = if bane != 0 && !has(bane) { Some(bane) } else { None };
         let kingdom = || cfg.kingdom.iter().copied().chain(extra_bane);
+        // Dark Ages: the Knights and Ruins piles, Spoils / Madman / Mercenary and the Shelters (one pass over the kingdom).
+        let da = crate::sets::dark_ages::setup(cfg, bane, ferryman, n);
         let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
             put(id::POTION, crate::sets::pile_size(id::POTION, n).unwrap());
@@ -1364,6 +1489,9 @@ impl GameState {
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
+            if k == id::KNIGHTS {
+                continue; // the pile of ten Knights is set up below
+            }
             // A set may size its own piles (Platinum 12, Potion 16); otherwise a Victory pile is 8 with 2 players and 12
             // with 3 or more (Colony too: unlike the Provinces, 5 and 6 players add none), any other pile 10.
             let pile = crate::sets::pile_size(k, n).unwrap_or(if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 });
@@ -1379,6 +1507,11 @@ impl GameState {
             ferryman,
             ferryman_left: if ferryman != 0 { pile_size(ferryman) } else { 0 },
             rewards: cg.rewards,
+            spoils: da.spoils,
+            madman: da.madman,
+            mercenary: da.mercenary,
+            shelters: da.shelters,
+            trash_queue: TrashQueue::default(),
             trash: Counts::EMPTY,
             turn: TurnState { phase: Phase::Setup, ..TurnState::start(0, 1) },
             stack: FrameStack::default(),
@@ -1391,8 +1524,21 @@ impl GameState {
         };
         for p in 0..n {
             s.players[p].deck_unknown.set(id::COPPER, 7);
-            s.players[p].deck_unknown.set(id::ESTATE, 3);
+            // The Shelters replace the Estates in the unknown deck: the opening hand is dealt from it with this game's RNG.
+            if da.shelters {
+                s.players[p].deck_unknown.set(id::HOVEL, 1);
+                s.players[p].deck_unknown.set(id::NECROPOLIS, 1);
+                s.players[p].deck_unknown.set(id::OVERGROWN_ESTATE, 1);
+            } else {
+                s.players[p].deck_unknown.set(id::ESTATE, 3);
+            }
             s.players[p].coffers = cg.starting_coffers;
+        }
+        if da.knights {
+            s.init_mixed_pile(&crate::sets::dark_ages::KNIGHTS_PILE, 10);
+        }
+        if da.ruins > 0 {
+            s.init_mixed_pile(&crate::sets::dark_ages::RUINS_PILE, da.ruins);
         }
         s.push_opening_deal();
         s
@@ -1479,13 +1625,22 @@ impl GameState {
         SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi }
     }
 
-    /// The cards left in the piles outside the Supply (Ferryman's and the Rewards).
+    /// The cards left in the piles outside the Supply (Ferryman's, the Rewards, Spoils, Madman and Mercenary).
     pub fn side_pile_cards(&self) -> u32 {
-        self.ferryman_left as u32 + self.rewards.iter().map(|&n| n as u32).sum::<u32>()
+        self.ferryman_left as u32
+            + self.rewards.iter().map(|&n| n as u32).sum::<u32>()
+            + self.spoils as u32
+            + self.madman as u32
+            + self.mercenary as u32
     }
 
     pub fn empty_piles(&self) -> u32 {
-        self.supply_cards().filter(|&c| self.supply.get(c) == 0).count() as u32
+        // The members of the Knights and Ruins piles are not piles of their own: each mixed pile is one pile, empty when it has no cards.
+        let mut n = self.supply_cards().filter(|&c| c < cards::FIRST_PILE_CARD && self.supply.get(c) == 0).count() as u32;
+        for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
+            n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
+        }
+        n
     }
 
     pub fn is_game_over(&self) -> bool {

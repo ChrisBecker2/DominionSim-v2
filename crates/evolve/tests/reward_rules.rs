@@ -11,7 +11,7 @@ use dominion_evolve::space::SearchSpace;
 #[test]
 fn the_space_offers_rewards_only_with_joust() {
     let with = SearchSpace::new(&[id::JOUST, id::SMITHY], &[]);
-    for r in cards::FIRST_REWARD..cards::NUM_CARDS as u8 {
+    for r in cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as u8 {
         assert!(with.gainable.contains(&r), "{}", cards::name(r));
     }
     let without = SearchSpace::new(&[id::SMITHY, id::VILLAGE], &[]);

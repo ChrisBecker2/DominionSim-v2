@@ -137,6 +137,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
           <label class="checkbox-row"><input type="checkbox" id="set-alchemy"> Alchemy</label>
           <label class="checkbox-row"><input type="checkbox" id="set-promo"> Promo</label>
           <label class="checkbox-row"><input type="checkbox" id="set-cornucopiaguilds"> Cornucopia &amp; Guilds</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-darkages"> Dark Ages</label>
         </div>
         <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
 
@@ -344,10 +345,10 @@ function renderChips(container, cardsList, selected) {
 // Form state
 // ---------------------------------------------------------------------------------------------
 
-var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds"];
+var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages"];
 // The checkbox id of a set: "set-" and its name's letters ("Cornucopia & Guilds" is set-cornucopiaguilds).
 function setBoxId(s) { return "set-" + s.toLowerCase().replace(/[^a-z]/g, ""); }
-// Alchemy, Promo and Cornucopia & Guilds are opt-in: the shipped strategies know nothing about Potions or Coffers.
+// Alchemy, Promo, Cornucopia & Guilds and Dark Ages are opt-in: the shipped strategies know nothing about Potions, Coffers or Ruins.
 var DEFAULT_SETS = ["Base", "Intrigue", "Seaside", "Prosperity"];
 
 var form = {

@@ -80,7 +80,7 @@ pub struct CornucopiaGuilds;
 
 impl SetRules for CornucopiaGuilds {
     const CARDS: &'static [(CardId, CardDef)] = CARDS;
-    const GAIN_HI: u64 = (1u64 << (id::FOOTPAD - 128)) | (1u64 << (id::FARMHANDS - 128)) | (1u64 << (id::FERRYMAN - 128));
+    const GAIN_HI: u128 = (1u128 << (id::FOOTPAD - 128)) | (1u128 << (id::FARMHANDS - 128)) | (1u128 << (id::FERRYMAN - 128));
 
     fn modes(card: CardId) -> &'static [ModeOpt] {
         match card {

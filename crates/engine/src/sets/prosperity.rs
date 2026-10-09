@@ -371,11 +371,11 @@ impl GameState {
             if self.is_treasure(tc) && !cards::is(tc, cards::DURATION) {
                 for _ in 0..n {
                     self.players[p as usize].in_play.remove(tc);
-                    self.trash.add(tc, 1);
-                    sink.event(Event::Trash { player: p, card: tc });
+                    self.trash_card(p, tc, true, sink);
                 }
             }
         }
+        self.flush_trash_triggers(1, sink);
     }
 }
 
@@ -393,9 +393,9 @@ impl GameState {
         if !ps.in_play.remove(f.source) {
             return;
         }
-        self.trash.add(f.source, 1);
+        self.trash_card(p, f.source, true, sink);
+        self.flush_trash_triggers(f.depth, sink);
         self.turn.used_up.add_or_drop(f.source, 1);
-        sink.event(Event::Trash { player: p, card: f.source });
         let hand = self.players[p as usize].hand;
         let mut distinct = 0u16;
         for (c, n) in hand.iter() {

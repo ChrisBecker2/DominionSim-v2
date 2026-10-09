@@ -15,6 +15,7 @@ use dominion_engine::state::{Act, Zone};
 
 use crate::strategy::Strategy;
 
+mod adventures;
 mod alchemy;
 mod base;
 mod cornucopia_guilds;
@@ -58,6 +59,10 @@ macro_rules! with_set {
             }
             CardSet::DarkAges => {
                 type $S = dark_ages::DarkAges;
+                $body
+            }
+            CardSet::Adventures => {
+                type $S = adventures::Adventures;
                 $body
             }
         }
@@ -173,6 +178,19 @@ pub(super) fn plays_last_rank(card: CardId) -> Option<u8> {
 pub(super) fn rule_play(s: &Strategy, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
     let source = decision.source?;
     with_set!(cards::set_of(source), S => S::rule_play(s, view, decision, choices))
+}
+
+/// Where to put token `tok` (Adventures).
+pub(super) fn choose_token(s: &Strategy, view: &PlayerView, tok: usize, choices: &[Choice]) -> Choice {
+    adventures::choose_token(s, view, tok, choices)
+}
+
+/// The stated `[[call]]` / `[[exchange]]` rule for a Reserve card / Traveller: `Some(yes)` if there is one for it.
+pub(super) fn stated_call(s: &Strategy, view: &PlayerView, card: CardId) -> Option<bool> {
+    adventures::stated_call(s, view, card)
+}
+pub(super) fn stated_exchange(s: &Strategy, view: &PlayerView, card: CardId) -> Option<bool> {
+    adventures::stated_exchange(s, view, card)
 }
 
 pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {

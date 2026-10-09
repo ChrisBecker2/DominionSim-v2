@@ -40,8 +40,9 @@ enum Cmd {
         /// --seed); "random" or "random:<sets>" (10 random kingdom cards from <sets>, seeded by
         /// --seed; a randomly drawn Prosperity card adds Platinum and Colony, the official rule);
         /// or a comma-separated list of exactly 10 kingdom card names (add "Platinum,Colony" to
-        /// this list explicitly for a Colony game). <sets> is any "+"-joined combination of
-        /// "base", "intrigue", "seaside", "prosperity", "alchemy", "promo", "cornucopia" and "dark ages" (random/random:<sets> without a suffix
+        /// this list explicitly for a Colony game; Events of Adventures may be added too, they are not kingdom cards, and random drawings from
+        /// adventures add 0 to 2 of them). <sets> is any "+"-joined combination of
+        /// "base", "intrigue", "seaside", "prosperity", "alchemy", "promo", "cornucopia", "dark ages" and "adventures" (random/random:<sets> without a suffix
         /// use base+intrigue).
         #[arg(long, default_value = "first-game")]
         kingdom: String,

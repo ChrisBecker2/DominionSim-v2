@@ -60,7 +60,11 @@
 use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
-use crate::state::{DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, FARM_CAP, KNOWN_CAP, PENDING_DURATIONS_CAP, PRINCE_CAP, StartList};
+use crate::state::{
+    AdvTurn, DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    ADV_MINUS_COIN, FARM_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
+    STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
+};
 use crate::state::Phase;
 
 // ---------------------------------------------------------------------------------------
@@ -146,7 +150,7 @@ fn split_parts(s: &str) -> Vec<&str> {
 /// (`ThroneRoom`, `throne room`). A count is `N` or `Nx` before the name (`3 Copper`, `3x Copper`,
 /// `3xCopper`).
 fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
-    const MAX_NAME_WORDS: usize = 3;
+    const MAX_NAME_WORDS: usize = 4;
     let toks: Vec<&str> = s.split(|c: char| c == ',' || c.is_whitespace()).filter(|t| !t.is_empty()).collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -219,8 +223,10 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         if n != 1 {
             return Err(format!("kingdom cards must be listed individually, found '{n} {name}'"));
         }
-        // Platinum and Colony may be listed to include them (Prosperity games with Colonies).
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) {
+        // Either half of the split pile Sauna/Avanto names the pile.
+        let id = if id == cards::id::AVANTO { cards::id::SAUNA } else { id };
+        // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events (Adventures).
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -282,13 +288,15 @@ struct TurnFields {
     extra_draw: u8,
     guilds: u8,
     gained_in_buy: u8,
+    /// Adventures per-turn state (the Events bought, Travelling Fair, Sauna, Mission).
+    adv: AdvTurn,
 }
 
 impl Default for TurnFields {
     fn default() -> Self {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
-            extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0,
+            extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(),
         }
     }
 }
@@ -335,6 +343,11 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "gained_in_buy" => {
                 f.gained_in_buy = val.parse().map_err(|_| format!("line {lineno}: invalid gained_in_buy '{val}'"))?
             }
+            "ev_bought" => f.adv.bought = val.parse().map_err(|_| format!("line {lineno}: invalid ev_bought '{val}'"))?,
+            "fair" => f.adv.fair = val.parse().map_err(|_| format!("line {lineno}: invalid fair '{val}'"))?,
+            "sauna" => f.adv.sauna = val.parse().map_err(|_| format!("line {lineno}: invalid sauna '{val}'"))?,
+            "mission" => f.adv.mission = val.parse().map_err(|_| format!("line {lineno}: invalid mission '{val}'"))?,
+            "no_buy" => f.adv.no_buy = val.parse().map_err(|_| format!("line {lineno}: invalid no_buy '{val}'"))?,
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -351,13 +364,21 @@ pub fn format_state(state: &GameState) -> String {
 
     // The members of the Knights and Ruins piles are not listed (the Knights pile is one kingdom card; the Ruins come with a Looter).
     let mut kingdom: Vec<CardId> =
-        (cards::FIRST_KINGDOM..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c)).collect();
+        (cards::FIRST_KINGDOM..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c) && c != cards::id::AVANTO).collect();
     if state.has_pile(&crate::sets::dark_ages::KNIGHTS_PILE) {
         kingdom.push(cards::id::KNIGHTS);
     }
     kingdom.sort_by_key(|&c| cards::name(c));
     let kingdom_str = kingdom.iter().map(|&c| cards::name(c)).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("kingdom: {kingdom_str}\n"));
+    // Adventures: the Events of the game.
+    if state.events != 0 {
+        let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
+            .filter(|i| state.events & (1 << i) != 0)
+            .map(|i| cards::name(cards::FIRST_EVENT + i))
+            .collect();
+        out.push_str(&format!("events: {}\n", events.join(", ")));
+    }
     // Cornucopia & Guilds set-up piles (see the module docs).
     if state.bane != 0 {
         out.push_str(&format!("bane: {}\n", cards::name(state.bane)));
@@ -383,6 +404,13 @@ pub fn format_state(state: &GameState) -> String {
     da_pile(state.spoils, &[cards::id::BANDIT_CAMP, cards::id::MARAUDER, cards::id::PILLAGE], cards::id::SPOILS, &mut side);
     da_pile(state.madman, &[cards::id::HERMIT], cards::id::MADMAN, &mut side);
     da_pile(state.mercenary, &[cards::id::URCHIN], cards::id::MERCENARY, &mut side);
+    // Adventures: the Traveller upgrade piles of the lines in the game.
+    for i in 0..cards::NUM_TRAV {
+        let line = if i < 4 { cards::id::PAGE } else { cards::id::PEASANT };
+        if state.in_supply(line) {
+            side.push(format!("{}={}", cards::name(cards::FIRST_TRAV + i as CardId), state.trav[i]));
+        }
+    }
     if !side.is_empty() {
         out.push_str(&format!("side piles: {}\n", side.join(", ")));
     }
@@ -431,6 +459,23 @@ pub fn format_state(state: &GameState) -> String {
     }
     if state.turn.gained_in_buy > 0 {
         out.push_str(&format!("  gained_in_buy: {}", state.turn.gained_in_buy));
+    }
+    // Adventures: only while nonzero.
+    let a = &state.turn.adv;
+    if a.bought != 0 {
+        out.push_str(&format!("  ev_bought: {}", a.bought));
+    }
+    if a.fair {
+        out.push_str("  fair: true");
+    }
+    if a.sauna > 0 {
+        out.push_str(&format!("  sauna: {}", a.sauna));
+    }
+    if a.mission {
+        out.push_str("  mission: true");
+    }
+    if a.no_buy {
+        out.push_str("  no_buy: true");
     }
     out.push('\n');
 
@@ -498,8 +543,8 @@ pub fn format_state(state: &GameState) -> String {
         if !ps.prince_cards.is_empty() {
             out.push_str(&format!("prince: {}\n", format_counts(&ps.prince_cards.counts())));
         }
-        if !ps.prince_stays.is_empty() {
-            out.push_str(&format!("prince stays: {}\n", format_counts(&ps.prince_stays.counts())));
+        if !ps.stays.is_empty() {
+            out.push_str(&format!("prince stays: {}\n", format_counts(&ps.stays.counts())));
         }
         // Seaside step 4 mats/records: only while relevant, so Base-only (and most Seaside)
         // saves are unaffected.
@@ -515,6 +560,41 @@ pub fn format_state(state: &GameState) -> String {
         if ps.shielded != 0 {
             let who: Vec<String> = (0..n).filter(|q| ps.shielded & (1 << q) != 0).map(|q| (q + 1).to_string()).collect();
             out.push_str(&format!("shielded: {}\n", who.join(" ")));
+        }
+        // Adventures: the Tavern mat, the tokens, the Estate token, Save's card and the Events bought.
+        if !ps.tavern.is_empty() {
+            out.push_str(&format!("tavern: {}\n", format_counts(&ps.tavern.counts())));
+        }
+        let mut toks: Vec<String> = Vec::new();
+        for (i, &pile) in ps.tok.iter().enumerate() {
+            if pile != 0 {
+                toks.push(format!("{}={}", cards::TOKEN_NAMES[i], cards::name(pile)));
+            }
+        }
+        if ps.adv & ADV_MINUS_CARD != 0 {
+            toks.push(cards::TOKEN_NAMES[7].to_string());
+        }
+        if ps.adv & ADV_MINUS_COIN != 0 {
+            toks.push(cards::TOKEN_NAMES[8].to_string());
+        }
+        if ps.adv & ADV_JOURNEY_DOWN != 0 {
+            toks.push(format!("{}=down", cards::TOKEN_NAMES[9]));
+        }
+        if !toks.is_empty() {
+            out.push_str(&format!("tokens: {}\n", toks.join(", ")));
+        }
+        if ps.inherit != 0 {
+            out.push_str(&format!("inherit: {}\n", cards::name(ps.inherit)));
+        }
+        if ps.saved != 0 {
+            out.push_str(&format!("saved: {}\n", cards::name(ps.saved)));
+        }
+        if ps.events_bought != 0 {
+            let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
+                .filter(|i| ps.events_bought & (1 << i) != 0)
+                .map(|i| cards::name(cards::FIRST_EVENT + i))
+                .collect();
+            out.push_str(&format!("events bought: {}\n", events.join(", ")));
         }
     }
 
@@ -581,6 +661,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 
     let mut players_val: Option<(usize, String)> = None;
     let mut kingdom_val: Option<(usize, String)> = None;
+    let mut events_val: Option<(usize, String)> = None;
     let mut supply_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
     let mut held_val: Option<(usize, String)> = None;
@@ -613,6 +694,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 players_val = Some((lineno, rest.to_string()));
             }
             "kingdom" => kingdom_val = Some((lineno, rest.to_string())),
+            "events" => events_val = Some((lineno, rest.to_string())),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
             "held" => held_val = Some((lineno, rest.to_string())),
@@ -642,7 +724,15 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 
     let (kingdom_line, kingdom_str) =
         kingdom_val.ok_or_else(|| "missing 'kingdom' field".to_string())?;
-    let kingdom = parse_kingdom_list(&kingdom_str).map_err(|e| format!("line {kingdom_line}: {e}"))?;
+    let mut kingdom = parse_kingdom_list(&kingdom_str).map_err(|e| format!("line {kingdom_line}: {e}"))?;
+    if let Some((ln, s)) = &events_val {
+        for e in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_event(e) {
+                return Err(format!("line {ln}: '{}' is not an Event", cards::name(e)));
+            }
+            kingdom.push(e);
+        }
+    }
 
     let seed: u64 = match &seed_val {
         Some((ln, s)) => s.trim().parse().map_err(|_| format!("line {ln}: invalid seed '{s}'"))?,
@@ -706,7 +796,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 pair.split_once('=').ok_or_else(|| format!("line {ln}: expected 'Card=Count' in side piles, found '{pair}'"))?;
             let id = cards::by_name(name_part.trim()).ok_or_else(|| format!("line {ln}: unknown card '{}'", name_part.trim()))?;
             let count: u8 = count_part.trim().parse().map_err(|_| format!("line {ln}: invalid count in '{pair}'"))?;
-            if cards::is_reward(id) {
+            if id >= cards::FIRST_TRAV && ((id - cards::FIRST_TRAV) as usize) < cards::NUM_TRAV {
+                state.trav[(id - cards::FIRST_TRAV) as usize] = count;
+            } else if cards::is_reward(id) {
                 state.rewards[(id - cards::FIRST_REWARD) as usize] = count;
             } else if id == state.ferryman && id != 0 {
                 state.ferryman_left = count;
@@ -789,6 +881,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         extra_draw: tf.extra_draw,
         guilds: tf.guilds,
         gained_in_buy: tf.gained_in_buy,
+        adv: tf.adv,
     };
 
     // Player blocks.
@@ -882,8 +975,38 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         ps.pending_durations[i] = e;
                     }
                 }
+                "tavern" => ps.tavern = parse_small_multiset::<TAVERN_CAP>(val, "tavern").map_err(|e| format!("line {ln2}: {e}"))?,
+                "tokens" => {
+                    for part in split_parts(val) {
+                        let (name, pile) = match part.split_once('=') {
+                            Some((n, p)) => (n.trim(), Some(p.trim())),
+                            None => (part, None),
+                        };
+                        let tok = cards::token_by_name(name).ok_or_else(|| format!("line {ln2}: unknown token '{name}'"))?;
+                        match (tok, pile) {
+                            (t, Some(pile)) if t < NUM_PILE_TOKENS => {
+                                ps.tok[t] = cards::by_name(pile).ok_or_else(|| format!("line {ln2}: unknown card '{pile}' for the {name} token"))?;
+                            }
+                            (7, None) => ps.adv |= ADV_MINUS_CARD,
+                            (8, None) => ps.adv |= ADV_MINUS_COIN,
+                            (9, Some(side)) if side.eq_ignore_ascii_case("down") => ps.adv |= ADV_JOURNEY_DOWN,
+                            (9, Some(side)) if side.eq_ignore_ascii_case("up") => {}
+                            _ => return Err(format!("line {ln2}: cannot read the token entry '{part}'")),
+                        }
+                    }
+                }
+                "inherit" => ps.inherit = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
+                "saved" => ps.saved = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
+                "events bought" => {
+                    for e in parse_kingdom_list(val).map_err(|e| format!("line {ln2}: {e}"))? {
+                        if !cards::is_event(e) {
+                            return Err(format!("line {ln2}: '{}' is not an Event", cards::name(e)));
+                        }
+                        ps.events_bought |= 1 << (e - cards::FIRST_EVENT);
+                    }
+                }
                 "prince" => ps.prince_cards = parse_small_multiset::<PRINCE_CAP>(val, "prince").map_err(|e| format!("line {ln2}: {e}"))?,
-                "prince stays" => ps.prince_stays = parse_small_multiset::<3>(val, "prince stays").map_err(|e| format!("line {ln2}: {e}"))?,
+                "stays" | "prince stays" => ps.stays = parse_small_multiset::<STAYS_CAP>(val, "stays").map_err(|e| format!("line {ln2}: {e}"))?,
                 "native village" => ps.native_village_mat = parse_small_multiset(val, "native village").map_err(|e| format!("line {ln2}: {e}"))?,
                 "island" => ps.island_mat = parse_small_multiset(val, "island").map_err(|e| format!("line {ln2}: {e}"))?,
                 "last turn gains" => ps.last_turn_gains = parse_small_multiset(val, "last turn gains").map_err(|e| format!("line {ln2}: {e}"))?,
@@ -911,9 +1034,28 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         all.has(cards::id::HOVEL) || all.has(cards::id::NECROPOLIS) || all.has(cards::id::OVERGROWN_ESTATE)
     });
     for ps in state.players[..num_players].iter_mut() {
-        if ps.prince_stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
-            ps.prince_stays.add(cards::id::PRINCE, 1);
+        if ps.stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
+            ps.stays.add(cards::id::PRINCE, 1);
         }
+    }
+    // Adventures: which token effects are live, and the -$1 token of the turn's player.
+    for ps in state.players[..num_players].iter() {
+        if ps.tok[..TOK_COST].iter().any(|&t| t != 0) {
+            state.adv |= G_PLAY_TOKENS;
+        }
+        if ps.tok[TOK_COST] != 0 {
+            state.adv |= G_COST_TOKEN;
+        }
+        if ps.tok[TOK_TRASH] != 0 {
+            state.adv |= G_TRASH_TOKEN;
+        }
+        if ps.in_play.has(cards::id::CHAMPION) {
+            state.adv |= G_CHAMPION;
+        }
+    }
+    if state.players[state.turn.player as usize].adv & ADV_MINUS_COIN != 0 {
+        state.turn.adv.tax_live = true;
+        state.turn.adv.tax_base = state.turn.coins;
     }
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).

@@ -191,7 +191,7 @@ struct CardInfo {
     #[serde(rename = "costLabel")]
     cost_label: String,
     types: Vec<&'static str>,
-    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds" or "Dark Ages".
+    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages" or "Adventures".
     set: &'static str,
 }
 
@@ -202,12 +202,22 @@ fn card_info(c: CardId) -> CardInfo {
             types.push(label);
         }
     }
+    for (flag, label) in [(cards::TRAVELLER, "Traveller"), (cards::RESERVE, "Reserve")] {
+        if cards::is(c, flag) {
+            types.push(label);
+        }
+    }
+    if cards::is_event(c) {
+        types.push("Event");
+    }
     let set = cards::set_of(c).name();
     CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), cost_label: cards::cost_string(c), types, set }
 }
 
 fn cards_response() -> serde_json::Value {
-    let kingdom: Vec<CardInfo> = cards::kingdom_cards().map(card_info).collect();
+    // Adventures' Events are listed with the kingdom cards (type "Event"): a fixed kingdom may include them, and the evolving side may be barred from them.
+    let kingdom: Vec<CardInfo> =
+        cards::kingdom_cards().chain(cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId).map(card_info).collect();
     let basic: Vec<CardInfo> = (0..cards::FIRST_KINGDOM).map(card_info).collect();
     json!({ "kingdom": kingdom, "basic": basic })
 }

@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat) and a few
 promos (all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**
@@ -16,7 +16,7 @@ promos (all 2nd edition where there is one).
   and explores strategies. `crates/lab` — native server + Strategy Lab page driving `evolve`.
 
 Layout: one module per expansion, so reading a card means reading one place. `crates/engine/src/sets/{base,
-intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds,dark_ages}.rs` each hold, for their cards: the ids (`ids`),
+intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds,dark_ages,adventures}.rs` each hold, for their cards: the ids (`ids`),
 the `(id, CardDef)` table, and an `impl SetRules` with the play effect, modes table, Duration start-of-turn
 effect, gain / buy / cleanup triggers, overpay, bonus VP, reaction data and masks (anything not overridden is a
 no-op). Their card-specific frame handlers (`impl GameState`) sit below. `sets/mod.rs` builds the one `CARDS`

@@ -8,7 +8,7 @@ use dominion_engine::cards::id;
 use dominion_engine::state::PendingDuration;
 use dominion_engine::*;
 
-fn bonuses(events: &[Event]) -> Vec<(u8, u8, u8, u16, u16)> {
+fn bonuses(events: &[Event]) -> Vec<(CardId, u8, u8, u16, u16)> {
     events
         .iter()
         .filter_map(|e| match *e {

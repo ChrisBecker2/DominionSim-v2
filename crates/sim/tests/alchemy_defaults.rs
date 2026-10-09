@@ -34,7 +34,7 @@ fn state(p1: &str, p2: &str) -> String {
 }
 
 /// Play `card` from player 1's hand and return the state at the next decision.
-fn play(strat_text: &str, card: u8) -> (GameState, Decision, Vec<Choice>) {
+fn play(strat_text: &str, card: dominion_engine::CardId) -> (GameState, Decision, Vec<Choice>) {
     let mut g = parse_state(strat_text).unwrap();
     assert!(matches!(g.advance(&mut NoEvents), Step::Decision(_)));
     g.apply(Choice::Card(card), &mut NoEvents).unwrap();

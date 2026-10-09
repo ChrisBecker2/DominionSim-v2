@@ -56,7 +56,7 @@
 use crate::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
 use crate::counts::Counts;
 use crate::engine::*;
-use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Then, Zone, MAX_PLAYERS};
+use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Then, Zone, ADV_MINUS_CARD, G_CHAMPION, G_PLAY_TOKENS, MAX_PLAYERS};
 
 /// The most coins an overpay decision offers (and the most it can offer in one go).
 pub const OVERPAY_CAP: u16 = 60;
@@ -133,7 +133,15 @@ impl GameState {
     pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, player: u8, depth: u8, sink: &mut S) {
         sink.depth(depth + 1);
         let base = self.stack.len as usize;
+        // Adventures: the calls that follow an Action's play (Coin of the Realm, Royal Carriage) wait under its effects.
+        if self.after_play_possible(player) && cards::is(card, ACTION) {
+            self.stack.push(Frame { subject: card, ..Frame::new(K::AfterPlay, player, card) });
+        }
         self.resolve_effects_inner(card, player, sink);
+        // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
+        if self.adv & G_PLAY_TOKENS != 0 {
+            self.play_tokens(card, player, sink);
+        }
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
             f.depth = depth + 1;
         }
@@ -144,13 +152,19 @@ impl GameState {
         let def = cards::def(card);
         // What this turn's player has played (Conspirator counts Actions, Quarry and Hoard their own
         // plays): not what another player plays from their hand on this turn (Pirate).
+        // The bonuses are the turn's: a card another player plays on this turn (Pirate, Caravan Guard) gives them nothing.
         if p == self.turn.player {
             self.turn.played.add(card, 1);
+            self.turn.actions += def.actions;
+            self.turn.buys += def.buys;
+            self.turn.coins += def.coins as u16;
+            self.turn.potions += def.potions;
+            // Champion: when you play an Action card, you first get +1 Action (per Champion in play, this one only once it is out).
+            if self.adv & G_CHAMPION != 0 && cards::is(card, ACTION) {
+                let champions = self.players[p as usize].in_play.get(id::CHAMPION).saturating_sub((card == id::CHAMPION) as u8);
+                self.turn.actions += champions;
+            }
         }
-        self.turn.actions += def.actions;
-        self.turn.buys += def.buys;
-        self.turn.coins += def.coins as u16;
-        self.turn.potions += def.potions;
         // A Treasure's printed value is shown by its own play line; Action cards' +$ is a bonus.
         let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) { 0 } else { def.coins as u16 };
         sink.bonus(p, card, def.actions, def.buys, shown_coins, 0);
@@ -309,6 +323,7 @@ impl GameState {
                         }
                         return ZoneRef::Top(top);
                     }
+                    Zone::Tavern => return ZoneRef::Top(ps.tavern.counts()),
                     Zone::Supply | Zone::Trash => unreachable!(),
                 })
             }
@@ -325,6 +340,9 @@ impl GameState {
             }
             return false;
         }
+        if z == Zone::Tavern {
+            return self.players[p as usize].tavern.remove(c);
+        }
         self.zone_mut(p, z).remove(c)
     }
 
@@ -339,7 +357,7 @@ impl GameState {
                     Zone::Discard => &mut ps.discard,
                     Zone::Revealed => &mut ps.set_aside,
                     Zone::InPlay => &mut ps.in_play,
-                    Zone::DeckTop | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
+                    Zone::DeckTop | Zone::Tavern | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
                 }
             }
         }
@@ -347,7 +365,15 @@ impl GameState {
 
     /// (remaining min, remaining max, eligible cards at/above the canonical bound) for a Select.
     fn select_bounds(&self, f: &Frame) -> (u8, u8, u32) {
-        self.select_bounds_by(f, |c| self.filter_ok(f.player, f.filter, c))
+        self.select_bounds_by(f, |c| self.select_ok(f, c))
+    }
+
+    /// Whether `c` may be picked by the selection `f`: its filter, and (Inheritance) an Estate in the hand of a player whose Estates are
+    /// Action cards for a pick of an Action card.
+    #[inline(always)]
+    fn select_ok(&self, f: &Frame, c: CardId) -> bool {
+        self.filter_ok(f.player, f.filter, c)
+            || (c == id::ESTATE && f.zone == Zone::Hand && f.filter == Filter::Action && self.estates_are_actions(f.player))
     }
 
     /// Whether `c` passes `filter` for player `p` right now: the filters that read the state are
@@ -371,6 +397,8 @@ impl GameState {
             // Costs are the current costs (Bridge and Quarry count).
             Filter::CostAtLeast(n) => self.cost(c) >= n,
             Filter::CostRange(lo, hi) => !cards::potion_cost(c) && (lo..=hi).contains(&self.cost(c)),
+            Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0,
+            Filter::InheritCard => self.action_cost_ok(4, c) && !cards::is(c, cards::COMMAND),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
             filter => filter.matches(c),
@@ -380,7 +408,7 @@ impl GameState {
     #[inline(always)]
     fn select_bounds_by(&self, f: &Frame, ok: impl Fn(CardId) -> bool) -> (u8, u8, u32) {
         let z = self.zone(f.player, f.zone);
-        let lo = if f.ordered || f.count == 0 { 0 } else { f.last };
+        let lo = if f.ordered || f.count == 0 { 0 } else { f.last + f.distinct as CardId };
         let mut avail_all = 0u32;
         let mut avail_from = 0u32;
         for (c, n) in z.iter() {
@@ -409,6 +437,19 @@ impl GameState {
                 if f.max == 0 {
                     self.stack.pop();
                     return Run::Continue;
+                }
+                // The -1 Card token: the first time this frame draws, one card fewer (and the token goes).
+                if f.count == 0 {
+                    f.count = 1;
+                    if self.players[pi].adv & ADV_MINUS_CARD != 0 {
+                        self.players[pi].adv &= !ADV_MINUS_CARD;
+                        f.max -= 1;
+                        if f.max == 0 {
+                            self.stack.pop();
+                            return Run::Continue;
+                        }
+                        self.stack.set_top(f);
+                    }
                 }
                 match take_top!(self, p, sink) {
                     None => {
@@ -514,7 +555,7 @@ impl GameState {
                     // any reaction that resolves first (Diplomat) already ran, so the zone's
                     // current size is the right one to compute the mandatory count from.
                     let z = self.zone(p, f.zone);
-                    let avail: u32 = z.iter().filter(|&(c, _)| self.filter_ok(p, f.filter, c)).map(|(_, n)| n as u32).sum();
+                    let avail: u32 = z.iter().filter(|&(c, _)| self.select_ok(&f, c)).map(|(_, n)| n as u32).sum();
                     // Threshold form (`exact`, Clerk): pick one card if the zone holds `max` or more.
                     let excess = if f.exact { u32::from(avail >= f.max as u32) } else { avail.saturating_sub(f.max as u32) } as u8;
                     f.min = excess;
@@ -542,6 +583,7 @@ impl GameState {
                     || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p))
                     || (matches!(f.then, Then::ReactDrawDiscard { .. }) && self.players[pi].hand.total() < f.min as u32)
                     || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
+                    || (f.act == Act::Exchange && !self.exchange_possible(f.subject))
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
@@ -652,7 +694,10 @@ impl GameState {
                 Run::Continue
             }
             K::StartOrder => self.run_start_order(sink),
+            K::TopCard if matches!(f.then, Then::GiantReveal | Then::WarriorHit) => self.run_adv_top_card(f, sink),
             K::TopCard => self.run_jester_top_card(f, sink),
+            K::AfterPlay => self.run_after_play(f),
+            K::Token => self.run_token(f),
             K::Overpay => self.run_overpay(f),
             K::AttackBody => {
                 self.stack.pop();
@@ -668,12 +713,15 @@ impl GameState {
                 // Throne Room / King's Court stays in play with the Duration it played if *any*
                 // of its plays keeps that Duration in play ("even if only one play of the
                 // Duration card is keeping it in play, Throne Room stays in play with it").
-                if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 && f.subject == id::PRINCE {
+                if self.turn.multiplier_card == f.source
+                    && self.turn.multiplier_successes >= 1
+                    && matches!(f.subject, id::PRINCE | id::HIRELING | id::CHAMPION)
+                {
                     // A Throne Room / King's Court whose Prince set cards aside stays in play with
                     // it for the rest of the game ("both will stay in play").
                     let ps = &mut self.players[p as usize];
-                    if ps.prince_stays.get(f.source) < ps.in_play.get(f.source) {
-                        ps.prince_stays.add(f.source, 1);
+                    if ps.stays.get(f.source) < ps.in_play.get(f.source) {
+                        ps.stays.add(f.source, 1);
                     }
                 } else if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
                     self.turn.duration_held.add(f.source, 1);
@@ -716,7 +764,9 @@ impl GameState {
                     // Smugglers: further restricted to cards the player to `f.player`'s right
                     // gained on their last turn.
                     let record_ok = !f.gain_from_record || self.players[self.right_of(f.player) as usize].last_turn_gains.has(c);
-                    if self.supply.get(c) > 0 && cost_ok && named_ok && record_ok && self.filter_ok(f.player, f.filter, c) {
+                    // Only the top card of the split pile Sauna/Avanto can be gained: an Avanto not while a Sauna is left.
+                    let top_ok = c != id::AVANTO || self.supply.get(id::SAUNA) == 0;
+                    if self.supply.get(c) > 0 && top_ok && cost_ok && named_ok && record_ok && self.filter_ok(f.player, f.filter, c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -730,8 +780,8 @@ impl GameState {
                 // All-or-nothing: a first pick must leave enough cards (in canonical order) to
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
-                let lo = if f.count == 0 { 0 } else { f.last };
-                select_choices(&z, f.ordered, lo, need, |c| self.filter_ok(f.player, f.filter, c), out);
+                let lo = if f.count == 0 { 0 } else { f.last + f.distinct as CardId };
+                select_choices(&z, f.ordered, lo, need, |c| self.select_ok(&f, c), out);
                 if rem_min == 0 {
                     out.push(Choice::Pass);
                 }
@@ -778,6 +828,8 @@ impl GameState {
             K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::AttackBody | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
             K::Overpay => self.overpay_choices(f, out),
+            K::AfterPlay => {}
+            K::Token => self.token_choices(f, out),
         }
     }
 
@@ -824,6 +876,17 @@ impl GameState {
                 }
                 if gained {
                     match f.then {
+                        Then::MessengerCopies => {
+                            // Each other player, in turn order, gains a copy.
+                            let mut buf = [0u8; MAX_PLAYERS];
+                            let mut n = 0;
+                            for q in self.others(p) {
+                                buf[n] = q;
+                                n += 1;
+                            }
+                            self.push_gain_to_each(&buf[..n], c, f.source);
+                        }
+                        Then::TokenOnGained { tok } => self.place_token(p, tok as usize, cards::pile_of(c), sink),
                         Then::GainedTypeStatBonus => {
                             let (a, k) = (cards::is(c, ACTION) as u8, self.is_treasure(c) as u16);
                             self.turn.actions += a;
@@ -882,12 +945,16 @@ impl GameState {
                 self.stack.set_top(f);
                 // A card played from the Supply stays there (Captain); it is neither moved nor logged
                 // as played until its `PlayEffects` frame runs.
-                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply);
+                // Storyteller's Treasure is played from the hand by its own path.
+                let storyteller = f.then == Then::StorytellerPlay;
+                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply) || storyteller;
                 if !in_place {
                     let removed = self.zone_take(p, f.zone, c);
                     debug_assert!(removed);
                 }
-                if f.act == Act::Trash && f.zone == Zone::Supply {
+                if storyteller {
+                    self.storyteller_play(&f, c, sink);
+                } else if f.act == Act::Trash && f.zone == Zone::Supply {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
                     if c >= cards::FIRST_PILE_CARD {
@@ -896,12 +963,25 @@ impl GameState {
                 } else if !(f.act == Act::Play && f.zone == Zone::Supply) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }
+                match f.then {
+                    // Gear: each card set aside returns at the start of the next turn.
+                    Then::GearAside => self.push_duration_pending(p, f.source, 1, c),
+                    // Pilgrimage: a copy of each card picked.
+                    Then::GainCopyEachPick => {
+                        self.gain(p, c, Dest::Discard, false, f.source, sink);
+                    }
+                    _ => {}
+                }
             }
             (K::Gain, Choice::Pass) => {
                 self.stack.pop();
             }
             (K::Select, _) => self.finish_select(f, sink),
             (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
+            (K::Token, Choice::Card(pile)) => {
+                self.stack.pop();
+                self.place_token(p, f.subject as usize, pile, sink);
+            }
             (K::Overpay, Choice::Overpay(_) | Choice::OverpayPotion(_)) => self.apply_overpay(f, choice, sink),
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
@@ -944,6 +1024,12 @@ impl GameState {
                     }
                     Then::UrchinMercenary => {
                         self.gain_side(p, id::MERCENARY, Dest::Discard, f.subject, sink);
+                    }
+                    Then::Called => self.call_effect(&f, sink),
+                    // Raze trashed itself: look at as many cards as it cost.
+                    Then::RazeSelf => {
+                        let n = self.cost(id::RAZE).min(u8::MAX as u8);
+                        self.raze_look(p, f.source, n, f.depth);
                     }
                     Then::ReactDrawDiscard { draw, discard } => {
                         // Offered again once this has resolved (see `K::YesNo`).
@@ -1031,6 +1117,16 @@ impl GameState {
             // Held secretly until `deliver_left_passes` moves it; no event here, since what's
             // passed isn't revealed until it's received (see `Event::Pass`).
             Act::Pass => ps.passed.add(c, 1),
+            Act::Tavern => {
+                ps.tavern.add(c, 1);
+                sink.event(Event::ToTavern { player: p, card: c });
+            }
+            // A called Reserve card is in play (and discarded at Clean-up like any other).
+            Act::Call => {
+                ps.in_play.add(c, 1);
+                sink.event(Event::Call { player: p, card: c });
+            }
+            Act::Exchange => self.exchange_traveller(p, c, sink),
         }
     }
 
@@ -1070,26 +1166,7 @@ impl GameState {
             }
             Then::PlayPicked { times } => {
                 if f.count > 0 {
-                    // Throne Room / King's Court on a Duration card: the multiplier also stays in
-                    // play if at least one resolution schedules a next-turn effect (a conditional
-                    // Duration, e.g. Haven/Tactician with too few cards, may do nothing on some
-                    // resolutions; one is enough). `MultiplierFinalize` sits below all `times`
-                    // resolutions (and everything they push) and checks the tally once they've
-                    // all unwound.
-                    // (Only for a card that plays another more than once: a card that plays one Action once, Crystal
-                    // Ball or Shop, does not stay in play with it.)
-                    // (Not when the multiplier is not in play itself, as when Captain or a Prince plays it: there is
-                    // no card to keep.)
-                    if times >= 2 && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE) && self.players[p as usize].in_play.has(f.source) {
-                        self.turn.multiplier_card = f.source;
-                        self.turn.multiplier_expected = times;
-                        self.turn.multiplier_successes = 0;
-                        self.stack.push(Frame { depth: f.depth, subject: f.last, ..Frame::new(K::MultiplierFinalize, p, f.source) });
-                    }
-                    // Pushed last-first so the 1st resolution is on top; `count` = which play.
-                    for nth in (1..=times).rev() {
-                        self.stack.push(Frame { subject: f.last, count: nth, zone: if f.zone == Zone::Supply { Zone::Supply } else { Zone::Hand }, ..Frame::new(K::PlayEffects, p, f.source) });
-                    }
+                    self.push_plays(&f, times);
                 }
             }
             Then::DiscardRevealed => {
@@ -1321,6 +1398,40 @@ impl GameState {
             }
             Then::HoldUntilNextTurn => self.finish_farmhands(&f),
             Then::TreasureMapGold => self.finish_treasure_map(&f, sink),
+            Then::ArtificerGain => {
+                // Any gain costing exactly $1 per card discarded (nothing discarded: a card costing $0), onto the deck, if the player likes.
+                self.stack.push(Frame { exact: true, optional: true, depth: f.depth, ..gain_frame(p, f.source, f.count, Filter::Any, Dest::DeckTop) });
+            }
+            Then::RazeLook => {
+                if f.count > 0 {
+                    let n = self.cost(f.last).min(u8::MAX as u8);
+                    self.raze_look(p, f.source, n, f.depth);
+                }
+            }
+            Then::StorytellerPay => self.storyteller_pay(&f),
+            Then::SaveAside => {
+                if f.count > 0 {
+                    let ps = &mut self.players[p as usize];
+                    if ps.set_aside.remove(f.last) {
+                        ps.saved = f.last;
+                    }
+                }
+            }
+            Then::SavedToHand => {
+                let ps = &mut self.players[p as usize];
+                if ps.saved != 0 {
+                    let c = std::mem::take(&mut ps.saved);
+                    ps.hand.add(c, 1);
+                    sink.event(Event::Draw { player: p, card: c });
+                }
+            }
+            Then::GainPerPick { card } => {
+                for _ in 0..f.count {
+                    self.gain(p, card, Dest::Discard, false, f.source, sink);
+                }
+            }
+            Then::PlayTwiceCopy => self.push_play_twice_copy(&f),
+            Then::Inherit => self.finish_inherit(&f),
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
             Then::BlockAttack
             | Then::MarketSquareGold
@@ -1339,6 +1450,16 @@ impl GameState {
             | Then::KeepMatchingDiscardRest
             | Then::GainedTypeStatBonus
             | Then::GainedTypeDestAttack
+            | Then::Called
+            | Then::GiantReveal
+            | Then::WarriorHit
+            | Then::MagpieReveal
+            | Then::MessengerCopies
+            | Then::RazeSelf
+            | Then::StorytellerPlay
+            | Then::GainCopyEachPick
+            | Then::TokenOnGained { .. }
+            | Then::GearAside
             | Then::YesCoinsElseGainSubject(_)
             | Then::MoveMatchingToHand(_)
             | Then::MoveMatchingToDiscard(_)
@@ -1393,7 +1514,15 @@ impl GameState {
                     self.stack.push(Frame { dest, ..select(p, f.source, Zone::Trash, Act::Gain, filt, 1, 1, Then::Nothing) })
                 }
                 ModeOpt::DiscardRevealedDraw(n) => self.stack.push(draw_frame(p, f.source, n)),
-                ModeOpt::TrashHand
+                ModeOpt::TavernCopper => self.stack.push(select(p, f.source, Zone::Hand, Act::Tavern, Filter::Card(id::COPPER), 1, 1, Then::Nothing)),
+                ModeOpt::MoveToken(t) => self.push_token_frame(p, f.source, t as usize, true),
+                ModeOpt::DiscardFor { filter, n, gain } => self.stack.push(select(
+                    p, f.source, Zone::Hand, Act::Discard, filter, n, n,
+                    Then::GainCardIfCount { count: n, card: gain, dest: Dest::Discard },
+                )),
+                ModeOpt::CoinsPerTavernCopper
+                | ModeOpt::Nothing
+                | ModeOpt::TrashHand
                 | ModeOpt::TakeRevealed
                 | ModeOpt::Actions(_)
                 | ModeOpt::Buys(_)
@@ -1456,6 +1585,11 @@ impl GameState {
                     }
                 }
                 ModeOpt::DiscardRevealedDraw(_) => self.discard_revealed(p, sink),
+                ModeOpt::CoinsPerTavernCopper => {
+                    let n = self.players[p as usize].tavern.get(id::COPPER) as u16;
+                    self.turn.coins += n;
+                    b_coins += n;
+                }
                 ModeOpt::DiscardHandDraw { draw, attack_min_hand } => self.mode_discard_hand_draw(&f, draw, attack_min_hand, sink),
                 ModeOpt::TrashSelfRevealVpPerTreasureType => self.mode_trash_self_for_vp(&f, sink),
                 ModeOpt::NativeVillageTake => self.mode_native_village_take(&f, sink),
@@ -1468,12 +1602,41 @@ impl GameState {
                 | ModeOpt::DiscardFromHand(_)
                 | ModeOpt::TrashFromSupply(_)
                 | ModeOpt::GainFromTrash(_)
+                | ModeOpt::TavernCopper
+                | ModeOpt::MoveToken(_)
+                | ModeOpt::DiscardFor { .. }
+                | ModeOpt::Nothing
                 | ModeOpt::NativeVillageAdd => {}
             }
         }
         sink.bonus(p, f.source, b_actions, b_buys, b_coins, 0);
         // Cards a chosen option trashed (Count's "trash your hand").
         self.flush_trash_triggers(f.depth, sink);
+    }
+
+    /// The plays of the card picked (`f.last`) by a Throne Room-like selection `f`: `times` `PlayEffects`, the 1st on top. A Duration (or Prince)
+    /// played more than once keeps the multiplier in play with it if at least one play schedules a next-turn effect: `MultiplierFinalize`
+    /// sits below all of them (and everything they push) and checks the tally once they have all unwound. (Only for a card that plays another
+    /// more than once: a card that plays one Action once, Crystal Ball or Shop, does not stay in play with it. Not when the multiplier is not
+    /// in play itself, as when Captain or a Prince plays it: there is no card to keep.)
+    pub(crate) fn push_plays(&mut self, f: &Frame, times: u8) {
+        let p = f.player;
+        if times >= 2
+            && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE)
+            && self.players[p as usize].in_play.has(f.source)
+        {
+            self.turn.multiplier_card = f.source;
+            self.turn.multiplier_expected = times;
+            self.turn.multiplier_successes = 0;
+            self.stack.push(Frame { depth: f.depth, subject: f.last, ..Frame::new(K::MultiplierFinalize, p, f.source) });
+        }
+        // Pushed last-first so the 1st resolution is on top; `count` = which play.
+        for nth in (1..=times).rev() {
+            self.stack.push(Frame {
+                subject: f.last, count: nth, zone: if f.zone == Zone::Supply { Zone::Supply } else { Zone::Hand },
+                ..Frame::new(K::PlayEffects, p, f.source)
+            });
+        }
     }
 
     /// Discard every card in `p`'s hand (Minion's "discard your hand" for the acting player and
@@ -1496,6 +1659,7 @@ impl GameState {
         if let Then::YesCoinsElseGainSubject(_) = f.then {
             self.gain(f.player, f.subject, Dest::Discard, false, f.source, sink);
         }
+        self.decline_adv(&f);
     }
 
     /// Schedule a pending start-of-`p`'s-next-turn Duration effect: `card` resolves `times`
@@ -1680,6 +1844,7 @@ impl GameState {
         self.stack.pop();
         match f.then {
             Then::SeaChartCheck => self.finish_sea_chart(&f, sink),
+            Then::MagpieReveal => self.finish_magpie(&f, sink),
             Then::OneOfEachToHand => self.finish_carnival(&f, sink),
             Then::IronmongerReveal => self.finish_ironmonger(&f, sink),
             Then::KeepMatchingDiscardRest => self.finish_keep_matching(&f, sink),

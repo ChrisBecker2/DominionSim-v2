@@ -68,6 +68,9 @@ fn hash_player(ps: &PlayerState, h: &mut FxHasher) {
     ps.discard.hash(h);
     ps.in_play.hash(h);
     ps.set_aside.hash(h);
+    // Adventures: the Tavern mat (calls), tokens, the Journey and -1 Card / -$1 flags, Inheritance, Save.
+    ps.tavern.hash(h);
+    (ps.tok, ps.adv, ps.inherit, ps.saved).hash(h);
 }
 
 #[inline]
@@ -88,7 +91,7 @@ pub fn turn_hash(state: &GameState, me: u8) -> u64 {
     hash_player(&state.players[me as usize], &mut h);
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
-    (state.spoils, state.madman, state.mercenary).hash(&mut h);
+    (state.spoils, state.madman, state.mercenary, state.trav, state.adv).hash(&mut h);
     hash_stack(&state.stack, &mut h);
     // Phase is already inside `turn`, but a defensive explicit tag costs nothing and guards
     // against ever changing what `turn`'s Hash impl covers.

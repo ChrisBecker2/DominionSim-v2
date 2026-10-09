@@ -1,0 +1,29 @@
+# Ball Big Money -- Big Money that opens with the Ball Event. Ball (cost $5) gives a -$1 token for the
+# next turn and gains two cards costing up to $4: two Silvers for one buy, more than a Silver and a
+# Silver would make of two turns. Buy it with the first $5 hands, then play plain Big Money; the
+# -$1 token costs a coin on one turn only. Events are bought in the Buy phase for their cost and a Buy,
+# so they sit in the gain list like any card: list position is the priority.
+
+name = "Ball-BM"
+description = "Big Money opening with the Ball Event."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Ball"
+if = "bought(Ball) < 1"
+
+[[gain]]
+card = "Silver"

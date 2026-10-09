@@ -484,6 +484,19 @@
       if (p.princeCards.length) panel.appendChild(zoneRow("Set aside by Prince", p.princeCards));
       // Cornucopia & Guilds: Coffers tokens, cards a Farmhands set aside, a Province Joust set aside.
       if (p.coffers) panel.appendChild(el("div", "zone coffers", `Coffers: ${p.coffers}`));
+      // Adventures: the Tavern mat, the tokens, the Estate token and the Events bought.
+      if (p.tavern && p.tavern.length) panel.appendChild(zoneRow("Tavern mat", p.tavern));
+      if (p.tokens && p.tokens.length) panel.appendChild(el("div", "zone", "Tokens: " + p.tokens.map((t) => `${t.token} on ${t.pile}`).join(", ")));
+      {
+        const flags = [];
+        if (p.minusCard) flags.push("-1 Card (on the deck)");
+        if (p.minusCoin) flags.push("-$1");
+        if (p.journeyDown) flags.push("Journey face down");
+        if (p.inherit) flags.push("Estates play " + p.inherit);
+        if (p.saved) flags.push("Saved: " + p.saved);
+        if (flags.length) panel.appendChild(el("div", "zone", flags.join("; ")));
+      }
+      if (p.boughtEvents && p.boughtEvents.length) panel.appendChild(el("div", "zone", "Events bought: " + p.boughtEvents.join(", ")));
       if (p.farmCards.length) panel.appendChild(zoneRow("Set aside by Farmhands", p.farmCards));
       if (p.cleanupAside.length) panel.appendChild(zoneRow("Set aside until Clean-up", p.cleanupAside));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
@@ -507,12 +520,33 @@
       // The Knights and Ruins piles: one entry, showing the top card (the only one that can be bought) and how many are left.
       if (c.pile) tdName.appendChild(el("span", "cost", ` (${c.pile} pile, top card)`));
       if (c.side) tdName.appendChild(el("span", "cost", " (not in the Supply)"));
+      // Adventures tokens on the pile, by owner.
+      if (c.tokens) tdName.appendChild(el("span", "cost", " [" + c.tokens.join(", ") + "]"));
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
       if (c.count === 0) tdCount.className = "count-0";
       tr.appendChild(tdName);
       tr.appendChild(tdCount);
       tbody.appendChild(tr);
+    }
+  }
+
+  // Adventures Events: bought in the Buy phase for their cost and a Buy; the button picks the matching choice of the pending decision.
+  function renderEvents(view) {
+    const panel = $("events-panel");
+    const list = $("events-list");
+    list.innerHTML = "";
+    panel.hidden = !view.events || view.events.length === 0;
+    for (const ev of view.events || []) {
+      const row = el("div", "event-row");
+      row.appendChild(cardChip(ev.name));
+      row.appendChild(el("span", "cost", " $" + ev.cost + " "));
+      const b = el("button", null, "Buy");
+      const choice = view.pending ? view.pending.choices.find((c) => c.label === ev.name) : null;
+      b.disabled = !choice;
+      if (choice) b.addEventListener("click", () => doAction(() => api.choose(choice.index), "Buy " + ev.name));
+      row.appendChild(b);
+      list.appendChild(row);
     }
   }
 
@@ -783,8 +817,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));
@@ -1578,6 +1612,7 @@
     renderTurnBar(view);
     renderPlayers(view);
     renderSupply(view);
+    renderEvents(view);
     renderTrash(view);
     renderDecision(view);
     renderLog(view);

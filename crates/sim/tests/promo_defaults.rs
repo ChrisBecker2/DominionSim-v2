@@ -151,7 +151,7 @@ fn captains_start_of_turn_pick_follows_the_same_rules() {
 
 // --- Whole games -----------------------------------------------------------------------------------
 
-fn play_games(strategy: &str, kingdom: &[u8], check: impl Fn(&GameState, usize)) {
+fn play_games(strategy: &str, kingdom: &[dominion_engine::CardId], check: impl Fn(&GameState, usize)) {
     let strat = Strategy::parse(strategy).unwrap();
     let bm = Strategy::parse(&std::fs::read_to_string(format!("{}/../../strategies/big_money_ultimate.toml", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
     for seed in 0..30u64 {

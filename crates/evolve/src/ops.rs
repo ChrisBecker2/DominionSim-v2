@@ -35,7 +35,9 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
     let mut g = big_money();
     let gold = g.gain.iter().position(|r| r.card == id::GOLD).unwrap_or(1);
     for (k, &(c, n)) in xs.iter().enumerate() {
-        g.gain.insert(gold + k, Rule { card: c, opt: 0, conds: vec![cond(Var::Count(c), Op::Lt, n)] });
+        // An Event is never owned: "n times" is a count of purchases.
+        let var = if cards::is_event(c) { Var::Bought(c) } else { Var::Count(c) };
+        g.gain.insert(gold + k, Rule { card: c, opt: 0, conds: vec![cond(var, Op::Lt, n)] });
         if crate::space::is_action(c) {
             g.play.push(Rule::new(c));
         }
@@ -71,6 +73,7 @@ pub fn random_pair(space: &SearchSpace, rng: &mut Rng) -> Genome {
 pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     let r = rng.below(100);
     let (var, op) = match r {
+        0..=39 if cards::is_event(card) => (Var::Bought(card), Op::Lt),
         0..=39 if card >= cards::FIRST_KINGDOM || card == id::GOLD || card == id::SILVER => (Var::Count(card), Op::Lt),
         0..=39 | 40..=59 => (Var::ProvincesLeft, if rng.chance(0.7) { Op::Lt } else { Op::Ge }),
         60..=67 => (Var::Money, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
@@ -84,6 +87,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     // Small thresholds are far more common for counts and provinces.
     let n = match var {
         Var::Count(_) => 1 + rng.below(3) as i16,
+        Var::Bought(_) => 1 + rng.below(2) as i16,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,
         _ => lo + rng.below((hi - lo + 1) as u32) as i16,
     };
@@ -107,10 +111,25 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
             }
             pick(rng, &space.modal)
         }
+        List::Token => {
+            if space.token_piles.is_empty() || space.token_kinds.is_empty() {
+                return None;
+            }
+            pick(rng, &space.token_piles)
+        }
+        List::Call => {
+            if space.reserves.is_empty() {
+                return None;
+            }
+            pick(rng, &space.reserves)
+        }
     };
     let mut r = Rule::new(card);
     if list == List::Mode {
         r.opt = rng.below(cards::modes(card).len() as u32) as u8;
+    }
+    if list == List::Token {
+        r.opt = pick(rng, &space.token_kinds);
     }
     let p_cond = if list == List::Gain && card >= cards::FIRST_KINGDOM { 0.8 } else if list == List::Mode { 0.6 } else { 0.3 };
     if rng.chance(p_cond) {
@@ -126,8 +145,24 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
         0..=13 => List::Gain,
         14..=16 => List::Play,
         17..=18 => List::Trash,
-        _ if !space.modal.is_empty() => List::Mode,
-        _ => List::Gain,
+        _ => {
+            // The rarer lists, whichever this search space has (Mode: choose-one cards; Token and Call: Adventures).
+            let mut extras: Vec<List> = Vec::new();
+            if !space.modal.is_empty() {
+                extras.push(List::Mode);
+            }
+            if !space.token_piles.is_empty() && !space.token_kinds.is_empty() {
+                extras.push(List::Token);
+            }
+            if !space.reserves.is_empty() {
+                extras.push(List::Call);
+            }
+            match extras.len() {
+                0 => List::Gain,
+                1 => extras[0],
+                n => extras[rng.below(n as u32) as usize],
+            }
+        }
     };
     let max = space.max_rules(list);
     let len = g.list_mut(list).len();
@@ -176,6 +211,12 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
             let rule = &mut g.mode[at];
             rule.opt = rng.below(cards::modes(rule.card).len() as u32) as u8;
             return "change mode option";
+        }
+        // change a token rule's token
+        4 if list == List::Token && len > 0 && !space.token_kinds.is_empty() => {
+            let at = rng.below(len as u32) as usize;
+            g.token[at].opt = pick(rng, &space.token_kinds);
+            return "change token";
         }
         4 if list != List::Gain => {
             if list == List::Trash || rng.chance(0.5) {
@@ -247,6 +288,8 @@ pub fn crossover(a: &Genome, b: &Genome, space: &SearchSpace, rng: &mut Rng) -> 
         play: if rng.chance(0.5) { a.play.clone() } else { b.play.clone() },
         trash: if rng.chance(0.5) { a.trash.clone() } else { b.trash.clone() },
         mode: if rng.chance(0.5) { a.mode.clone() } else { b.mode.clone() },
+        token: if rng.chance(0.5) { a.token.clone() } else { b.token.clone() },
+        call: if rng.chance(0.5) { a.call.clone() } else { b.call.clone() },
         keep_treasure: if rng.chance(0.5) { a.keep_treasure } else { b.keep_treasure },
     };
     // Keep play rules for any action the child now gains but neither list mentions.

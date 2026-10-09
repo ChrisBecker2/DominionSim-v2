@@ -26,19 +26,52 @@ pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_C
 /// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
 /// multiplied one).
 pub const DURATION_HELD_CAP: usize = 8;
+/// Max distinct cards on one player's Tavern mat (Adventures): the nine Reserve cards and Coppers (Miser).
+pub const TAVERN_CAP: usize = 10;
+/// Max distinct cards that stay in play for the rest of the game (`PlayerState::stays`).
+pub const STAYS_CAP: usize = 8;
 
-/// The card ids that have a pile in the Supply: a `u128` for ids below 128 and another for ids
-/// 128 and up (Cornucopia & Guilds took the id count past 128, Dark Ages past 192).
+/// `PlayerState::tok` indices: the pile each of a player's pile tokens is on (Adventures).
+pub const TOK_CARD: usize = 0;
+pub const TOK_ACTION: usize = 1;
+pub const TOK_BUY: usize = 2;
+pub const TOK_COIN: usize = 3;
+pub const TOK_COST: usize = 4;
+pub const TOK_TRASH: usize = 5;
+/// The number of tokens that are placed on a Supply pile.
+pub const NUM_PILE_TOKENS: usize = 6;
+/// `PlayerState::adv` flags.
+/// The -1 Card token is on the player's deck.
+pub const ADV_MINUS_CARD: u8 = 1;
+/// The -$1 token is in front of the player.
+pub const ADV_MINUS_COIN: u8 = 2;
+/// The Journey token is face down (it starts face up).
+pub const ADV_JOURNEY_DOWN: u8 = 4;
+/// `GameState::adv` flags: which token effects are live in this game, so that games without them skip every check with one byte test.
+/// Some player's +1 Card / +1 Action / +1 Buy / +$1 token is on a pile.
+pub const G_PLAY_TOKENS: u8 = 1;
+/// Some player's -$2 cost token is on a pile.
+pub const G_COST_TOKEN: u8 = 2;
+/// Some player's Trashing token is on a pile.
+pub const G_TRASH_TOKEN: u8 = 4;
+/// A Champion has been played: Action plays get +1 Action per Champion their player has in play.
+pub const G_CHAMPION: u8 = 8;
+
+/// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255 and a third for ids 256 and up
+/// (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct SupplyMask {
     pub lo: u128,
     pub hi: u128,
+    /// Ids 256 and up (only the members of the mixed piles, which are the highest ids, are ever in the Supply there).
+    pub top: u128,
 }
 
 /// Iterator over the card ids of a `SupplyMask`, in id order.
 pub struct SupplyCards {
     lo: u128,
     hi: u128,
+    top: u128,
 }
 
 impl Iterator for SupplyCards {
@@ -53,6 +86,10 @@ impl Iterator for SupplyCards {
             let c = 128 + self.hi.trailing_zeros() as CardId;
             self.hi &= self.hi - 1;
             Some(c)
+        } else if self.top != 0 {
+            let c = 256 + self.top.trailing_zeros() as CardId;
+            self.top &= self.top - 1;
+            Some(c)
         } else {
             None
         }
@@ -62,14 +99,22 @@ impl Iterator for SupplyCards {
 impl SupplyMask {
     #[inline(always)]
     pub fn has(&self, c: CardId) -> bool {
-        if c < 128 { self.lo & (1u128 << c) != 0 } else { self.hi & (1u128 << (c - 128)) != 0 }
+        if c < 128 {
+            self.lo & (1u128 << c) != 0
+        } else if c < 256 {
+            self.hi & (1u128 << (c - 128)) != 0
+        } else {
+            self.top & (1u128 << (c - 256)) != 0
+        }
     }
     #[inline]
     pub fn insert(&mut self, c: CardId) {
         if c < 128 {
             self.lo |= 1u128 << c;
-        } else {
+        } else if c < 256 {
             self.hi |= 1u128 << (c - 128);
+        } else {
+            self.top |= 1u128 << (c - 256);
         }
     }
     /// Whether any card of either mask word is in the Supply (the gain-trigger gates).
@@ -502,10 +547,10 @@ pub struct PlayerState {
     /// one of their turns after the one it was set aside on (`GameState::run_start_order`) and
     /// never leaves. Public; they count as owned (`all_cards`/VP).
     pub prince_cards: SmallMultiset<PRINCE_CAP>,
-    /// The Princes (and Throne Rooms / King's Courts that played one) that hold cards and so stay
-    /// in play for the rest of the game: cleanup keeps this many of each in play. A Prince that
-    /// set nothing aside is discarded as usual.
-    pub prince_stays: SmallMultiset<3>,
+    /// Cards that stay in play for the rest of the game: the Princes (and Throne Rooms / King's Courts that played one) that hold
+    /// cards, and Hireling and Champion with whatever multiplied them. Cleanup keeps this many of each in play. A Prince that set
+    /// nothing aside is discarded as usual.
+    pub stays: SmallMultiset<STAYS_CAP>,
     /// Coffers tokens (Cornucopia & Guilds): each can be removed during the player's turn for +$1
     /// (`Choice::Coffers` at the Buy decision; Butcher spends them inside its own gain).
     pub coffers: u16,
@@ -516,6 +561,19 @@ pub struct PlayerState {
     /// Cards set aside until Clean-up, when they are discarded (Joust's Province: not in the hand,
     /// not in play, and not in `set_aside`, which other effects empty). Counts as owned.
     pub cleanup_aside: SmallMultiset<2>,
+    /// The Tavern mat (Adventures): Reserve cards played onto it and Coppers put there by Miser. Public; counts as owned.
+    pub tavern: SmallMultiset<TAVERN_CAP>,
+    /// The pile each of the player's pile tokens is on (`TOK_*`), 0 = not on a pile (Adventures). A pile is named by its Supply id
+    /// (`cards::pile_of`).
+    pub tok: [CardId; NUM_PILE_TOKENS],
+    /// The card the Estate token is on (Inheritance), 0 = none: the player's Estates play it.
+    pub inherit: CardId,
+    /// Adventures flags (`ADV_*`): the -1 Card token on the deck, the -$1 token, the Journey token face down.
+    pub adv: u8,
+    /// The card Save set aside, returned to the hand after the Clean-up draw (0 = none). Counts as owned.
+    pub saved: CardId,
+    /// Bitmask of the Events this player has bought so far (bit `event - FIRST_EVENT`).
+    pub events_bought: u32,
 }
 
 impl PlayerState {
@@ -544,10 +602,19 @@ impl PlayerState {
         self.prince_cards.add_into(&mut c);
         self.farm_cards.add_into(&mut c);
         self.cleanup_aside.add_into(&mut c);
+        self.tavern.add_into(&mut c);
+        if self.saved != 0 {
+            c.add(self.saved, 1);
+        }
+        // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
+        if self.inherit != 0 {
+            c.add(self.inherit, 1);
+        }
         c
     }
     pub fn vp(&self) -> i32 {
-        vp_of_cards(&self.all_cards()) + self.vp_tokens as i32
+        // Distant Lands is worth 4 VP on the Tavern mat at the end of the game and 0 anywhere else.
+        vp_of_cards(&self.all_cards()) + self.vp_tokens as i32 + 4 * self.tavern.get(id::DISTANT_LANDS) as i32
     }
 }
 
@@ -693,6 +760,30 @@ pub struct TurnState {
     pub guilds: u8,
     /// Cards the turn's player has gained during this Buy phase (Merchant Guild).
     pub gained_in_buy: u8,
+    /// Adventures per-turn bookkeeping.
+    pub adv: AdvTurn,
+}
+
+/// The per-turn bookkeeping of Adventures (Events bought, Travelling Fair, Sauna, Mission, the -$1 token).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct AdvTurn {
+    /// Bitmask of the Events bought this turn (bit `event - FIRST_EVENT`): the once-per-turn Events are not offered again.
+    pub bought: u32,
+    /// Travelling Fair was bought this turn: cards gained may be put onto the deck.
+    pub fair: bool,
+    /// Saunas played this turn: each Silver played may trash that many cards from the hand.
+    pub sauna: u8,
+    /// Mission was bought this turn: an extra turn follows (if this one is not itself one).
+    pub mission: bool,
+    /// This is a Mission turn: no cards may be bought (Events still may).
+    pub no_buy: bool,
+    /// The turn's player has the -$1 token: the next time the turn's $ rises above `tax_base` they get $1 less.
+    pub tax_live: bool,
+    pub tax_base: u16,
+    /// Port's second Port is being gained: it doesn't come with another.
+    pub no_chain: bool,
+    /// The next turn is a Mission turn (set at Clean-up): it will have `no_buy`.
+    pub next_no_buy: bool,
 }
 
 impl TurnState {
@@ -731,6 +822,7 @@ impl TurnState {
             extra_draw: 0,
             guilds: 0,
             gained_in_buy: 0,
+            adv: AdvTurn::default(),
         }
     }
 }
@@ -751,6 +843,8 @@ pub enum Zone {
     /// The known top card of the player's own deck, if there is one (a card just gained onto the
     /// deck: Watchtower trashes it, Sailor plays it). Empty while the top is unknown.
     DeckTop,
+    /// The player's Tavern mat (Adventures).
+    Tavern,
 }
 
 /// What happens to a picked card.
@@ -772,6 +866,13 @@ pub enum Act {
     /// Move it to the player's `passed` holding zone (Masquerade's simultaneous pass), to be
     /// delivered to the next passing player once everyone has chosen.
     Pass,
+    /// Put it onto the player's Tavern mat (Miser's Copper, a Reserve card played).
+    Tavern,
+    /// Call it: from the Tavern mat into play (a `YesNo` on a Reserve card; what the call does is the frame's `then`, `Then::Called`).
+    Call,
+    /// Exchange it (a Traveller in play, being discarded) for the next card of its line: it returns to its pile and the upgrade goes to the
+    /// discard pile.
+    Exchange,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -827,6 +928,11 @@ pub enum Filter {
     CostRange(u8, u8),
     /// A Victory card other than the named one (Rebuild).
     VictoryNot(CardId),
+    /// A card with a copy left in its Supply pile (Pilgrimage: a copy of each can be gained). Decided against the live Supply
+    /// (`GameState::filter_ok`); `matches` can only say "any".
+    GainableCopy,
+    /// A non-Duration, non-Command Action costing up to $4 and no Potion (Inheritance's pick). Decided against the live costs (`filter_ok`).
+    InheritCard,
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -892,6 +998,10 @@ impl Filter {
             Filter::CostAtLeast(n) => cards::cost(c) >= n,
             Filter::CostRange(lo, hi) => !cards::potion_cost(c) && (lo..=hi).contains(&cards::cost(c)),
             Filter::VictoryNot(x) => c != x && cards::is(c, cards::VICTORY),
+            Filter::GainableCopy => true,
+            Filter::InheritCard => {
+                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && !cards::is(c, cards::COMMAND) && cards::cost(c) <= 4 && !cards::potion_cost(c)
+            }
         }
     }
 }
@@ -1026,7 +1136,7 @@ pub enum Then {
     PlayPickedThenRest,
     /// Select (Prince, `Act::SetAside`, optional): the picked card, already in `set_aside`, is held
     /// by the Prince (`PlayerState::prince_cards`), which then stays in play for the rest of the
-    /// game (`PlayerState::prince_stays`, with the Throne Room / King's Court playing it).
+    /// game (`PlayerState::stays`, with the Throne Room / King's Court playing it).
     PrinceHold,
     /// Select: +`actions` Actions and +`buys` Buys if a card was picked (Hamlet's two discards).
     BonusIfPicked { actions: u8, buys: u8 },
@@ -1093,6 +1203,44 @@ pub enum Then {
     /// Mode (Count): only the options `first..first + count` of the card's table are on offer in this frame, so that one table
     /// serves a card that makes two separate choices.
     ModeWindow { first: u8, count: u8 },
+    /// YesNo (`Act::Call`, Adventures): the Reserve card `subject` was called (it is in play now); do what its call does. For a call after a
+    /// played Action `last` is that Action (Royal Carriage replays it); for Duplicate it is the card gained.
+    Called,
+    /// Select (Artificer, discard any number from the hand): after the discards, optionally gain a card onto the deck costing exactly $1 per
+    /// card discarded.
+    ArtificerGain,
+    /// TopCard (Giant's attack): the top card is revealed; trash it if it costs $3 to $6, else discard it and gain a Curse.
+    GiantReveal,
+    /// TopCard (Warrior's attack): the top card is discarded; trashed if it costs exactly $3 or $4.
+    WarriorHit,
+    /// RevealTop (Magpie, the top card): a Treasure goes to the hand, an Action or Victory card gains a Magpie, anything else stays on top.
+    MagpieReveal,
+    /// Gain (Messenger's first gain of the Buy phase): each other player gains a copy of the card gained.
+    MessengerCopies,
+    /// YesNo (Raze, trash this from play): after the trash (or the refusal: then a card from the hand is trashed instead), look at cards.
+    RazeSelf,
+    /// Select (Raze, trash a card from the hand): look at as many cards from the top of the deck as the trashed card costs, take one.
+    RazeLook,
+    /// Select (Storyteller, up to 3 Treasures from the hand): each Treasure is played as it is picked.
+    StorytellerPlay,
+    /// Select (a 0-pick frame under Storyteller's draw): pay all the $ for +1 Card each.
+    StorytellerPay,
+    /// Select (Save, a card from the hand set aside): keep it until the Clean-up draw is done.
+    SaveAside,
+    /// Select (a 0-pick frame under the Clean-up draw): the card Save set aside goes to the hand.
+    SavedToHand,
+    /// Select (Trade): gain `card` once per card picked.
+    GainPerPick { card: CardId },
+    /// Select (Pilgrimage, `Act::Reveal` on cards in play): gain a copy of each card as it is picked.
+    GainCopyEachPick,
+    /// Gain (Seaway): move the player's token `tok` to the pile of the card gained.
+    TokenOnGained { tok: u8 },
+    /// Select (Gear, `Act::SetAside`): each card set aside is scheduled to return at the start of the next turn.
+    GearAside,
+    /// Select (Disciple): the picked Action is played twice, then a copy of it is gained.
+    PlayTwiceCopy,
+    /// Select (Inheritance, `Act::SetAside` from the Supply): the card is under the player's Estate token.
+    Inherit,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1175,6 +1323,8 @@ pub struct Frame {
     pub bane_blocks: bool,
     /// Gain: the choices are the Rewards (non-Supply, Joust) instead of the Supply piles.
     pub from_side: bool,
+    /// Select: every pick is a different card (Pilgrimage: differently named cards).
+    pub distinct: bool,
 }
 
 impl Frame {
@@ -1209,6 +1359,7 @@ impl Frame {
             pay_coffers: false,
             bane_blocks: false,
             from_side: false,
+            distinct: false,
         }
     }
 }
@@ -1294,6 +1445,12 @@ pub enum FrameKind {
     /// An optional effect with no card to act on (Scavenger's "put your deck into your discard pile", Survivors' "discard them"): Yes
     /// runs `then`, No does nothing. Decision: `DecisionKind::YesNo`, subject 0.
     Ask,
+    /// Adventures: the card `subject` has just been played and fully resolved: offer the calls that follow a played Action (Coin of the Realm,
+    /// Royal Carriage). No decision of its own: it pushes the `YesNo` frames.
+    AfterPlay,
+    /// Adventures: move token `subject` (`TOK_*`) to a pile of the player's choice (`DecisionKind::Token`); `max` = 1 restricts it to piles
+    /// the player has no token on (Teacher).
+    Token,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1420,6 +1577,13 @@ pub struct GameState {
     pub spoils: u8,
     pub madman: u8,
     pub mercenary: u8,
+    /// Adventures: the Events in this game (bit `event - cards::FIRST_EVENT`). Events are bought, never gained, and are in no zone or pile.
+    pub events: u32,
+    /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
+    /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
+    pub trav: [u8; cards::NUM_TRAV],
+    /// `G_*` flags: which token effects are live in this game.
+    pub adv: u8,
     /// Whether the players started with Shelters (Hovel's reaction to a gained Victory card is live).
     pub shelters: bool,
     /// Trashed cards whose "when you trash this" effects are still to be put on the stack (see `TrashQueue`).
@@ -1481,11 +1645,25 @@ impl GameState {
         let kingdom = || cfg.kingdom.iter().copied().chain(extra_bane);
         // Dark Ages: the Knights and Ruins piles, Spoils / Madman / Mercenary and the Shelters (one pass over the kingdom).
         let da = crate::sets::dark_ages::setup(cfg, bane, ferryman, n);
+        // Adventures: the Events are listed with the kingdom, take no Supply pile and are only a mask here.
+        let events = kingdom().filter(|&k| cards::is_event(k)).fold(0u32, |m, k| m | 1 << (k - cards::FIRST_EVENT));
         let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
             put(id::POTION, crate::sets::pile_size(id::POTION, n).unwrap());
         }
+        let mut split_pile = false;
         for k in kingdom() {
+            if cards::is_event(k) {
+                continue;
+            }
+            // The split pile Sauna/Avanto is named by either half.
+            let k = if k == id::AVANTO { id::SAUNA } else { k };
+            if k == id::SAUNA {
+                if split_pile {
+                    continue;
+                }
+                split_pile = true;
+            }
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
             assert!(cards::is_ready(k), "{} is not implemented yet", cards::name(k));
@@ -1496,6 +1674,10 @@ impl GameState {
             // with 3 or more (Colony too: unlike the Provinces, 5 and 6 players add none), any other pile 10.
             let pile = crate::sets::pile_size(k, n).unwrap_or(if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 });
             put(k, pile);
+        }
+        // Sauna/Avanto: five Avanto under the five Sauna.
+        if split_pile {
+            put(id::AVANTO, 5);
         }
         let pile_size = |k: CardId| if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 };
         let mut s = GameState {
@@ -1510,6 +1692,9 @@ impl GameState {
             spoils: da.spoils,
             madman: da.madman,
             mercenary: da.mercenary,
+            events,
+            trav: crate::sets::adventures::traveller_piles(&in_supply),
+            adv: 0,
             shelters: da.shelters,
             trash_queue: TrashQueue::default(),
             trash: Counts::EMPTY,
@@ -1572,6 +1757,10 @@ impl GameState {
         if c == id::PEDDLER && self.turn.phase == Phase::Buy {
             reduction += 2 * self.players[pi].in_play.count_type(cards::ACTION);
         }
+        // Ferry's -$2 cost token: cards of its pile cost $2 less on its owner's turns.
+        if self.adv & G_COST_TOKEN != 0 && cards::pile_of(c) == self.players[pi].tok[TOK_COST] && cards::is(c, cards::ACTION) {
+            reduction += 2;
+        }
         (cards::cost(c) as u32).saturating_sub(reduction) as u8
     }
 
@@ -1622,7 +1811,7 @@ impl GameState {
     /// it costs one step per pile rather than one per card id).
     #[inline]
     pub fn supply_cards(&self) -> SupplyCards {
-        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi }
+        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi, top: self.in_supply.top }
     }
 
     /// The cards left in the piles outside the Supply (Ferryman's, the Rewards, Spoils, Madman and Mercenary).
@@ -1632,11 +1821,17 @@ impl GameState {
             + self.spoils as u32
             + self.madman as u32
             + self.mercenary as u32
+            + self.trav.iter().map(|&n| n as u32).sum::<u32>()
     }
 
     pub fn empty_piles(&self) -> u32 {
         // The members of the Knights and Ruins piles are not piles of their own: each mixed pile is one pile, empty when it has no cards.
-        let mut n = self.supply_cards().filter(|&c| c < cards::FIRST_PILE_CARD && self.supply.get(c) == 0).count() as u32;
+        // Sauna/Avanto is one pile: empty when both halves are (counted once, as Sauna, when Avanto is gone too).
+        let split_open = self.supply.get(id::AVANTO) > 0;
+        let mut n = self
+            .supply_cards()
+            .filter(|&c| c < cards::FIRST_PILE_CARD && self.supply.get(c) == 0 && c != id::AVANTO && !(c == id::SAUNA && split_open))
+            .count() as u32;
         for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
             n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
         }

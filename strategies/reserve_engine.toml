@@ -1,0 +1,44 @@
+# Reserve engine -- Ratcatcher, Wine Merchant and Royal Carriage live on the Tavern mat between turns:
+# Ratcatcher trashes a Copper or Estate from the hand at the start of the turn, Royal Carriage replays a
+# drawing Action just played, and Wine Merchant (+$4 and a Buy when played, returns to the deck from the mat
+# in the Buy phase when $2 is left over). The calls follow the defaults: a Reserve card is called when it
+# does something, and the bot searches for the best use of Royal Carriage.
+
+name = "Reserve Engine"
+description = "Smithy engine with Reserve cards: Royal Carriage, Wine Merchant, Ratcatcher."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Royal Carriage"
+if = "count(Royal Carriage) < 1 and count(Smithy) >= 1"
+
+[[gain]]
+card = "Smithy"
+if = "count(Smithy) < 2"
+
+[[gain]]
+card = "Wine Merchant"
+if = "count(Wine Merchant) < 2"
+
+[[gain]]
+card = "Ratcatcher"
+if = "count(Ratcatcher) < 1"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Smithy"

@@ -109,7 +109,7 @@ fn the_strategys_scoring_values_coffers_gained_and_penalizes_spending_for_nothin
 // --- Overpay ---------------------------------------------------------------------------------
 
 /// The Overpay decision after buying `card` with `coins` and `buys` buys.
-fn overpay_decision(card: u8, coins: u16, buys: u8, p1: &str) -> (GameState, Decision, Vec<Choice>) {
+fn overpay_decision(card: dominion_engine::CardId, coins: u16, buys: u8, p1: &str) -> (GameState, Decision, Vec<Choice>) {
     let mut g = state("buy", 0, buys, coins, p1, P2);
     let (_, _) = next_decision(&mut g);
     g.apply(Choice::Card(card), &mut NoEvents).unwrap();

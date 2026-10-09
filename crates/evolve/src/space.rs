@@ -20,10 +20,18 @@ pub struct SearchSpace {
     /// Cards with a choose-one effect (`cards::modes` non-empty) in the kingdom pool: the only
     /// cards a `[[mode]]` rule may name.
     pub modal: Vec<CardId>,
+    /// Action piles a `[[token]]` rule may name (the Actions of the kingdom pool).
+    pub token_piles: Vec<CardId>,
+    /// Tokens (indices into `cards::TOKEN_NAMES`) that some card or Event of the pool puts on a pile.
+    pub token_kinds: Vec<u8>,
+    /// Reserve cards of the pool whose call a `[[call]]` rule may state.
+    pub reserves: Vec<CardId>,
     pub max_gain_rules: usize,
     pub max_play_rules: usize,
     pub max_trash_rules: usize,
     pub max_mode_rules: usize,
+    pub max_token_rules: usize,
+    pub max_call_rules: usize,
     pub max_conds: usize,
 }
 
@@ -37,7 +45,40 @@ impl SearchSpace {
         if gainable.contains(&id::JOUST) {
             gainable.extend((cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId).filter(|c| !forbidden.contains(c)));
         }
+        let has = |c: CardId| kingdom_pool.contains(&c) && !forbidden.contains(&c);
+        // The tokens that something in the pool places (Teacher comes with the Peasant line).
+        let mut token_kinds: Vec<u8> = Vec::new();
+        for (cards_, kinds) in [
+            (&[id::LOST_ARTS][..], &[1u8][..]),
+            (&[id::PATHFINDING], &[0]),
+            (&[id::SEAWAY], &[2]),
+            (&[id::TRAINING], &[3]),
+            (&[id::FERRY], &[4]),
+            (&[id::PLAN], &[5]),
+            (&[id::PEASANT], &[0, 1, 2, 3]),
+        ] {
+            if cards_.iter().any(|&c| has(c)) {
+                for &k in kinds {
+                    if !token_kinds.contains(&k) {
+                        token_kinds.push(k);
+                    }
+                }
+            }
+        }
+        let token_piles: Vec<CardId> =
+            if token_kinds.is_empty() { Vec::new() } else { kingdom_pool.iter().copied().filter(|&c| is_action(c) && !forbidden.contains(&c)).collect() };
+        let reserves: Vec<CardId> = [
+            id::COIN_OF_THE_REALM, id::RATCATCHER, id::GUIDE, id::TRANSMOGRIFY, id::DUPLICATE, id::ROYAL_CARRIAGE, id::WINE_MERCHANT,
+        ]
+        .into_iter()
+        .filter(|&c| has(c))
+        .collect();
         SearchSpace {
+            token_piles,
+            token_kinds,
+            reserves,
+            max_token_rules: 3,
+            max_call_rules: 3,
             gainable,
             trashable: vec![id::CURSE, id::ESTATE, id::COPPER, id::SILVER],
             forbidden: forbidden.to_vec(),
@@ -61,6 +102,8 @@ impl SearchSpace {
             List::Play => self.max_play_rules,
             List::Trash => self.max_trash_rules,
             List::Mode => self.max_mode_rules,
+            List::Token => self.max_token_rules,
+            List::Call => self.max_call_rules,
         }
     }
 
@@ -74,6 +117,9 @@ impl SearchSpace {
         g.trash.retain(|r| self.trashable.contains(&r.card));
         // A mode rule needs a card the strategy gains, offered in this kingdom pool, and a real option.
         g.mode.retain(|r| self.modal.contains(&r.card) && gained.contains(&r.card) && (r.opt as usize) < cards::modes(r.card).len());
+        // Token rules name a pile of this kingdom and a token something places; call rules a Reserve card of the pool.
+        g.token.retain(|r| self.token_piles.contains(&r.card) && self.token_kinds.contains(&r.opt));
+        g.call.retain(|r| self.reserves.contains(&r.card));
         for list in List::ALL {
             let max = self.max_rules(list);
             let rules = g.list_mut(list);
@@ -83,7 +129,9 @@ impl SearchSpace {
             // An unconditional rule makes later rules for the same card unreachable.
             let mut out: Vec<Rule> = Vec::with_capacity(rules.len());
             for r in rules.drain(..) {
-                let shadowed = out.iter().any(|p| p.card == r.card && (p.conds.is_empty() || p.conds == r.conds));
+                // A token rule is shadowed by an earlier one for the same token (any pile) with no condition, or the same pile and condition.
+                let same = |p: &Rule| if list == List::Token { p.opt == r.opt && (p.conds.is_empty() || p.card == r.card && p.conds == r.conds) } else { p.card == r.card && (p.conds.is_empty() || p.conds == r.conds) };
+                let shadowed = out.iter().any(same);
                 if !shadowed {
                     out.push(r);
                 }

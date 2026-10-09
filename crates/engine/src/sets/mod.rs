@@ -28,6 +28,7 @@ use crate::counts::Counts;
 use crate::engine::EventSink;
 use crate::state::{Dest, GameState, PendingDuration};
 
+pub mod adventures;
 pub mod alchemy;
 pub mod base;
 pub mod cornucopia_guilds;
@@ -37,6 +38,7 @@ pub mod promo;
 pub mod prosperity;
 pub mod seaside;
 
+use adventures::Adventures;
 use alchemy::Alchemy;
 use base::Base;
 use cornucopia_guilds::CornucopiaGuilds;
@@ -96,6 +98,10 @@ macro_rules! with_set {
             }
             $crate::cards::CardSet::DarkAges => {
                 type $S = $crate::sets::dark_ages::DarkAges;
+                $body
+            }
+            $crate::cards::CardSet::Adventures => {
+                type $S = $crate::sets::adventures::Adventures;
                 $body
             }
         }
@@ -226,10 +232,10 @@ pub(crate) trait SetRules {
 /// Number of cards of every set (ids are dense: `0..NUM_CARDS`).
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
-        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len();
+        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 8] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 9] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -238,6 +244,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Promo, Promo::CARDS),
         (CardSet::CornucopiaGuilds, CornucopiaGuilds::CARDS),
         (CardSet::DarkAges, DarkAges::CARDS),
+        (CardSet::Adventures, Adventures::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -294,9 +301,13 @@ macro_rules! concat_sets {
             + Alchemy::$name.len()
             + Promo::$name.len()
             + CornucopiaGuilds::$name.len()
-            + DarkAges::$name.len();
+            + DarkAges::$name.len()
+            + Adventures::$name.len();
         const A: [$T; N] = concat::<$T, N>(
-            &[Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name, DarkAges::$name],
+            &[
+                Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
+                DarkAges::$name, Adventures::$name,
+            ],
             $zero,
         );
         &A
@@ -315,9 +326,9 @@ pub static IMMUNE_IN_PLAY: &[CardId] = concat_sets!(CardId, 0, IMMUNE_IN_PLAY);
 
 /// Bits of `in_supply.lo` / `.hi` of every card with a gain trigger, over all sets.
 pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO | Prosperity::GAIN_LO | Alchemy::GAIN_LO | Promo::GAIN_LO
-    | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO;
+    | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
-    | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI;
+    | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -413,12 +424,13 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     Promo::turn_start_entries(g);
     CornucopiaGuilds::turn_start_entries(g);
     Prosperity::turn_start_entries(g);
+    Adventures::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
-    g.in_supply.any(GAIN_LO, GAIN_HI) || CornucopiaGuilds::gain_live_extra(g) || DarkAges::gain_live_extra(g)
+    g.in_supply.any(GAIN_LO, GAIN_HI) || CornucopiaGuilds::gain_live_extra(g) || DarkAges::gain_live_extra(g) || Adventures::gain_live_extra(g)
 }
 
 /// Every "when you gain" trigger for `p` gaining `c` (moved to `to`). The order is the order the
@@ -426,6 +438,9 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
 /// none of its cards is in the game.
 #[inline]
 pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
+    if g.in_supply.hi & Adventures::GAIN_HI != 0 || Adventures::gain_live_extra(g) {
+        Adventures::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     if g.in_supply.hi & CornucopiaGuilds::GAIN_HI != 0 || CornucopiaGuilds::gain_live_extra(g) {
         CornucopiaGuilds::gain_triggers(g, p, c, to, on_buy, sink);
     }
@@ -444,6 +459,7 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
 pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
     CornucopiaGuilds::end_of_buy(g, sink);
     DarkAges::end_of_buy(g, sink);
+    Adventures::end_of_buy(g, sink);
 }
 
 /// The offers made at the end of the Buy phase, pushed in the order below: the stack pops the last first, so
@@ -452,6 +468,7 @@ pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
 pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Alchemy::offers_on_discard(g);
     Seaside::offers_on_discard(g);
+    Adventures::offers_on_discard(g);
     Promo::offers_at_cleanup(g);
     Alchemy::offers_at_cleanup(g);
 }

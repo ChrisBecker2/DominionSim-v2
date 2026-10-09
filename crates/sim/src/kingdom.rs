@@ -52,8 +52,10 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
             return Err(format!("{name:?} is a Reward (gained by Joust), not a kingdom card"));
         }
         // A Knight stands for the Knights pile (one kingdom card); Ruins, Shelters, Spoils, Madman and Mercenary come with the cards that give them.
-        let c = if c >= cards::id::DAME_ANNA { cards::id::KNIGHTS } else { c };
-        if !cards::is_kingdom(c) && !cards::is_optional_basic(c) {
+        let c = if c >= cards::id::DAME_ANNA && c < cards::NUM_CARDS as CardId && !cards::is_event(c) { cards::id::KNIGHTS } else { c };
+        // Avanto is the bottom half of the Sauna/Avanto split pile (one kingdom card).
+        let c = if c == cards::id::AVANTO { cards::id::SAUNA } else { c };
+        if !cards::is_kingdom(c) && !cards::is_optional_basic(c) && !cards::is_event(c) {
             return Err(format!("{name:?} is not a kingdom card (the Ruins come with a Looter, Shelters with Dark Ages, Spoils, Madman and Mercenary with their cards)"));
         }
         if out.contains(&c) {
@@ -61,10 +63,11 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         }
         out.push(c);
     }
-    if out.len() != 10 {
+    // Events (Adventures) ride along in the list but are not kingdom cards: ten kingdom cards, plus up to any number of Events.
+    let n_kingdom = out.iter().filter(|&&c| cards::is_kingdom(c)).count();
+    if n_kingdom != 10 {
         return Err(format!(
-            "--kingdom must name exactly 10 kingdom cards (or a preset: \"first-game\", \"auto\", \"auto:<sets>\", \"random\", \"random:<sets>\"), got {}",
-            out.len()
+            "--kingdom must name exactly 10 kingdom cards, plus any Events (or a preset: \"first-game\", \"auto\", \"auto:<sets>\", \"random\", \"random:<sets>\"), got {n_kingdom}"
         ));
     }
     cards::add_potion_if_needed(&mut out);
@@ -88,13 +91,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\" and/or \"dark ages\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\" and/or \"adventures\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\" and/or \"dark ages\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\" and/or \"adventures\")".into());
     }
     Ok(out)
 }
@@ -155,6 +158,27 @@ mod tests {
         let r = resolve("random:dark ages", &[], 4).unwrap();
         assert_eq!(r.len(), 10);
         assert!(r.iter().all(|&c| cards::set_of(c) == CardSet::DarkAges && cards::is_kingdom(c)));
+    }
+
+    #[test]
+    fn adventures_kingdoms_take_events_and_the_split_pile() {
+        // Events ride along and do not count toward the ten; Avanto names the Sauna/Avanto pile.
+        let k = resolve("Village,Smithy,Witch,Chapel,Market,Gardens,Militia,Moat,Bandit,Avanto,Alms,Ball", &[], 1).unwrap();
+        assert_eq!(k.iter().filter(|&&c| cards::is_event(c)).count(), 2);
+        assert!(k.contains(&cards::id::SAUNA) && !k.contains(&cards::id::AVANTO));
+        assert!(resolve("Village,Smithy,Witch,Chapel,Market,Gardens,Militia,Moat,Bandit,Alms,Ball", &[], 1).is_err(), "nine kingdom cards");
+        assert!(resolve("Village,Smithy,Witch,Chapel,Market,Gardens,Militia,Moat,Bandit,Cellar,Warrior", &[], 1).is_err(), "Traveller upgrades come with their line");
+        // Random Adventures kingdoms: ten kingdom cards and 0 to 2 distinct Events, reproducible by seed.
+        let mut with_events = 0;
+        for seed in 0..40u64 {
+            let k = resolve("random:adventures", &[], seed).unwrap();
+            let events = k.iter().filter(|&&c| cards::is_event(c)).count();
+            assert!(events <= 2);
+            assert_eq!(k.iter().filter(|&&c| cards::is_kingdom(c)).count(), 10);
+            assert_eq!(k, resolve("random:adventures", &[], seed).unwrap());
+            with_events += (events > 0) as u32;
+        }
+        assert!(with_events >= 30, "with Adventures alone nearly every game has Events: {with_events}/40");
     }
 
     #[test]

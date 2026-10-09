@@ -66,10 +66,18 @@ impl Evaluator for FullSearch<'_> {
 /// worse (the Stone is played after every Action in both), and the engine marks the Stone
 /// choice-free for that reason (docs/alchemy-plan.md); only the shortcut's "play all of them" is
 /// not exact for it, which this test, about the order of Actions, does not cover.
-fn free_actions() -> Vec<CardId> {
+/// The choice-free cards of Adventures (`adventures`), or of every other set. They are checked separately, each pool with its own seed.
+fn free_actions_of(adventures: bool) -> Vec<CardId> {
     // The Dark Ages cards that no kingdom contains (the Knights, Necropolis, the Ruins) are played from the hand all the same.
-    let others = (id::NECROPOLIS..=id::SIR_VANDER).filter(|&c| !cards::is_kingdom(c) && cards::is(c, cards::ACTION));
-    cards::kingdom_cards().chain(others).filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE).collect()
+    let others = (id::NECROPOLIS..=id::SIR_VANDER)
+        .filter(|&c| !cards::is_kingdom(c) && cards::is(c, cards::ACTION) && cards::set_of(c) == cards::CardSet::DarkAges);
+    // The Traveller upgrades of Adventures are not kingdom cards either.
+    let upgrades = (id::TREASURE_HUNTER..=id::TEACHER).filter(|&c| cards::is(c, cards::ACTION));
+    let all: Vec<CardId> = cards::kingdom_cards().chain(others).chain(upgrades).collect();
+    all.into_iter()
+        .filter(|&c| (cards::set_of(c) == cards::CardSet::Adventures) == adventures)
+        .filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE)
+        .collect()
 }
 
 fn names(cs: &[CardId]) -> String {
@@ -78,8 +86,22 @@ fn names(cs: &[CardId]) -> String {
 
 #[test]
 fn obvious_play_is_as_good_as_searching() {
-    let free = free_actions();
-    assert!(free.contains(&id::VILLAGE) && free.contains(&id::BRIDGE), "every playable choice-free card, from every set: {free:?}");
+    // The exact searches recurse deeply over a large `GameState`: more stack than a test thread has by default.
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| obvious_play_is_as_good_as_searching_inner(false)).unwrap().join().unwrap();
+}
+
+#[test]
+fn obvious_play_is_as_good_as_searching_with_adventures_cards() {
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| obvious_play_is_as_good_as_searching_inner(true)).unwrap().join().unwrap();
+}
+
+fn obvious_play_is_as_good_as_searching_inner(adventures: bool) {
+    let free = free_actions_of(adventures);
+    if adventures {
+        assert!(free.contains(&id::PAGE) && free.contains(&id::WARRIOR) && free.contains(&id::ROYAL_CARRIAGE), "{free:?}");
+    } else {
+        assert!(free.contains(&id::VILLAGE) && free.contains(&id::BRIDGE), "every playable choice-free card, from every other set: {free:?}");
+    }
     let fillers = [id::COPPER, id::COPPER, id::SILVER, id::GOLD, id::ESTATE];
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../strategies/");
     let strategies: Vec<Strategy> = ["village_smithy_engine.toml", "double_witch.toml", "laboratory_bm.toml"]
@@ -87,7 +109,7 @@ fn obvious_play_is_as_good_as_searching() {
         .map(|f| Strategy::parse(&std::fs::read_to_string(format!("{root}{f}")).unwrap()).unwrap())
         .collect();
     let cfg = SearchConfig::default();
-    let mut rng = Rng::new(12345);
+    let mut rng = Rng::new(if adventures { 4711 } else { 12345 });
     let (mut checked, mut differs) = (0, 0);
     for case in 0..400 {
         let pick = |rng: &mut Rng, xs: &[CardId]| xs[rng.below(xs.len() as u32) as usize];
@@ -99,10 +121,11 @@ fn obvious_play_is_as_good_as_searching() {
         pool.extend_from_slice(&fillers);
         let deck: Vec<CardId> = (0..6 + rng.below(6)).map(|_| pick(&mut rng, &pool)).collect();
         let actions = 1 + rng.below(2);
+        let kingdom: Vec<CardId> = free.iter().copied().filter(|&c| cards::is_kingdom(c)).collect();
         let text = format!(
             "players: 2\nkingdom: {}\nturn: 5  player: 1  phase: action  actions: {actions}  buys: 1  coins: 0\n\n\
              [player 1]\nhand: {}\ndeck: {}\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n",
-            names(&free.iter().copied().filter(|&c| cards::is_kingdom(c)).collect::<Vec<_>>()),
+            names(&kingdom),
             names(&hand),
             names(&deck)
         );
@@ -131,12 +154,14 @@ fn obvious_play_is_as_good_as_searching() {
         let tol = 1e-6 * best.ev.abs().max(1.0);
         assert!(
             mine.ev >= best.ev - tol,
-            "obvious play {} ({}) is worse than {:?} ({}) for {}\n{text}",
+            "obvious play {} ({}) is worse than {:?} ({}) for {}\nobvious: {}\nbest:    {}\n{text}",
             cards::name(obvious),
             mine.ev,
             best.choice,
             best.ev,
-            strat.name
+            strat.name,
+            mine.pv,
+            best.pv
         );
     }
     println!("checked {checked} positions exactly ({differs} where search listed a different, equally good card first)");
@@ -176,26 +201,40 @@ fn a_card_with_a_choice_or_too_many_terminals_means_search() {
 // ---- Cantrips first: with a real choice in hand, the choice-free +Actions cards are played
 // first without searching, unless a card in hand is order-sensitive. ----
 
-fn cantrips() -> Vec<CardId> {
-    free_actions().into_iter().filter(|&c| cards::def(c).actions > 0).collect()
+fn cantrips(adventures: bool) -> Vec<CardId> {
+    free_actions_of(adventures).into_iter().filter(|&c| cards::def(c).actions > 0).collect()
 }
 
 /// Kingdom Action cards with a choice that a cantrip played first can't hurt.
-fn plain_choice_actions() -> Vec<CardId> {
+fn plain_choice_actions(adventures: bool) -> Vec<CardId> {
     cards::kingdom_cards()
         .filter(|&c| cards::is(c, cards::ACTION) && cards::def(c).on_play == OnPlay::Choice)
+        .filter(|&c| (cards::set_of(c) == cards::CardSet::Adventures) == adventures || (adventures && c == id::WORKSHOP))
         .collect()
 }
 
 #[test]
 fn cantrip_first_is_as_good_as_searching() {
-    let cantrip = cantrips();
-    let choice = plain_choice_actions();
-    assert!(cantrip.contains(&id::VILLAGE) && choice.contains(&id::WORKSHOP) && !choice.contains(&id::THRONE_ROOM) && !choice.contains(&id::REMODEL));
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| cantrip_first_is_as_good_as_searching_inner(false)).unwrap().join().unwrap();
+}
+
+#[test]
+fn cantrip_first_is_as_good_as_searching_with_adventures_cards() {
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| cantrip_first_is_as_good_as_searching_inner(true)).unwrap().join().unwrap();
+}
+
+fn cantrip_first_is_as_good_as_searching_inner(adventures: bool) {
+    let cantrip = cantrips(adventures);
+    let choice = plain_choice_actions(adventures);
+    if adventures {
+        assert!(cantrip.contains(&id::PAGE) && choice.contains(&id::MISER) && choice.contains(&id::WORKSHOP));
+    } else {
+        assert!(cantrip.contains(&id::VILLAGE) && choice.contains(&id::WORKSHOP) && !choice.contains(&id::THRONE_ROOM) && !choice.contains(&id::REMODEL));
+    }
     let fillers = [id::COPPER, id::COPPER, id::SILVER, id::GOLD, id::ESTATE, id::CURSE];
     let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
     let cfg = SearchConfig::default();
-    let mut rng = Rng::new(777);
+    let mut rng = Rng::new(if adventures { 888 } else { 777 });
     let (mut checked, mut cases) = (0, 0);
     for _ in 0..1500 {
         let pick = |rng: &mut Rng, xs: &[CardId]| xs[rng.below(xs.len() as u32) as usize];

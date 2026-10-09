@@ -32,7 +32,7 @@ fn bot() -> Strategy {
 }
 
 /// The victim's answer to the Moat question the attack `attack` raises.
-fn moat_answer(attack: u8, g: &mut GameState) -> Choice {
+fn moat_answer(attack: dominion_engine::CardId, g: &mut GameState) -> Choice {
     next_decision(g);
     g.apply(Choice::Card(attack), &mut NoEvents).unwrap();
     let (d, ch) = next_decision(g);

@@ -134,6 +134,11 @@ impl SetRules for Base {
                 Then::GainUpTo { plus: 2, filter: Filter::Any, dest: Dest::Discard, exact: false, dest_by_type: false },
             )),
             id::THRONE_ROOM => g.stack.push(select(p, card, Zone::Hand, Play, Filter::Action, 0, 1, Then::PlayPicked { times: 2 })),
+            // Inheritance: on its owner's turn an Estate is a Command Action that plays the card under their Estate token, leaving it there.
+            id::ESTATE if g.estates_are_actions(p) => {
+                let inherit = g.players[p as usize].inherit;
+                g.stack.push(Frame { subject: inherit, count: 1, zone: Zone::Supply, ..Frame::new(K::PlayEffects, p, card) });
+            }
             id::BANDIT => {
                 g.gain(p, id::GOLD, Dest::Discard, false, card, sink);
                 let (vs, n) = g.victims(sink);
@@ -225,6 +230,8 @@ impl GameState {
             self.finish_library(p, sink);
             return Run::Continue;
         }
+        // The -1 Card token: Library skips one draw, which it makes up for by drawing on: the token just goes.
+        self.players[pi].adv &= !crate::state::ADV_MINUS_CARD;
         match take_top!(self, p, sink) {
             None => self.finish_library(p, sink),
             Some(c) => {

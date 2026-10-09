@@ -26,6 +26,8 @@ pub enum Var {
     /// Cards I own.
     TotalCards,
     EmptyPiles,
+    /// Times I have bought an Event (Adventures) this game.
+    Bought(CardId),
 }
 
 /// `Lt` prints as `<` (`<=` for `provinces_left`/`empty_piles`, which read better that way);
@@ -60,10 +62,14 @@ pub enum List {
     Trash,
     /// `[[mode]]` rules: which option a choose-one card (Investment, Steward, Pawn...) takes.
     Mode,
+    /// `[[token]]` rules (Adventures): `card` is the pile, `opt` the token (index into `cards::TOKEN_NAMES`).
+    Token,
+    /// `[[call]]` rules (Adventures): call the Reserve card `card` when the condition holds.
+    Call,
 }
 
 impl List {
-    pub const ALL: [List; 4] = [List::Gain, List::Play, List::Trash, List::Mode];
+    pub const ALL: [List; 6] = [List::Gain, List::Play, List::Trash, List::Mode, List::Token, List::Call];
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -74,6 +80,10 @@ pub struct Genome {
     pub trash: Vec<Rule>,
     /// Stated mode rules: the card, the option to choose (`Rule::opt`), and when.
     pub mode: Vec<Rule>,
+    /// Stated token rules (Adventures): the pile, the token (`Rule::opt`), and when.
+    pub token: Vec<Rule>,
+    /// Stated call rules (Adventures): the Reserve card to call, and when.
+    pub call: Vec<Rule>,
     pub keep_treasure: u8,
 }
 
@@ -103,6 +113,7 @@ impl Var {
             Var::MyTurn => (2, 30),
             Var::TotalCards => (8, 50),
             Var::EmptyPiles => (1, 2),
+            Var::Bought(_) => (1, 3),
         }
     }
 
@@ -125,6 +136,7 @@ impl Var {
             Var::MyTurn => "my_turn".into(),
             Var::TotalCards => "total_cards".into(),
             Var::EmptyPiles => "empty_piles".into(),
+            Var::Bought(c) => format!("bought({})", cards::name(c)),
         }
     }
 
@@ -134,6 +146,10 @@ impl Var {
         if let Some(inner) = lower.strip_prefix("count(").and_then(|r| r.strip_suffix(')')) {
             let inner_orig = &s[6..s.len() - 1];
             return cards::by_name(inner_orig).map(Var::Count).or_else(|| (inner.trim() == "action").then_some(Var::CountActions));
+        }
+        if let Some(inner) = lower.strip_prefix("bought(").and_then(|r| r.strip_suffix(')')) {
+            let _ = inner;
+            return cards::by_name(&s[7..s.len() - 1]).filter(|&c| cards::is_event(c)).map(Var::Bought);
         }
         if lower.replace(' ', "") == "count_type(action)" {
             return Some(Var::CountActions);
@@ -227,6 +243,14 @@ struct RawRule {
 }
 
 #[derive(Deserialize)]
+struct RawToken {
+    token: String,
+    pile: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct RawMode {
     card: String,
     choose: String,
@@ -256,6 +280,10 @@ struct RawFile {
     trash: Vec<RawRule>,
     #[serde(default)]
     mode: Vec<RawMode>,
+    #[serde(default)]
+    token: Vec<RawToken>,
+    #[serde(default)]
+    call: Vec<RawRule>,
     trash_priority: Option<Vec<String>>,
     keep_treasure: Option<u8>,
 }
@@ -285,7 +313,14 @@ impl Genome {
                 .ok_or_else(|| format!("unknown mode choice {:?} for {}", m.choose, m.card))? as u8;
             mode.push(r);
         }
-        Ok(Genome { gain, play, trash, mode, keep_treasure: raw.keep_treasure.unwrap_or(2) })
+        let mut token = Vec::new();
+        for t in &raw.token {
+            let mut r = Rule::parse(&t.pile, t.cond.as_deref())?;
+            r.opt = cards::token_by_name(&t.token).ok_or_else(|| format!("unknown token {:?}", t.token))? as u8;
+            token.push(r);
+        }
+        let call = rules(&raw.call)?;
+        Ok(Genome { gain, play, trash, mode, token, call, keep_treasure: raw.keep_treasure.unwrap_or(2) })
     }
 
     /// Rules plus condition atoms: the complexity charged by the parsimony penalty.
@@ -294,7 +329,15 @@ impl Genome {
     }
 
     pub fn lists(&self) -> impl Iterator<Item = (List, &Vec<Rule>)> {
-        [(List::Gain, &self.gain), (List::Play, &self.play), (List::Trash, &self.trash), (List::Mode, &self.mode)].into_iter()
+        [
+            (List::Gain, &self.gain),
+            (List::Play, &self.play),
+            (List::Trash, &self.trash),
+            (List::Mode, &self.mode),
+            (List::Token, &self.token),
+            (List::Call, &self.call),
+        ]
+        .into_iter()
     }
 
     pub fn list_mut(&mut self, list: List) -> &mut Vec<Rule> {
@@ -303,6 +346,8 @@ impl Genome {
             List::Play => &mut self.play,
             List::Trash => &mut self.trash,
             List::Mode => &mut self.mode,
+            List::Token => &mut self.token,
+            List::Call => &mut self.call,
         }
     }
 
@@ -348,6 +393,22 @@ impl Genome {
                 .join(" > ");
             let _ = write!(s, " | mode {modes}");
         }
+        for (name, list) in [("token", &self.token), ("call", &self.call)] {
+            if !list.is_empty() {
+                let items = list
+                    .iter()
+                    .map(|r| {
+                        let what = if name == "token" { format!("{} on {}", cards::TOKEN_NAMES[r.opt as usize], cards::name(r.card)) } else { cards::name(r.card).to_string() };
+                        match r.cond_text() {
+                            Some(c) => format!("{what} [{c}]"),
+                            None => what,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" > ");
+                let _ = write!(s, " | {name} {items}");
+            }
+        }
         s
     }
 
@@ -377,6 +438,8 @@ impl Genome {
                 List::Play => "play",
                 List::Trash => "trash",
                 List::Mode => "mode",
+                List::Token => "token",
+                List::Call => "call",
             };
             for (i, r) in rules.iter().enumerate() {
                 s.push('\n');
@@ -384,7 +447,12 @@ impl Genome {
                     let _ = writeln!(s, "# {note}");
                 }
                 let _ = writeln!(s, "[[{table}]]");
-                let _ = writeln!(s, "card = {}", quote(cards::name(r.card)));
+                if list == List::Token {
+                    let _ = writeln!(s, "token = {}", quote(cards::TOKEN_NAMES[r.opt as usize]));
+                    let _ = writeln!(s, "pile = {}", quote(cards::name(r.card)));
+                } else {
+                    let _ = writeln!(s, "card = {}", quote(cards::name(r.card)));
+                }
                 if list == List::Mode {
                     let _ = writeln!(s, "choose = {}", quote(&mode_label(r)));
                 }
@@ -427,6 +495,8 @@ mod tests {
                 Rule { card: id::INVESTMENT, opt: 1, conds: vec![Atom { var: Var::ProvincesLeft, op: Op::Lt, n: 4 }] },
                 Rule { card: id::STEWARD, opt: 1, conds: vec![] },
             ],
+            token: vec![Rule { card: id::SMITHY, opt: 3, conds: vec![Atom { var: Var::MyTurn, op: Op::Ge, n: 4 }] }],
+            call: vec![Rule { card: id::WINE_MERCHANT, opt: 0, conds: vec![] }],
             keep_treasure: 3,
         };
         let meta = TomlMeta { name: "Test".into(), never_gain: vec![id::WITCH], header: vec!["hello".into()], ..Default::default() };
@@ -436,7 +506,20 @@ mod tests {
         assert!(text.contains("[[mode]]\ncard = \"Investment\"\nchoose = \"Trash this for +1 VP per Treasure type in hand\"\nif = \"provinces_left <= 3\""), "{text}");
         dominion_sim::Strategy::parse(&text).unwrap();
         assert_eq!(Genome::from_toml(&text).unwrap(), g);
-        assert_eq!(g.size(), 5 + 1 + 3 + 2 + 1);
+        assert_eq!(g.size(), 5 + 1 + 3 + 2 + 1 + 1 + 1 + 1);
+        assert!(text.contains("[[token]]\ntoken = \"+$1\"\npile = \"Smithy\"\nif = \"my_turn >= 4\""), "{text}");
+        assert!(text.contains("[[call]]\ncard = \"Wine Merchant\"\n"), "{text}");
+    }
+
+    #[test]
+    fn an_event_rule_counts_purchases() {
+        let a = Atom::parse("bought(Lost Arts) < 1").unwrap();
+        assert_eq!(a, Atom { var: Var::Bought(id::LOST_ARTS), op: Op::Lt, n: 1 });
+        assert_eq!(a.text(), "bought(Lost Arts) < 1");
+        assert!(Atom::parse("bought(Smithy) < 1").is_err(), "only Events are bought");
+        let text = "name = \"E\"\n[[gain]]\ncard = \"Lost Arts\"\nif = \"bought(Lost Arts) < 1\"\n[[gain]]\ncard = \"Gold\"\n";
+        let g = Genome::from_toml(text).unwrap();
+        dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
     }
 
     #[test]

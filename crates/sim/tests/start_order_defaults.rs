@@ -102,7 +102,7 @@ fn the_default_order_is_returns_then_bonuses_then_plays_then_discards() {
     let strat = no_search("big_money_ultimate.toml");
     let text = state("hand: Clerk, Estate, Copper\ndeck: 8 Estate\nset aside:\ndurations: Tide Pools, Caravan\nin play: Tide Pools, Caravan");
     let mut g = parse_state(&text).unwrap();
-    let mut order: Vec<u8> = Vec::new();
+    let mut order: Vec<dominion_engine::CardId> = Vec::new();
     for _ in 0..40 {
         let d = match g.advance(&mut NoEvents) {
             Step::Decision(d) => d,

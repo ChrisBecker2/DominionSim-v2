@@ -49,8 +49,8 @@ fn buy_phase(g: &mut GameState, coins: u16) {
 
 #[test]
 fn the_set_has_26_kingdom_cards_and_6_rewards() {
-    assert_eq!(cards::NUM_CARDS, 218);
-    assert_eq!(CardSet::ALL.len(), 8);
+    assert_eq!(cards::NUM_CARDS, 278);
+    assert_eq!(CardSet::ALL.len(), 9);
     assert_eq!(cards::set_by_name("Cornucopia & Guilds"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(cards::set_by_name("cornucopia"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(CardSet::CornucopiaGuilds.name(), "Cornucopia & Guilds");
@@ -1829,7 +1829,7 @@ fn the_default_bane_costs_two_or_three_is_not_in_the_kingdom_and_is_stable() {
         assert!(g.in_supply(a));
     }
     // A Potion-cost card is never the Bane: Apothecary costs $2P, not $2.
-    for k in 0..40u8 {
+    for k in 0..40u16 {
         let kingdom = vec![id::YOUNG_WITCH, k % 20 + id::CELLAR];
         if let Some(b) = cards::default_bane(&kingdom, 0) {
             assert!(!cards::potion_cost(b), "{}", cards::name(b));

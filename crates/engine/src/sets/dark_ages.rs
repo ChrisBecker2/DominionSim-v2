@@ -6,7 +6,8 @@ use crate::state::{GameConfig, TypeSet};
 
 /// Card ids of this set (dense, contiguous, and stable: saved states and the text format name cards, but
 /// the ids index the card table). The kingdom cards come first (161-195, the Knights pile marker among them), then the
-/// cards no kingdom contains; the Ruins and Knights, the members of the two mixed piles, are the highest ids.
+/// cards no kingdom contains (196-201); the Ruins and Knights, the members of the two mixed piles, are the highest ids
+/// (262-277: the Adventures cards and the Events sit between).
 pub mod ids {
     use crate::cards::CardId;
     pub const POOR_HOUSE: CardId = 161;
@@ -53,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 202;
+    pub const RUINS: CardId = 262;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 203;
-    pub const RUINED_LIBRARY: CardId = 204;
-    pub const RUINED_MARKET: CardId = 205;
-    pub const RUINED_VILLAGE: CardId = 206;
-    pub const SURVIVORS: CardId = 207;
-    pub const DAME_ANNA: CardId = 208;
-    pub const DAME_JOSEPHINE: CardId = 209;
-    pub const DAME_MOLLY: CardId = 210;
-    pub const DAME_NATALIE: CardId = 211;
-    pub const DAME_SYLVIA: CardId = 212;
-    pub const SIR_BAILEY: CardId = 213;
-    pub const SIR_DESTRY: CardId = 214;
-    pub const SIR_MARTIN: CardId = 215;
-    pub const SIR_MICHAEL: CardId = 216;
-    pub const SIR_VANDER: CardId = 217;
+    pub const ABANDONED_MINE: CardId = 263;
+    pub const RUINED_LIBRARY: CardId = 264;
+    pub const RUINED_MARKET: CardId = 265;
+    pub const RUINED_VILLAGE: CardId = 266;
+    pub const SURVIVORS: CardId = 267;
+    pub const DAME_ANNA: CardId = 268;
+    pub const DAME_JOSEPHINE: CardId = 269;
+    pub const DAME_MOLLY: CardId = 270;
+    pub const DAME_NATALIE: CardId = 271;
+    pub const DAME_SYLVIA: CardId = 272;
+    pub const SIR_BAILEY: CardId = 273;
+    pub const SIR_DESTRY: CardId = 274;
+    pub const SIR_MARTIN: CardId = 275;
+    pub const SIR_MICHAEL: CardId = 276;
+    pub const SIR_VANDER: CardId = 277;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -161,7 +162,7 @@ impl MixedPile {
     /// The member ids.
     #[inline]
     pub fn members(&self) -> std::ops::Range<CardId> {
-        self.first..self.first + self.kinds
+        self.first..self.first + self.kinds as CardId
     }
     /// The pile a member belongs to (a card at or above `cards::FIRST_PILE_CARD`).
     #[inline]

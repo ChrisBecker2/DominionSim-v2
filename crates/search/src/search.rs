@@ -44,8 +44,12 @@ pub(crate) fn fixed_choice<E: Evaluator>(eval: &E, s: &GameState, me: u8, d: &De
 pub(crate) fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
         && (state.turn.phase == Phase::CleanupDraw
-            // The last Buy is used and nothing it caused is still to resolve (an overpay's gains, a reaction).
-            || (state.turn.phase == Phase::Buy && state.turn.buys == 0 && state.stack.is_empty()))
+            // The last Buy is used and nothing it caused is still to resolve (an overpay's gains, a reaction). Not when a Wine Merchant
+            // may still be discarded from the Tavern mat at the end of the Buy phase: that offer is part of the turn.
+            || (state.turn.phase == Phase::Buy
+                && state.turn.buys == 0
+                && state.stack.is_empty()
+                && !(state.turn.coins >= 2 && state.players[state.turn.player as usize].tavern.has(cards::id::WINE_MERCHANT))))
 }
 
 #[derive(Clone, Copy)]
@@ -602,6 +606,9 @@ fn verb(act: Act) -> &'static str {
         Act::Gain => "Gain",
         Act::Reveal => "Reveal",
         Act::Pass => "Pass",
+        Act::Tavern => "Put on the mat",
+        Act::Call => "Call",
+        Act::Exchange => "Exchange",
     }
 }
 
@@ -710,6 +717,8 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::DeckPosition { .. }, _) => "?".to_string(),
         (DecisionKind::StartOrder, Choice::Card(c)) => format!("Start of turn: resolve {} first", cards::name(c)),
         (DecisionKind::StartOrder, _) => "?".to_string(),
+        (DecisionKind::Token { token }, Choice::Card(c)) => format!("Move the {} token to {}", cards::TOKEN_NAMES[token as usize], cards::name(c)),
+        (DecisionKind::Token { .. }, _) => "?".to_string(),
         (DecisionKind::Overpay { .. }, Choice::Overpay(0)) => "don't overpay".to_string(),
         (DecisionKind::Overpay { .. }, c) => match c.as_overpay() {
             Some((coins, potion)) => format!("overpay ${coins}{}", if potion { " and a Potion" } else { "" }),

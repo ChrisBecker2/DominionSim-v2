@@ -76,12 +76,26 @@ New game state (a mat, a token, a per-turn counter): a field in `PlayerState` / 
 still load: a field is written only while nonzero), shown to agents in `PlayerView` (`agent.rs`), and an `Event` if
 the log should say something (`engine.rs`, `web/app.js`'s log).
 
+### Capacity and unusual card kinds (learned with Adventures)
+
+* **Ids.** `CardId` is `u16`; `Counts::LANES` (a multiple of 32) must cover every id that can be in a zone, and `SupplyMask` has three words (ids 0-127, 128-255, 256 and up). Adding cards past a
+  limit means widening those, and a speed check (the widening alone cost about 6%). Keep the mixed-pile members (Knights, Ruins) the highest ids.
+* **Pseudo-cards that are never owned (Events).** Give them a `CardDef` and an id so names, strategies, text and the Lab work unchanged; keep them out of every `Counts`, zone and supply mask
+  (`cards::is_event` is an id range test); the `Buy` decision offers `Choice::Card(event)`; the effect pushes the generic frames. Strategies list them in `[[gain]]`; gains that are not buys skip them.
+* **Split piles (Sauna/Avanto).** One kingdom id names the pile; the other half is in the Supply mask with its count, is not legal to gain while the top half remains (`may_buy` and the Gain frame),
+  and `empty_piles` counts the pair once.
+* **A new mat or token.** Per-player public state (`tavern`, `tok`, `inherit`), counted by `all_cards` where the cards are still owned; a flag in `GameState::adv` so games without it pay one byte test;
+  `PlayerView` accessors; the text format (`tavern:`, `tokens:`, `events:` lines) and the determinize/hash code; a generic frame for the choice (`FrameKind::Token`, `Act::Call`).
+* **Non-Supply piles (Traveller upgrades)** are fields of `GameState`, listed in `side_pile_cards`, shown by `PlayerView::supply` and by the page as "not in the Supply".
+
 ## 2. Bots: `crates/sim/src/defaults/<set>.rs`
 
 A unit struct implementing `SetDefaults` (fast defaults for mode cards, a card's own `Select` policy, overpay, naming,
 start-of-turn order group, whether a card is worth playing, ...), a `mod` line and an arm in `with_set!` in
 `defaults/mod.rs`. Also: new expression variables for strategy conditions in `expr.rs` (`coffers`-style), the set's
-name in `kingdom.rs` and in the `--kingdom` help of `bin/dominion_sim.rs`.
+name in `kingdom.rs` and in the `--kingdom` help of `bin/dominion_sim.rs`. New strategy tables (`[[token]]`, `[[call]]`, `[[exchange]]`) are
+parsed in `strategy.rs` and listed in the Lab's genome (`crates/evolve/src/genome.rs`, `space.rs`) when the Lab should be able to search them. A decision that shapes the turn (a call, an overpay) is
+searched like the play order: add it to `eval::is_play_decision` and have a stated rule win over the search.
 
 ## 3. Front ends
 

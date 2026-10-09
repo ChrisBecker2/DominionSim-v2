@@ -67,6 +67,15 @@ struct ModeRuleRaw {
     cond: Option<String>,
 }
 
+/// `[[token]] token = "+1 Card" pile = "Laboratory" if = "..."`: where to put a token when a card or Event asks (Adventures).
+#[derive(Deserialize)]
+struct TokenRuleRaw {
+    token: String,
+    pile: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -127,12 +136,21 @@ fn expand_pile(card: CardId) -> Vec<CardId> {
     }
 }
 
+/// The cards a rule naming `name` stands for: the card, the cards of a Knights or Ruins pile, or both halves of `Sauna/Avanto`.
+fn rule_cards(name: &str) -> Option<Vec<CardId>> {
+    let norm: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect();
+    if norm == "sauna/avanto" {
+        return Some(vec![id::SAUNA, id::AVANTO]);
+    }
+    cards::by_name(name).map(expand_pile)
+}
+
 fn compile_rules(raw: &[BuyRuleRaw], what: &str) -> Result<Vec<(CardId, Option<Expr>)>, String> {
     let mut out = Vec::new();
     for r in raw {
-        let card = cards::by_name(&r.card).ok_or_else(|| format!("unknown card {:?} in {what} list", r.card))?;
+        let cards = rule_cards(&r.card).ok_or_else(|| format!("unknown card {:?} in {what} list", r.card))?;
         let cond = r.cond.as_deref().map(Expr::parse).transpose()?;
-        for c in expand_pile(card) {
+        for c in cards {
             out.push((c, cond.clone()));
         }
     }
@@ -162,6 +180,16 @@ struct StrategyFile {
     /// Older shorthand for `[[trash]]` without conditions.
     #[serde(default)]
     trash_priority: Option<Vec<String>>,
+    /// Token placement rules (Adventures), in priority order.
+    #[serde(default)]
+    token: Vec<TokenRuleRaw>,
+    /// Rules for calling a Reserve card (Adventures): the first rule for the card whose condition holds says yes.
+    #[serde(default)]
+    call: Vec<BuyRuleRaw>,
+    /// Rules for exchanging a Traveller when it is discarded from play: the first rule for the card whose condition holds says yes
+    /// (exchanging is the default).
+    #[serde(default)]
+    exchange: Vec<BuyRuleRaw>,
     /// Chapel/Sentry won't trash a treasure from hand if doing so would leave fewer than this
     /// many treasures in hand. Default 2.
     #[serde(default)]
@@ -197,6 +225,11 @@ pub struct Strategy {
     trash: Vec<(CardId, Option<Expr>)>,
     /// `[[mode]]` rules in priority order: (card, index into `cards::modes(card)`, condition).
     mode: Vec<(CardId, u8, Option<Expr>)>,
+    /// `[[token]]` rules in priority order: (token index, pile, condition).
+    token: Vec<(usize, CardId, Option<Expr>)>,
+    /// `[[call]]` and `[[exchange]]` rules in priority order.
+    call: Vec<(CardId, Option<Expr>)>,
+    exchange: Vec<(CardId, Option<Expr>)>,
     keep_treasure: u8,
     pub win_this_turn: bool,
     never_gain: Vec<CardId>,
@@ -221,9 +254,9 @@ impl Strategy {
         let rules = if raw.gain.is_empty() { &raw.buy } else { &raw.gain };
         let mut buy = Vec::with_capacity(rules.len());
         for rule in rules {
-            let card = cards::by_name(&rule.card).ok_or_else(|| format!("unknown card {:?} in gain list", rule.card))?;
+            let cards = rule_cards(&rule.card).ok_or_else(|| format!("unknown card {:?} in gain list", rule.card))?;
             let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
-            for c in expand_pile(card) {
+            for c in cards {
                 buy.push((c, cond.clone()));
             }
         }
@@ -270,6 +303,32 @@ impl Strategy {
             mode.push((card, idx as u8, cond));
         }
 
+        // Token placement rules: the token's name, the pile (a card; the Knights pile by "Knights", the split pile by either half), a condition.
+        let mut token = Vec::with_capacity(raw.token.len());
+        for rule in &raw.token {
+            let tok = cards::token_by_name(&rule.token).ok_or_else(|| format!("unknown token {:?} in [[token]] rule", rule.token))?;
+            if tok >= dominion_engine::state::NUM_PILE_TOKENS && tok != 6 {
+                return Err(format!("the {:?} token is not placed on a pile: a [[token]] rule can name +1 Card, +1 Action, +1 Buy, +$1, -$2 cost, Trashing or Estate", rule.token));
+            }
+            let pile = rule_cards(&rule.pile).and_then(|v| v.first().copied()).ok_or_else(|| format!("unknown card {:?} in [[token]] rule", rule.pile))?;
+            // A Knight names the Knights pile, Avanto the split pile.
+            let pile = if pile >= cards::id::DAME_ANNA { id::KNIGHTS } else { cards::pile_of(pile) };
+            let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
+            token.push((tok, pile, cond));
+        }
+        let call = compile_rules(&raw.call, "call")?;
+        for (c, _) in &call {
+            if !cards::is(*c, cards::RESERVE) {
+                return Err(format!("{:?} in the call list is not a Reserve card", cards::name(*c)));
+            }
+        }
+        let exchange = compile_rules(&raw.exchange, "exchange")?;
+        for (c, _) in &exchange {
+            if cards::traveller_upgrade(*c).is_none() {
+                return Err(format!("{:?} in the exchange list is not a Traveller", cards::name(*c)));
+            }
+        }
+
         Ok(Strategy {
             name: raw.name,
             description: raw.description,
@@ -278,6 +337,9 @@ impl Strategy {
             play_rank,
             trash,
             mode,
+            token,
+            call,
+            exchange,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
             win_this_turn: raw.win_this_turn,
             never_gain: raw
@@ -310,10 +372,15 @@ impl Strategy {
                 id::URCHIN
             } else if c >= cards::id::DAME_ANNA {
                 id::KNIGHTS
+            } else if c == id::AVANTO {
+                id::SAUNA
+            } else if c >= cards::FIRST_TRAV && ((c - cards::FIRST_TRAV) as usize) < cards::NUM_TRAV {
+                // A Traveller upgrade comes with the first card of its line.
+                if c < cards::id::SOLDIER { id::PAGE } else { id::PEASANT }
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -347,6 +414,15 @@ impl Strategy {
         // Choices inside a Treasure being played (Investment, Crystal Ball, Anvil) change which
         // Treasures are left to play: searched like the play order when `search_play` is on.
         if self.search_play && view.is_my_turn() && crate::eval::is_treasure_effect_decision(view.me(), decision) && choices.len() > 1 {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
+        }
+        // Calls that shape the turn (Duplicate on a gain, Royal Carriage, Coin of the Realm, Wine Merchant's discard) are searched like the
+        // play order, unless a `[[call]]` rule has spoken (above).
+        if self.search_play && view.is_my_turn() && crate::eval::is_call_decision(view.me(), decision) && choices.len() > 1 {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -414,9 +490,18 @@ impl Strategy {
                     Act::Gain => self.choose_gain_from_zone(view, choices),
                     Act::Reveal => self.choose_reveal(choices),
                     Act::Pass => self.choose_pass(view, choices),
+                    // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
+                    Act::Tavern | Act::Call | Act::Exchange => iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass),
                 }
             }
             DecisionKind::Mode { .. } => self.choose_mode(view, decision, choices),
+            DecisionKind::Token { token } => defaults::choose_token(self, view, token as usize, choices),
+            // A stated rule for a call or an exchange decides; the defaults are the set's (`defaults::adventures`).
+            DecisionKind::YesNo { act: Act::Call | Act::Exchange } | DecisionKind::YesNo { act: Act::Discard }
+                if self.stated_call_or_exchange(view, decision).is_some() =>
+            {
+                if self.stated_call_or_exchange(view, decision).unwrap() { Choice::Yes } else { Choice::No }
+            }
             DecisionKind::YesNo { .. } if defaults::yes_no(self, view, decision).is_some() => {
                 defaults::yes_no(self, view, decision).unwrap()
             }
@@ -497,12 +582,15 @@ impl Strategy {
         let money = view.turn().coins as u32 + view.coffers() as u32;
         let potions = view.turn().potions;
         self.buy.iter().find_map(|(card, cond)| {
-            let ok = view.in_supply(*card)
-                && view.supply(*card) > 0
-                && view.cost(*card) as u32 <= money
-                && (potions > 0 || !cards::potion_cost(*card))
-                && view.may_buy(*card)
-                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card));
+            let ok = if cards::is_event(*card) {
+                view.event_available(*card) && view.event_cost(*card) as u32 <= money
+            } else {
+                view.in_supply(*card)
+                    && view.supply(*card) > 0
+                    && view.cost(*card) as u32 <= money
+                    && (potions > 0 || !cards::potion_cost(*card))
+                    && view.may_buy(*card)
+            } && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card));
             ok.then_some(*card)
         })
     }
@@ -1090,11 +1178,25 @@ impl Strategy {
     pub fn stated_effect_choice(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         match decision.kind {
             DecisionKind::Mode { .. } => self.stated_mode_rule(view, decision.source?, choices),
+            DecisionKind::YesNo { act: Act::Call | Act::Exchange | Act::Discard } => {
+                self.stated_call_or_exchange(view, decision).map(|yes| if yes { Choice::Yes } else { Choice::No })
+            }
             DecisionKind::Select { from: Zone::Hand, act: Act::Trash, filter, min, max, ordered }
                 if decision.source.is_some_and(|c| cards::is(c, TREASURE)) && iter_cards(choices).any(|c| self.wants_trash(view, c)) =>
             {
                 Some(self.choose_trash(view, decision, choices, Zone::Hand, filter, min, max, ordered))
             }
+            _ => None,
+        }
+    }
+
+    /// The answer a stated `[[call]]` rule (a Reserve card's call, Wine Merchant's discard) or `[[exchange]]` rule (a Traveller discarded from
+    /// play) gives to `decision`: `Some(true)` for yes, `Some(false)` for no, `None` when no rule speaks to this card.
+    pub fn stated_call_or_exchange(&self, view: &PlayerView, decision: &Decision) -> Option<bool> {
+        match decision.kind {
+            DecisionKind::YesNo { act: Act::Call } => defaults::stated_call(self, view, decision.subject),
+            DecisionKind::YesNo { act: Act::Discard } if decision.subject == id::WINE_MERCHANT => defaults::stated_call(self, view, id::WINE_MERCHANT),
+            DecisionKind::YesNo { act: Act::Exchange } => defaults::stated_exchange(self, view, decision.subject),
             _ => None,
         }
     }
@@ -1190,7 +1292,7 @@ impl Strategy {
 /// for whatever gets drawn. `None` when there is a real choice (a card with a decision, or more
 /// terminals than actions), which the bot searches instead.
 pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) {
         return None;
     }
     let mut terminals: i32 = 0;
@@ -1230,7 +1332,7 @@ pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
 /// less before the next choice); `None` if there is no such card or something in hand is
 /// order-sensitive. Callers skip it when the strategy states [[play]] rules for the hand.
 pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) {
         return None;
     }
     let mut could_draw: u32 = 0;
@@ -1254,6 +1356,12 @@ pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
             let d = cards::def(c);
             (d.actions, std::cmp::Reverse(d.cards), d.coins, d.buys, std::cmp::Reverse(c))
         })
+}
+
+/// Whether the player owns a Royal Carriage (Adventures): which Action it replays depends on the order the Actions are played in (the
+/// best card to follow with it is a real choice), so the play order is searched.
+pub fn call_order_risk(view: &PlayerView) -> bool {
+    view.in_supply(id::ROYAL_CARRIAGE) && view.my_cards().has(id::ROYAL_CARRIAGE)
 }
 
 /// Whether a card in hand reads empty piles (City) and another could empty one first: an Attack
@@ -1368,6 +1476,7 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Revealed => *view.revealed(),
         Zone::InPlay => *view.in_play(),
         Zone::Trash => *view.trash(),
+        Zone::Tavern => view.tavern_of(view.me()),
         Zone::DeckTop => {
             let mut top = Counts::EMPTY;
             if let Some(c) = view.deck_known_top().next() {

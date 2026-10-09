@@ -1,0 +1,51 @@
+# Page line -- buy a Page and let the Traveller line climb: each time a Traveller is discarded from play
+# it may be exchanged for the next card of its line (Page -> Treasure Hunter -> Warrior -> Hero -> Champion),
+# and the exchange is always taken (the default). A Champion is an Action that gives +1 Action and stays
+# in play; Warriors hit the opponent; Heroes gain Treasures. One Smithy and Big Money fill in the rest
+# (more Pages made it worse: the line is slow, and each Page is a Silver-less turn).
+
+name = "Page-Champion"
+description = "Smithy-Big Money with a Page that grows into a Champion."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Page"
+if = "count(Page) < 1"
+
+[[gain]]
+card = "Smithy"
+if = "count(Smithy) < 1"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Champion"
+
+[[play]]
+card = "Hero"
+
+[[play]]
+card = "Warrior"
+
+[[play]]
+card = "Treasure Hunter"
+
+[[play]]
+card = "Page"
+
+[[play]]
+card = "Smithy"

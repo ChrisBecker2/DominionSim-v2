@@ -56,7 +56,7 @@ fn count_of(g: &GameState, c: CardId) -> u8 {
 fn with_prince_holding(g: &mut GameState, held: &[CardId]) {
     let ps = &mut g.players[0];
     ps.in_play.add(id::PRINCE, 1);
-    ps.prince_stays.add(id::PRINCE, 1);
+    ps.stays.add(id::PRINCE, 1);
     for &c in held {
         ps.prince_cards.add(c, 1);
     }
@@ -118,7 +118,7 @@ fn prince_sets_an_action_costing_up_to_four_aside_and_stays_in_play() {
     let ps = &g.players[0];
     assert_eq!(ps.prince_cards.get(id::SMITHY), 1);
     assert!(ps.in_play.has(id::PRINCE), "the Prince stays in play");
-    assert_eq!(ps.prince_stays.get(id::PRINCE), 1);
+    assert_eq!(ps.stays.get(id::PRINCE), 1);
     assert!(ps.set_aside.is_empty());
     assert_eq!(ps.hand.get(id::SMITHY), 0);
     assert!(!g.turn.played.has(id::SMITHY), "the card is not played on the turn it is set aside");
@@ -137,7 +137,7 @@ fn a_prince_that_sets_nothing_aside_is_discarded_at_cleanup() {
     set_deck_known(&mut g, 0, &junk());
     play(&mut g, id::PRINCE);
     choose(&mut g, Choice::Pass);
-    assert!(g.players[0].prince_cards.is_empty() && g.players[0].prince_stays.is_empty());
+    assert!(g.players[0].prince_cards.is_empty() && g.players[0].stays.is_empty());
     finish_turn(&mut g);
     assert!(g.players[0].discard.has(id::PRINCE), "discarded like any other Action");
     assert!(!g.players[0].in_play.has(id::PRINCE));
@@ -206,7 +206,7 @@ fn throne_room_on_prince_sets_two_aside_and_both_stay_in_play() {
         m.add(id::VILLAGE, 1);
         m
     });
-    assert_eq!((ps.prince_stays.get(id::PRINCE), ps.prince_stays.get(id::THRONE_ROOM)), (1, 1));
+    assert_eq!((ps.stays.get(id::PRINCE), ps.stays.get(id::THRONE_ROOM)), (1, 1));
     assert_eq!(total_cards(&g), before);
 
     // Both stay in play, now and every later turn; both held cards play every turn.
@@ -233,7 +233,7 @@ fn a_prince_that_set_nothing_aside_does_not_keep_the_throne_room() {
     choose(&mut g, Choice::Card(id::PRINCE));
     choose(&mut g, Choice::Pass);
     choose(&mut g, Choice::Pass);
-    assert!(g.players[0].prince_stays.is_empty());
+    assert!(g.players[0].stays.is_empty());
     finish_turn(&mut g);
     assert!(g.players[0].discard.has(id::PRINCE) && g.players[0].discard.has(id::THRONE_ROOM));
 }
@@ -397,13 +397,13 @@ fn text_format_round_trips_the_holdings() {
     let mut g = new_state(&[id::PRINCE, id::THRONE_ROOM, id::SMITHY, id::VILLAGE], 2);
     with_prince_holding(&mut g, &[id::SMITHY, id::VILLAGE]);
     g.players[0].in_play.add(id::THRONE_ROOM, 1);
-    g.players[0].prince_stays.add(id::THRONE_ROOM, 1);
+    g.players[0].stays.add(id::THRONE_ROOM, 1);
     let text = format_state(&g);
     assert!(text.contains("prince: Village, Smithy"), "{text}");
-    assert!(text.contains("prince stays: Throne Room, Prince"), "{text}");
+    assert!(text.contains("stays: Throne Room, Prince"), "{text}");
     let back = parse_state(&text).unwrap();
     assert_eq!(back.players[0].prince_cards, g.players[0].prince_cards);
-    assert_eq!(back.players[0].prince_stays, g.players[0].prince_stays);
+    assert_eq!(back.players[0].stays, g.players[0].stays);
     assert_eq!(back.players[0].all_cards(), g.players[0].all_cards());
     assert_eq!(count_of(&back, id::PRINCE), 1);
     // No holdings: no lines (Base-only saves are unchanged).
@@ -413,7 +413,7 @@ fn text_format_round_trips_the_holdings() {
     let one = "players: 2\nkingdom: Prince, Smithy\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
                [player 1]\nin play: Prince\nprince: Smithy\ndeck: 6 Estate\n\n[player 2]\nhand: 5 Copper\n";
     let loaded = parse_state(one).unwrap();
-    assert_eq!(loaded.players[0].prince_stays.get(id::PRINCE), 1);
+    assert_eq!(loaded.players[0].stays.get(id::PRINCE), 1);
     assert!(parse_state(&one.replace("prince: Smithy", "prince: Bogus")).is_err());
 }
 
@@ -442,7 +442,7 @@ fn princes_cards_are_public_information() {
     // Determinizing for another player keeps them.
     let world = view.determinize(&mut rng::Rng::new(1));
     assert_eq!(world.players[0].prince_cards, g.players[0].prince_cards);
-    assert_eq!(world.players[0].prince_stays, g.players[0].prince_stays);
+    assert_eq!(world.players[0].stays, g.players[0].stays);
 }
 
 // ===========================================================================
@@ -565,7 +565,7 @@ fn durations_still_in_play_count_as_actions_in_play() {
     set_deck_known(&mut g, 0, &junk());
     g.players[0].in_play.add(id::PRINCE, 1);
     g.players[0].in_play.add(id::FISHING_VILLAGE, 1);
-    g.players[0].prince_stays.add(id::PRINCE, 1);
+    g.players[0].stays.add(id::PRINCE, 1);
     play(&mut g, id::WALLED_VILLAGE);
     assert!(to_cleanup_offer(&mut g).is_none(), "Prince + Fishing Village + Walled Village");
 }

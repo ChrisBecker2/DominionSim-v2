@@ -5,7 +5,7 @@
 use crate::rng::Rng;
 use crate::state::{Dest, Filter};
 
-pub type CardId = u8;
+pub type CardId = u16;
 /// Number of cards of every set; ids are dense, `0..NUM_CARDS`.
 pub use crate::sets::NUM_CARDS;
 /// Every card, by id.
@@ -40,9 +40,14 @@ pub const KNIGHT: u16 = 1024;
 pub const LOOTER: u16 = 2048;
 /// Hovel, Necropolis and Overgrown Estate (Dark Ages): the starting-deck cards that replace the Estates.
 pub const SHELTER: u16 = 4096;
+/// Page, Peasant and the Traveller upgrades that can be exchanged for the next card of their line (Adventures).
+pub const TRAVELLER: u16 = 8192;
+/// Cards that go onto the Tavern mat when played (Adventures). (The type bits are all used now: the next set widens `types` to `u32`.)
+pub const RESERVE: u16 = 16384;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
+    pub use crate::sets::adventures::ids::*;
     pub use crate::sets::alchemy::ids::*;
     pub use crate::sets::base::ids::*;
     pub use crate::sets::cornucopia_guilds::ids::*;
@@ -51,6 +56,52 @@ pub mod id {
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
     pub use crate::sets::seaside::ids::*;
+}
+
+/// The first of the twenty Events (pseudo-cards: ids for things that are bought but never gained, see `sets::adventures`).
+pub const FIRST_EVENT: CardId = id::ALMS;
+/// The number of Events.
+pub const NUM_EVENTS: usize = 20;
+/// The first of the eight Traveller upgrade cards (Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive, Disciple, Teacher): non-Supply
+/// piles of five, in ids `FIRST_TRAV..FIRST_TRAV + NUM_TRAV`.
+pub const FIRST_TRAV: CardId = id::TREASURE_HUNTER;
+pub const NUM_TRAV: usize = 8;
+
+/// What a Traveller is exchanged for when it is discarded from play (`None` for the end of a line: Champion and Teacher are not Travellers).
+pub fn traveller_upgrade(card: CardId) -> Option<CardId> {
+    match card {
+        id::PAGE => Some(id::TREASURE_HUNTER),
+        id::TREASURE_HUNTER => Some(id::WARRIOR),
+        id::WARRIOR => Some(id::HERO),
+        id::HERO => Some(id::CHAMPION),
+        id::PEASANT => Some(id::SOLDIER),
+        id::SOLDIER => Some(id::FUGITIVE),
+        id::FUGITIVE => Some(id::DISCIPLE),
+        id::DISCIPLE => Some(id::TEACHER),
+        _ => None,
+    }
+}
+
+/// Whether `card` is one of the Adventures Events (not a card at all: never in a zone or a pile; bought for its cost in the Buy phase).
+#[inline(always)]
+pub fn is_event(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_EVENT) < NUM_EVENTS as CardId
+}
+
+/// The pile a card belongs to for the rules about piles (tokens, Ferry): the card itself, the Knights or Ruins marker for a member of
+/// those mixed piles, and Sauna for Avanto (the split pile).
+#[inline]
+pub fn pile_of(card: CardId) -> CardId {
+    if card >= FIRST_PILE_CARD {
+        match crate::sets::dark_ages::MixedPile::of_member(card) {
+            Some(pile) => pile.marker,
+            None => card,
+        }
+    } else if card == id::AVANTO {
+        id::SAUNA
+    } else {
+        card
+    }
 }
 
 /// The first of the six Rewards (card ids are contiguous: `FIRST_REWARD..FIRST_REWARD + 6`).
@@ -90,12 +141,14 @@ pub enum CardSet {
     CornucopiaGuilds,
     /// Dark Ages (Shelters, Ruins, Knights, Spoils, trash-for-benefit).
     DarkAges,
+    /// Adventures (the Tavern mat and Reserve cards, Travellers, Events, tokens).
+    Adventures,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 8] = [
+    pub const ALL: [CardSet; 9] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
-        CardSet::CornucopiaGuilds, CardSet::DarkAges,
+        CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures,
     ];
 
     pub fn name(self) -> &'static str {
@@ -108,6 +161,7 @@ impl CardSet {
             CardSet::Promo => "Promo",
             CardSet::CornucopiaGuilds => "Cornucopia & Guilds",
             CardSet::DarkAges => "Dark Ages",
+            CardSet::Adventures => "Adventures",
         }
     }
 }
@@ -216,6 +270,11 @@ pub(crate) const fn da(d: CardDef) -> CardDef {
     CardDef { set: CardSet::DarkAges, ..d }
 }
 
+/// An Adventures card.
+pub(crate) const fn adv(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Adventures, ..d }
+}
+
 /// The card has a "when you trash this" effect.
 pub(crate) const fn on_trash(d: CardDef) -> CardDef {
     CardDef { on_trash: true, ..d }
@@ -315,6 +374,10 @@ pub fn by_name(s: &str) -> Option<CardId> {
     if want.is_empty() {
         return None;
     }
+    // The split pile by its name: the card that stands for it in a kingdom (the strategy rules expand it to both halves).
+    if want == "sauna/avanto" {
+        return Some(id::SAUNA);
+    }
     (0..NUM_CARDS as CardId).find(|&c| norm(name(c)) == want)
 }
 
@@ -372,6 +435,44 @@ pub enum ModeOpt {
     TakeRevealed,
     /// Catacombs' second option: discard the revealed cards and draw `n` cards.
     DiscardRevealedDraw(u8),
+    /// Miser's first option: put a Copper from the hand onto the Tavern mat.
+    TavernCopper,
+    /// Miser's second option: +$1 per Copper on the Tavern mat.
+    CoinsPerTavernCopper,
+    /// Teacher: move the player's token (`TOK_*`) to an Action Supply pile they have no token on.
+    MoveToken(u8),
+    /// Quest: discard `n` cards matching `filter` (as many as there are, up to `n`); if exactly `n` were discarded, gain `gain`.
+    DiscardFor { filter: Filter, n: u8, gain: CardId },
+    /// Quest: do none of the options.
+    Nothing,
+}
+
+/// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
+/// Journey token.
+pub const TOKEN_NAMES: [&str; 10] = ["+1 Card", "+1 Action", "+1 Buy", "+$1", "-$2 cost", "Trashing", "Estate", "-1 Card", "-$1", "Journey"];
+
+/// The index of the token called `s` (case-insensitive; `+1 coin`, `+$1`, `-$2`, the Unicode minus and `-$1 coin` also work).
+pub fn token_by_name(s: &str) -> Option<usize> {
+    let norm: String = s
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| if c == '\u{2212}' || c == '\u{2013}' { '-' } else { c })
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    let norm = norm.trim_end_matches("token");
+    match norm {
+        "+1card" => Some(0),
+        "+1action" => Some(1),
+        "+1buy" => Some(2),
+        "+$1" | "+1coin" | "+1$" => Some(3),
+        "-$2cost" | "-$2" | "-2cost" | "-$2coin" => Some(4),
+        "trashing" => Some(5),
+        "estate" => Some(6),
+        "-1card" => Some(7),
+        "-$1" | "-1coin" | "-$1coin" => Some(8),
+        "journey" => Some(9),
+        _ => None,
+    }
 }
 
 /// Article + noun for a filter, e.g. `("an", "Action")`, used by [`ModeOpt::label`].
@@ -394,10 +495,13 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::ActionNotReward => ("an", "Action other than a Reward"),
         Filter::TreasureNotReward => ("a", "Treasure other than a Reward"),
         Filter::TreasureToDiscard => ("a", "Treasure"),
+        Filter::Types(crate::state::TypeSet::Attack) => ("an", "Attack"),
         Filter::Types(_) | Filter::CostAtLeast(_) | Filter::CostRange(..) => ("a", "card"),
         Filter::NonTreasure => ("a", "non-Treasure card"),
         Filter::TreasureNonDuration => ("a", "Treasure"),
         Filter::VictoryNot(_) => ("a", "Victory card"),
+        Filter::GainableCopy => ("a", "card"),
+        Filter::InheritCard => ("an", "Action"),
     }
 }
 
@@ -459,6 +563,14 @@ impl ModeOpt {
             ModeOpt::DiscardRevealedDraw(n) => format!("Discard them and +{n} Cards"),
             ModeOpt::GainSubject { to_chooser: false } => "They gain a copy".to_string(),
             ModeOpt::GainSubject { to_chooser: true } => "You gain a copy".to_string(),
+            ModeOpt::TavernCopper => "Put a Copper on your Tavern mat".to_string(),
+            ModeOpt::CoinsPerTavernCopper => "+$1 per Copper on your Tavern mat".to_string(),
+            ModeOpt::MoveToken(t) => format!("Move your {} token", TOKEN_NAMES[t as usize]),
+            ModeOpt::DiscardFor { filter, n, .. } => {
+                let (a, noun) = filter_words(filter);
+                if n == 1 { format!("Discard {a} {noun}") } else if noun == "card" { format!("Discard {n} cards") } else { format!("Discard {n} {noun}s") }
+            }
+            ModeOpt::Nothing => "Do nothing".to_string(),
         }
     }
 }
@@ -493,9 +605,10 @@ pub fn start_order_sensitive(card: CardId) -> bool {
 }
 
 pub const FIRST_KINGDOM: CardId = id::CELLAR;
-/// The last kingdom card id (the Dark Ages' kingdom cards end at Hunting Grounds; Shelters, Spoils, Madman,
-/// Mercenary, the Ruins pile and its five Ruins and the ten Knights follow).
-pub const LAST_KINGDOM: CardId = crate::sets::dark_ages::LAST_KINGDOM_DA;
+/// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
+/// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
+/// first Adventures card), the Rewards and the optional basics.
+pub const LAST_KINGDOM: CardId = id::SAUNA;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -515,7 +628,11 @@ pub fn is_ready(card: CardId) -> bool {
 /// not one of the Rewards).
 #[inline(always)]
 pub fn is_kingdom(card: CardId) -> bool {
-    card >= FIRST_KINGDOM && card <= LAST_KINGDOM && !is_optional_basic(card) && !is_reward(card)
+    card >= FIRST_KINGDOM
+        && card <= LAST_KINGDOM
+        && !is_optional_basic(card)
+        && !is_reward(card)
+        && !(card > crate::sets::dark_ages::LAST_KINGDOM_DA && card < id::COIN_OF_THE_REALM)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -553,6 +670,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "cornucopia & guilds" | "cornucopia and guilds" | "cornucopia" | "guilds" | "c&g" | "cg" | "cornucopia_guilds"
         | "cornucopiaguilds" => Some(CardSet::CornucopiaGuilds),
         "dark ages" | "darkages" | "dark_ages" | "da" => Some(CardSet::DarkAges),
+        "adventures" | "adv" => Some(CardSet::Adventures),
         _ => None,
     }
 }
@@ -599,7 +717,36 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
         out.sort_unstable();
     }
     add_potion_if_needed(&mut out);
+    if sets.contains(&CardSet::Adventures) {
+        add_random_events(&mut out, sets, rng);
+    }
     out
+}
+
+/// Choosing Events for a randomized kingdom, after the rulebook's randomizer: the Events are shuffled in with the kingdom cards of `sets`,
+/// cards are dealt until ten kingdom cards are out, the Events dealt on the way are in the game, but at most two are used (0 to 2 per game).
+/// The Events are appended to `kingdom` (they are not kingdom cards). Only the order of kingdom cards and Events matters here, so this
+/// simulates the deal over counts. With Adventures alone (30 cards + 20 Events) about 6 Events are dealt, so two are used nearly always;
+/// with every set (about 300 cards) about 0.7 are dealt, so roughly half the games have none, 1 in 3 one, the rest two.
+pub fn add_random_events(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mut Rng) {
+    let k = kingdom_cards().filter(|&c| sets.contains(&set_of(c))).count() as u32;
+    let mut events: Vec<CardId> = (FIRST_EVENT..FIRST_EVENT + NUM_EVENTS as CardId).filter(|e| !kingdom.contains(e)).collect();
+    let (mut cards_left, mut events_left) = (k, events.len() as u32);
+    let mut dealt_cards = 0;
+    let mut used = 0;
+    while dealt_cards < 10 && cards_left + events_left > 0 {
+        if rng.below(cards_left + events_left) < cards_left {
+            cards_left -= 1;
+            dealt_cards += 1;
+        } else {
+            events_left -= 1;
+            if used < 2 {
+                let i = rng.below(events.len() as u32) as usize;
+                kingdom.push(events.swap_remove(i));
+                used += 1;
+            }
+        }
+    }
 }
 
 /// Whether `c` can be the Bane (cost $2 or $3) or Ferryman's pile (cost $3 or $4): a playable
@@ -644,7 +791,7 @@ mod set_tests {
         assert_eq!(in_set(CardSet::Seaside), 27);
         assert_eq!(in_set(CardSet::Prosperity), 25);
         assert_eq!(in_set(CardSet::Alchemy), 11);
-        assert_eq!(in_set(CardSet::Promo), 4);
+        assert_eq!(in_set(CardSet::Promo), 5); // Prince, Walled Village, Envoy, Captain and the split pile Sauna/Avanto (Sauna stands for it)
         assert!(!is_kingdom(id::POTION) && is_optional_basic(id::POTION) && potion_cost(id::GOLEM) && !potion_cost(id::APPRENTICE));
         assert_eq!(cost_string(id::APOTHECARY), "$2P");
         assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
@@ -663,7 +810,9 @@ mod set_tests {
         assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
         assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
         assert_eq!(kingdom_cards_in(CardSet::Alchemy).count(), 11);
-        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 4);
+        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 5);
+        assert_eq!(kingdom_cards_in(CardSet::Adventures).count(), 30);
+        assert_eq!(in_set(CardSet::Adventures), 30);
     }
 
     #[test]

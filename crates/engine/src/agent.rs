@@ -118,6 +118,51 @@ impl<'a> PlayerView<'a> {
         self.state.players[p as usize].last_turn_gains.counts()
     }
 
+    // --- Adventures ---
+    /// `p`'s Tavern mat (public).
+    pub fn tavern_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].tavern.counts()
+    }
+    /// The Supply pile each of `p`'s pile tokens is on (`state::TOK_*` order), 0 = not on a pile.
+    pub fn tokens_of(&self, p: u8) -> [CardId; crate::state::NUM_PILE_TOKENS] {
+        self.state.players[p as usize].tok
+    }
+    /// The card under `p`'s Estate token (Inheritance), 0 = none.
+    pub fn inherit_of(&self, p: u8) -> CardId {
+        self.state.players[p as usize].inherit
+    }
+    /// `p`'s `ADV_*` flags: the -1 Card token on their deck, the -$1 token, the Journey token face down.
+    pub fn adv_flags_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].adv
+    }
+    /// Whether the Event `e` is in this game.
+    pub fn has_event(&self, e: CardId) -> bool {
+        crate::cards::is_event(e) && self.state.events & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+    }
+    /// The Events of this game (card ids), in id order.
+    pub fn events(&self) -> impl Iterator<Item = CardId> + '_ {
+        (0..crate::cards::NUM_EVENTS as CardId).filter(|i| self.state.events & (1 << i) != 0).map(|i| crate::cards::FIRST_EVENT + i)
+    }
+    /// Whether `p` has bought the Event `e` this game, and whether this turn (Alms, Borrow, Save and Pilgrimage once a turn).
+    pub fn event_bought_by(&self, p: u8, e: CardId) -> bool {
+        crate::cards::is_event(e) && self.state.players[p as usize].events_bought & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+    }
+    pub fn event_bought_this_turn(&self, e: CardId) -> bool {
+        crate::cards::is_event(e) && self.state.turn.adv.bought & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+    }
+    /// Cost of buying the Event `e`.
+    pub fn event_cost(&self, e: CardId) -> u8 {
+        crate::cards::cost(e)
+    }
+    /// Whether the Event `e` could be bought now (cost, once-per-turn and once-per-game limits, something to do).
+    pub fn event_buyable(&self, e: CardId) -> bool {
+        crate::cards::is_event(e) && crate::sets::adventures::event_buyable(self.state, e)
+    }
+    /// `event_buyable` without the cost.
+    pub fn event_available(&self, e: CardId) -> bool {
+        crate::cards::is_event(e) && crate::sets::adventures::event_available(self.state, e)
+    }
+
     // --- Public information ---
     /// Cards left in `c`'s pile: a Supply pile, Ferryman's pile or a Reward (the piles outside the
     /// Supply are counted here too, so `supply(Courser)` reads the Rewards pile).
@@ -135,6 +180,8 @@ impl<'a> PlayerView<'a> {
             self.state.madman
         } else if c == crate::cards::id::MERCENARY {
             self.state.mercenary
+        } else if c >= crate::cards::FIRST_TRAV && ((c - crate::cards::FIRST_TRAV) as usize) < crate::cards::NUM_TRAV {
+            self.state.trav[(c - crate::cards::FIRST_TRAV) as usize]
         } else {
             self.state.supply.get(c)
         }
@@ -303,7 +350,7 @@ impl<'a> PlayerView<'a> {
             let mut haven_slots = [false; crate::state::PENDING_DURATIONS_CAP];
             for i in 0..ps.pending_durations_len as usize {
                 let e = ps.pending_durations[i];
-                if e.card == crate::cards::id::HAVEN && e.arg != 0 && ps.set_aside.remove(e.arg) {
+                if matches!(e.card, crate::cards::id::HAVEN | crate::cards::id::GEAR) && e.arg != 0 && ps.set_aside.remove(e.arg) {
                     pool.add(e.arg, 1);
                     haven_slots[i] = true;
                 }
@@ -314,7 +361,7 @@ impl<'a> PlayerView<'a> {
             if s.turn.player == p {
                 for i in 0..s.turn.start_pending.as_slice().len() {
                     let e = s.turn.start_pending.as_slice()[i];
-                    if e.card == crate::cards::id::HAVEN && e.arg != 0 && ps.set_aside.remove(e.arg) {
+                    if matches!(e.card, crate::cards::id::HAVEN | crate::cards::id::GEAR) && e.arg != 0 && ps.set_aside.remove(e.arg) {
                         pool.add(e.arg, 1);
                         start_haven_slots[i] = true;
                     }
@@ -327,6 +374,9 @@ impl<'a> PlayerView<'a> {
             // none of the three poolings sample from each other's cards.
             let nv_mat_size = ps.native_village_mat.total();
             pool.add_all(&ps.native_village_mat.counts());
+            if ps.saved != 0 {
+                pool.add(ps.saved, 1);
+            }
             let mut hand = Counts::EMPTY;
             for _ in 0..hand_size {
                 let c = pool.nth(rng.below(pool.total()));
@@ -349,6 +399,12 @@ impl<'a> PlayerView<'a> {
                     ps.set_aside.add(c, 1);
                     s.turn.start_pending.as_mut_slice()[i].arg = c;
                 }
+            }
+            // Save's card (Adventures) is face down: as hidden as the hand it came from.
+            if ps.saved != 0 {
+                let c = pool.nth(rng.below(pool.total()));
+                pool.remove(c);
+                ps.saved = c;
             }
             ps.native_village_mat.clear();
             for _ in 0..nv_mat_size {

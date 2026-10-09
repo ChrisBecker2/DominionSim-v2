@@ -7,8 +7,8 @@ fn main() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../strategies");
     let dw = std::fs::read_to_string(format!("{root}/double_witch.toml")).unwrap();
     let bm = std::fs::read_to_string(format!("{root}/big_money_ultimate.toml")).unwrap();
-    let full: Vec<u8> = cards::kingdom_cards().collect();
-    let ten: Vec<u8> = cards::FIRST_GAME.iter().copied().chain([cards::id::WITCH]).filter(|&c| c != cards::id::MINE).collect();
+    let full: Vec<cards::CardId> = cards::kingdom_cards().collect();
+    let ten: Vec<cards::CardId> = cards::FIRST_GAME.iter().copied().chain([cards::id::WITCH]).filter(|&c| c != cards::id::MINE).collect();
     for win in [true, false] {
         let mut opp = Strategy::parse(&dw).unwrap();
         opp.search_play = false;

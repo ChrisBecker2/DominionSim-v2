@@ -59,6 +59,13 @@ pub enum Var {
     MyVp,
     /// My VP minus the best opponent's VP (positive = I'm ahead).
     VpLead,
+    /// 1 while my Journey token is face up (Adventures: Ranger and Pilgrimage act on the next flip when it is face down).
+    Journey,
+    /// 1 while my -1 Card token is on my deck / my -$1 token is in front of me.
+    MinusCard,
+    MinusCoin,
+    /// Cards on my Tavern mat.
+    MatCards,
 }
 
 impl Var {
@@ -83,6 +90,10 @@ impl Var {
                 let best_other = (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.vp_of(p)).max().unwrap_or(0);
                 (mine - best_other) as i64
             }
+            Var::Journey => (view.adv_flags_of(view.me()) & dominion_engine::state::ADV_JOURNEY_DOWN == 0) as i64,
+            Var::MinusCard => (view.adv_flags_of(view.me()) & dominion_engine::state::ADV_MINUS_CARD != 0) as i64,
+            Var::MinusCoin => (view.adv_flags_of(view.me()) & dominion_engine::state::ADV_MINUS_COIN != 0) as i64,
+            Var::MatCards => view.tavern_of(view.me()).total() as i64,
         }
     }
 
@@ -103,6 +114,10 @@ impl Var {
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
             "my_vp" | "myvp" => Var::MyVp,
             "vp_lead" | "vplead" => Var::VpLead,
+            "journey" => Var::Journey,
+            "minus_card" | "minuscard" => Var::MinusCard,
+            "minus_coin" | "minuscoin" => Var::MinusCoin,
+            "mat_cards" | "matcards" => Var::MatCards,
             _ => return None,
         })
     }
@@ -124,6 +139,13 @@ pub enum Expr {
     CountType(u16),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
+    /// `mat(Card)`: copies of `Card` on my Tavern mat (Adventures).
+    Mat(CardId),
+    /// `bought(Event)`: 1 if I have bought the Event this game; `bought_turn(Event)`: 1 if I bought it this turn.
+    Bought(CardId),
+    BoughtTurn(CardId),
+    /// `token_on(+1 Card, Smithy)`: 1 if my token is on that pile (the Knights pile by "Knights", the split pile by either half).
+    TokenOn(usize, CardId),
     /// `wins_game`: gaining this entry's card ends the game this turn with me winning outright.
     WinsGame,
     /// `loses_game`: gaining this entry's card ends the game this turn with me not winning
@@ -167,6 +189,14 @@ impl Expr {
             },
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
+            Mat(c) => view.tavern_of(view.me()).get(*c) as i64,
+            Bought(e) => view.event_bought_by(view.me(), *e) as i64,
+            BoughtTurn(e) => view.event_bought_this_turn(*e) as i64,
+            TokenOn(tok, pile) => {
+                let t = view.tokens_of(view.me());
+                let on = if *tok < t.len() { t[*tok] } else if *tok == 6 { view.inherit_of(view.me()) } else { 0 };
+                (on != 0 && (on == *pile || (*tok == 6 && on == *pile))) as i64
+            }
             WinsGame => card.is_some_and(|c| view.result_if_gained(c) == Some(1 << view.me())) as i64,
             LosesGame => card.is_some_and(|c| matches!(view.result_if_gained(c), Some(w) if w != 1 << view.me())) as i64,
             Neg(a) => -a.eval_in(view, card),
@@ -205,7 +235,7 @@ impl Expr {
         use Expr::*;
         match self {
             Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame => {}
-            Count(c) | Supply(c) => f(*c),
+            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
                 a.for_each_card_ref(f);
@@ -300,7 +330,7 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 });
                 // A function call's argument is a card name, taken verbatim up to the `)`, so
                 // names with spaces or apostrophes work: `count(Throne Room)`, `count(King's Court)`.
-                let is_function = matches!(word.to_ascii_lowercase().as_str(), "count" | "supply" | "count_type");
+                let is_function = matches!(word.to_ascii_lowercase().as_str(), "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on");
                 let mut j = i;
                 while j < b.len() && (b[j] as char).is_ascii_whitespace() {
                     j += 1;
@@ -460,6 +490,21 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
             Ok(Expr::Supply(c))
         }
+        "mat" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::Mat(c))
+        }
+        "bought" | "bought_turn" => {
+            let e = cards::by_name(arg).filter(|&e| cards::is_event(e)).ok_or_else(|| format!("{arg:?} is not an Event, in condition {src:?}"))?;
+            Ok(if func.eq_ignore_ascii_case("bought") { Expr::Bought(e) } else { Expr::BoughtTurn(e) })
+        }
+        "token_on" => {
+            let (tok, pile) = arg.split_once(',').ok_or_else(|| format!("token_on needs a token and a pile, e.g. token_on(+1 Card, Smithy), in condition {src:?}"))?;
+            let tok = cards::token_by_name(tok.trim()).filter(|&t| t < dominion_engine::state::NUM_PILE_TOKENS || t == 6).ok_or_else(|| format!("unknown token {:?} in condition {src:?}", tok.trim()))?;
+            let pile = cards::by_name(pile.trim()).ok_or_else(|| format!("unknown card {:?} in condition {src:?}", pile.trim()))?;
+            let pile = if pile >= cards::id::DAME_ANNA { cards::id::KNIGHTS } else if tok == 6 { pile } else { cards::pile_of(pile) };
+            Ok(Expr::TokenOn(tok, pile))
+        }
         "count_type" => {
             let flag = match arg.to_ascii_lowercase().as_str() {
                 "action" => cards::ACTION,
@@ -468,6 +513,8 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 "curse" => cards::CURSE_T,
                 "attack" => cards::ATTACK,
                 "reaction" => cards::REACTION,
+                "traveller" => cards::TRAVELLER,
+                "reserve" => cards::RESERVE,
                 _ => return Err(format!("unknown card type {arg:?} in condition {src:?}")),
             };
             Ok(Expr::CountType(flag))

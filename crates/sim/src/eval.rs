@@ -1,6 +1,6 @@
 //! Scoring a turn by a strategy's own priorities, for analysis of a strategy seat's decisions.
 
-use dominion_engine::cards::{CardId, NUM_CARDS};
+use dominion_engine::cards::{id, CardId, NUM_CARDS};
 use dominion_engine::{GameState, PlayerView};
 use dominion_engine::{Choice, Decision, DecisionKind};
 use dominion_search::{game_end_value, Evaluator, NextHandEvaluator};
@@ -79,7 +79,32 @@ impl GainListEvaluator<'_> {
                 p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
-        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me)
+        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me) + self.mat_return_value(root, leaf, me)
+    }
+
+    /// Reserve cards that left the Tavern mat this turn go back into the deck cycle (a called card is discarded at Clean-up, a Wine Merchant
+    /// goes straight to the discard pile): each is worth what its next play gives (`reserve_play_coins`) in a future hand, priced like Coffers
+    /// and VP tokens: `vp_per_coin` per coin, over the turns left, each card in a hand of 5 out of the deck's N cards. On the preference scale:
+    /// above the play preferences, far below any gain-list difference, so a line that leaves $2 unspent to return a Wine Merchant beats one
+    /// that buys a card nothing lists with it, and loses to a listed buy.
+    fn mat_return_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        let before = &root.players[me as usize].tavern;
+        if before.is_empty() {
+            return 0.0;
+        }
+        let after = &leaf.players[me as usize].tavern;
+        let w = &self.tie_break.weights;
+        let turns = (dominion_search::estimated_turns_left(root, w) - 1.0).max(0.0);
+        if turns <= 0.0 {
+            return 0.0;
+        }
+        let n = (root.players[me as usize].all_cards().total() as f64).max(5.0);
+        let mut v = 0.0;
+        for (c, k) in before.iter() {
+            let returned = k.saturating_sub(after.get(c)) as f64;
+            v += returned * reserve_play_coins(c) * w.vp_per_coin * turns * (5.0 / n);
+        }
+        v
     }
 
     /// Coffers tokens gained this turn, net of those spent: a token is +$1 in a future hand, worth
@@ -130,8 +155,22 @@ impl Evaluator for GainListEvaluator<'_> {
     fn leaf_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
         let view = PlayerView::new(root, me);
         let before = root.players[me as usize].all_cards();
-        let after = leaf.players[me as usize].all_cards();
-        let mut v = 0.0;
+        let mut after = leaf.players[me as usize].all_cards();
+        // A Traveller exchanged for its upgrade is neither lost nor gained (the pile is not the Supply's): count the pair as unchanged, and
+        // prefer the exchange a little, so that playing a Traveller to upgrade it is not a loss.
+        let mut exchanges = 0u32;
+        if leaf.trav != root.trav {
+            for c in [id::PAGE, id::TREASURE_HUNTER, id::WARRIOR, id::HERO, id::PEASANT, id::SOLDIER, id::FUGITIVE, id::DISCIPLE] {
+                let n = dominion_engine::cards::traveller_upgrade(c).expect("a Traveller");
+                let ex = after.get(n).saturating_sub(before.get(n)).min(before.get(c).saturating_sub(after.get(c)));
+                if ex > 0 {
+                    after.add(c, ex);
+                    after.set(n, after.get(n) - ex);
+                    exchanges += ex as u32;
+                }
+            }
+        }
+        let mut v = exchanges as f64 * 0.5;
         for c in 0..NUM_CARDS as CardId {
             let d = after.get(c) as i32 - before.get(c) as i32;
             // A card that trashed itself as part of its effect (Investment, Mining Village) was
@@ -151,6 +190,16 @@ impl Evaluator for GainListEvaluator<'_> {
                     owned.supply.set(c, owned.supply.get(c).saturating_sub(k as u8));
                     self.weight(&PlayerView::new(&owned, me), c)
                 };
+            }
+        }
+        // Events bought this turn: each is worth its place in the gain list, like a card gained (its effects are counted above as gains and
+        // trashes, or are later turns' and have no other value here).
+        if leaf.turn.number == root.turn.number {
+            let bought = leaf.turn.adv.bought & !root.turn.adv.bought;
+            for i in 0..dominion_engine::cards::NUM_EVENTS as CardId {
+                if bought & (1 << i) != 0 {
+                    v += self.weight(&view, dominion_engine::cards::FIRST_EVENT + i);
+                }
             }
         }
         // Strictly the strategy's own priorities. The general evaluator's game-end term is removed
@@ -291,6 +340,33 @@ pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
         || is_treasure_effect_decision(turn_player, d)
         || is_overpay_decision(turn_player, d)
         || is_start_effect_decision(turn_player, d)
+        || is_call_decision(turn_player, d)
+}
+
+/// The turn player's call of a Reserve card whose use shapes the turn: Duplicate on a card just gained, Royal Carriage after an Action, Coin
+/// of the Realm, and the discarding of a Wine Merchant from the mat at the end of the Buy phase. Searched like the play order (a stated
+/// `[[call]]` rule wins). The calls at the start of the turn (Guide, Ratcatcher, Transmogrify, Teacher) follow the rules.
+pub fn is_call_decision(turn_player: u8, d: &Decision) -> bool {
+    use dominion_engine::cards::id;
+    d.player == turn_player
+        && match d.kind {
+            DecisionKind::YesNo { act: dominion_engine::Act::Call } => matches!(d.subject, id::DUPLICATE | id::ROYAL_CARRIAGE | id::COIN_OF_THE_REALM),
+            DecisionKind::YesNo { act: dominion_engine::Act::Discard } => d.subject == id::WINE_MERCHANT,
+            _ => false,
+        }
+}
+
+/// The coins a Reserve card is worth in a hand when it is played (and so what returning it to the deck cycle is worth).
+pub fn reserve_play_coins(card: CardId) -> f64 {
+    use dominion_engine::cards::id;
+    match card {
+        id::WINE_MERCHANT => 4.0,
+        id::COIN_OF_THE_REALM => 1.5,
+        id::ROYAL_CARRIAGE => 2.0,
+        id::GUIDE | id::DUPLICATE => 1.5,
+        id::RATCATCHER | id::TRANSMOGRIFY | id::TEACHER => 1.0,
+        _ => 0.0,
+    }
 }
 
 /// A choice the turn player makes about the start of their own turn: the order the start-of-turn

@@ -10,6 +10,9 @@ pub mod ids {
     pub const WALLED_VILLAGE: CardId = 126;
     pub const ENVOY: CardId = 127;
     pub const CAPTAIN: CardId = 128;
+    /// The split pile Sauna/Avanto (five Sauna on top of five Avanto): ids after the Adventures kingdom cards, which it comes with.
+    pub const SAUNA: CardId = 232;
+    pub const AVANTO: CardId = 233;
 }
 
 const CARDS: &[(CardId, CardDef)] = &[
@@ -21,6 +24,9 @@ const CARDS: &[(CardId, CardDef)] = &[
     // Action-Duration-Command: plays a non-Duration, non-Command Action costing up to $4 from the Supply, now and at
     // the start of the next turn (it is a pending Duration entry, resolved in the start-of-turn order).
     (ids::CAPTAIN, promo(order_sensitive(c("Captain", 6, ACTION | DURATION | COMMAND, 0, 0, 0, 0, 0)))), // plays an Action from the Supply (it may need the +Actions card still in hand)
+    // The split pile: five Sauna on top of five Avanto, one kingdom pile (Sauna stands for it; only the top card can be gained or bought).
+    (ids::SAUNA, promo(order_sensitive(c("Sauna", 4, ACTION, 0, 0, 1, 1, 0)))), // may play an Avanto from the hand (needs it kept)
+    (ids::AVANTO, promo(order_sensitive(c("Avanto", 5, ACTION, 0, 0, 3, 0, 0)))), // may play a Sauna from the hand
 ];
 
 /// The Promo cards (see the module docs of `sets`).
@@ -31,6 +37,16 @@ impl SetRules for Promo {
 
     fn start_order_sensitive(card: CardId) -> bool {
         matches!(card, id::PRINCE | id::CAPTAIN)
+    }
+
+    /// Five of each half of the split pile.
+    fn pile_size(card: CardId, _num_players: usize) -> Option<u8> {
+        matches!(card, id::SAUNA | id::AVANTO).then_some(5)
+    }
+
+    /// Only the top card of the split pile can be bought: an Avanto not while a Sauna is left.
+    fn may_buy(g: &GameState, card: CardId) -> bool {
+        card != id::AVANTO || g.supply.get(id::SAUNA) == 0
     }
 
     #[inline]
@@ -47,6 +63,15 @@ impl SetRules for Promo {
             // (mandatory when one exists). Its start-of-next-turn play is a pending Duration entry
             // (`resolve_duration_start`), scheduled by the generic Duration tail below.
             id::CAPTAIN => g.stack.push(captain_pick(p, card)),
+            // Sauna: +1 Card +1 Action; you may play an Avanto from your hand (it uses no Action); this turn, when you play a Silver, you
+            // may trash a card from your hand (once per Sauna played).
+            id::SAUNA => {
+                if p == g.turn.player {
+                    g.turn.adv.sauna = g.turn.adv.sauna.saturating_add(1);
+                }
+                g.stack.push(select(p, card, Zone::Hand, Act::Play, Filter::Card(id::AVANTO), 0, 1, Then::PlayPicked { times: 1 }));
+            }
+            id::AVANTO => g.stack.push(select(p, card, Zone::Hand, Act::Play, Filter::Card(id::SAUNA), 0, 1, Then::PlayPicked { times: 1 })),
             id::ENVOY => {
                 // Reveal the top 3 (Envoy: 5); the player to the left picks one to discard; the rest to my hand.
                 let left = (p + 1) % g.num_players;
@@ -148,8 +173,8 @@ impl GameState {
         ps.prince_cards.add(f.last, 1);
         // One slot per Prince physically in play: a Throne Room'd Prince holds two cards but is
         // one card.
-        if ps.prince_stays.get(f.source) < ps.in_play.get(f.source) {
-            ps.prince_stays.add(f.source, 1);
+        if ps.stays.get(f.source) < ps.in_play.get(f.source) {
+            ps.stays.add(f.source, 1);
         }
         if self.turn.multiplier_card != 0 {
             self.turn.multiplier_successes += 1;
@@ -177,7 +202,7 @@ mod tests {
         assert_eq!(
             names(cards::OnPlay::OrderSensitive),
             [
-                "Prince", "Envoy", "Captain",
+                "Prince", "Envoy", "Captain", "Sauna", "Avanto",
             ],
             "the order-sensitive set changed: a card belongs here if playing a choice-free +Actions card before it can make it worse"
         );

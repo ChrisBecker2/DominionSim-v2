@@ -186,6 +186,12 @@ buys (Workshop, Remodel, Ball's own gains, Alms') skip Events (Events are never 
 The Buy decision inside the turn search follows the rules (as for every buy); a searched Event is one whose effect is scored by the leaf (gains at their gain-list weight, trashes at the trashed cards' list value, as for
 any card gained or trashed this turn) so the *play order* search sees "play Coppers and Silvers, then buy Alms for a Gold" as a line. A rule-only Event contributes nothing to the leaf, so the search never plays toward it; it is bought when the rule list reaches it.
 
+**Alms and the Treasures.** Alms only gains a card while no Treasure is in play, so with Alms in the game (and not yet bought this turn, a Buy left, a Treasure in the hand) the Buy phase
+does not auto-play the Treasures: it opens a `PlayTreasure` decision with `Choice::Card(Alms)` and `Pass` ("play the Treasures", as always), plus the Treasures themselves when their order
+matters anyway (Anvil, Sauna...). Buying Alms there does not end the Treasure plays (every other purchase does); the Treasures are then played at once and the Buy decision follows. Games without Alms
+pay a bit test. The bot searches this decision like the play order when `search_play` is on (Alms must be in its gain list: `allows`); by the rules alone it buys Alms first when Alms is the first gain-list card the money in
+its hand would reach (`Strategy::event_before_treasures`), so its list position is its priority.
+
 ### 3.3 Tokens
 
 `[[token]] token = "+1 Card" pile = "Laboratory" if = "..."`. Token names (case-insensitive): `+1 Card`, `+1 Action`, `+1 Buy`, `+$1`, `-$2 cost` (also `−$2 cost`, `-$2`), `Trashing`, `Estate`, `-1 Card`, `-$1`, `Journey`; the last three are not placed by a
@@ -295,17 +301,35 @@ Rules text is from the DominionStrategy wiki page of the card, Event or mechanic
 | Everything (cards, Events, tokens, calls, bots), before the clean-up below | 1.37M | -18% against the baseline measured at the same time (1.68M); engine-only random playouts +8% per step (260 vs 242 ns), `GameState::new` 430 vs 250 ns |
 | Cold Adventures paths marked `#[inline(never)]`, `canonical_picks` shortcut for one pick, Event buy outlined | 1.37-1.41M | within noise of the line above; code layout moves the number by 3% either way |
 
-Findings: `GameState` grew from 14 016 to 20 320 bytes (`CardId` and `Counts` width, per-player Tavern mat, tokens and Estate token). Raising `LANES` to 320 (a
-multiple of 64) changed nothing, so the loss is not the Counts width: it is the wider ids and structures plus the new branches in `advance`, `apply`, `resolve_effects`
-and the Buy choices. No single hot spot was found (no profiler is available here without Administrator rights); a sampled profile is the next step if the loss matters.
-Adventures games run at about 1.0M games/s for the Ball strategy against Big Money Ultimate and 2.7k games/s for the Reserve engine (full bots with the turn search).
+### Speed pass (recovering the 18%)
+
+A sampling profile (a small in-process sampler: suspend the game thread, read RIP, symbolize with dbghelp; no Administrator rights needed) found the time in the Buy decision and in `Counts`,
+not in the size alone. Interleaved against the committed HEAD of the line above (200k games, best of 4-5; machine-wide numbers, 32 threads):
+
+| Step | BMU vs Double Witch | Seaside/Prosperity pairing | Ball vs BMU (Adventures) |
+|---|---|---|---|
+| Adventures commit (HEAD) | 1.36M | 1.29M | 1.06M |
+| `play_game` checks the agent's choice against the list it was given instead of recomputing `legal_choices` (every decision computed it twice); `may_buy` skipped for the two cards that restrict it (`MAY_BUY_CARDS`) | 1.53M | 1.46M | 1.19M |
+| `Counts::iter` and `nth` look at 32 lanes per step (two SSE2 compares and a bit mask) instead of eight per step | 1.70M | 1.61M | 1.32M |
+| Zones that are empty in nearly every game made small: the bottom of the deck (`KnownStack<32>`), the Masquerade pass (`SmallMultiset<2>`), War Chest names (`SmallMultiset<24>`) | 1.69M | 1.58M | 1.32M |
+| Buy choices: the printed cost when no Quarry, Peddler, Bridge-style reduction or cost token is live | 1.76M | 1.65M | 1.38M |
+| `empty_piles` over the `in_supply` mask, 32 lanes at a time (tested against the one-pile-at-a-time count) | 1.81M | 1.70M | 1.40M |
+| `SmallMultiset` stores ids and counts in two arrays (3 bytes an entry, not 4); final, best of 6 | 1.81M | 1.70M | 1.40M |
+
+`GameState` went from 20 320 to 16 832 bytes (`PlayerState` 2 720 to 2 176, `TurnState` 896 to 672, `Frame` stays 48): below the 17 KB bound of `tests/state_size.rs`, still above the 14 016 before
+Adventures. A stand-alone experiment showed what size alone is worth: dropping two player seats (5.4 KB) bought 5%, so the 3.5 KB saved here is about 3% of the gain; the rest is the code above.
+Search-heavy bot games (Reserve engine against Big Money Ultimate, full turn search, 5000 games) went from 2.64k to 3.08k games/s (best of 6).
+The three columns are `big_money_ultimate` vs `double_witch` (first-game kingdom), `big_money_ultimate` vs `smithy_bm` on Smithy, Bishop, Wharf, Monument, Warehouse, Smugglers, Outpost, Market, Mint, Mine, and `ball_bm` vs `big_money_ultimate` on `--kingdom auto`.
+The wasm stack is 8 MiB (the smallest size that runs the page's suites is between 2 and 3 MiB with this state; it was 16 MiB at 20 KB and 4 MiB at 14 KB).
+
+Not recovered: the zones that stay `Counts` (hand, deck, discard, in play, set-aside: 5 x 288 bytes a player) and `Frame` (14 bool fields could be a bitfield, 48 to about 36 bytes) are the
+remaining size; Library's set-aside zone is shared by many cards and can hold any card, so it was left as it is. The u16 `CardId` and the 288 lanes (against 224 before) still cost a few percent
+in every `Counts` operation: moving the 20 Events and 16 mixed-pile ids out of the lane range would bring it to 264.
 
 ## 7. Deferred
 
-* **Alms before the Treasures.** The engine plays choice-free Treasures when the Buy phase starts, so Alms ("no Treasures in play") can only be bought with no Treasures in the hand. Offering Alms
-  (and Bonfire's Coppers in play) before the Treasures needs a Buy decision ahead of the Treasure plays; the samples therefore do not use Alms.
 * Lurker can pick Avanto from the Supply while Sauna remains (the Lurker choice list is not filtered by `may_buy`).
 * Royal Carriage replaying a Duration while another multiplier group (Throne Room, Procession) is active is skipped.
 * `[[exchange]]` rules are not part of the Lab's search space (the default always exchanges); `[[token]]`, `[[call]]` rules and Events are.
-* Speed: see 6. The 18% loss against the baseline is documented, not recovered.
+* Bonfire ("trash up to 2 Coppers you have in play") needs the Coppers in play, which the auto-play gives it; nothing else waits for a Buy decision ahead of the Treasures.
 * Dedicated text round-trip and `determinize` leak tests for each new field: covered only through the card-conservation fuzz (`random_adventures_games_conserve_cards_and_terminate`).

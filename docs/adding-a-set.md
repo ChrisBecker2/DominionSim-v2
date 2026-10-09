@@ -88,6 +88,20 @@ the log should say something (`engine.rs`, `web/app.js`'s log).
   `PlayerView` accessors; the text format (`tavern:`, `tokens:`, `events:` lines) and the determinize/hash code; a generic frame for the choice (`FrameKind::Token`, `Act::Call`).
 * **Non-Supply piles (Traveller upgrades)** are fields of `GameState`, listed in `side_pile_cards`, shown by `PlayerView::supply` and by the page as "not in the Supply".
 
+### Keeping `GameState` small
+
+`GameState` is copied by every search node and bot rollout, and six `PlayerState`s are carried in every game whatever the player count, so each byte of a
+per-player field is paid six times on every copy (Adventures added 6 KB and made whole games 18% slower until this was undone; `tests/state_size.rs` pins the sizes).
+
+* A zone that is empty in nearly every game (a mat, a set-aside area, a record of this turn's gains) is a `SmallMultiset<N>` (a few distinct cards, about 3N bytes), never a `Counts`
+  (288 bytes). Pick `N` as the most distinct cards the zone can hold at once; adding past it aborts the game, so be generous but not wasteful (`MAT_CAP` 20, `TAVERN_CAP` 10, `WAR_CHEST_CAP` 24).
+  Only the zones that every turn touches (hand, deck, discard, in play) are `Counts`.
+* A stack that is nearly always short gets its own small capacity (`KnownStack<BOTTOM_CAP>` for the bottom of the deck, not `KNOWN_CAP`).
+* Per-turn scratch state goes in `TurnState` (one copy), per-game constants in `GameState` (one copy); only genuinely per-player state belongs in `PlayerState`.
+* Keep new fields out of the hot paths of games that do not use them: gate on a per-game mask or flag (`events`, `adv`, `in_supply` bits, `GAIN_LO`/`GAIN_HI`, `MAY_BUY_CARDS`) so other games pay one bit test.
+  `Counts::iter` walks 32 lanes per step, so a loop over a hand is cheap; a loop over every card id is not.
+* `GameState::phase_choices` and `Counts` are the hottest code: check the speed table in the plan doc after touching either.
+
 ## 2. Bots: `crates/sim/src/defaults/<set>.rs`
 
 A unit struct implementing `SetDefaults` (fast defaults for mode cards, a card's own `Select` policy, overpay, naming,
@@ -119,6 +133,6 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * `cargo test --release --workspace` and `cargo build --release --workspace --tests` warning-free.
 * `powershell -File build-web.ps1`: every suite ALL PASSED.
 * Speed did not move: `dominion-sim match strategies/big_money_ultimate.toml strategies/double_witch.toml --games 200000`
-  (about 1.7M games/s) and one pairing that uses the new set; best of five, before and after. Dispatch by set is a
+  (about 1.8M games/s since the speed pass of the Adventures plan, section 6) and one pairing that uses the new set; best of five, before and after. Dispatch by set is a
   `match` on the card's set (no indirect call); keep it that way.
 * The plan doc's status line, and `CLAUDE.md` if the layout changed.

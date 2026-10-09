@@ -224,7 +224,7 @@ fn token_on_reads_where_the_players_token_is() {
 
 #[test]
 fn an_event_is_bought_only_when_the_gain_list_names_it() {
-    let mut g = with_events("Training, Alms", 6, 1, "hand: Copper\ndeck: 4 Estate\ndiscard: 3 Smithy, Village");
+    let mut g = with_events("Training, Save", 6, 1, "hand: Copper\ndeck: 4 Estate\ndiscard: 3 Smithy, Village");
     let (d, ch) = next_decision(&mut g);
     assert!(ch.contains(&Choice::Card(id::TRAINING)), "the Event is a legal buy");
     assert_eq!(decide(&money(""), &g, &d, &ch), Choice::Card(id::GOLD), "never an Event unless listed");
@@ -243,6 +243,62 @@ fn a_bought_event_can_be_asked_about_in_a_condition() {
     g.players[0].events_bought |= 1 << (id::TRAINING - cards::FIRST_EVENT);
     let (d, ch) = next_decision(&mut g);
     assert_eq!(decide(&once, &g, &d, &ch), Choice::Card(id::GOLD));
+}
+
+// --- Alms before the Treasures -------------------------------------------------------------------------------
+
+/// The first decision of a Buy phase with Alms in the game and `hand` in the hand (the Treasures are not played yet).
+fn alms_decision(hand: &str, buys: u8) -> (GameState, Decision, Vec<Choice>) {
+    let mut g = with_events("Alms", 0, buys, &format!("hand: {hand}
+deck: 4 Estate
+discard: 3 Smithy, Village"));
+    let (d, ch) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure, "Alms is offered before the Treasures: {ch:?}");
+    assert!(ch.contains(&Choice::Card(id::ALMS)));
+    (g, d, ch)
+}
+
+#[test]
+fn by_the_rules_alms_comes_before_the_treasures_when_the_gain_list_reaches_it_first() {
+    let rules = |gains: &[&str]| strategy("search_play = false", gains);
+    // $4 in the hand: Alms (listed before Silver) is the first listed card reached, so it is bought before the Treasures are played.
+    let (g, d, ch) = alms_decision("Silver, Copper, Copper", 2);
+    assert_eq!(decide(&rules(&["Province", "Gold", "Alms", "Silver"]), &g, &d, &ch), Choice::Card(id::ALMS));
+    // Silver is listed first: the Treasures are played and Silver is bought.
+    assert_eq!(decide(&rules(&["Province", "Gold", "Silver", "Alms"]), &g, &d, &ch), Choice::Pass);
+    // Alms not listed at all: never bought.
+    assert_eq!(decide(&rules(&["Province", "Gold", "Silver"]), &g, &d, &ch), Choice::Pass);
+    // With $9 in the hand the Province comes first.
+    let (g, d, ch) = alms_decision("Gold, Gold, Gold", 2);
+    assert_eq!(decide(&rules(&["Province", "Gold", "Alms", "Silver"]), &g, &d, &ch), Choice::Pass);
+}
+
+#[test]
+fn the_searching_bot_buys_alms_first_when_it_gains_a_card_for_a_spare_buy() {
+    // Two Buys and $4: Alms gains a Silver from the gain list, and the money still buys another Silver.
+    let (g, d, ch) = alms_decision("Silver, Copper, Copper", 2);
+    let listed = strategy("", &["Province", "Gold", "Alms", "Silver"]);
+    assert_eq!(decide(&listed, &g, &d, &ch), Choice::Card(id::ALMS));
+    // Not listed: the search may not buy it.
+    let unlisted = strategy("", &["Province", "Gold", "Silver"]);
+    assert_eq!(decide(&unlisted, &g, &d, &ch), Choice::Pass);
+}
+
+#[test]
+fn a_bot_game_with_alms_listed_plays_to_the_end_and_gains_cards_with_it() {
+    use dominion_engine::{play_game, Agent, GameConfig};
+    use dominion_sim::StrategyAgent;
+    let strat = strategy("", &["Province", "Gold", "Alms", "Silver"]);
+    let mut kingdom = dominion_engine::cards::FIRST_GAME.to_vec();
+    kingdom.push(id::ALMS);
+    let cfg = GameConfig { num_players: 2, kingdom, seed: 3, max_turns: 100, ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    let mut a = StrategyAgent::new(&strat);
+    let mut b = StrategyAgent::new(&strat);
+    let mut agents: [&mut dyn Agent; 2] = [&mut a, &mut b];
+    let result = play_game(&mut g, &mut agents[..], &mut NoEvents);
+    assert!(result.turns[0] > 0);
+    assert!(g.players.iter().take(2).any(|p| p.events_bought & 1 != 0), "Alms was bought");
 }
 
 // --- Whole games ---------------------------------------------------------------------------------------------

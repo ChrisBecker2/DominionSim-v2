@@ -848,7 +848,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // (or after Treasury's offer already ran) loses that fact on reload. Accepted for now,
         // consistent with the existing gap.
         treasures_done: false,
-        named_for_war_chest: Counts::EMPTY,
+        named_for_war_chest: SmallMultiset::EMPTY,
         duration_held: match &held_val {
             Some((ln, s)) => {
                 let counts = parse_counts(s).map_err(|e| format!("line {ln}: {e}"))?;

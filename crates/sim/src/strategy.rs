@@ -579,8 +579,11 @@ impl Strategy {
 
     /// The first gain-list card that can be bought with the coins and every Coffers token.
     fn first_reachable(&self, view: &PlayerView) -> Option<CardId> {
-        let money = view.turn().coins as u32 + view.coffers() as u32;
-        let potions = view.turn().potions;
+        self.first_reachable_with(view, view.turn().coins as u32 + view.coffers() as u32, view.turn().potions)
+    }
+
+    /// The first gain-list card that `money` and `potions` reach.
+    fn first_reachable_with(&self, view: &PlayerView, money: u32, potions: u8) -> Option<CardId> {
         self.buy.iter().find_map(|(card, cond)| {
             let ok = if cards::is_event(*card) {
                 view.event_available(*card) && view.event_cost(*card) as u32 <= money
@@ -1060,9 +1063,11 @@ impl Strategy {
     /// `play_decision` does for `PlayAction` (`is_play_decision` in `eval.rs` treats it the same
     /// way); `rule_play_treasure` is the fast/default fallback otherwise.
     fn play_treasure_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        // An Event offered before the Treasures are played (Alms) is searched like the play order.
+        let event = iter_cards(choices).find(|&c| cards::is_event(c));
         // Nothing left whose order or choices matter (only plain Treasures, and Bank, which goes
         // last): the rule order, no search needed.
-        if !iter_cards(choices).any(|c| !plays_last(c) && !cards::is_choice_free(c)) {
+        if event.is_none() && !iter_cards(choices).any(|c| !plays_last(c) && !cards::is_choice_free(c)) {
             return self.rule_play_treasure(choices);
         }
         if self.search_play && decision.player == view.me() {
@@ -1072,7 +1077,24 @@ impl Strategy {
                 }
             }
         }
+        if let Some(e) = event {
+            if self.event_before_treasures(view, e) {
+                return Choice::Card(e);
+            }
+        }
         self.rule_play_treasure(choices)
+    }
+
+    /// By the rules, whether the Event `e` (Alms) is bought before the Treasures are played: when it is the first gain-list card that the
+    /// money the hand holds would reach (the Buy decision after the Treasures would pick it just the same, if it still did anything).
+    fn event_before_treasures(&self, view: &PlayerView, e: CardId) -> bool {
+        let mut money = view.turn().coins as u32 + view.coffers() as u32;
+        let mut potions = view.turn().potions;
+        for (c, n) in view.hand().iter().filter(|&(c, _)| cards::is(c, cards::TREASURE)) {
+            money += cards::def(c).coins as u32 * n as u32;
+            potions += cards::def(c).potions * n;
+        }
+        self.first_reachable_with(view, money, potions) == Some(e)
     }
 
     /// The `PlayTreasure` choice by rule order alone, without searching:
@@ -1085,7 +1107,7 @@ impl Strategy {
     /// Used both as the `search_play = false` default and inside search playouts (avoiding
     /// re-entering `search_play_choice` from within its own playout).
     pub fn rule_play_treasure(&self, choices: &[Choice]) -> Choice {
-        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c)) {
+        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c)) {
             return Choice::Card(c);
         }
         if iter_cards(choices).any(plays_last) {

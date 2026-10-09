@@ -7,7 +7,8 @@ use crate::cards::{CardId, NUM_CARDS};
 pub const LANES: usize = 288;
 const _: () = assert!(NUM_CARDS <= LANES, "more cards than Counts lanes: widen LANES");
 
-/// A multiset of cards stored as per-card counts. `Copy`, 224 bytes, never allocates.
+/// A multiset of cards stored as per-card counts. `Copy`, `LANES` bytes, never allocates. Big (288 bytes): a zone that is empty in nearly every game belongs in a
+/// `state::SmallMultiset` instead (see "Keeping GameState small" in `docs/adding-a-set.md`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(align(32))]
 pub struct Counts(pub [u8; LANES]);
@@ -96,10 +97,43 @@ impl Counts {
         self.iter().any(|(c, _)| crate::cards::is(c, flag))
     }
     /// Iterate (card, count) for nonzero counts, in card-id order. Hands, decks and piles hold
-    /// few distinct cards, so this walks 8 lanes at a time and skips empty words.
+    /// few distinct cards, so this looks at 32 lanes at a time and skips empty blocks.
     #[inline]
     pub fn iter(&self) -> NonZero<'_> {
-        NonZero { counts: self, word: 0, bits: nonzero_bytes(self.word(0)) }
+        NonZero { counts: self, block: 0, mask: self.nonzero_mask(0) }
+    }
+
+    /// Bit `i` set when lane `32 * block + i` is nonzero.
+    #[inline(always)]
+    pub(crate) fn nonzero_mask(&self, block: usize) -> u32 {
+        #[cfg(target_arch = "x86_64")]
+        // SAFETY: SSE2 is always available on x86-64; `Counts` is 32-byte aligned, `LANES` is a multiple of 32, and `block < LANES / 32`
+        // (callers check), so both 16-byte loads are aligned and in bounds.
+        unsafe {
+            use std::arch::x86_64::*;
+            let p = self.0.as_ptr().add(block * 32) as *const __m128i;
+            let zero = _mm_setzero_si128();
+            let lo = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_load_si128(p), zero)) as u32;
+            let hi = _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_load_si128(p.add(1)), zero)) as u32;
+            !(lo | hi << 16)
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            self.nonzero_mask_swar(block)
+        }
+    }
+
+    /// `nonzero_mask` without SIMD (other targets; tested against the SIMD version).
+    #[inline(always)]
+    #[cfg_attr(target_arch = "x86_64", allow(dead_code))]
+    fn nonzero_mask_swar(&self, block: usize) -> u32 {
+        let mut m = 0u32;
+        for k in 0..4 {
+            let nz = nonzero_bytes(self.word(block * 4 + k)) >> 7;
+            // One bit per byte, gathered into the low byte.
+            m |= ((nz.wrapping_mul(0x0102_0408_1020_4080) >> 56) as u32) << (8 * k);
+        }
+        m
     }
 
     #[inline(always)]
@@ -140,9 +174,9 @@ fn nonzero_bytes(w: u64) -> u64 {
 /// Iterator over a `Counts`' nonzero entries (see `Counts::iter`).
 pub struct NonZero<'a> {
     counts: &'a Counts,
-    word: usize,
-    /// Pending nonzero-byte markers (high bits) of the current word.
-    bits: u64,
+    block: usize,
+    /// Nonzero lanes of the current block not yet returned.
+    mask: u32,
 }
 
 impl Iterator for NonZero<'_> {
@@ -151,16 +185,16 @@ impl Iterator for NonZero<'_> {
     #[inline]
     fn next(&mut self) -> Option<(CardId, u8)> {
         loop {
-            if self.bits != 0 {
-                let i = self.word * 8 + self.bits.trailing_zeros() as usize / 8;
-                self.bits &= self.bits - 1;
+            if self.mask != 0 {
+                let i = self.block * 32 + self.mask.trailing_zeros() as usize;
+                self.mask &= self.mask - 1;
                 return Some((i as CardId, self.counts.0[i]));
             }
-            self.word += 1;
-            if self.word >= LANES / 8 {
+            self.block += 1;
+            if self.block >= LANES / 32 {
                 return None;
             }
-            self.bits = nonzero_bytes(self.counts.word(self.word));
+            self.mask = self.counts.nonzero_mask(self.block);
         }
     }
 }
@@ -181,5 +215,25 @@ impl std::fmt::Debug for Counts {
             }
         }
         write!(f, "]")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn simd_and_swar_masks_agree() {
+        let mut c = Counts::EMPTY;
+        for i in (0..LANES).step_by(7) {
+            c.0[i] = (i % 250 + 1) as u8;
+        }
+        c.0[LANES - 1] = 255;
+        for b in 0..LANES / 32 {
+            assert_eq!(c.nonzero_mask(b), c.nonzero_mask_swar(b), "block {b}");
+        }
+        let got: Vec<_> = c.iter().collect();
+        let want: Vec<_> = (0..LANES).filter(|&i| c.0[i] != 0).map(|i| (i as CardId, c.0[i])).collect();
+        assert_eq!(got, want);
     }
 }

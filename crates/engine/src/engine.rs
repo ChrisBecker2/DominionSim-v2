@@ -389,6 +389,23 @@ impl GameState {
         }
     }
 
+    /// Like `apply`, for a caller that has just filled `legal` from `legal_choices` on this very state: the choice is checked against
+    /// that list instead of computing the legal choices a second time.
+    pub fn apply_listed<S: EventSink>(&mut self, choice: Choice, legal: &ChoiceBuf, sink: &mut S) -> Result<(), &'static str> {
+        let Pending::Decision(d) = self.pending() else {
+            return Err("no decision pending");
+        };
+        if !legal.contains(choice) {
+            return Err("illegal choice");
+        }
+        self.set_pending(Pending::None);
+        self.apply_unchecked(d.kind, choice, sink);
+        if self.turn.adv.tax_live {
+            self.settle_coin_tax();
+        }
+        Ok(())
+    }
+
     /// Apply a choice to the pending decision. Rejects illegal choices without changing state.
     pub fn apply<S: EventSink>(&mut self, choice: Choice, sink: &mut S) -> Result<(), &'static str> {
         let Pending::Decision(d) = self.pending() else {
@@ -544,9 +561,14 @@ impl GameState {
             DecisionKind::Buy => {
                 // A Mission turn buys no cards (Events still).
                 if !self.turn.adv.no_buy {
+                    // No cost modifier in play (the usual case): the printed cost, without `cost`'s per-card checks.
+                    let plain = self.turn.cost_reduction == 0
+                        && !self.in_supply(id::QUARRY)
+                        && !self.in_supply(id::PEDDLER)
+                        && self.adv & crate::state::G_COST_TOKEN == 0;
                     for c in self.supply_cards() {
                         if self.supply.get(c) > 0
-                            && self.cost(c) as u16 <= self.turn.coins
+                            && (if plain { cards::cost(c) } else { self.cost(c) }) as u16 <= self.turn.coins
                             && (self.turn.potions > 0 || !cards::potion_cost(c))
                             && self.may_buy(c)
                         {
@@ -568,10 +590,16 @@ impl GameState {
                 out.push(Choice::Pass);
             }
             DecisionKind::PlayTreasure => {
-                for (c, _) in self.players[p].hand.iter() {
-                    if self.is_treasure(c) {
-                        out.push(Choice::Card(c));
+                // Only Alms to decide (the Treasures are all plain): Alms, or play the Treasures.
+                if self.treasure_order_matters() {
+                    for (c, _) in self.players[p].hand.iter() {
+                        if self.is_treasure(c) {
+                            out.push(Choice::Card(c));
+                        }
                     }
+                }
+                if self.alms_window() {
+                    out.push(Choice::Card(id::ALMS));
                 }
                 out.push(Choice::Pass);
             }
@@ -609,6 +637,8 @@ impl GameState {
                 self.turn.coins += 1;
                 sink.event(Event::SpendCoffers { player: p, n: 1 });
             }
+            // An Event offered with the Treasures (Alms, before they are played).
+            (Phase::Buy, Choice::Card(e)) if cards::is_event(e) => self.buy_event(e, p, sink),
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && cards::is_choice_free(c) => {
                 self.play_free_treasure(c, 1, sink);
             }
@@ -627,7 +657,6 @@ impl GameState {
                 self.play_all_choice_free_treasures(sink);
                 self.turn.treasures_done = true;
             }
-            (Phase::Buy, Choice::Card(e)) if cards::is_event(e) => self.buy_event(e, p, sink),
             (Phase::Buy, Choice::Card(c)) => {
                 self.turn.coins -= self.cost(c) as u16;
                 if cards::potion_cost(c) {
@@ -669,17 +698,30 @@ impl GameState {
     /// every Treasure in hand is offered through the `PlayTreasure` decision. Returns whether
     /// that decision is needed.
     fn play_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) -> bool {
-        let p = self.turn.player;
-        let hand = self.players[p as usize].hand;
-        if hand.iter().any(|(c, _)| self.is_treasure(c) && !cards::is_choice_free(c)) {
-            return true;
-        }
-        // Sauna: each Silver played may trash a card from the hand, so the order of the plays matters (a Copper trashed before it is played).
-        if self.turn.adv.sauna > 0 && hand.has(id::SILVER) {
+        if self.treasure_order_matters() || self.alms_window() {
             return true;
         }
         self.play_all_choice_free_treasures(sink);
         false
+    }
+
+    /// Whether the order the hand's Treasures are played in matters (so they are offered one by one instead of played at once): a
+    /// Treasure with a choice is in the hand, or a Sauna makes the Silvers' order matter.
+    fn treasure_order_matters(&self) -> bool {
+        let hand = &self.players[self.turn.player as usize].hand;
+        if hand.iter().any(|(c, _)| self.is_treasure(c) && !cards::is_choice_free(c)) {
+            return true;
+        }
+        // Sauna: each Silver played may trash a card from the hand, so the order of the plays matters (a Copper trashed before it is played).
+        self.turn.adv.sauna > 0 && hand.has(id::SILVER)
+    }
+
+    /// Adventures: Alms ("if you have no Treasures in play, gain a card costing up to $4") can only be bought before the Treasures are
+    /// played, so while it could still do something the Buy phase starts with a `PlayTreasure` decision (buy Alms, or play the
+    /// Treasures) instead of playing them. Games without Alms pay one bit test.
+    #[inline(always)]
+    fn alms_window(&self) -> bool {
+        self.events & (1 << (id::ALMS - cards::FIRST_EVENT)) != 0 && crate::sets::adventures::alms_window(self)
     }
 
     /// Play every choice-free Treasure in the current player's hand.
@@ -698,7 +740,10 @@ impl GameState {
     fn buy_event<S: EventSink>(&mut self, e: CardId, p: u8, sink: &mut S) {
         self.turn.coins -= cards::cost(e) as u16;
         self.turn.buys -= 1;
-        self.turn.treasures_done = true;
+        // Alms bought before the Treasures leaves them to be played; every other purchase ends the Treasure plays.
+        if !(e == id::ALMS && self.treasures_in_play(p) == 0) {
+            self.turn.treasures_done = true;
+        }
         let bit = 1u32 << (e - cards::FIRST_EVENT);
         self.turn.adv.bought |= bit;
         self.players[p as usize].events_bought |= bit;

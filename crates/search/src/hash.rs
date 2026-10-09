@@ -54,7 +54,7 @@ impl Hasher for FxHasher {
 }
 
 #[inline]
-fn hash_known_stack(ks: &KnownStack, h: &mut FxHasher) {
+fn hash_known_stack<const N: usize>(ks: &KnownStack<N>, h: &mut FxHasher) {
     // Only the meaningful prefix, not the full 120-byte fixed array.
     ks.len.hash(h);
     ks.cards[..ks.len as usize].hash(h);

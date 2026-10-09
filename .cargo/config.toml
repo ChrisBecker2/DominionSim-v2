@@ -4,5 +4,6 @@
 # since it's a raw stack overflow), even though the exact same search runs fine natively (a
 # native thread's stack is megabytes larger by default). Give the wasm module more headroom;
 # native targets are unaffected (this only applies under `[target.wasm32-unknown-unknown]`).
+# 8 MiB: the search worker traps at 2 MiB and runs at 3 MiB with the 17 KB game state (16 MiB when the state was 20 KB, 4 MiB at 14 KB).
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "link-args=-zstack-size=16777216"]
+rustflags = ["-C", "link-args=-zstack-size=8388608"]

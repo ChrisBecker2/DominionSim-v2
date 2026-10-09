@@ -696,6 +696,7 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
         (DecisionKind::Buy, Choice::Coffers) => "Spend a Coffers (+$1)".to_string(),
         (DecisionKind::Buy, _) => "End buys".to_string(),
+        (DecisionKind::PlayTreasure, Choice::Card(c)) if cards::is_event(c) => format!("Buy {}", cards::name(c)),
         (DecisionKind::PlayTreasure, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayTreasure, _) => "End treasures".to_string(),
         (DecisionKind::Gain { .. }, Choice::Card(c)) => format!("Gain {}", cards::name(c)),

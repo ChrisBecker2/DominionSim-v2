@@ -2017,7 +2017,7 @@ fn masquerade_honesty_hides_earlier_passes_from_a_later_chooser() {
     // is asked next.
     let d = g.pending_decision().unwrap();
     assert_eq!(d.player, 1);
-    assert_eq!(g.players[0].passed, counts_of(&[id::GOLD]), "committed, held secretly");
+    assert_eq!(g.players[0].passed.counts(), counts_of(&[id::GOLD]), "committed, held secretly");
 
     let mut rng = dominion_engine::rng::Rng::new(7);
     for _ in 0..20 {

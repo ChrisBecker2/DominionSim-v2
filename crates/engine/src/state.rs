@@ -8,6 +8,10 @@ use crate::rng::Rng;
 
 pub const MAX_PLAYERS: usize = 6;
 pub const KNOWN_CAP: usize = 120;
+/// Capacity of the known cards at the very bottom of a deck (`PlayerState::deck_known_bottom`, Secret Passage). They are drawn once the
+/// rest of the deck is gone, i.e. within one pass through it, so a handful is the most there ever are; a stack of `KNOWN_CAP` per player
+/// was 240 bytes on each of the six seats for a zone that is empty in nearly every game.
+pub const BOTTOM_CAP: usize = 32;
 pub const STACK_CAP: usize = 48;
 /// Max simultaneous pending start-of-next-turn Duration effects for one player. Each play of a
 /// Duration card (or a Throne Room/King's Court resolution of one) needs at most one slot; same-
@@ -205,6 +209,8 @@ pub const MAT_CAP: usize = 20;
 /// record) ever needs at once: a handful of distinct cards gained in one turn, the same
 /// "realistic turn" reasoning as `DURATION_HELD_CAP`.
 pub const GAIN_RECORD_CAP: usize = 8;
+/// Max distinct cards `TurnState::named_for_war_chest` ever holds: one per War Chest play in a turn, so far more than any turn has.
+pub const WAR_CHEST_CAP: usize = 24;
 
 /// A compact, order-independent multiset of (card, count) pairs capped at `N` distinct card
 /// ids: the same trick as `DurationHeld` below (see its doc comment for the full rationale),
@@ -215,7 +221,9 @@ pub const GAIN_RECORD_CAP: usize = 8;
 /// Smugglers (`GAIN_RECORD_CAP`).
 #[derive(Clone, Copy, Debug)]
 pub struct SmallMultiset<const N: usize> {
-    entries: [(CardId, u8); N],
+    // Two arrays rather than one of pairs: a (u16, u8) pair is four bytes with its padding, this is three.
+    ids: [CardId; N],
+    counts: [u8; N],
     len: u8,
 }
 
@@ -245,19 +253,20 @@ impl<const N: usize> std::hash::Hash for SmallMultiset<N> {
 }
 
 impl<const N: usize> SmallMultiset<N> {
-    pub const EMPTY: Self = SmallMultiset { entries: [(0, 0); N], len: 0 };
+    pub const EMPTY: Self = SmallMultiset { ids: [0; N], counts: [0; N], len: 0 };
 
     /// Add `n` more copies of `card` (merging into an existing entry for it, if any).
     pub fn add(&mut self, card: CardId, n: u8) {
         for i in 0..self.len as usize {
-            if self.entries[i].0 == card {
-                self.entries[i].1 = self.entries[i].1.saturating_add(n);
+            if self.ids[i] == card {
+                self.counts[i] = self.counts[i].saturating_add(n);
                 return;
             }
         }
         let i = self.len as usize;
         assert!(i < N, "SmallMultiset overflow: more than {N} distinct card ids");
-        self.entries[i] = (card, n);
+        self.ids[i] = card;
+        self.counts[i] = n;
         self.len += 1;
     }
     /// Like `add`, but a full set drops the new card instead of aborting (release builds abort on
@@ -269,7 +278,10 @@ impl<const N: usize> SmallMultiset<N> {
         }
     }
     pub fn get(&self, card: CardId) -> u8 {
-        self.entries[..self.len as usize].iter().find(|e| e.0 == card).map_or(0, |e| e.1)
+        match self.ids[..self.len as usize].iter().position(|&c| c == card) {
+            Some(i) => self.counts[i],
+            None => 0,
+        }
     }
     #[inline]
     pub fn has(&self, card: CardId) -> bool {
@@ -280,7 +292,8 @@ impl<const N: usize> SmallMultiset<N> {
         self.len == 0
     }
     pub fn iter(&self) -> impl Iterator<Item = (CardId, u8)> + '_ {
-        self.entries[..self.len as usize].iter().copied()
+        let n = self.len as usize;
+        self.ids[..n].iter().copied().zip(self.counts[..n].iter().copied())
     }
     pub fn total(&self) -> u32 {
         self.iter().map(|(_, n)| n as u32).sum()
@@ -290,12 +303,13 @@ impl<const N: usize> SmallMultiset<N> {
     }
     /// Remove one copy of `card`; false if there was none.
     pub fn remove(&mut self, card: CardId) -> bool {
-        let Some(i) = self.entries[..self.len as usize].iter().position(|e| e.0 == card) else { return false };
-        if self.entries[i].1 > 1 {
-            self.entries[i].1 -= 1;
+        let Some(i) = self.ids[..self.len as usize].iter().position(|&c| c == card) else { return false };
+        if self.counts[i] > 1 {
+            self.counts[i] -= 1;
         } else {
             self.len -= 1;
-            self.entries[i] = self.entries[self.len as usize];
+            self.ids[i] = self.ids[self.len as usize];
+            self.counts[i] = self.counts[self.len as usize];
         }
         true
     }
@@ -326,21 +340,21 @@ impl<const N: usize> SmallMultiset<N> {
 /// Cards on top of the deck whose identity is known, top = last element.
 /// Beneath them sits `PlayerState::deck_unknown`, a multiset in unknown order.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct KnownStack {
-    pub cards: [CardId; KNOWN_CAP],
+pub struct KnownStack<const N: usize = KNOWN_CAP> {
+    pub cards: [CardId; N],
     pub len: u8,
 }
 
-impl Default for KnownStack {
+impl<const N: usize> Default for KnownStack<N> {
     fn default() -> Self {
-        KnownStack { cards: [0; KNOWN_CAP], len: 0 }
+        KnownStack { cards: [0; N], len: 0 }
     }
 }
 
-impl KnownStack {
+impl<const N: usize> KnownStack<N> {
     #[inline]
     pub fn push_top(&mut self, c: CardId) {
-        assert!((self.len as usize) < KNOWN_CAP, "known deck stack overflow");
+        assert!((self.len as usize) < N, "known deck stack overflow");
         self.cards[self.len as usize] = c;
         self.len += 1;
     }
@@ -371,7 +385,7 @@ impl KnownStack {
         self.cards[..self.len as usize].iter().copied()
     }
     /// Remove and return the earliest-pushed card (index 0), shifting the rest down. Used only for
-    /// `deck_known_bottom`, which is always short in practice (bounded by `KNOWN_CAP`).
+    /// `deck_known_bottom`, which is always short in practice (bounded by `BOTTOM_CAP`).
     pub fn pop_front(&mut self) -> Option<CardId> {
         if self.len == 0 {
             return None;
@@ -387,7 +401,7 @@ impl KnownStack {
     /// just above whatever lies beneath the known section), shifting deeper cards down to make
     /// room. Used for Secret Passage's "below the Nth known card" placement.
     pub fn insert_from_top(&mut self, k: u8, c: CardId) {
-        assert!((self.len as usize) < KNOWN_CAP, "known deck stack overflow");
+        assert!((self.len as usize) < N, "known deck stack overflow");
         assert!(k <= self.len, "insert depth beyond the known section");
         let idx = self.len - k;
         let mut i = self.len;
@@ -498,14 +512,14 @@ pub struct PlayerState {
     pub deck_unknown: Counts,
     /// Known cards under the unknown multiset, at the very bottom of the deck (Secret Passage).
     /// Drawn only once `deck_known` and `deck_unknown` are both exhausted.
-    pub deck_known_bottom: KnownStack,
+    pub deck_known_bottom: KnownStack<BOTTOM_CAP>,
     pub discard: Counts,
     pub in_play: Counts,
     /// Library's set-aside cards (discarded when Library finishes).
     pub set_aside: Counts,
     /// Masquerade's holding zone: the card this player has committed to pass, held until every
     /// passing player has chosen and all the cards move at once. At most one card at a time.
-    pub passed: Counts,
+    pub passed: SmallMultiset<2>,
     /// Cards held aside while an effect resolves, to enter play (or move on) later in it: Golem's
     /// second Action while the first resolves. Always empty between effects (not in the text
     /// format), counted as owned by `all_cards` so cards are conserved at every step.
@@ -594,7 +608,7 @@ impl PlayerState {
         c.add_all(&self.discard);
         c.add_all(&self.in_play);
         c.add_all(&self.set_aside);
-        c.add_all(&self.passed);
+        self.passed.add_into(&mut c);
         // The small zones add straight into the total (no temporary `Counts` per zone).
         self.held.add_into(&mut c);
         self.native_village_mat.add_into(&mut c);
@@ -683,7 +697,7 @@ pub struct TurnState {
     pub treasures_done: bool,
     /// Cards named for War Chest this turn (by any War Chest play): a War Chest's own gain may
     /// not be any of these.
-    pub named_for_war_chest: Counts,
+    pub named_for_war_chest: SmallMultiset<WAR_CHEST_CAP>,
     /// Duration cards (and any Throne Room/King's Court that multiplied one) currently held in
     /// play for this turn's player: exempted from cleanup's discard. A running counter
     /// incremented wherever a card enters play by being played (see `effects::put`,
@@ -803,7 +817,7 @@ impl TurnState {
             played: Counts::EMPTY,
             cost_reduction: 0,
             treasures_done: false,
-            named_for_war_chest: Counts::EMPTY,
+            named_for_war_chest: SmallMultiset::EMPTY,
             duration_held: DurationHeld::EMPTY,
             is_extra_turn: false,
             outpost_grants_extra: false,
@@ -1825,6 +1839,42 @@ impl GameState {
     }
 
     pub fn empty_piles(&self) -> u32 {
+        // Walks the supply 32 lanes at a time: a pile is empty when its bit is set in `in_supply` and its lane is zero.
+        // Not piles of their own: the members of the Knights and Ruins piles (ids from `FIRST_PILE_CARD`, counted below as
+        // one pile each) and Avanto (the split pile Sauna/Avanto counts once, as Sauna, when Avanto is gone too).
+        let mut n = 0u32;
+        let words = [self.in_supply.lo, self.in_supply.hi, self.in_supply.top];
+        for (w, bits) in words.into_iter().enumerate() {
+            for k in 0..4 {
+                let block = w * 4 + k;
+                if block >= crate::counts::LANES / 32 {
+                    break;
+                }
+                let first = block * 32;
+                let mut in_block = (bits >> (32 * k)) as u32;
+                if first + 32 > cards::FIRST_PILE_CARD as usize {
+                    in_block &= if first >= cards::FIRST_PILE_CARD as usize { 0 } else { (1u32 << (cards::FIRST_PILE_CARD as usize - first)) - 1 };
+                }
+                if in_block != 0 {
+                    if (id::AVANTO as usize) / 32 == block {
+                        in_block &= !(1u32 << (id::AVANTO as usize % 32));
+                    }
+                    n += (in_block & !self.supply.nonzero_mask(block)).count_ones();
+                }
+            }
+        }
+        if self.supply.get(id::AVANTO) > 0 && self.in_supply(id::SAUNA) && self.supply.get(id::SAUNA) == 0 {
+            n -= 1;
+        }
+        for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
+            n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
+        }
+        n
+    }
+
+    /// `empty_piles` the plain way, one pile at a time (the reference the fast version is tested against).
+    #[doc(hidden)]
+    pub fn empty_piles_scan(&self) -> u32 {
         // The members of the Knights and Ruins piles are not piles of their own: each mixed pile is one pile, empty when it has no cards.
         // Sauna/Avanto is one pile: empty when both halves are (counted once, as Sauna, when Avanto is gone too).
         let split_open = self.supply.get(id::AVANTO) > 0;

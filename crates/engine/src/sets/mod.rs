@@ -121,6 +121,9 @@ pub(crate) trait SetRules {
     /// and `.hi` (ids from 128): when none is in the game, `GameState::gain` skips every trigger.
     const GAIN_LO: u128 = 0;
     const GAIN_HI: u128 = 0;
+    /// The cards of this set whose `may_buy` can say no (Grand Market, Avanto): every other card is buyable whenever it is affordable,
+    /// and the Buy choices skip the call for it.
+    const MAY_BUY_CARDS: &'static [CardId] = &[];
     /// Reaction cards that, revealed from the hand when another player plays an Attack, leave their
     /// owner unaffected by it (Moat). Revealing is the owner's choice (`Then::BlockAttack`).
     const BLOCK_REACTIONS: &'static [CardId] = &[];
@@ -372,9 +375,21 @@ pub(crate) fn vp(card: CardId, all: &Counts, total: i32) -> i32 {
     with_set!(set_of(card), S => S::vp(card, all, total))
 }
 
+/// Whether a card has a `may_buy` restriction at all (every set's `MAY_BUY_CARDS`).
+static MAY_BUY_RESTRICTED: [bool; NUM_CARDS] = {
+    let list = concat_sets!(CardId, 0, MAY_BUY_CARDS);
+    let mut t = [false; NUM_CARDS];
+    let mut i = 0;
+    while i < list.len() {
+        t[list[i] as usize] = true;
+        i += 1;
+    }
+    t
+};
+
 #[inline]
 pub(crate) fn may_buy(g: &GameState, card: CardId) -> bool {
-    with_set!(set_of(card), S => S::may_buy(g, card))
+    !MAY_BUY_RESTRICTED[card as usize] || with_set!(set_of(card), S => S::may_buy(g, card))
 }
 
 pub(crate) fn pile_size(card: CardId, num_players: usize) -> Option<u8> {

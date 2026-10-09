@@ -342,7 +342,7 @@ impl<'a> PlayerView<'a> {
             pool.add_all(&ps.hand);
             // Masquerade: a card another player has already committed to pass is just as hidden
             // from me as their hand or deck until it's delivered (see `state::PlayerState::passed`).
-            pool.add_all(&ps.passed);
+            ps.passed.add_into(&mut pool);
             // Haven (Seaside): the card set aside from hand is exactly as hidden as the hand it
             // came from, unlike Blockade's set-aside card (already publicly gained). Pool every
             // live Haven's card in, then deal each a fresh (still-hidden) one back below, after
@@ -415,7 +415,7 @@ impl<'a> PlayerView<'a> {
             ps.deck_known = KnownStack::default();
             ps.deck_known_bottom = KnownStack::default();
             ps.deck_unknown = pool;
-            ps.passed = Counts::EMPTY;
+            ps.passed.clear();
         }
         s
     }
@@ -448,7 +448,7 @@ pub fn play_game<S: EventSink>(state: &mut GameState, agents: &mut [&mut dyn Age
                 state.legal_choices(&mut buf);
                 let view = PlayerView::new(state, d.player);
                 let c = agents[d.player as usize].choose(&view, &d, buf.as_slice());
-                state.apply(c, sink).expect("agent chose an illegal option");
+                state.apply_listed(c, &buf, sink).expect("agent chose an illegal option");
             }
             Step::Chance { .. } => unreachable!(),
             Step::TurnStart { .. } => continue,

@@ -211,6 +211,7 @@ impl SetRules for Prosperity {
         }
     }
 
+    const MAY_BUY_CARDS: &'static [CardId] = &[id::GRAND_MARKET];
     fn may_buy(g: &GameState, card: CardId) -> bool {
         match card {
             id::GRAND_MARKET => !g.players[g.turn.player as usize].in_play.has(id::COPPER),

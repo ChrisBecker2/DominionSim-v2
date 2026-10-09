@@ -2166,6 +2166,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
             match d.kind {
                 DecisionKind::PlayAction => format!("Play {name}"),
                 DecisionKind::Buy => format!("Buy {name}"),
+                DecisionKind::PlayTreasure if cards::is_event(card) => format!("Buy {name}"),
                 DecisionKind::PlayTreasure => format!("Play {name}"),
                 DecisionKind::Gain { .. } => format!("Gain {name}"),
                 DecisionKind::Select { act, .. } => match act {

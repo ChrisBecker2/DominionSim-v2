@@ -1689,17 +1689,112 @@ fn events_are_offered_with_the_cards_they_cost_a_buy_and_are_never_gained() {
 
 #[test]
 fn buying_an_event_uses_a_buy_and_stops_the_treasures() {
-    let mut g = new_state(&[id::SMITHY, id::ALMS], 2);
+    let mut g = new_state(&[id::SMITHY, id::TRAINING], 2);
     set_hand(&mut g, 0, &[id::GOLD, id::GOLD]);
     set_deck_known(&mut g, 0, &junk());
     g.turn.phase = Phase::Buy;
     g.turn.buys = 2;
-    // The Golds are played when the Buy phase starts (choice-free); buy Alms, which uses one of the two Buys.
+    // The Golds are played when the Buy phase starts (choice-free); buy Training, which uses one of the two Buys.
     adv(&mut g);
     assert_eq!(g.turn.coins, 6);
-    buy(&mut g, id::ALMS);
+    buy(&mut g, id::TRAINING);
     assert_eq!(g.turn.buys, 1);
     assert!(g.turn.treasures_done);
+}
+
+// --- Alms before the Treasures --------------------------------------------------------------------------------
+
+/// The Buy phase of player 0 holding `hand`, with Alms (and `events`) in the game, two Buys, stopped at the first decision.
+fn alms_hand(hand: &[CardId], events: &[CardId]) -> GameState {
+    let mut kingdom = vec![id::SMITHY, id::VILLAGE, id::MILITIA, id::PORT, id::WORKSHOP, id::ALMS];
+    kingdom.extend_from_slice(events);
+    let mut g = new_state(&kingdom, 2);
+    set_hand(&mut g, 0, hand);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    g.turn.buys = 2;
+    adv(&mut g);
+    g
+}
+
+#[test]
+fn with_alms_in_the_game_the_buy_phase_starts_by_offering_it_before_the_treasures() {
+    let g = alms_hand(&[id::SILVER, id::COPPER, id::COPPER], &[]);
+    let d = g.pending_decision().unwrap();
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    assert_eq!(g.turn.coins, 0, "nothing is played yet");
+    assert_eq!(choices(&g), vec![Choice::Card(id::ALMS), Choice::Pass]);
+}
+
+#[test]
+fn alms_bought_before_the_treasures_gains_a_card_up_to_four_and_the_treasures_are_then_played() {
+    let mut g = alms_hand(&[id::SILVER, id::COPPER, id::COPPER], &[]);
+    choose(&mut g, Choice::Card(id::ALMS));
+    assert_eq!(g.turn.buys, 1, "Alms used a Buy");
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, .. }), "{d:?}");
+    pick(&mut g, id::SMITHY);
+    assert_eq!(g.players[0].discard.get(id::SMITHY), 1, "the gained card");
+    // The Treasures are played now (choice-free, all at once) and the Buy decision follows.
+    assert_eq!(g.turn.coins, 4);
+    assert_eq!(g.players[0].in_play.total(), 3);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
+    assert!(!choices(&g).contains(&Choice::Card(id::ALMS)), "once a turn");
+    // And a card can still be bought with the money.
+    buy(&mut g, id::SILVER);
+    assert_eq!(g.players[0].all_cards().get(id::SILVER), 2, "the one played and the one bought");
+}
+
+#[test]
+fn passing_on_alms_plays_the_treasures_and_alms_is_then_useless() {
+    let mut g = alms_hand(&[id::SILVER, id::COPPER], &[]);
+    choose(&mut g, Choice::Pass);
+    assert_eq!(g.turn.coins, 3);
+    assert!(g.turn.treasures_done);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
+    // Still a legal buy, but with Treasures in play it gains nothing.
+    buy(&mut g, id::ALMS);
+    assert!(!matches!(pending_kind(&g), Some(DecisionKind::Gain { .. })));
+    assert_eq!(g.players[0].discard.total(), 0);
+}
+
+#[test]
+fn alms_is_offered_next_to_the_treasures_when_their_order_matters_and_stops_once_one_is_played() {
+    // A Treasure with a choice (Anvil) already makes every Treasure a separate decision; Alms joins them.
+    let mut g = new_state(&[id::SMITHY, id::ALMS, id::ANVIL], 2);
+    set_hand(&mut g, 0, &[id::ANVIL, id::COPPER, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    adv(&mut g);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::ALMS)) && cs.contains(&Choice::Card(id::COPPER)) && cs.contains(&Choice::Card(id::ANVIL)), "{cs:?}");
+    choose(&mut g, Choice::Card(id::COPPER));
+    assert!(!choices(&g).contains(&Choice::Card(id::ALMS)), "a Treasure is in play");
+}
+
+#[test]
+fn games_without_alms_or_without_treasures_in_hand_are_unchanged() {
+    // No Alms in the game: the Treasures are played at once and the first decision is the Buy.
+    let mut g = new_state(&[id::SMITHY, id::TRAINING], 2);
+    set_hand(&mut g, 0, &[id::SILVER, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    adv(&mut g);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 3);
+    // Alms in the game but no Treasure in the hand: straight to the Buy decision, where Alms is offered as before.
+    let g = alms_hand(&[id::ESTATE, id::ESTATE], &[]);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
+    assert!(choices(&g).contains(&Choice::Card(id::ALMS)));
+    // Alms already bought this turn: the Treasures are played as usual.
+    let mut g = new_state(&[id::SMITHY, id::ALMS], 2);
+    set_hand(&mut g, 0, &[id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    g.turn.adv.bought |= 1 << (id::ALMS - cards::FIRST_EVENT);
+    adv(&mut g);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 2);
 }
 
 #[test]

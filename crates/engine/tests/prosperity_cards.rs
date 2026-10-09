@@ -1298,7 +1298,7 @@ fn war_chest_left_player_names_then_owner_gains_up_to_five() {
     assert!(choices(&g).contains(&Choice::Card(id::DUCHY))); // $5, not named
     choose(&mut g, Choice::Card(id::DUCHY));
     assert!(g.players[0].discard.has(id::DUCHY));
-    assert_eq!(g.turn.named_for_war_chest, counts_of(&[id::GOLD]));
+    assert_eq!(g.turn.named_for_war_chest.counts(), counts_of(&[id::GOLD]));
 }
 
 #[test]
@@ -1329,7 +1329,7 @@ fn war_chest_excludes_names_from_earlier_war_chests_this_turn() {
     assert!(!choices(&g).contains(&Choice::Card(id::SILVER)), "named by the 1st War Chest this turn");
     assert!(!choices(&g).contains(&Choice::Card(id::GOLD)), "named by the 2nd War Chest this turn");
     choose(&mut g, Choice::Card(id::DUCHY));
-    assert_eq!(g.turn.named_for_war_chest, counts_of(&[id::SILVER, id::GOLD]));
+    assert_eq!(g.turn.named_for_war_chest.counts(), counts_of(&[id::SILVER, id::GOLD]));
 }
 
 // ===========================================================================
@@ -1382,7 +1382,7 @@ fn treasures_done_and_named_for_war_chest_are_not_persisted_and_reset_on_load() 
     // for War Chest" from mid-turn. Documented behavior, not just an oversight: check it holds.
     let mut g = new_state(&[id::WAR_CHEST], 2);
     g.turn.treasures_done = true;
-    g.turn.named_for_war_chest = counts_of(&[id::GOLD]);
+    g.turn.named_for_war_chest.add(id::GOLD, 1);
     let text = format_state(&g);
     let back = parse_state(&text).unwrap();
     assert!(!back.turn.treasures_done);

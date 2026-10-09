@@ -572,6 +572,19 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
     }
 }
 
+/// Whether Alms is still worth buying before the Treasures are played: it is in the game and not yet bought this turn, a Buy is left, no Treasure
+/// is in play and the hand holds one that would be played (`GameState::alms_window`; the caller has tested that Alms is in the game).
+pub(crate) fn alms_window(g: &GameState) -> bool {
+    let bit = 1u32 << (ids::ALMS - FIRST_EVENT);
+    let p = g.turn.player;
+    g.events & bit != 0
+        && g.turn.adv.bought & bit == 0
+        && g.turn.buys > 0
+        && !g.turn.treasures_done
+        && g.treasures_in_play(p) == 0
+        && g.players[p as usize].hand.iter().any(|(c, _)| g.is_treasure(c))
+}
+
 /// What buying the Event `e` does, after its cost and Buy are paid.
 pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, sink: &mut S) {
     use Act::*;

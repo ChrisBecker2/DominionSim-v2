@@ -280,6 +280,11 @@ impl Evaluator for GainListEvaluator<'_> {
                 let view = PlayerView::new(state, me);
                 self.strategy.win_check_applies(&view) || self.strategy.allows_buy(&view, c)
             }
+            // An Event offered before the Treasures (Alms): only when the strategy's rules would buy it.
+            (DecisionKind::PlayTreasure, Choice::Card(e)) if dominion_engine::cards::is_event(e) => {
+                let view = PlayerView::new(state, me);
+                self.strategy.win_check_applies(&view) || self.strategy.allows_buy(&view, e)
+            }
             (DecisionKind::PlayTreasure, Choice::Card(c)) => !bank_too_early(state, me, c),
             _ => true,
         }

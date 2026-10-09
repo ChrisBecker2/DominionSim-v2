@@ -45,6 +45,7 @@ impl SetRules for Promo {
     }
 
     /// Only the top card of the split pile can be bought: an Avanto not while a Sauna is left.
+    const MAY_BUY_CARDS: &'static [CardId] = &[id::AVANTO];
     fn may_buy(g: &GameState, card: CardId) -> bool {
         card != id::AVANTO || g.supply.get(id::SAUNA) == 0
     }

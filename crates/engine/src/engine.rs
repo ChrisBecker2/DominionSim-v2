@@ -13,7 +13,7 @@
 //! The engine never calls out to players; it stops and returns whenever input is needed.
 //! Because `GameState` is `Copy`, any point can be snapshotted, forked, or searched.
 
-use crate::cards::{self, id, CardId, ACTION, NUM_CARDS};
+use crate::cards::{self, id, CardId, ACTION, NUM_ZONE_IDS};
 use crate::counts::Counts;
 use crate::state::{Act, Dest, DurationHeld, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
 pub use crate::effects::OVERPAY_CAP;
@@ -71,6 +71,8 @@ pub enum DecisionKind {
     /// Adventures: choose the Supply pile to move token `token` (`state::TOK_*`) to. Choices: `Choice::Card(pile)` (the Supply id of the pile; the
     /// Knights pile by its marker).
     Token { token: u8 },
+    /// Empires, Mountain Pass: bid Debt (`Choice::Bid(n)`, 0 = pass). Only bids above `min - 1` are legal: `min` is one more than the highest bid so far.
+    Bid { min: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -128,6 +130,14 @@ pub enum Choice {
     Overpay(u8),
     /// An overpay of this many coins and a Potion.
     OverpayPotion(u8),
+    /// Pay off Debt with $: as much as the $ allow (Empires). Offered at the Buy decision while the player has Debt and $, and in the Action phase
+    /// when a Change is in the hand (the only card that cares whether the Debt is paid before it is played).
+    PayDebt,
+    /// Pay off Debt but leave this many tokens (at least 1) on the player, as much as the $ allow: offered in a game with Change, where one
+    /// Debt kept makes Change give +$3 next turn instead of remodeling.
+    PayDebtKeep(u8),
+    /// A Mountain Pass bid of this many Debt (`DecisionKind::Bid`); 0 = no bid.
+    Bid(u8),
 }
 
 impl Choice {
@@ -246,6 +256,17 @@ pub enum Event {
     SpendCoffers { player: u8, n: u16 },
     /// `player` overpays `coins` (and a Potion) for `card`, which they have just bought.
     Overpay { player: u8, card: CardId, coins: u8, potion: bool },
+    /// `player` takes `n` Debt tokens (`source` is the card or Event that caused it).
+    TakeDebt { player: u8, source: CardId, n: u16 },
+    /// `player` pays off `n` Debt with $.
+    PayDebt { player: u8, n: u16 },
+    /// `player` takes `n` VP tokens from a pile, a Landmark or the supply of tokens (`source`: the card, Event or Landmark that gave them).
+    VpTokens { player: u8, source: CardId, n: u16 },
+    /// `n` VP tokens are put on the pile or Landmark `pile` (a Gathering card, Defiled Shrine, Aqueduct).
+    PileVp { pile: CardId, n: u8 },
+    /// `n` Debt tokens are put on the Supply pile `pile` (Tax).
+    PileDebt { pile: CardId, n: u8 },
+
     /// `card` goes back to its pile (a played Spoils or Madman, a Hermit exchanged for a Madman).
     Return { player: u8, card: CardId },
     /// `player` takes `card` out of the trash into their hand (Fortress, when it is trashed).
@@ -501,7 +522,7 @@ impl GameState {
                 let has_choice_treasure = if self.turn.treasures_done { false } else { self.play_choice_free_treasures(sink) };
                 if has_choice_treasure {
                     Run::Decide(DecisionKind::PlayTreasure, 0)
-                } else if self.turn.buys > 0 && !self.turn.treasury_offered {
+                } else if (self.turn.buys > 0 || self.debt_payment_open()) && !self.turn.treasury_offered {
                     // `!treasury_offered`: once the Buy phase has started ending (Treasury's
                     // offer already begun, win or lose — see `end_buy_phase`), stay committed to
                     // ending it even if buys remain unspent (a voluntary Pass while buys>0 is
@@ -556,11 +577,19 @@ impl GameState {
                         out.push(Choice::Card(c));
                     }
                 }
+                // Change plays differently with Debt: paying it off first (with $ from earlier plays) lets Change remodel.
+                if self.players[p].debt > 0 && self.turn.coins > 0 && self.players[p].hand.has(id::CHANGE) {
+                    out.push(Choice::PayDebt);
+                }
                 out.push(Choice::Pass);
             }
             DecisionKind::Buy => {
+                if self.players[p].debt > 0 {
+                    self.debt_buy_choices(p, out);
+                    return;
+                }
                 // A Mission turn buys no cards (Events still).
-                if !self.turn.adv.no_buy {
+                if !self.turn.adv.no_buy && self.turn.buys > 0 {
                     // No cost modifier in play (the usual case): the printed cost, without `cost`'s per-card checks.
                     let plain = self.turn.cost_reduction == 0
                         && !self.in_supply(id::QUARRY)
@@ -576,8 +605,8 @@ impl GameState {
                         }
                     }
                 }
-                // Events (Adventures): bought like cards, for their cost and a Buy.
-                if self.events != 0 {
+                // Events (Adventures, Empires): bought like cards, for their cost and a Buy.
+                if self.events != 0 && self.turn.buys > 0 {
                     for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
                         if crate::sets::adventures::event_buyable(self, e) {
                             out.push(Choice::Card(e));
@@ -601,10 +630,32 @@ impl GameState {
                 if self.alms_window() {
                     out.push(Choice::Card(id::ALMS));
                 }
+                // Fortune doubles the $ in hand: Coffers tokens are spent before it is played (the Debt is paid after).
+                if self.players[p].coffers > 0 && self.players[p].hand.has(id::FORTUNE) {
+                    out.push(Choice::Coffers);
+                }
                 out.push(Choice::Pass);
             }
             _ => unreachable!(),
         }
+    }
+
+    /// The Buy decision while the player has Debt: no card or Event can be bought until it is paid off ($ for tokens, at any time of the turn;
+    /// the Coffers token is spent here too).
+    #[cold]
+    #[inline(never)]
+    fn debt_buy_choices(&self, p: usize, out: &mut ChoiceBuf) {
+        if self.turn.coins > 0 {
+            out.push(Choice::PayDebt);
+            // With Change in the game, one token of Debt can be worth keeping: leave it unpaid.
+            if self.emp.flags & crate::state::E_KEEP_DEBT != 0 && self.players[p].debt > 1 {
+                out.push(Choice::PayDebtKeep(1));
+            }
+        }
+        if self.players[p].coffers > 0 {
+            out.push(Choice::Coffers);
+        }
+        out.push(Choice::Pass);
     }
 
     fn apply_unchecked<S: EventSink>(&mut self, kind: DecisionKind, choice: Choice, sink: &mut S) {
@@ -621,6 +672,8 @@ impl GameState {
         sink.depth(0);
         let p = self.turn.player;
         match (self.turn.phase, choice) {
+            (_, Choice::PayDebt) => self.pay_debt(p, sink),
+            (_, Choice::PayDebtKeep(n)) => self.pay_debt_keeping(p, n as u16, sink),
             (Phase::Action, Choice::Card(c)) => {
                 self.turn.actions -= 1;
                 let ps = &mut self.players[p as usize];
@@ -667,6 +720,10 @@ impl GameState {
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
                 sink.depth(1);
+                // A card with Debt in its cost: buying it takes the tokens (before it is gained, which runs its triggers).
+                if cards::debt_cost(c) > 0 {
+                    self.take_debt(p, c, cards::debt_cost(c) as u16, sink);
+                }
                 // Overpay (Cornucopia & Guilds): with something to spare, ask how much first.
                 if crate::sets::overpay_possible(self, c) {
                     self.stack.push(Frame { depth: 1, ..Frame::new(FrameKind::Overpay, p, c) });
@@ -688,6 +745,10 @@ impl GameState {
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
         sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
+        // Arena (Empires): at the start of each Buy phase an Action may be discarded for VP tokens.
+        if self.emp.landmarks != 0 {
+            self.start_of_buy_landmarks();
+        }
     }
 
     /// Start of (or return to) the Buy phase. Choice-free Treasures (Copper, Silver, Gold, ...;
@@ -721,7 +782,7 @@ impl GameState {
     /// Treasures) instead of playing them. Games without Alms pay one bit test.
     #[inline(always)]
     fn alms_window(&self) -> bool {
-        self.events & (1 << (id::ALMS - cards::FIRST_EVENT)) != 0 && crate::sets::adventures::alms_window(self)
+        self.events & (1u64 << (id::ALMS - cards::FIRST_EVENT)) != 0 && crate::sets::adventures::alms_window(self)
     }
 
     /// Play every choice-free Treasure in the current player's hand.
@@ -744,7 +805,10 @@ impl GameState {
         if !(e == id::ALMS && self.treasures_in_play(p) == 0) {
             self.turn.treasures_done = true;
         }
-        let bit = 1u32 << (e - cards::FIRST_EVENT);
+        if cards::debt_cost(e) > 0 {
+            self.take_debt(p, e, cards::debt_cost(e) as u16, sink);
+        }
+        let bit = 1u64 << (e - cards::FIRST_EVENT);
         self.turn.adv.bought |= bit;
         self.players[p as usize].events_bought |= bit;
         sink.depth(0);
@@ -759,13 +823,24 @@ impl GameState {
 
     /// Play `n` copies of the choice-free Treasure `c` from the current player's hand.
     pub(crate) fn play_free_treasure<S: EventSink>(&mut self, c: CardId, n: u8, sink: &mut S) {
+        self.play_free_treasure_from(c, n, true, sink);
+    }
+
+    /// `play_free_treasure`; with `fresh` false the card is already in play and is played again (Crown plays a Treasure twice).
+    pub(crate) fn play_free_treasure_from<S: EventSink>(&mut self, c: CardId, n: u8, fresh: bool, sink: &mut S) {
         let p = self.turn.player;
         let ps = &mut self.players[p as usize];
-        ps.hand.set(c, ps.hand.get(c) - n);
-        ps.in_play.add(c, n);
+        if fresh {
+            ps.hand.set(c, ps.hand.get(c) - n);
+            ps.in_play.add(c, n);
+        }
         self.turn.played.add(c, n);
         for _ in 0..n {
-            sink.event(Event::Play { player: p, card: c });
+            sink.event(if fresh { Event::Play { player: p, card: c } } else { Event::PlayAgain { player: p, card: c, source: id::CROWN, nth: 2 } });
+        }
+        // Plunder: a VP token each time it is played.
+        if c == id::PLUNDER {
+            self.gain_vp_tokens(p, c, n as u16, sink);
         }
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
         self.turn.buys += cards::def(c).buys * n;
@@ -817,9 +892,10 @@ impl GameState {
         // Spoils (+$3) goes back to the Spoils pile when it is played.
         if c == id::SPOILS {
             let ps = &mut self.players[p as usize];
-            ps.in_play.set(c, ps.in_play.get(c) - n);
-            self.spoils += n;
-            for _ in 0..n {
+            let back = n.min(ps.in_play.get(c));
+            ps.in_play.set(c, ps.in_play.get(c) - back);
+            self.spoils += back;
+            for _ in 0..back {
                 sink.event(Event::Return { player: p, card: c });
             }
         }
@@ -862,6 +938,10 @@ impl GameState {
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
         sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
+        // Empires: Capital's Debt when it is discarded from play, Baths, and the $ left over paying off Debt.
+        if self.in_supply(id::CAPITAL) || self.emp.landmarks != 0 || self.players[p].debt != 0 {
+            self.empires_cleanup(sink);
+        }
         // Smugglers' gain record: snapshot this turn's gains as "gained on their last turn" for
         // the player whose turn just ended (see `gain`; empty when Smugglers isn't in play, so
         // this is a cheap no-op copy for Base-only games).
@@ -1194,19 +1274,19 @@ impl GameState {
 pub(crate) fn canonical_picks(from: &Counts, min: CardId, need: u32, filter: impl Fn(CardId) -> bool, out: &mut ChoiceBuf) {
     // One more pick (or none) needed: any card that is there and passes the filter leaves enough.
     if need <= 1 {
-        for c in min as usize..NUM_CARDS {
+        for c in min as usize..NUM_ZONE_IDS {
             if from.0[c] > 0 && filter(c as CardId) {
                 out.push(Choice::Card(c as CardId));
             }
         }
         return;
     }
-    let mut at_or_above = [0u32; NUM_CARDS + 1];
-    for c in (0..NUM_CARDS).rev() {
+    let mut at_or_above = [0u32; NUM_ZONE_IDS + 1];
+    for c in (0..NUM_ZONE_IDS).rev() {
         let n = if from.0[c] > 0 && filter(c as CardId) { from.0[c] as u32 } else { 0 };
         at_or_above[c] = at_or_above[c + 1] + n;
     }
-    for c in min as usize..NUM_CARDS {
+    for c in min as usize..NUM_ZONE_IDS {
         if from.0[c] > 0 && filter(c as CardId) && at_or_above[c] >= need {
             out.push(Choice::Card(c as CardId));
         }

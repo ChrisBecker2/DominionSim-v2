@@ -33,9 +33,11 @@ pub mod alchemy;
 pub mod base;
 pub mod cornucopia_guilds;
 pub mod dark_ages;
+pub mod empires;
 pub mod intrigue;
 pub mod promo;
 pub mod prosperity;
+pub mod rising_sun;
 pub mod seaside;
 
 use adventures::Adventures;
@@ -43,9 +45,11 @@ use alchemy::Alchemy;
 use base::Base;
 use cornucopia_guilds::CornucopiaGuilds;
 use dark_ages::DarkAges;
+use empires::Empires;
 use intrigue::Intrigue;
 use promo::Promo;
 use prosperity::Prosperity;
+use rising_sun::RisingSun;
 use seaside::Seaside;
 
 /// What the set files import: the card-table helpers and the generic effect machinery.
@@ -104,6 +108,14 @@ macro_rules! with_set {
                 type $S = $crate::sets::adventures::Adventures;
                 $body
             }
+            $crate::cards::CardSet::Empires => {
+                type $S = $crate::sets::empires::Empires;
+                $body
+            }
+            $crate::cards::CardSet::RisingSun => {
+                type $S = $crate::sets::rising_sun::RisingSun;
+                $body
+            }
         }
     };
 }
@@ -121,6 +133,8 @@ pub(crate) trait SetRules {
     /// and `.hi` (ids from 128): when none is in the game, `GameState::gain` skips every trigger.
     const GAIN_LO: u128 = 0;
     const GAIN_HI: u128 = 0;
+    /// The same for ids from 256 (bits of `in_supply.top`).
+    const GAIN_TOP: u128 = 0;
     /// The cards of this set whose `may_buy` can say no (Grand Market, Avanto): every other card is buyable whenever it is affordable,
     /// and the Buy choices skip the call for it.
     const MAY_BUY_CARDS: &'static [CardId] = &[];
@@ -235,10 +249,10 @@ pub(crate) trait SetRules {
 /// Number of cards of every set (ids are dense: `0..NUM_CARDS`).
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
-        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len();
+        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 9] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 11] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -248,6 +262,8 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::CornucopiaGuilds, CornucopiaGuilds::CARDS),
         (CardSet::DarkAges, DarkAges::CARDS),
         (CardSet::Adventures, Adventures::CARDS),
+        (CardSet::Empires, Empires::CARDS),
+        (CardSet::RisingSun, RisingSun::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -305,11 +321,13 @@ macro_rules! concat_sets {
             + Promo::$name.len()
             + CornucopiaGuilds::$name.len()
             + DarkAges::$name.len()
-            + Adventures::$name.len();
+            + Adventures::$name.len()
+            + Empires::$name.len()
+            + RisingSun::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
-                DarkAges::$name, Adventures::$name,
+                DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name,
             ],
             $zero,
         );
@@ -331,7 +349,8 @@ pub static IMMUNE_IN_PLAY: &[CardId] = concat_sets!(CardId, 0, IMMUNE_IN_PLAY);
 pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO | Prosperity::GAIN_LO | Alchemy::GAIN_LO | Promo::GAIN_LO
     | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
-    | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI;
+    | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI | Empires::GAIN_HI | RisingSun::GAIN_HI;
+pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -387,9 +406,15 @@ static MAY_BUY_RESTRICTED: [bool; NUM_CARDS] = {
     t
 };
 
-#[inline]
+#[inline(always)]
 pub(crate) fn may_buy(g: &GameState, card: CardId) -> bool {
-    !MAY_BUY_RESTRICTED[card as usize] || with_set!(set_of(card), S => S::may_buy(g, card))
+    !MAY_BUY_RESTRICTED[card as usize] || may_buy_restricted(g, card)
+}
+
+/// The cards with a `may_buy` restriction (rare in a Buy decision): out of line, so that the table test above is all the usual card costs.
+#[inline(never)]
+fn may_buy_restricted(g: &GameState, card: CardId) -> bool {
+    with_set!(set_of(card), S => S::may_buy(g, card))
 }
 
 pub(crate) fn pile_size(card: CardId, num_players: usize) -> Option<u8> {
@@ -445,7 +470,11 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
-    g.in_supply.any(GAIN_LO, GAIN_HI) || CornucopiaGuilds::gain_live_extra(g) || DarkAges::gain_live_extra(g) || Adventures::gain_live_extra(g)
+    g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP)
+        || CornucopiaGuilds::gain_live_extra(g)
+        || DarkAges::gain_live_extra(g)
+        || Adventures::gain_live_extra(g)
+        || Empires::gain_live_extra(g)
 }
 
 /// Every "when you gain" trigger for `p` gaining `c` (moved to `to`). The order is the order the
@@ -453,6 +482,9 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
 /// none of its cards is in the game.
 #[inline]
 pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
+    if g.in_supply.hi & Empires::GAIN_HI != 0 || g.in_supply.top & Empires::GAIN_TOP != 0 || Empires::gain_live_extra(g) {
+        Empires::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     if g.in_supply.hi & Adventures::GAIN_HI != 0 || Adventures::gain_live_extra(g) {
         Adventures::gain_triggers(g, p, c, to, on_buy, sink);
     }

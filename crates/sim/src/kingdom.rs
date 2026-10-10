@@ -52,7 +52,7 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
             return Err(format!("{name:?} is a Reward (gained by Joust), not a kingdom card"));
         }
         // A Knight stands for the Knights pile (one kingdom card); Ruins, Shelters, Spoils, Madman and Mercenary come with the cards that give them.
-        let c = if c >= cards::id::DAME_ANNA && c < cards::NUM_CARDS as CardId && !cards::is_event(c) { cards::id::KNIGHTS } else { c };
+        let c = if c >= cards::id::DAME_ANNA && c < cards::NUM_ZONE_IDS as CardId { cards::id::KNIGHTS } else { c };
         // Avanto is the bottom half of the Sauna/Avanto split pile (one kingdom card).
         let c = if c == cards::id::AVANTO { cards::id::SAUNA } else { c };
         if !cards::is_kingdom(c) && !cards::is_optional_basic(c) && !cards::is_event(c) {
@@ -63,7 +63,7 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         }
         out.push(c);
     }
-    // Events (Adventures) ride along in the list but are not kingdom cards: ten kingdom cards, plus up to any number of Events.
+    // Events and Landmarks (Adventures, Empires) ride along in the list but are not kingdom cards: ten kingdom cards, plus any Events and Landmarks.
     let n_kingdom = out.iter().filter(|&&c| cards::is_kingdom(c)).count();
     if n_kingdom != 10 {
         return Err(format!(
@@ -91,13 +91,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\" and/or \"adventures\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\" and/or \"rising sun\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\" and/or \"adventures\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\" and/or \"rising sun\")".into());
     }
     Ok(out)
 }

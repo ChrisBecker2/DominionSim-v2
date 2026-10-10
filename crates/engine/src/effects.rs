@@ -150,6 +150,12 @@ impl GameState {
     fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
         let p = player;
         let def = cards::def(card);
+        // Enchantress: the first Action the turn's player plays on their turn gives +1 Card +1 Action instead of what it says.
+        if self.emp.flags & crate::state::E_ENCHANT != 0 && p == self.turn.player && cards::is(card, ACTION) {
+            if self.enchanted_play(card, p, sink) {
+                return;
+            }
+        }
         // What this turn's player has played (Conspirator counts Actions, Quarry and Hoard their own
         // plays): not what another player plays from their hand on this turn (Pirate).
         // The bonuses are the turn's: a card another player plays on this turn (Pirate, Caravan Guard) gives them nothing.
@@ -301,7 +307,7 @@ impl GameState {
     /// here. The selection helpers are generic over the test so every other filter keeps its
     /// plain `Filter::matches` loop.
     fn action_cost_ok(&self, n: u8, c: CardId) -> bool {
-        cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.cost(c) <= n && !cards::potion_cost(c)
+        cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.cost(c) <= n && !cards::potion_cost(c) && cards::debt_cost(c) == 0
     }
 
     fn zone(&self, p: u8, z: Zone) -> ZoneRef<'_> {
@@ -324,6 +330,7 @@ impl GameState {
                         return ZoneRef::Top(top);
                     }
                     Zone::Tavern => return ZoneRef::Top(ps.tavern.counts()),
+                    Zone::Archive => return ZoneRef::Top(ps.archive.counts()),
                     Zone::Supply | Zone::Trash => unreachable!(),
                 })
             }
@@ -343,6 +350,9 @@ impl GameState {
         if z == Zone::Tavern {
             return self.players[p as usize].tavern.remove(c);
         }
+        if z == Zone::Archive {
+            return self.players[p as usize].archive.remove(c);
+        }
         self.zone_mut(p, z).remove(c)
     }
 
@@ -357,7 +367,7 @@ impl GameState {
                     Zone::Discard => &mut ps.discard,
                     Zone::Revealed => &mut ps.set_aside,
                     Zone::InPlay => &mut ps.in_play,
-                    Zone::DeckTop | Zone::Tavern | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
+                    Zone::DeckTop | Zone::Tavern | Zone::Archive | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
                 }
             }
         }
@@ -372,7 +382,8 @@ impl GameState {
     /// Action cards for a pick of an Action card.
     #[inline(always)]
     fn select_ok(&self, f: &Frame, c: CardId) -> bool {
-        self.filter_ok(f.player, f.filter, c)
+        // From the Supply only the top card of a pile can be taken (not a split pile's bottom half, nor a Castle behind a cheaper one).
+        (f.zone != Zone::Supply || self.pile_open(c)) && self.filter_ok(f.player, f.filter, c)
             || (c == id::ESTATE && f.zone == Zone::Hand && f.filter == Filter::Action && self.estates_are_actions(f.player))
     }
 
@@ -396,9 +407,10 @@ impl GameState {
             Filter::TreasureNonDuration => self.is_treasure(c) && !cards::is(c, cards::DURATION),
             // Costs are the current costs (Bridge and Quarry count).
             Filter::CostAtLeast(n) => self.cost(c) >= n,
-            Filter::CostRange(lo, hi) => !cards::potion_cost(c) && (lo..=hi).contains(&self.cost(c)),
+            Filter::CostRange(lo, hi) => !cards::potion_cost(c) && cards::debt_cost(c) == 0 && (lo..=hi).contains(&self.cost(c)),
             Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0,
             Filter::InheritCard => self.action_cost_ok(4, c) && !cards::is(c, cards::COMMAND),
+            Filter::CommandCostUpTo(n) => self.action_cost_ok(n, c) && !cards::is(c, cards::COMMAND),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
             filter => filter.matches(c),
@@ -532,7 +544,7 @@ impl GameState {
             }
             K::Gain => {
                 // Young Witch: a player who reveals a Bane from their hand is not given the Curse.
-                if f.bane_blocks && self.bane != 0 && self.players[pi].hand.has(self.bane) {
+                if f.gf & crate::state::GF_BANE_BLOCKS != 0 && self.bane != 0 && self.players[pi].hand.has(self.bane) {
                     sink.event(Event::Reaction { player: p, card: self.bane });
                     self.stack.pop();
                     return Run::Continue;
@@ -695,6 +707,8 @@ impl GameState {
             }
             K::StartOrder => self.run_start_order(sink),
             K::TopCard if matches!(f.then, Then::GiantReveal | Then::WarriorHit) => self.run_adv_top_card(f, sink),
+            K::TopCard if f.then == Then::ChariotRace => self.run_chariot(f, sink),
+            K::Bid => self.run_bid(f, sink),
             K::TopCard => self.run_jester_top_card(f, sink),
             K::AfterPlay => self.run_after_play(f),
             K::Token => self.run_token(f),
@@ -739,7 +753,7 @@ impl GameState {
 
     pub(crate) fn frame_choices(&self, f: Frame, out: &mut ChoiceBuf) {
         match f.kind {
-            K::Gain if f.from_side => {
+            K::Gain if f.gf & crate::state::GF_FROM_SIDE != 0 => {
                 // The Rewards (outside the Supply): any one that is left.
                 for i in 0..cards::NUM_REWARDS {
                     if self.rewards[i] > 0 {
@@ -752,20 +766,25 @@ impl GameState {
                     // Potion: "up to $X" admits Potion-cost cards only when the reference cost has a
                     // Potion; "exactly" needs the Potion to match; "less than" is no part larger and not equal.
                     let pc = cards::potion_cost(c);
+                    let dc = cards::debt_cost(c);
                     let cost = self.cost(c);
-                    let cost_ok = if f.exact {
-                        cost == f.max && pc == f.potion
+                    // A card with Debt in its cost is never "up to" or "less than" an amount of $; an exact gain needs the same Debt (`min`, 0 for
+                    // an ordinary gain); Change (`more`) only compares the $.
+                    let cost_ok = if f.more {
+                        cost > f.max
+                    } else if f.exact {
+                        cost == f.max && pc == f.potion && dc == f.min
                     } else if f.less {
-                        cost <= f.max && (f.potion || !pc) && !(cost == f.max && pc == f.potion)
+                        cost <= f.max && (f.potion || !pc) && dc == 0 && !(cost == f.max && pc == f.potion)
                     } else {
-                        cost <= f.max && (f.potion || !pc)
+                        cost <= f.max && (f.potion || !pc) && dc == 0
                     };
                     let named_ok = !f.excl_named || !self.turn.named_for_war_chest.has(c);
                     // Smugglers: further restricted to cards the player to `f.player`'s right
                     // gained on their last turn.
                     let record_ok = !f.gain_from_record || self.players[self.right_of(f.player) as usize].last_turn_gains.has(c);
-                    // Only the top card of the split pile Sauna/Avanto can be gained: an Avanto not while a Sauna is left.
-                    let top_ok = c != id::AVANTO || self.supply.get(id::SAUNA) == 0;
+                    // Only the top card of a split pile or of the Castles can be gained.
+                    let top_ok = self.pile_open(c);
                     if self.supply.get(c) > 0 && top_ok && cost_ok && named_ok && record_ok && self.filter_ok(f.player, f.filter, c) {
                         out.push(Choice::Card(c));
                     }
@@ -824,6 +843,7 @@ impl GameState {
                     out.push(Choice::Card(c));
                 }
             }
+            K::Bid => self.bid_choices(out),
             K::DeckPosition => self.deck_position_choices(f, out),
             K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::AttackBody | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
@@ -866,7 +886,7 @@ impl GameState {
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
-                let gained = if f.from_side {
+                let gained = if f.gf & crate::state::GF_FROM_SIDE != 0 {
                     self.gain_side(p, c, dest, f.source, sink)
                 } else {
                     self.gain(p, c, dest, false, f.source, sink)
@@ -910,6 +930,9 @@ impl GameState {
                                 self.flush_trash_triggers(f.depth, sink);
                             }
                         }
+                        Then::ChangeDebt | Then::DominateVp | Then::TriumphVp | Then::RitualTrash | Then::TakePileVp => {
+                            self.empires_gained(&f, c, sink)
+                        }
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -947,13 +970,18 @@ impl GameState {
                 // as played until its `PlayEffects` frame runs.
                 // Storyteller's Treasure is played from the hand by its own path.
                 let storyteller = f.then == Then::StorytellerPlay;
-                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply) || storyteller;
+                // Crown in the Buy phase: a choice-free Treasure is played from the hand by the usual path, twice.
+                let crown = f.then == Then::CrownTreasure && cards::is_choice_free(c);
+                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply) || storyteller || crown;
                 if !in_place {
                     let removed = self.zone_take(p, f.zone, c);
                     debug_assert!(removed);
                 }
                 if storyteller {
                     self.storyteller_play(&f, c, sink);
+                } else if crown {
+                    self.play_free_treasure(c, 1, sink);
+                    self.play_free_treasure_from(c, 1, false, sink);
                 } else if f.act == Act::Trash && f.zone == Zone::Supply {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
@@ -978,6 +1006,7 @@ impl GameState {
             }
             (K::Select, _) => self.finish_select(f, sink),
             (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
+            (K::Bid, Choice::Bid(n)) => self.apply_bid(f, n),
             (K::Token, Choice::Card(pile)) => {
                 self.stack.pop();
                 self.place_token(p, f.subject as usize, pile, sink);
@@ -1026,6 +1055,7 @@ impl GameState {
                         self.gain_side(p, id::MERCENARY, Dest::Discard, f.subject, sink);
                     }
                     Then::Called => self.call_effect(&f, sink),
+                    Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
                     Then::RazeSelf => {
                         let n = self.cost(id::RAZE).min(u8::MAX as u8);
@@ -1127,6 +1157,10 @@ impl GameState {
                 sink.event(Event::Call { player: p, card: c });
             }
             Act::Exchange => self.exchange_traveller(p, c, sink),
+            Act::ToHand => {
+                ps.hand.add(c, 1);
+                sink.event(Event::Draw { player: p, card: c });
+            }
         }
     }
 
@@ -1167,6 +1201,12 @@ impl GameState {
             Then::PlayPicked { times } => {
                 if f.count > 0 {
                     self.push_plays(&f, times);
+                }
+            }
+            // Crown's Treasure: a choice-free one was played twice as it was picked; any other is played twice like an Action.
+            Then::CrownTreasure => {
+                if f.count > 0 && !cards::is_choice_free(f.last) {
+                    self.push_plays(&f, 2);
                 }
             }
             Then::DiscardRevealed => {
@@ -1432,6 +1472,17 @@ impl GameState {
             }
             Then::PlayTwiceCopy => self.push_play_twice_copy(&f),
             Then::Inherit => self.finish_inherit(&f),
+            Then::ChangeGain
+            | Then::EncampmentReveal
+            | Then::CatapultHit
+            | Then::GladiatorReveal
+            | Then::LegionaryHit
+            | Then::SacrificeBonus
+            | Then::AddPileVp
+            | Then::AnnexShuffle
+            | Then::ConquestVp
+            | Then::ArenaVp
+            | Then::DonateShuffle => self.empires_finish_select(&f, sink),
             // Not produced by a Select's `then`; only meaningful on YesNo/RevealTop/Gain frames.
             Then::BlockAttack
             | Then::MarketSquareGold
@@ -1465,7 +1516,19 @@ impl GameState {
             | Then::MoveMatchingToDiscard(_)
             | Then::ReactDrawDiscard { .. }
             | Then::SeaChartCheck
-            | Then::DiscardRevealedNotMatching => {}
+            | Then::DiscardRevealedNotMatching
+            | Then::ChangeDebt
+            | Then::EngineerGain
+            | Then::PatricianCheck
+            | Then::GladiatorMatch
+            | Then::DominateVp
+            | Then::TriumphVp
+            | Then::RitualTrash
+            | Then::TakePileVp
+            | Then::ArchiveSet
+            | Then::ChariotRace
+            | Then::SmallCastle
+            | Then::MountainPass => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
         self.flush_trash_triggers(f.depth, sink);
@@ -1520,8 +1583,14 @@ impl GameState {
                     p, f.source, Zone::Hand, Act::Discard, filter, n, n,
                     Then::GainCardIfCount { count: n, card: gain, dest: Dest::Discard },
                 )),
+                ModeOpt::CardsGather(n, _) => self.stack.push(draw_frame(p, f.source, n)),
+                ModeOpt::GainTakeVp(c) => {
+                    self.stack.push(Frame { then: Then::TakePileVp, ..gain_frame(p, f.source, u8::MAX, Filter::Card(c), Dest::Discard) })
+                }
                 ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
+                | ModeOpt::BuysCoins(..)
+                | ModeOpt::NextGainDouble
                 | ModeOpt::TrashHand
                 | ModeOpt::TakeRevealed
                 | ModeOpt::Actions(_)
@@ -1593,6 +1662,18 @@ impl GameState {
                 ModeOpt::DiscardHandDraw { draw, attack_min_hand } => self.mode_discard_hand_draw(&f, draw, attack_min_hand, sink),
                 ModeOpt::TrashSelfRevealVpPerTreasureType => self.mode_trash_self_for_vp(&f, sink),
                 ModeOpt::NativeVillageTake => self.mode_native_village_take(&f, sink),
+                ModeOpt::CardsGather(_, v) => {
+                    self.emp.piles.add_vp(cards::pile_of(f.source), v);
+                    sink.event(Event::PileVp { pile: f.source, n: v });
+                }
+                ModeOpt::BuysCoins(b, k) => {
+                    self.turn.buys += b;
+                    self.turn.coins += k as u16;
+                    b_buys += b;
+                    b_coins += k as u16;
+                }
+                ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
+                ModeOpt::GainTakeVp(_) => {}
                 ModeOpt::Cards(_)
                 | ModeOpt::GainMany(..)
                 | ModeOpt::TopdeckFromHand(_)
@@ -1659,6 +1740,9 @@ impl GameState {
         if let Then::YesCoinsElseGainSubject(_) = f.then {
             self.gain(f.player, f.subject, Dest::Discard, false, f.source, sink);
         }
+        if matches!(f.then, Then::GladiatorMatch | Then::SmallCastle) {
+            self.empires_decline(&f, sink);
+        }
         self.decline_adv(&f);
     }
 
@@ -1712,8 +1796,11 @@ impl GameState {
     pub(crate) fn push_turn_start_frames<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player;
         let pi = p as usize;
-        // Corsair and Blockade end now ("until your next turn").
+        // Corsair and Blockade end now ("until your next turn"), and so do Enchantress's marks on the other players.
         self.players[pi].shielded = 0;
+        if self.emp.flags & crate::state::E_ENCHANT != 0 {
+            self.clear_enchantments(p);
+        }
         let len = self.players[pi].pending_durations_len as usize;
         if len > 0 {
             let ps = &mut self.players[pi];
@@ -1727,7 +1814,10 @@ impl GameState {
         if !self.turn.start_pending.is_empty() {
             self.stack.push(Frame::new(K::StartOrder, p, 0));
         }
-        let _ = sink;
+        // Donate comes before anything else at the start of the turn.
+        if self.players[pi].emp & crate::state::P_DONATE != 0 {
+            self.start_donate(p, sink);
+        }
     }
 
     /// The card a pending start-of-turn effect is offered under in `DecisionKind::StartOrder`: its
@@ -1848,6 +1938,7 @@ impl GameState {
             Then::OneOfEachToHand => self.finish_carnival(&f, sink),
             Then::IronmongerReveal => self.finish_ironmonger(&f, sink),
             Then::KeepMatchingDiscardRest => self.finish_keep_matching(&f, sink),
+            Then::PatricianCheck | Then::ArchiveSet => self.empires_reveal_done(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

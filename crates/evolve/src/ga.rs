@@ -46,8 +46,9 @@ fn add_colonies(k: &mut Vec<CardId>) {
     k.sort_unstable();
 }
 
-fn all_events() -> impl Iterator<Item = CardId> {
-    cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId
+/// The Events and Landmarks of the sets in play.
+fn all_events(sets: &[CardSet]) -> Vec<CardId> {
+    sets.iter().flat_map(|&s| cards::pseudo_cards_of(s)).collect()
 }
 
 /// Resolve `cfg.sets` ("Base" / "Intrigue") into the [`CardSet`]s in play. Empty is a config
@@ -58,7 +59,7 @@ fn resolve_sets(names: &[String]) -> Result<Vec<CardSet>, String> {
     }
     let mut out = Vec::new();
     for n in names {
-        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\", \"Prosperity\", \"Alchemy\", \"Promo\", \"Cornucopia & Guilds\", \"Dark Ages\" or \"Adventures\")"))?;
+        let set = cards::set_by_name(n).ok_or_else(|| format!("unknown card set {n:?} in sets (expected \"Base\", \"Intrigue\", \"Seaside\", \"Prosperity\", \"Alchemy\", \"Promo\", \"Cornucopia & Guilds\", \"Dark Ages\", \"Adventures\", \"Empires\" or \"Rising Sun\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
@@ -107,8 +108,8 @@ impl Setup {
             Track::Fixed { kingdom } => {
                 let mut k: Vec<CardId> = if kingdom.is_empty() { selected().collect() } else { card_list(kingdom, "kingdom")? };
                 // The default (all cards) kingdom of Adventures brings its Events too, so rules for them can be tried.
-                if kingdom.is_empty() && sets.contains(&CardSet::Adventures) {
-                    k.extend(all_events());
+                if kingdom.is_empty() {
+                    k.extend(all_events(&sets));
                 }
                 for &c in &opp_cards {
                     if !k.contains(&c) {
@@ -148,9 +149,7 @@ impl Setup {
                 // then follow the official Colony rule; see `scenarios()`).
                 let mut space_pool: Vec<CardId> = selected().collect();
                 // Drawn kingdoms of Adventures get 0 to 2 Events (`cards::add_random_events`): any of the 20 may be in the space.
-                if sets.contains(&CardSet::Adventures) {
-                    space_pool.extend(all_events());
-                }
+                space_pool.extend(all_events(&sets));
                 if space_pool.iter().any(|&c| cards::set_of(c) == CardSet::Prosperity) {
                     add_colonies(&mut space_pool);
                 }
@@ -201,9 +200,7 @@ impl Setup {
                         add_colonies(&mut k);
                     }
                     cards::add_potion_if_needed(&mut k);
-                    if sets.contains(&CardSet::Adventures) {
-                        cards::add_random_events(&mut k, sets, rng);
-                    }
+                    cards::add_random_events(&mut k, sets, rng);
                     Scenario { kingdom: k }
                 })
                 .collect(),

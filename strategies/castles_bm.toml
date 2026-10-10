@@ -1,0 +1,28 @@
+# Castles + Big Money (Empires). The Castles pile is one pile of eight different Victory cards, cheapest first;
+# each is worth VP and most have an ability. Once Big Money has Gold-level money ($12 in treasures) and the
+# Provinces are being bought, the top Castle goes in right behind the Province. The Castles are worth
+# from 1 VP (Humble Castle) to 2 per Castle owned (King's Castle), and the pile ends the game when it empties.
+
+name = "Castles-BM"
+description = "Big Money that buys Castles behind Provinces once its deck is rich."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Castles"
+if = "provinces_left <= 6 and money >= 12"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

@@ -123,6 +123,12 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
             }
             pick(rng, &space.reserves)
         }
+        List::Debt => {
+            if !space.debt_rules {
+                return None;
+            }
+            0
+        }
     };
     let mut r = Rule::new(card);
     if list == List::Mode {
@@ -130,6 +136,12 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
     }
     if list == List::Token {
         r.opt = pick(rng, &space.token_kinds);
+    }
+    if list == List::Debt {
+        r.opt = rng.below(crate::genome::DEBT_PAY.len() as u32) as u8;
+        let atom = if rng.chance(0.5) { Atom { var: Var::Debt, op: Op::Ge, n: 1 + rng.below(4) as i16 } } else { random_atom(space, rng, 0) };
+        r.conds.push(atom);
+        return Some(r);
     }
     let p_cond = if list == List::Gain && card >= cards::FIRST_KINGDOM { 0.8 } else if list == List::Mode { 0.6 } else { 0.3 };
     if rng.chance(p_cond) {
@@ -156,6 +168,9 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
             }
             if !space.reserves.is_empty() {
                 extras.push(List::Call);
+            }
+            if space.debt_rules {
+                extras.push(List::Debt);
             }
             match extras.len() {
                 0 => List::Gain,
@@ -290,6 +305,7 @@ pub fn crossover(a: &Genome, b: &Genome, space: &SearchSpace, rng: &mut Rng) -> 
         mode: if rng.chance(0.5) { a.mode.clone() } else { b.mode.clone() },
         token: if rng.chance(0.5) { a.token.clone() } else { b.token.clone() },
         call: if rng.chance(0.5) { a.call.clone() } else { b.call.clone() },
+        debt: if rng.chance(0.5) { a.debt.clone() } else { b.debt.clone() },
         keep_treasure: if rng.chance(0.5) { a.keep_treasure } else { b.keep_treasure },
     };
     // Keep play rules for any action the child now gains but neither list mentions.

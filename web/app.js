@@ -366,6 +366,8 @@
     // Cornucopia & Guilds: the turn player's Coffers (spend them with the Buy phase's button).
     const cur = view.players[t.player];
     if (cur && cur.coffers) add("Coffers", String(cur.coffers));
+    // Empires: the turn player's Debt (nothing can be bought until it is paid).
+    if (cur && cur.debt) add("Debt", String(cur.debt));
     if (view.gameOver) {
       const g = el("span", "gameover");
       const names = view.winners.map((p) => "P" + (p + 1)).join(", ");
@@ -484,6 +486,9 @@
       if (p.princeCards.length) panel.appendChild(zoneRow("Set aside by Prince", p.princeCards));
       // Cornucopia & Guilds: Coffers tokens, cards a Farmhands set aside, a Province Joust set aside.
       if (p.coffers) panel.appendChild(el("div", "zone coffers", `Coffers: ${p.coffers}`));
+      // Empires: Debt tokens, and the cards set aside under Archives.
+      if (p.debt) panel.appendChild(el("div", "zone debt", `Debt: ${p.debt}`));
+      if (p.archive && p.archive.length) panel.appendChild(zoneRow("Archive", p.archive));
       // Adventures: the Tavern mat, the tokens, the Estate token and the Events bought.
       if (p.tavern && p.tavern.length) panel.appendChild(zoneRow("Tavern mat", p.tavern));
       if (p.tokens && p.tokens.length) panel.appendChild(el("div", "zone", "Tokens: " + p.tokens.map((t) => `${t.token} on ${t.pile}`).join(", ")));
@@ -522,6 +527,10 @@
       if (c.side) tdName.appendChild(el("span", "cost", " (not in the Supply)"));
       // Adventures tokens on the pile, by owner.
       if (c.tokens) tdName.appendChild(el("span", "cost", " [" + c.tokens.join(", ") + "]"));
+      // Empires: the halves of a split pile, and the VP and Debt tokens on a pile.
+      if (c.half) tdName.appendChild(el("span", "cost", c.half === "top" ? " (split pile, top half)" : " (split pile, bottom half)"));
+      if (c.vp) tdName.appendChild(el("span", "cost", ` [${c.vp} VP]`));
+      if (c.debtTokens) tdName.appendChild(el("span", "cost", ` [${c.debtTokens} Debt]`));
       const tdCount = document.createElement("td");
       tdCount.textContent = c.count;
       if (c.count === 0) tdCount.className = "count-0";
@@ -540,12 +549,26 @@
     for (const ev of view.events || []) {
       const row = el("div", "event-row");
       row.appendChild(cardChip(ev.name));
-      row.appendChild(el("span", "cost", " $" + ev.cost + " "));
+      row.appendChild(el("span", "cost", " " + (ev.costLabel || "$" + ev.cost) + " "));
       const b = el("button", null, "Buy");
       const choice = view.pending ? view.pending.choices.find((c) => c.label === ev.name) : null;
       b.disabled = !choice;
       if (choice) b.addEventListener("click", () => doAction(() => api.choose(choice.index), "Buy " + ev.name));
       row.appendChild(b);
+      list.appendChild(row);
+    }
+  }
+
+  // Empires Landmarks: always in effect; the ones that hold VP tokens show how many are left.
+  function renderLandmarks(view) {
+    const panel = $("landmarks-panel");
+    const list = $("landmarks-list");
+    list.innerHTML = "";
+    panel.hidden = !view.landmarks || view.landmarks.length === 0;
+    for (const lm of view.landmarks || []) {
+      const row = el("div", "event-row");
+      row.appendChild(cardChip(lm.name));
+      if (lm.vp) row.appendChild(el("span", "cost", ` ${lm.vp} VP`));
       list.appendChild(row);
     }
   }
@@ -817,8 +840,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));
@@ -1613,6 +1636,7 @@
     renderPlayers(view);
     renderSupply(view);
     renderEvents(view);
+    renderLandmarks(view);
     renderTrash(view);
     renderDecision(view);
     renderLog(view);

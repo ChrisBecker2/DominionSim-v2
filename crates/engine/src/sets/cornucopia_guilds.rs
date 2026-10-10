@@ -181,7 +181,7 @@ impl SetRules for CornucopiaGuilds {
                 // +2 Cards, discard 2, then each other player gains a Curse unless they reveal a Bane.
                 let (vs, n) = g.victims(sink);
                 for &v in vs[..n].iter().rev() {
-                    g.stack.push(Frame { bane_blocks: true, ..gain_frame(v, card, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
+                    g.stack.push(Frame { gf: crate::state::GF_BANE_BLOCKS, ..gain_frame(v, card, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
                 }
                 g.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 2, 2, Then::Nothing));
             }
@@ -483,7 +483,7 @@ impl GameState {
             if ps.set_aside.remove(f.last) {
                 ps.cleanup_aside.add(f.last, 1);
             }
-            self.stack.push(Frame { from_side: true, depth: f.depth, ..gain_frame(p, f.source, u8::MAX, Filter::Any, Dest::Hand) });
+            self.stack.push(Frame { gf: crate::state::GF_FROM_SIDE, depth: f.depth, ..gain_frame(p, f.source, u8::MAX, Filter::Any, Dest::Hand) });
         }
     }
 

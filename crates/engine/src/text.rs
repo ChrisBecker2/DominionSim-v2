@@ -42,6 +42,13 @@
 //! top card is drawn from the cards nobody has seen when the top card is taken). Shelters are implied by the players' decks (`Hovel`,
 //! `Necropolis`, `Overgrown Estate` anywhere in them).
 //!
+//! Empires: the split piles' halves and the Castles are listed in `supply:` (with their counts) like any pile; `kingdom:` names a split pile by its
+//! top half and the Castles as `Castles`. `landmarks:` lists the Landmarks of the game (and `events:` the Events, of either set), `landmark vp:`
+//! the VP tokens left on them (`Arena=10, ...`), `pile vp:` and `pile debt:` the VP and Debt tokens on Supply piles (`Silver=8, Temple=3`; a pile is
+//! named as `cards::pile_of` names it), `obelisk:` the Obelisk's pile and `pass: done` that Mountain Pass has been used. Per player `debt:`,
+//! `archive:` (the cards set aside under Archives) and `enchanted by:` (the seats whose Enchantress affects them) while nonzero, `donate: true`; the
+//! turn line adds `gains`, `silvers`, `groundskeepers`, `charms`, `acted` and `doubled` while nonzero.
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -61,7 +68,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, DurationHeld, EmpTurn, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -223,10 +230,10 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         if n != 1 {
             return Err(format!("kingdom cards must be listed individually, found '{n} {name}'"));
         }
-        // Either half of the split pile Sauna/Avanto names the pile.
-        let id = if id == cards::id::AVANTO { cards::id::SAUNA } else { id };
-        // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events (Adventures).
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) {
+        // Either half of a split pile names the pile.
+        let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
+        // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -290,13 +297,15 @@ struct TurnFields {
     gained_in_buy: u8,
     /// Adventures per-turn state (the Events bought, Travelling Fair, Sauna, Mission).
     adv: AdvTurn,
+    /// Empires per-turn state.
+    emp: EmpTurn,
 }
 
 impl Default for TurnFields {
     fn default() -> Self {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
-            extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(),
+            extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(), emp: EmpTurn::default(),
         }
     }
 }
@@ -348,6 +357,12 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "sauna" => f.adv.sauna = val.parse().map_err(|_| format!("line {lineno}: invalid sauna '{val}'"))?,
             "mission" => f.adv.mission = val.parse().map_err(|_| format!("line {lineno}: invalid mission '{val}'"))?,
             "no_buy" => f.adv.no_buy = val.parse().map_err(|_| format!("line {lineno}: invalid no_buy '{val}'"))?,
+            "gains" => f.emp.gains = val.parse().map_err(|_| format!("line {lineno}: invalid gains '{val}'"))?,
+            "silvers" => f.emp.silvers = val.parse().map_err(|_| format!("line {lineno}: invalid silvers '{val}'"))?,
+            "groundskeepers" => f.emp.groundskeepers = val.parse().map_err(|_| format!("line {lineno}: invalid groundskeepers '{val}'"))?,
+            "charms" => f.emp.charms = val.parse().map_err(|_| format!("line {lineno}: invalid charms '{val}'"))?,
+            "acted" => f.emp.acted = val.parse().map_err(|_| format!("line {lineno}: invalid acted '{val}'"))?,
+            "doubled" => f.emp.doubled = val.parse().map_err(|_| format!("line {lineno}: invalid doubled '{val}'"))?,
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -363,10 +378,12 @@ pub fn format_state(state: &GameState) -> String {
     out.push_str(&format!("players: {n}\n"));
 
     // The members of the Knights and Ruins piles are not listed (the Knights pile is one kingdom card; the Ruins come with a Looter).
-    let mut kingdom: Vec<CardId> =
-        (cards::FIRST_KINGDOM..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c) && c != cards::id::AVANTO).collect();
+    let mut kingdom: Vec<CardId> = (cards::FIRST_KINGDOM..=cards::LAST_KINGDOM).filter(|&c| state.in_supply(c)).collect();
     if state.has_pile(&crate::sets::dark_ages::KNIGHTS_PILE) {
         kingdom.push(cards::id::KNIGHTS);
+    }
+    if state.emp.flags & crate::state::E_CASTLES != 0 {
+        kingdom.push(cards::id::CASTLES);
     }
     kingdom.sort_by_key(|&c| cards::name(c));
     let kingdom_str = kingdom.iter().map(|&c| cards::name(c)).collect::<Vec<_>>().join(", ");
@@ -374,11 +391,13 @@ pub fn format_state(state: &GameState) -> String {
     // Adventures: the Events of the game.
     if state.events != 0 {
         let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
-            .filter(|i| state.events & (1 << i) != 0)
+            .filter(|i| state.events & (1u64 << i) != 0)
             .map(|i| cards::name(cards::FIRST_EVENT + i))
             .collect();
         out.push_str(&format!("events: {}\n", events.join(", ")));
     }
+    // Empires: the Landmarks and the tokens on them and on the piles.
+    format_empires(state, &mut out);
     // Cornucopia & Guilds set-up piles (see the module docs).
     if state.bane != 0 {
         out.push_str(&format!("bane: {}\n", cards::name(state.bane)));
@@ -416,7 +435,7 @@ pub fn format_state(state: &GameState) -> String {
     }
 
     let mut supply_parts = Vec::new();
-    for c in 0..cards::NUM_CARDS as CardId {
+    for c in 0..cards::NUM_ZONE_IDS as CardId {
         // A mixed pile lists only its top card (the other members have none).
         if state.in_supply(c) && (c < cards::FIRST_PILE_CARD || state.supply.get(c) > 0) {
             supply_parts.push(format!("{}={}", cards::name(c), state.supply.get(c)));
@@ -476,6 +495,19 @@ pub fn format_state(state: &GameState) -> String {
     }
     if a.no_buy {
         out.push_str("  no_buy: true");
+    }
+    // Empires: only while nonzero.
+    let e = &state.turn.emp;
+    for (name, v) in [("gains", e.gains), ("silvers", e.silvers), ("groundskeepers", e.groundskeepers), ("charms", e.charms)] {
+        if v > 0 {
+            out.push_str(&format!("  {name}: {v}"));
+        }
+    }
+    if e.acted {
+        out.push_str("  acted: true");
+    }
+    if e.doubled {
+        out.push_str("  doubled: true");
     }
     out.push('\n');
 
@@ -589,9 +621,23 @@ pub fn format_state(state: &GameState) -> String {
         if ps.saved != 0 {
             out.push_str(&format!("saved: {}\n", cards::name(ps.saved)));
         }
+        // Empires: Debt, the Archives' cards, the Enchantresses that affect the player, Donate.
+        if ps.debt > 0 {
+            out.push_str(&format!("debt: {}\n", ps.debt));
+        }
+        if !ps.archive.is_empty() {
+            out.push_str(&format!("archive: {}\n", format_counts(&ps.archive.counts())));
+        }
+        if ps.ench_by != 0 {
+            let who: Vec<String> = (0..n).filter(|q| ps.ench_by & (1 << q) != 0).map(|q| (q + 1).to_string()).collect();
+            out.push_str(&format!("enchanted by: {}\n", who.join(" ")));
+        }
+        if ps.emp & crate::state::P_DONATE != 0 {
+            out.push_str("donate: true\n");
+        }
         if ps.events_bought != 0 {
             let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
-                .filter(|i| ps.events_bought & (1 << i) != 0)
+                .filter(|i| ps.events_bought & (1u64 << i) != 0)
                 .map(|i| cards::name(cards::FIRST_EVENT + i))
                 .collect();
             out.push_str(&format!("events bought: {}\n", events.join(", ")));
@@ -599,6 +645,47 @@ pub fn format_state(state: &GameState) -> String {
     }
 
     out
+}
+
+/// Empires: the Landmarks and the tokens (see the module docs).
+fn format_empires(state: &GameState, out: &mut String) {
+    let e = &state.emp;
+    if e.landmarks != 0 {
+        let names: Vec<&str> = (0..cards::NUM_LANDMARKS as CardId)
+            .filter(|i| e.landmarks & (1 << i) != 0)
+            .map(|i| cards::name(cards::FIRST_LANDMARK + i))
+            .collect();
+        out.push_str(&format!("landmarks: {}\n", names.join(", ")));
+        let vp: Vec<String> = (0..cards::NUM_LANDMARKS)
+            .filter(|&i| e.landmarks & (1 << i) != 0 && e.lm_vp[i] > 0)
+            .map(|i| format!("{}={}", cards::name(cards::FIRST_LANDMARK + i as CardId), e.lm_vp[i]))
+            .collect();
+        out.push_str(&format!("landmark vp: {}\n", vp.join(", ")));
+        if e.obelisk != 0 {
+            out.push_str(&format!("obelisk: {}\n", cards::name(e.obelisk)));
+        }
+        if e.pass_done {
+            out.push_str("pass: done\n");
+        }
+    }
+    let on_piles = e.landmarks != 0 || e.flags & crate::state::E_TAX != 0 || e.piles.iter().next().is_some();
+    if on_piles {
+        let vp: Vec<String> = e.piles.iter().filter(|&(_, v, _)| v > 0).map(|(c, v, _)| format!("{}={}", cards::name(c), v)).collect();
+        out.push_str(&format!("pile vp: {}\n", vp.join(", ")));
+        let debt: Vec<String> = e.piles.iter().filter(|&(_, _, d)| d > 0).map(|(c, _, d)| format!("{}={}", cards::name(c), d)).collect();
+        out.push_str(&format!("pile debt: {}\n", debt.join(", ")));
+    }
+}
+
+/// `Name=N, Name=N` pairs (token counts).
+fn parse_pairs(s: &str, ln: usize) -> Result<Vec<(String, u8)>, String> {
+    let mut out = Vec::new();
+    for pair in split_parts(s) {
+        let (name, n) = pair.split_once('=').ok_or_else(|| format!("line {ln}: expected 'Name=Count', found '{pair}'"))?;
+        let n: u8 = n.trim().parse().map_err(|_| format!("line {ln}: invalid count in '{pair}'"))?;
+        out.push((name.trim().to_string(), n));
+    }
+    Ok(out)
 }
 
 /// Format the pending Duration effects list: `"Fishing Village x2, Haven (Silver), Sailor (used)"`.
@@ -662,6 +749,12 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut players_val: Option<(usize, String)> = None;
     let mut kingdom_val: Option<(usize, String)> = None;
     let mut events_val: Option<(usize, String)> = None;
+    let mut landmarks_val: Option<(usize, String)> = None;
+    let mut landmark_vp_val: Option<(usize, String)> = None;
+    let mut pile_vp_val: Option<(usize, String)> = None;
+    let mut pile_debt_val: Option<(usize, String)> = None;
+    let mut obelisk_val: Option<(usize, String)> = None;
+    let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
     let mut held_val: Option<(usize, String)> = None;
@@ -695,6 +788,12 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             }
             "kingdom" => kingdom_val = Some((lineno, rest.to_string())),
             "events" => events_val = Some((lineno, rest.to_string())),
+            "landmarks" => landmarks_val = Some((lineno, rest.to_string())),
+            "landmark vp" => landmark_vp_val = Some((lineno, rest.to_string())),
+            "pile vp" => pile_vp_val = Some((lineno, rest.to_string())),
+            "pile debt" => pile_debt_val = Some((lineno, rest.to_string())),
+            "obelisk" => obelisk_val = Some((lineno, rest.to_string())),
+            "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
             "held" => held_val = Some((lineno, rest.to_string())),
@@ -733,6 +832,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             kingdom.push(e);
         }
     }
+    if let Some((ln, s)) = &landmarks_val {
+        for l in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_landmark(l) {
+                return Err(format!("line {ln}: '{}' is not a Landmark", cards::name(l)));
+            }
+            kingdom.push(l);
+        }
+    }
 
     let seed: u64 = match &seed_val {
         Some((ln, s)) => s.trim().parse().map_err(|_| format!("line {ln}: invalid seed '{s}'"))?,
@@ -756,6 +863,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         num_players, kingdom, seed, max_turns,
         bane: named(&bane_val, "bane")?,
         ferryman: named(&ferryman_val, "ferryman")?,
+        obelisk: named(&obelisk_val, "obelisk")?,
         // The decks are read from the text; `shelters` is derived from them below.
         shelters: Some(false),
     };
@@ -789,6 +897,30 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             state.supply.set(id, count as u8);
         }
     }
+
+    // Empires: the tokens as the text says them (a line that is present replaces what a new game starts with).
+    if let Some((ln, s)) = &landmark_vp_val {
+        state.emp.lm_vp = [0; cards::NUM_LANDMARKS];
+        for (name, n) in parse_pairs(s, *ln)? {
+            let l = cards::by_name(&name).filter(|&l| cards::is_landmark(l)).ok_or_else(|| format!("line {ln}: '{name}' is not a Landmark"))?;
+            state.emp.lm_vp[crate::sets::empires::lm_index(l)] = n;
+        }
+    }
+    if let Some((ln, s)) = &pile_vp_val {
+        state.emp.piles.clear_vp();
+        for (name, n) in parse_pairs(s, *ln)? {
+            let c = cards::by_name(&name).ok_or_else(|| format!("line {ln}: unknown card '{name}'"))?;
+            state.emp.piles.add_vp(c, n);
+        }
+    }
+    if let Some((ln, s)) = &pile_debt_val {
+        state.emp.piles.clear_debt();
+        for (name, n) in parse_pairs(s, *ln)? {
+            let c = cards::by_name(&name).ok_or_else(|| format!("line {ln}: unknown card '{name}'"))?;
+            state.emp.piles.add_debt(c, n);
+        }
+    }
+    state.emp.pass_done = pass_done;
 
     if let Some((ln, s)) = &side_val {
         for pair in split_parts(s) {
@@ -882,6 +1014,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         guilds: tf.guilds,
         gained_in_buy: tf.gained_in_buy,
         adv: tf.adv,
+        emp: tf.emp,
     };
 
     // Player blocks.
@@ -1002,7 +1135,22 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         if !cards::is_event(e) {
                             return Err(format!("line {ln2}: '{}' is not an Event", cards::name(e)));
                         }
-                        ps.events_bought |= 1 << (e - cards::FIRST_EVENT);
+                        ps.events_bought |= 1u64 << (e - cards::FIRST_EVENT);
+                    }
+                }
+                "debt" => ps.debt = val.parse().map_err(|_| format!("line {ln2}: invalid debt '{val}'"))?,
+                "archive" => ps.archive = parse_small_multiset(val, "archive").map_err(|e| format!("line {ln2}: {e}"))?,
+                "enchanted by" => {
+                    for w in val.split_whitespace() {
+                        match w.parse::<u8>() {
+                            Ok(q) if (1..=crate::state::MAX_PLAYERS as u8).contains(&q) => ps.ench_by |= 1 << (q - 1),
+                            _ => return Err(format!("line {ln2}: invalid player '{w}' in enchanted by")),
+                        }
+                    }
+                }
+                "donate" => {
+                    if val.eq_ignore_ascii_case("true") {
+                        ps.emp |= crate::state::P_DONATE;
                     }
                 }
                 "prince" => ps.prince_cards = parse_small_multiset::<PRINCE_CAP>(val, "prince").map_err(|e| format!("line {ln2}: {e}"))?,
@@ -1056,6 +1204,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     if state.players[state.turn.player as usize].adv & ADV_MINUS_COIN != 0 {
         state.turn.adv.tax_live = true;
         state.turn.adv.tax_base = state.turn.coins;
+    }
+    if state.players[..num_players].iter().any(|ps| ps.ench_by != 0) {
+        state.emp.flags |= crate::state::E_ENCHANT;
     }
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).

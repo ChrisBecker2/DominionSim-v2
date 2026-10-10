@@ -609,6 +609,7 @@ fn verb(act: Act) -> &'static str {
         Act::Tavern => "Put on the mat",
         Act::Call => "Call",
         Act::Exchange => "Exchange",
+        Act::ToHand => "Take",
     }
 }
 
@@ -632,7 +633,7 @@ pub(crate) fn end_of_turn_label(leaf: &GameState, me: u8) -> String {
 /// cards), cards trashed, cards gained, and the game result if the turn ends it. E.g.
 /// "Play Witch · Trash Estate · Gain Gold + Win Game". "Nothing" if none of those happened.
 pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me: u8, eval: &E) -> String {
-    use dominion_engine::cards::{CardId, NUM_CARDS, TREASURE};
+    use dominion_engine::cards::{CardId, NUM_ZONE_IDS, TREASURE};
     let list = |items: &mut Vec<(u8, CardId, i32)>| -> String {
         items.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         items
@@ -643,7 +644,7 @@ pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me
     };
     let (mut played, mut trashed, mut gained) = (Vec::new(), Vec::new(), Vec::new());
     if leaf.turn.player == me && leaf.turn.number == root.turn.number {
-        for c in 0..NUM_CARDS as CardId {
+        for c in 0..NUM_ZONE_IDS as CardId {
             let n = leaf.turn.played.get(c) as i32 - root.turn.played.get(c) as i32;
             if n > 0 && !cards::is(c, TREASURE) && eval.outcome_shows_play(c) {
                 played.push((cards::cost(c), c, n));
@@ -652,7 +653,7 @@ pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me
     }
     let before = root.players[me as usize].all_cards();
     let after = leaf.players[me as usize].all_cards();
-    for c in 0..NUM_CARDS as CardId {
+    for c in 0..NUM_ZONE_IDS as CardId {
         let d = after.get(c) as i32 - before.get(c) as i32;
         if d > 0 {
             gained.push((cards::cost(c), c, d));
@@ -691,6 +692,8 @@ pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me
 
 pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
     let base = match (d.kind, choice) {
+        (DecisionKind::PlayAction | DecisionKind::Buy, Choice::PayDebt) => "Pay off Debt".to_string(),
+        (DecisionKind::Buy, Choice::PayDebtKeep(n)) => format!("Pay off Debt, keeping {n}"),
         (DecisionKind::PlayAction, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
@@ -720,6 +723,9 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::StartOrder, _) => "?".to_string(),
         (DecisionKind::Token { token }, Choice::Card(c)) => format!("Move the {} token to {}", cards::TOKEN_NAMES[token as usize], cards::name(c)),
         (DecisionKind::Token { .. }, _) => "?".to_string(),
+        (DecisionKind::Bid { .. }, Choice::Bid(0)) => "no bid".to_string(),
+        (DecisionKind::Bid { .. }, Choice::Bid(n)) => format!("bid {n} Debt"),
+        (DecisionKind::Bid { .. }, _) => "?".to_string(),
         (DecisionKind::Overpay { .. }, Choice::Overpay(0)) => "don't overpay".to_string(),
         (DecisionKind::Overpay { .. }, c) => match c.as_overpay() {
             Some((coins, potion)) => format!("overpay ${coins}{}", if potion { " and a Potion" } else { "" }),

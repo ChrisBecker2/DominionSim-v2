@@ -1,0 +1,26 @@
+# Conquest + Big Money (Empires). The Event Conquest ($6) gains two Silvers and scores a VP token for each
+# Silver gained this turn, so it is bought repeatedly (while the Silver pile lasts) instead of Gold early on.
+
+name = "Conquest-BM"
+description = "Big Money that buys the Conquest Event with its first $6 hands, then greens as usual."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Conquest"
+if = "bought(Conquest) < 3 and provinces_left >= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

@@ -95,7 +95,7 @@ fn one_card_deck_is_certain() {
 struct TurnMoney;
 impl Evaluator for TurnMoney {
     fn leaf_value(&self, root: &GameState, s: &GameState, _me: u8) -> f64 {
-        let bought: u32 = (0..dominion_engine::cards::NUM_CARDS as dominion_engine::CardId)
+        let bought: u32 = (0..dominion_engine::cards::NUM_ZONE_IDS as dominion_engine::CardId)
             .map(|c| (root.supply.get(c) - s.supply.get(c)) as u32 * dominion_engine::cards::cost(c) as u32)
             .sum();
         s.turn.coins as f64 + bought as f64

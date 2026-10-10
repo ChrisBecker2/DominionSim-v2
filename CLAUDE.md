@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat) and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Change from Rising Sun and a few
 promos (all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**

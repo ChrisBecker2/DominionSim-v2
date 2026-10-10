@@ -88,6 +88,22 @@ the log should say something (`engine.rs`, `web/app.js`'s log).
   `PlayerView` accessors; the text format (`tavern:`, `tokens:`, `events:` lines) and the determinize/hash code; a generic frame for the choice (`FrameKind::Token`, `Act::Call`).
 * **Non-Supply piles (Traveller upgrades)** are fields of `GameState`, listed in `side_pile_cards`, shown by `PlayerView::supply` and by the page as "not in the Supply".
 
+### Learned with Empires (and Change)
+
+* **Ids.** Zone ids are `0..NUM_ZONE_IDS`; the pseudo-cards (Events, Landmarks) are above and never in a `Counts` or a supply mask. A loop over card ids that indexes a `Counts`
+  or a supply mask runs to `NUM_ZONE_IDS`, never `NUM_CARDS`. `LANES` is asserted against `NUM_ZONE_IDS`; the Events mask in `GameState::events` is a `u64` (`NUM_EVENTS` <= 64).
+  `docs/card-id-capacity.md` has the counts through Rising Sun and the case against per-game compaction.
+* **A new cost part (Debt).** `CardDef::debt`, `cost_string`, and one place that compares costs: `Frame::more`, `exact` (with `min` as the Debt), the "up to" test requires
+  `debt_cost == 0` (`frame_choices`, `Filter::CostRange`, `ActionCostUpTo`). Buying takes the tokens (`engine::debt_buy_choices` offers `PayDebt` first); the table is in
+  `alchemy-plan.md` section 5b and every row needs a Debt-cost card on each side.
+* **Split piles** are `cards::SPLIT_PILES` (top, bottom): `pile_open` is the one test for "can this card be gained from its pile now" (also for the Castles, whose top is the lowest non-empty
+  id); `empty_piles` counts a split pile or the Castles once.
+* **Tokens on Supply piles** (VP, Debt) are `EmpState::piles` (`PileTokens`, a small record keyed by pile, not a per-card array); Landmarks that watch gains hook `watch_gain`.
+* **Landmarks** are pseudo-cards with a bit in `EmpState::landmarks`; the ones that score at the end of the game are in `landmark_score` (and visible to agents through `PlayerView`), the
+  token ones are updated by gain/trash hooks.
+* **A decision that is almost never interesting (Debt payment)** is an ordinary `Choice` offered at the Buy decision, with a default that needs no search and a search only in the games where
+  it can matter (`PlayerView::debt_decision_matters`); stated rules (`[[debt]]`) win over the search.
+
 ### Keeping `GameState` small
 
 `GameState` is copied by every search node and bot rollout, and six `PlayerState`s are carried in every game whatever the player count, so each byte of a
@@ -133,6 +149,6 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * `cargo test --release --workspace` and `cargo build --release --workspace --tests` warning-free.
 * `powershell -File build-web.ps1`: every suite ALL PASSED.
 * Speed did not move: `dominion-sim match strategies/big_money_ultimate.toml strategies/double_witch.toml --games 200000`
-  (about 1.8M games/s since the speed pass of the Adventures plan, section 6) and one pairing that uses the new set; best of five, before and after. Dispatch by set is a
+  (about 1.8M games/s since the speed pass of the Adventures plan, section 6; 1.76M with Empires) and one pairing that uses the new set; best of five, before and after. Dispatch by set is a
   `match` on the card's set (no indirect call); keep it that way.
 * The plan doc's status line, and `CLAUDE.md` if the layout changed.

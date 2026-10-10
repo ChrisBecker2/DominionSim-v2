@@ -181,7 +181,19 @@ bought; unspent Potions are lost at end of turn (tested).
 
 When adding a card that compares costs: pick its row, add a test with a Potion card on each
 side of the comparison (Transmute $0P and Golem $4P are the usual references), and extend the
-table. Debt (below) will add a third column to every row.
+table. Debt (Empires) is the third cost part; the rows below say what it does (wiki, Debt: Debt and $ are orthogonal, "up to $X" never includes a cost with Debt, a
+Debt-only cost has an implicit $0). Tested at the end of `alchemy_cards.rs` and in `empires_cards.rs`.
+
+| Kind (official rule) | How to build it | Cards here | Future cards |
+|---|---|---|---|
+| "Up to $X" (fixed or "more than the trashed card"): never a card with Debt in its cost, whatever its coins (Engineer is $0 and 4 Debt, not "up to $4") | `Frame::more == false`, `exact == false`: `cost_ok` requires `debt_cost(c) == 0` (`frame_choices`, `Filter::ActionCostUpTo`, `Filter::CostRange`) | Workshop, Remodel (a Gold gains a Province, not Fortune $8 + 8 Debt), Artisan, Engineer ($4) | every "up to" gain |
+| "Costing more $ than" (Change): the coins only ("gain a card costing more $ than it": official FAQ; Potion and Debt of the gained card are ignored) | `Frame::more` (`cost > max`) | Change | |
+| "Exactly the same cost": the Debt part must match too | `exact` with `Frame::min` carrying the reference's Debt | Swindler, Upgrade. Known gap: the frame's Debt (`Frame::min`) is 0 unless a card sets it and none does, so trashing a Debt-cost card (Engineer) offers Debt-free cards of the same coins instead of Debt-cost ones; Swindler could only hit this with an Engineer on the top of a deck | |
+| "$X or more" (Patrician, Sage): coins only, so a Debt-only card ($0 + 8 Debt) is never "$5 or more", but Fortune ($8 + 8 Debt) is | `Filter::CostAtLeast` | Patrician, Emporium's check | |
+| Cost reductions (Bridge, Quarry, Highway): coins only; Debt stays | `GameState::cost` | all of the above | |
+| Buying a card or Event with Debt in its cost: take the Debt, then the Debt blocks buying until paid | `engine::debt_buy_choices`, `Choice::PayDebt` | Engineer, Overlord, City Quarter, Fortune, Annex, Donate, Triumph, Wedding | |
+
+
 
 ## 6. Not done
 

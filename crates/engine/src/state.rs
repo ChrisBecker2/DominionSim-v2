@@ -34,6 +34,26 @@ pub const DURATION_HELD_CAP: usize = 8;
 pub const TAVERN_CAP: usize = 10;
 /// Max distinct cards that stay in play for the rest of the game (`PlayerState::stays`).
 pub const STAYS_CAP: usize = 8;
+/// Max distinct cards a player's Archives hold set aside at once (`PlayerState::archive`): three per Archive played.
+pub const ARCHIVE_CAP: usize = 12;
+/// Max Supply piles that carry VP or Debt tokens at once (`EmpState::piles`): every pile of a game with Tax, plus the Gathering piles.
+pub const PILE_TOKEN_CAP: usize = 32;
+/// `EmpState::flags`: which Empires effects are live in this game, so that other games skip each check with one byte test.
+/// Some Landmark or token watches gains (Aqueduct, Basilica, Battlefield, Colonnade, Defiled Shrine, Labyrinth, Mountain Pass, a pile with VP or Debt).
+pub const E_GAIN_WATCH: u8 = 1;
+/// An Enchantress has been played: the first Action each affected player plays is a cantrip.
+pub const E_ENCHANT: u8 = 2;
+/// Change is in the game: Debt can be worth keeping (the end-of-turn payment is not automatic, the Debt payment is searched).
+pub const E_KEEP_DEBT: u8 = 4;
+/// Tax is in the game: gains in the Buy phase take the Debt on their pile.
+pub const E_TAX: u8 = 8;
+/// A Castle pile is in the game.
+pub const E_CASTLES: u8 = 32;
+/// Tomb is in the game: +1 VP token for every card trashed.
+pub const E_TOMB: u8 = 64;
+/// `PlayerState::emp` flags.
+/// Donate: at the start of this player's next turn they put their deck and discard pile into the hand, trash, shuffle and draw 5.
+pub const P_DONATE: u8 = 1;
 
 /// `PlayerState::tok` indices: the pile each of a player's pile tokens is on (Adventures).
 pub const TOK_CARD: usize = 0;
@@ -67,7 +87,7 @@ pub const G_CHAMPION: u8 = 8;
 pub struct SupplyMask {
     pub lo: u128,
     pub hi: u128,
-    /// Ids 256 and up (only the members of the mixed piles, which are the highest ids, are ever in the Supply there).
+    /// Ids 256 and up (Wild Hunt, the split pile bottoms, the Castles and the members of the mixed piles are in the Supply there).
     pub top: u128,
 }
 
@@ -121,10 +141,10 @@ impl SupplyMask {
             self.top |= 1u128 << (c - 256);
         }
     }
-    /// Whether any card of either mask word is in the Supply (the gain-trigger gates).
+    /// Whether any card of the mask words is in the Supply (the gain-trigger gates).
     #[inline(always)]
-    pub fn any(&self, lo: u128, hi: u128) -> bool {
-        (self.lo & lo) != 0 || (self.hi & hi) != 0
+    pub fn any(&self, lo: u128, hi: u128, top: u128) -> bool {
+        (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0
     }
 }
 
@@ -587,7 +607,17 @@ pub struct PlayerState {
     /// The card Save set aside, returned to the hand after the Clean-up draw (0 = none). Counts as owned.
     pub saved: CardId,
     /// Bitmask of the Events this player has bought so far (bit `event - FIRST_EVENT`).
-    pub events_bought: u32,
+    pub events_bought: u64,
+    /// Debt tokens (Empires): while there are any the player cannot buy cards or Events. Paid off with $ (`Choice::PayDebt`).
+    pub debt: u16,
+    /// The cards set aside under this player's Archives, face down (private to them; their owner draws one at the start of each of the next
+    /// turns, `FrameKind`-less: a Duration entry per Archive says how many picks are left).
+    pub archive: SmallMultiset<ARCHIVE_CAP>,
+    /// Enchantresses (bit per seat) whose Attack affects this player: until that player's next turn, the first Action this player plays on each
+    /// turn is +1 Card +1 Action instead.
+    pub ench_by: u8,
+    /// `P_*` flags.
+    pub emp: u8,
 }
 
 impl PlayerState {
@@ -620,6 +650,7 @@ impl PlayerState {
         if self.saved != 0 {
             c.add(self.saved, 1);
         }
+        self.archive.add_into(&mut c);
         // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
         if self.inherit != 0 {
             c.add(self.inherit, 1);
@@ -776,13 +807,32 @@ pub struct TurnState {
     pub gained_in_buy: u8,
     /// Adventures per-turn bookkeeping.
     pub adv: AdvTurn,
+    /// Empires per-turn bookkeeping.
+    pub emp: EmpTurn,
+}
+
+/// The per-turn bookkeeping of Empires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct EmpTurn {
+    /// Cards the turn's player has gained this turn (Triumph, Labyrinth, Baths).
+    pub gains: u8,
+    /// Silvers the turn's player has gained this turn (Conquest).
+    pub silvers: u8,
+    /// Groundskeepers played this turn: +1 VP token per Victory card gained, each.
+    pub groundskeepers: u8,
+    /// Charms played this turn whose "next gain" has not happened yet.
+    pub charms: u8,
+    /// The turn's player has already played an Action this turn (Enchantress affects only the first).
+    pub acted: bool,
+    /// A Fortune has doubled the $ this turn.
+    pub doubled: bool,
 }
 
 /// The per-turn bookkeeping of Adventures (Events bought, Travelling Fair, Sauna, Mission, the -$1 token).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct AdvTurn {
     /// Bitmask of the Events bought this turn (bit `event - FIRST_EVENT`): the once-per-turn Events are not offered again.
-    pub bought: u32,
+    pub bought: u64,
     /// Travelling Fair was bought this turn: cards gained may be put onto the deck.
     pub fair: bool,
     /// Saunas played this turn: each Silver played may trash that many cards from the hand.
@@ -837,6 +887,7 @@ impl TurnState {
             guilds: 0,
             gained_in_buy: 0,
             adv: AdvTurn::default(),
+            emp: EmpTurn::default(),
         }
     }
 }
@@ -859,6 +910,8 @@ pub enum Zone {
     DeckTop,
     /// The player's Tavern mat (Adventures).
     Tavern,
+    /// The cards set aside under the player's Archives (Empires).
+    Archive,
 }
 
 /// What happens to a picked card.
@@ -887,6 +940,8 @@ pub enum Act {
     /// Exchange it (a Traveller in play, being discarded) for the next card of its line: it returns to its pile and the upgrade goes to the
     /// discard pile.
     Exchange,
+    /// Take it into the hand from where it is (Settlers' Copper from the discard pile): not a draw, not a gain.
+    ToHand,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -947,6 +1002,10 @@ pub enum Filter {
     GainableCopy,
     /// A non-Duration, non-Command Action costing up to $4 and no Potion (Inheritance's pick). Decided against the live costs (`filter_ok`).
     InheritCard,
+    /// Any card that isn't a Victory card (Banquet).
+    NonVictory,
+    /// A non-Duration, non-Command Action costing up to `n` coins, no Potion and no Debt (Overlord: the top card of a Supply pile).
+    CommandCostUpTo(u8),
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -962,6 +1021,8 @@ pub enum TypeSet {
     ActionNotDuration,
     /// A Curse, Ruins, Shelter or Victory card (Vagrant).
     CurseRuinsShelterVictory,
+    /// A Castle (Small Castle's trash and gain).
+    Castle,
 }
 
 impl TypeSet {
@@ -973,6 +1034,7 @@ impl TypeSet {
             TypeSet::Action => (cards::ACTION, 0),
             TypeSet::ActionNotDuration => (cards::ACTION, cards::DURATION),
             TypeSet::CurseRuinsShelterVictory => (cards::CURSE_T | cards::RUINS | cards::SHELTER | cards::VICTORY, 0),
+            TypeSet::Castle => (cards::CASTLE, 0),
         }
     }
 }
@@ -1000,7 +1062,7 @@ impl Filter {
             Filter::TreasureNotReward => cards::is(c, cards::TREASURE) && !cards::is(c, cards::REWARD),
             Filter::TreasureToDiscard => cards::is(c, cards::TREASURE),
             Filter::ActionCostUpTo(n) => {
-                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c)
+                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && cards::cost(c) <= n && !cards::potion_cost(c) && cards::debt_cost(c) == 0
             }
             Filter::Types(set) => {
                 let (any, none) = set.masks();
@@ -1010,11 +1072,20 @@ impl Filter {
             Filter::NonTreasure => !cards::is(c, cards::TREASURE),
             Filter::TreasureNonDuration => cards::is(c, cards::TREASURE) && !cards::is(c, cards::DURATION),
             Filter::CostAtLeast(n) => cards::cost(c) >= n,
-            Filter::CostRange(lo, hi) => !cards::potion_cost(c) && (lo..=hi).contains(&cards::cost(c)),
+            Filter::CostRange(lo, hi) => !cards::potion_cost(c) && cards::debt_cost(c) == 0 && (lo..=hi).contains(&cards::cost(c)),
             Filter::VictoryNot(x) => c != x && cards::is(c, cards::VICTORY),
             Filter::GainableCopy => true,
             Filter::InheritCard => {
-                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && !cards::is(c, cards::COMMAND) && cards::cost(c) <= 4 && !cards::potion_cost(c)
+                cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION) && !cards::is(c, cards::COMMAND) && cards::cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
+            }
+            Filter::NonVictory => !cards::is(c, cards::VICTORY),
+            Filter::CommandCostUpTo(n) => {
+                cards::is(c, cards::ACTION)
+                    && !cards::is(c, cards::DURATION)
+                    && !cards::is(c, cards::COMMAND)
+                    && cards::cost(c) <= n
+                    && !cards::potion_cost(c)
+                    && cards::debt_cost(c) == 0
             }
         }
     }
@@ -1255,6 +1326,54 @@ pub enum Then {
     PlayTwiceCopy,
     /// Select (Inheritance, `Act::SetAside` from the Supply): the card is under the player's Estate token.
     Inherit,
+    /// Select (Change, trash from the hand): gain a card costing more $ than the one trashed; its Debt is the difference.
+    ChangeGain,
+    /// Gain (Change): take Debt equal to the $ the card gained costs beyond `Frame::max`, the cost of the card trashed.
+    ChangeDebt,
+    /// YesNo (Engineer, trash this from play): gain a card costing up to $4.
+    EngineerGain,
+    /// Select (Encampment, reveal a Gold or Plunder): with none revealed it is set aside and returns to its pile.
+    EncampmentReveal,
+    /// RevealTop (Patrician): a revealed card costing $5 or more goes to the hand, else back on the deck.
+    PatricianCheck,
+    /// Select (Catapult, trash from the hand): a card costing $3 or more gives each other player a Curse, a Treasure makes them discard down to 3.
+    CatapultHit,
+    /// Select (Gladiator, reveal a card from the hand): the player to the left may reveal a copy; if not, +$1 and a Gladiator is trashed from the pile.
+    GladiatorReveal,
+    /// YesNo (Gladiator, the left player reveals a copy): on No (or with none to reveal) +$1 for the Gladiator's player and a Gladiator is trashed.
+    GladiatorMatch,
+    /// Select (Legionary, reveal a Gold): the other players discard down to 2 cards, then draw a card.
+    LegionaryHit,
+    /// Select (Sacrifice, trash from the hand): +2 Cards +2 Actions for an Action, +$2 for a Treasure, +2 VP tokens for a Victory card.
+    SacrificeBonus,
+    /// Select (Temple): add 1 VP token to the source card's pile.
+    AddPileVp,
+    /// Gain (Wild Hunt's Estate): if the gain happened, take the VP tokens on the source card's pile.
+    TakePileVp,
+    /// Select (Annex): the cards picked stay in the discard pile; the rest is shuffled into the deck.
+    AnnexShuffle,
+    /// Select (a 0-pick frame under Conquest's gains): +1 VP token per Silver gained this turn.
+    ConquestVp,
+    /// Gain (Dominate's Province): if it was gained, +9 VP tokens.
+    DominateVp,
+    /// Gain (Triumph's Estate): if it was gained, +1 VP token per card gained this turn.
+    TriumphVp,
+    /// Gain (Ritual's Curse): if it was gained, trash a card from the hand for VP tokens equal to its cost in $.
+    RitualTrash,
+    /// Select (Arena, discard an Action): take 2 VP tokens from the Arena if it was done.
+    ArenaVp,
+    /// Select (Donate, trash from the hand): the rest of the hand is shuffled into the deck.
+    DonateShuffle,
+    /// RevealTop (Archive): the cards revealed are set aside under it (`PlayerState::archive`); one goes into the hand now.
+    ArchiveSet,
+    /// YesNo (Small Castle, trash this): gain a Castle; declined, a Castle may be trashed from the hand instead.
+    SmallCastle,
+    /// Select (Crown in the Buy phase): the Treasure picked is played twice.
+    CrownTreasure,
+    /// TopCard (Chariot Race): the card drawn is compared with the top card of the left player's deck.
+    ChariotRace,
+    /// Bid (Mountain Pass, after the last bid): the high bidder takes 8 VP tokens and the Debt they bid.
+    MountainPass,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1333,13 +1452,18 @@ pub struct Frame {
     /// Gain (Butcher): `min` is the base cost; a card costing more spends that many Coffers, and
     /// `max` is the base plus the Coffers the player has.
     pub pay_coffers: bool,
-    /// Gain (Young Witch's Curse): skipped when the player reveals a Bane from their hand.
-    pub bane_blocks: bool,
-    /// Gain: the choices are the Rewards (non-Supply, Joust) instead of the Supply piles.
-    pub from_side: bool,
+    /// Gain: `GF_*` flags (kept in one byte so that a `Frame` stays 48 bytes).
+    pub gf: u8,
     /// Select: every pick is a different card (Pilgrimage: differently named cards).
     pub distinct: bool,
+    /// Gain: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
+    pub more: bool,
 }
+
+/// `Frame::gf`: Young Witch's Curse is skipped when the player reveals a Bane from their hand.
+pub const GF_BANE_BLOCKS: u8 = 1;
+/// `Frame::gf`: the choices are the Rewards (non-Supply, Joust) instead of the Supply piles.
+pub const GF_FROM_SIDE: u8 = 2;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -1371,9 +1495,9 @@ impl Frame {
             optional: false,
             less: false,
             pay_coffers: false,
-            bane_blocks: false,
-            from_side: false,
+            gf: 0,
             distinct: false,
+            more: false,
         }
     }
 }
@@ -1465,6 +1589,8 @@ pub enum FrameKind {
     /// Adventures: move token `subject` (`TOK_*`) to a pile of the player's choice (`DecisionKind::Token`); `max` = 1 restricts it to piles
     /// the player has no token on (Teacher).
     Token,
+    /// Empires: `player` bids Debt (Mountain Pass, `DecisionKind::Bid`). With `then: Then::MountainPass` it is the resolution after the last bid.
+    Bid,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1539,12 +1665,118 @@ pub struct GameConfig {
     /// `None` = the official rule, decided by the game's seed (`cards::uses_shelters`): always when every kingdom card is from
     /// Dark Ages, never when none is, otherwise when a randomly chosen kingdom card is.
     pub shelters: Option<bool>,
+    /// The Obelisk's pile (an Action Supply pile, named by its top card or marker). `None` = chosen from the game's seed.
+    pub obelisk: Option<CardId>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None }
     }
+}
+
+/// The VP and Debt tokens on Supply piles (Gathering cards, Aqueduct and Defiled Shrine's setup, Tax), as a short list: `(pile, VP, Debt)`.
+/// A pile is named by `cards::pile_of` (a split pile by its top half, the Castles by their marker, Knights and Ruins by theirs).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PileTokens {
+    pub piles: [CardId; PILE_TOKEN_CAP],
+    pub vp: [u8; PILE_TOKEN_CAP],
+    pub debt: [u8; PILE_TOKEN_CAP],
+    pub len: u8,
+}
+
+impl Default for PileTokens {
+    fn default() -> Self {
+        PileTokens { piles: [0; PILE_TOKEN_CAP], vp: [0; PILE_TOKEN_CAP], debt: [0; PILE_TOKEN_CAP], len: 0 }
+    }
+}
+
+impl PileTokens {
+    fn slot(&self, pile: CardId) -> Option<usize> {
+        self.piles[..self.len as usize].iter().position(|&c| c == pile)
+    }
+    fn slot_or_new(&mut self, pile: CardId) -> usize {
+        match self.slot(pile) {
+            Some(i) => i,
+            None => {
+                let i = self.len as usize;
+                assert!(i < PILE_TOKEN_CAP, "more piles with tokens than PILE_TOKEN_CAP");
+                self.piles[i] = pile;
+                self.len += 1;
+                i
+            }
+        }
+    }
+    /// VP tokens on `pile`.
+    pub fn vp_on(&self, pile: CardId) -> u8 {
+        self.slot(pile).map_or(0, |i| self.vp[i])
+    }
+    /// Debt tokens on `pile` (Tax).
+    pub fn debt_on(&self, pile: CardId) -> u8 {
+        self.slot(pile).map_or(0, |i| self.debt[i])
+    }
+    pub fn add_vp(&mut self, pile: CardId, n: u8) {
+        let i = self.slot_or_new(pile);
+        self.vp[i] = self.vp[i].saturating_add(n);
+    }
+    pub fn add_debt(&mut self, pile: CardId, n: u8) {
+        let i = self.slot_or_new(pile);
+        self.debt[i] = self.debt[i].saturating_add(n);
+    }
+    /// Take every VP token off `pile`; how many there were.
+    pub fn take_vp(&mut self, pile: CardId) -> u8 {
+        match self.slot(pile) {
+            Some(i) => std::mem::take(&mut self.vp[i]),
+            None => 0,
+        }
+    }
+    /// Take 1 VP token off `pile`; whether there was one.
+    pub fn take_one_vp(&mut self, pile: CardId) -> bool {
+        match self.slot(pile) {
+            Some(i) if self.vp[i] > 0 => {
+                self.vp[i] -= 1;
+                true
+            }
+            _ => false,
+        }
+    }
+    pub fn take_debt(&mut self, pile: CardId) -> u8 {
+        match self.slot(pile) {
+            Some(i) => std::mem::take(&mut self.debt[i]),
+            None => 0,
+        }
+    }
+    pub fn clear_vp(&mut self) {
+        self.vp = [0; PILE_TOKEN_CAP];
+    }
+    pub fn clear_debt(&mut self) {
+        self.debt = [0; PILE_TOKEN_CAP];
+    }
+    /// The piles that carry any token, with their VP and Debt.
+    pub fn iter(&self) -> impl Iterator<Item = (CardId, u8, u8)> + '_ {
+        (0..self.len as usize).map(|i| (self.piles[i], self.vp[i], self.debt[i])).filter(|&(_, v, d)| v > 0 || d > 0)
+    }
+}
+
+/// The per-game state of Empires: which Landmarks are in the game, the VP tokens on them and on Supply piles, and Mountain Pass's bidding.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct EmpState {
+    /// Bit `landmark - FIRST_LANDMARK`: the Landmarks in this game (public).
+    pub landmarks: u32,
+    /// `E_*` flags.
+    pub flags: u8,
+    /// VP tokens on each Landmark (index `landmark - FIRST_LANDMARK`): Arena, Basilica, Baths, Battlefield, Colonnade and Labyrinth start with 6 per
+    /// player, Aqueduct and Defiled Shrine collect.
+    pub lm_vp: [u8; cards::NUM_LANDMARKS],
+    /// Obelisk's pile (a Supply pile named by `cards::pile_of`), 0 = none.
+    pub obelisk: CardId,
+    /// Mountain Pass: someone has gained a Province already (so no more bidding).
+    pub pass_done: bool,
+    /// Mountain Pass: the highest bid so far and the seat that made it.
+    pub bid_high: u8,
+    pub bid_who: u8,
+    /// VP and Debt tokens on Supply piles.
+    pub piles: PileTokens,
 }
 
 /// How many trashed cards wait for their "when you trash this" effects (`GameState::trash_queue`).
@@ -1591,8 +1823,10 @@ pub struct GameState {
     pub spoils: u8,
     pub madman: u8,
     pub mercenary: u8,
-    /// Adventures: the Events in this game (bit `event - cards::FIRST_EVENT`). Events are bought, never gained, and are in no zone or pile.
-    pub events: u32,
+    /// The Events in this game (bit `event - cards::FIRST_EVENT`; Adventures, then Empires). Events are bought, never gained, and are in no zone or pile.
+    pub events: u64,
+    /// Empires: Landmarks, tokens on piles, Mountain Pass's bids, `E_*` flags.
+    pub emp: EmpState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -1616,6 +1850,9 @@ pub struct GameState {
     pub pause_at_turn_start: bool,
     pub pending: Pending,
 }
+
+/// The bits of `in_supply.top` of the bottom halves of the split piles (ids 258-263).
+const SPLIT_BOTTOMS_TOP: u128 = 0b111111 << (258 - 256);
 
 pub fn victory_pile_size(n: usize) -> u8 {
     if n <= 2 { 8 } else { 12 }
@@ -1660,23 +1897,27 @@ impl GameState {
         // Dark Ages: the Knights and Ruins piles, Spoils / Madman / Mercenary and the Shelters (one pass over the kingdom).
         let da = crate::sets::dark_ages::setup(cfg, bane, ferryman, n);
         // Adventures: the Events are listed with the kingdom, take no Supply pile and are only a mask here.
-        let events = kingdom().filter(|&k| cards::is_event(k)).fold(0u32, |m, k| m | 1 << (k - cards::FIRST_EVENT));
+        let events = kingdom().filter(|&k| cards::is_event(k)).fold(0u64, |m, k| m | 1 << (k - cards::FIRST_EVENT));
         let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
             put(id::POTION, crate::sets::pile_size(id::POTION, n).unwrap());
         }
         let mut split_pile = false;
         for k in kingdom() {
-            if cards::is_event(k) {
+            // Events and Landmarks are listed with the kingdom and take no Supply pile.
+            if cards::is_pseudo(k) {
                 continue;
             }
-            // The split pile Sauna/Avanto is named by either half.
-            let k = if k == id::AVANTO { id::SAUNA } else { k };
+            // A split pile is named by either half.
+            let k = if cards::is_split_bottom(k) { cards::split_top(k).unwrap_or(k) } else { k };
             if k == id::SAUNA {
                 if split_pile {
                     continue;
                 }
                 split_pile = true;
+            }
+            if k == id::CASTLES {
+                continue; // the eight Castles are set up with the other Empires piles below
             }
             // Platinum and Colony (Prosperity) join the supply when the kingdom list names them.
             assert!(cards::is_kingdom(k) || cards::is_optional_basic(k), "{} is not a kingdom card", cards::name(k));
@@ -1707,6 +1948,7 @@ impl GameState {
             madman: da.madman,
             mercenary: da.mercenary,
             events,
+            emp: EmpState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -1739,6 +1981,8 @@ impl GameState {
         if da.ruins > 0 {
             s.init_mixed_pile(&crate::sets::dark_ages::RUINS_PILE, da.ruins);
         }
+        // Empires: the Landmarks, the split piles' bottom halves, the Castles, Tax's Debt and the Obelisk's pile.
+        crate::sets::empires::setup(&mut s, cfg, n);
         s.push_opening_deal();
         s
     }
@@ -1855,16 +2099,29 @@ impl GameState {
                 if first + 32 > cards::FIRST_PILE_CARD as usize {
                     in_block &= if first >= cards::FIRST_PILE_CARD as usize { 0 } else { (1u32 << (cards::FIRST_PILE_CARD as usize - first)) - 1 };
                 }
+                // The bottom halves of the split piles and the Castles (ids AVANTO..AVANTO + 14) are not piles of their own.
+                if in_block != 0 && first <= id::AVANTO as usize + 13 && first + 32 > id::AVANTO as usize {
+                    let lo = (id::AVANTO as usize).saturating_sub(first);
+                    let hi = ((id::AVANTO as usize + 14).min(first + 32)) - first;
+                    let span = if hi - lo >= 32 { u32::MAX } else { ((1u32 << (hi - lo)) - 1) << lo };
+                    in_block &= !span;
+                }
                 if in_block != 0 {
-                    if (id::AVANTO as usize) / 32 == block {
-                        in_block &= !(1u32 << (id::AVANTO as usize % 32));
-                    }
                     n += (in_block & !self.supply.nonzero_mask(block)).count_ones();
                 }
             }
         }
-        if self.supply.get(id::AVANTO) > 0 && self.in_supply(id::SAUNA) && self.supply.get(id::SAUNA) == 0 {
-            n -= 1;
+        // A split pile is empty when both halves are: the top half was counted above once it is gone.
+        if self.in_supply.top & SPLIT_BOTTOMS_TOP != 0 {
+            for (top, bottom) in cards::SPLIT_PILES {
+                if self.in_supply(bottom) && self.supply.get(top) == 0 && self.supply.get(bottom) > 0 {
+                    n -= 1;
+                }
+            }
+        }
+        // The Castles are one pile.
+        if self.in_supply(id::HUMBLE_CASTLE) {
+            n += (self.castles_left() == 0) as u32;
         }
         for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
             n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
@@ -1876,12 +2133,20 @@ impl GameState {
     #[doc(hidden)]
     pub fn empty_piles_scan(&self) -> u32 {
         // The members of the Knights and Ruins piles are not piles of their own: each mixed pile is one pile, empty when it has no cards.
-        // Sauna/Avanto is one pile: empty when both halves are (counted once, as Sauna, when Avanto is gone too).
-        let split_open = self.supply.get(id::AVANTO) > 0;
+        // A split pile is one pile: empty when both halves are (counted once, as its top half). The Castles are one pile.
         let mut n = self
             .supply_cards()
-            .filter(|&c| c < cards::FIRST_PILE_CARD && self.supply.get(c) == 0 && c != id::AVANTO && !(c == id::SAUNA && split_open))
+            .filter(|&c| {
+                c < cards::FIRST_PILE_CARD
+                    && !cards::is_split_bottom(c)
+                    && !cards::is_castle(c)
+                    && self.supply.get(c) == 0
+                    && cards::split_bottom(c).map_or(true, |b| !self.in_supply(b) || self.supply.get(b) == 0)
+            })
             .count() as u32;
+        if self.in_supply(id::HUMBLE_CASTLE) {
+            n += (self.castles_left() == 0) as u32;
+        }
         for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
             n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
         }
@@ -1932,10 +2197,15 @@ impl GameState {
         (p + n - 1) % n
     }
 
+    /// `p`'s score: their cards and VP tokens, and what the Landmarks add (Empires).
+    pub fn player_vp(&self, p: u8) -> i32 {
+        self.players[p as usize].vp() + if self.emp.landmarks != 0 { self.landmark_score(p) } else { 0 }
+    }
+
     pub fn scores(&self) -> [i32; MAX_PLAYERS] {
         let mut s = [0; MAX_PLAYERS];
         for p in 0..self.num_players as usize {
-            s[p] = self.players[p].vp();
+            s[p] = self.player_vp(p as u8);
         }
         s
     }

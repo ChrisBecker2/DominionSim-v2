@@ -35,7 +35,7 @@
 use std::path::Path;
 
 use dominion_engine::agent::PlayerView;
-use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, CURSE_T, NUM_CARDS, TREASURE, VICTORY};
+use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, CURSE_T, NUM_CARDS, NUM_ZONE_IDS, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision, DecisionKind};
 use dominion_engine::Counts;
 use dominion_engine::state::{Act, Filter, Zone};
@@ -74,6 +74,25 @@ struct TokenRuleRaw {
     pile: String,
     #[serde(rename = "if")]
     cond: Option<String>,
+}
+
+/// `[[debt]] pay = "all" if = "..."`: what to do about Debt when the Buy decision (or, for `all`, the Action phase with a Change in hand) offers to
+/// pay it off (Empires). The first rule whose condition holds decides; with none, the default is to pay all of it as soon as the $ are there,
+/// and in a game with Change (where one token of Debt makes Change give +$3) to search the turn for the best way.
+#[derive(Deserialize)]
+struct DebtRuleRaw {
+    /// `all` (pay as much as the $ allow), `keep1` (leave one token unpaid) or `none` (pay nothing now).
+    pay: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
+/// What a `[[debt]]` rule says to pay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebtPay {
+    All,
+    Keep1,
+    None,
 }
 
 fn default_true() -> bool {
@@ -132,6 +151,8 @@ fn norm_label(s: &str) -> String {
 fn expand_pile(card: CardId) -> Vec<CardId> {
     match dominion_engine::sets::dark_ages::MixedPile::of_marker(card) {
         Some(pile) => pile.members().collect(),
+        // The Castles: each of the eight.
+        None if card == id::CASTLES => (id::HUMBLE_CASTLE..id::HUMBLE_CASTLE + 8).collect(),
         None => vec![card],
     }
 }
@@ -139,8 +160,12 @@ fn expand_pile(card: CardId) -> Vec<CardId> {
 /// The cards a rule naming `name` stands for: the card, the cards of a Knights or Ruins pile, or both halves of `Sauna/Avanto`.
 fn rule_cards(name: &str) -> Option<Vec<CardId>> {
     let norm: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect();
-    if norm == "sauna/avanto" {
-        return Some(vec![id::SAUNA, id::AVANTO]);
+    // A split pile named as `Top/Bottom` stands for both halves.
+    for (top, bottom) in cards::SPLIT_PILES {
+        let both: String = format!("{}/{}", cards::name(top), cards::name(bottom)).chars().filter(|c| !c.is_whitespace() && *c != '\'').flat_map(|c| c.to_lowercase()).collect();
+        if norm.replace('\'', "") == both {
+            return Some(vec![top, bottom]);
+        }
     }
     cards::by_name(name).map(expand_pile)
 }
@@ -183,6 +208,9 @@ struct StrategyFile {
     /// Token placement rules (Adventures), in priority order.
     #[serde(default)]
     token: Vec<TokenRuleRaw>,
+    /// Debt payment rules (Empires), in priority order.
+    #[serde(default)]
+    debt: Vec<DebtRuleRaw>,
     /// Rules for calling a Reserve card (Adventures): the first rule for the card whose condition holds says yes.
     #[serde(default)]
     call: Vec<BuyRuleRaw>,
@@ -227,6 +255,8 @@ pub struct Strategy {
     mode: Vec<(CardId, u8, Option<Expr>)>,
     /// `[[token]]` rules in priority order: (token index, pile, condition).
     token: Vec<(usize, CardId, Option<Expr>)>,
+    /// `[[debt]]` rules in priority order.
+    debt: Vec<(DebtPay, Option<Expr>)>,
     /// `[[call]]` and `[[exchange]]` rules in priority order.
     call: Vec<(CardId, Option<Expr>)>,
     exchange: Vec<(CardId, Option<Expr>)>,
@@ -312,9 +342,19 @@ impl Strategy {
             }
             let pile = rule_cards(&rule.pile).and_then(|v| v.first().copied()).ok_or_else(|| format!("unknown card {:?} in [[token]] rule", rule.pile))?;
             // A Knight names the Knights pile, Avanto the split pile.
-            let pile = if pile >= cards::id::DAME_ANNA { id::KNIGHTS } else { cards::pile_of(pile) };
+            let pile = if pile >= cards::id::DAME_ANNA && pile < NUM_ZONE_IDS as CardId { id::KNIGHTS } else { cards::pile_of(pile) };
             let cond = rule.cond.as_deref().map(Expr::parse).transpose()?;
             token.push((tok, pile, cond));
+        }
+        let mut debt = Vec::with_capacity(raw.debt.len());
+        for rule in &raw.debt {
+            let pay = match norm_label(&rule.pay).as_str() {
+                "all" => DebtPay::All,
+                "keep1" | "keepone" | "keep_1" => DebtPay::Keep1,
+                "none" => DebtPay::None,
+                other => return Err(format!("unknown pay {other:?} in a [[debt]] rule (expected \"all\", \"keep1\" or \"none\")")),
+            };
+            debt.push((pay, rule.cond.as_deref().map(Expr::parse).transpose()?));
         }
         let call = compile_rules(&raw.call, "call")?;
         for (c, _) in &call {
@@ -338,6 +378,7 @@ impl Strategy {
             trash,
             mode,
             token,
+            debt,
             call,
             exchange,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
@@ -370,17 +411,19 @@ impl Strategy {
                 id::HERMIT
             } else if c == id::MERCENARY {
                 id::URCHIN
-            } else if c >= cards::id::DAME_ANNA {
+            } else if c >= cards::id::DAME_ANNA && c < NUM_ZONE_IDS as CardId {
                 id::KNIGHTS
-            } else if c == id::AVANTO {
-                id::SAUNA
+            } else if cards::is_split_bottom(c) {
+                cards::split_top(c).unwrap_or(c)
+            } else if cards::is_castle(c) {
+                id::CASTLES
             } else if c >= cards::FIRST_TRAV && ((c - cards::FIRST_TRAV) as usize) < cards::NUM_TRAV {
                 // A Traveller upgrade comes with the first card of its line.
                 if c < cards::id::SOLDIER { id::PAGE } else { id::PEASANT }
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c) || cards::is_event(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -410,6 +453,23 @@ impl Strategy {
         // Stated rules come before any search.
         if let Some(c) = self.stated_effect_choice(view, decision, choices) {
             return c;
+        }
+        // Debt: pay it as soon as there is $ for it. In a game with Change, whether to keep a token (Change gives +$3 with Debt) is searched.
+        if self.search_play
+            && decision.kind == DecisionKind::Buy
+            && decision.player == view.me()
+            && view.is_my_turn()
+            && view.debt_decision_matters()
+            && choices.iter().any(|c| matches!(c, Choice::PayDebt | Choice::PayDebtKeep(_)))
+        {
+            if let Some(c) = self.stated_debt_choice(view, choices) {
+                return c;
+            }
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
         }
         // Choices inside a Treasure being played (Investment, Crystal Ball, Anvil) change which
         // Treasures are left to play: searched like the play order when `search_play` is on.
@@ -492,9 +552,12 @@ impl Strategy {
                     Act::Pass => self.choose_pass(view, choices),
                     // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
                     Act::Tavern | Act::Call | Act::Exchange => iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass),
+                    // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
+                    Act::ToHand => iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(Choice::Pass),
                 }
             }
             DecisionKind::Mode { .. } => self.choose_mode(view, decision, choices),
+            DecisionKind::Bid { min } => defaults::choose_bid(view, min, choices),
             DecisionKind::Token { token } => defaults::choose_token(self, view, token as usize, choices),
             // A stated rule for a call or an exchange decides; the defaults are the set's (`defaults::adventures`).
             DecisionKind::YesNo { act: Act::Call | Act::Exchange } | DecisionKind::YesNo { act: Act::Discard }
@@ -568,6 +631,10 @@ impl Strategy {
     /// would reach a card listed earlier, spend a token (one at a time: each is its own decision) until it
     /// is affordable. Tokens not needed for the first listed card the bot can reach are kept.
     fn buy_decision(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        // Debt: pay it off as soon as there is $ for it, before anything is bought (the exceptions are searched: see `decide`).
+        if view.debt_of(view.me()) > 0 && choices.contains(&Choice::PayDebt) {
+            return self.stated_debt_choice(view, choices).unwrap_or(Choice::PayDebt);
+        }
         if choices.contains(&Choice::Coffers) {
             if let Some(target) = self.first_reachable(view) {
                 return if has_card(choices, target) { Choice::Card(target) } else { Choice::Coffers };
@@ -577,9 +644,29 @@ impl Strategy {
         self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass)
     }
 
+    /// The choice a stated `[[debt]]` rule makes among `choices` (a Buy decision with Debt to pay), if one applies.
+    pub fn stated_debt_choice(&self, view: &PlayerView, choices: &[Choice]) -> Option<Choice> {
+        let (pay, _) = self.debt.iter().find(|(_, cond)| cond.as_ref().map_or(true, |e| e.eval_bool(view)))?;
+        let debt = view.debt_of(view.me());
+        Some(match pay {
+            DebtPay::All if choices.contains(&Choice::PayDebt) => Choice::PayDebt,
+            DebtPay::Keep1 if choices.contains(&Choice::PayDebtKeep(1)) => Choice::PayDebtKeep(1),
+            // One token (or none) is already all that would be kept; with more but no $ to keep it with, pay what there is.
+            DebtPay::Keep1 if debt > 1 && choices.contains(&Choice::PayDebt) => Choice::PayDebt,
+            _ => Choice::Pass,
+        })
+    }
+
+    /// Whether a `[[debt]]` rule exists.
+    pub fn states_debt(&self) -> bool {
+        !self.debt.is_empty()
+    }
+
     /// The first gain-list card that can be bought with the coins and every Coffers token.
     fn first_reachable(&self, view: &PlayerView) -> Option<CardId> {
-        self.first_reachable_with(view, view.turn().coins as u32 + view.coffers() as u32, view.turn().potions)
+        // Debt is paid out of the money first.
+        let money = (view.turn().coins as u32 + view.coffers() as u32).checked_sub(view.debt_of(view.me()) as u32)?;
+        self.first_reachable_with(view, money, view.turn().potions)
     }
 
     /// The first gain-list card that `money` and `potions` reach.
@@ -652,14 +739,46 @@ impl Strategy {
     fn best_gain_rank(&self, view: &PlayerView, max_cost: u8, filter: Filter, exact: bool, potion: bool) -> Option<usize> {
         self.buy.iter().position(|(card, cond)| {
             // Potion: "up to $X" admits Potion-cost cards only when the reference cost has one;
-            // "exactly" needs it to match (the engine's gain rule, see `Frame::potion`).
+            // "exactly" needs it to match (the engine's gain rule, see `Frame::potion`). A card with Debt in its cost is never gained that way.
             let pc = cards::potion_cost(*card);
-            let cost_ok = if exact { view.cost(*card) == max_cost && pc == potion } else { view.cost(*card) <= max_cost && (potion || !pc) };
+            let cost_ok = cards::debt_cost(*card) == 0
+                && if exact { view.cost(*card) == max_cost && pc == potion } else { view.cost(*card) <= max_cost && (potion || !pc) };
             cost_ok
                 && filter.matches(*card)
                 && view.in_supply(*card)
                 && view.supply(*card) > 0
                 && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
+        })
+    }
+
+    /// Rank of the best gain-list card costing up to `max_cost` (and no Potion or Debt) that could be gained now.
+    pub(crate) fn best_gain_rank_up_to(&self, view: &PlayerView, max_cost: u8) -> Option<usize> {
+        self.best_gain_rank(view, max_cost, Filter::Any, false, false)
+    }
+
+    /// Rank of the best gain-list card costing more $ than `above` that could be gained now (Change's gain; Debt is the difference).
+    pub(crate) fn best_gain_rank_more(&self, view: &PlayerView, above: u8) -> Option<usize> {
+        self.buy.iter().position(|(card, cond)| {
+            !cards::is_pseudo(*card)
+                && view.cost(*card) > above
+                && view.in_supply(*card)
+                && view.supply(*card) > 0
+                && view.pile_open(*card)
+                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
+        })
+    }
+
+    /// The best-ranked Action in the gain list costing up to `max_cost`, in its pile now.
+    pub(crate) fn best_listed_action_up_to(&self, view: &PlayerView, max_cost: u8) -> Option<CardId> {
+        self.buy.iter().find_map(|(card, cond)| {
+            (cards::is(*card, ACTION)
+                && view.cost(*card) <= max_cost
+                && cards::debt_cost(*card) == 0
+                && !cards::potion_cost(*card)
+                && view.in_supply(*card)
+                && view.supply(*card) > 0
+                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)))
+            .then_some(*card)
         })
     }
 
@@ -709,6 +828,10 @@ impl Strategy {
         // Joust's Reward (a gain from outside the Supply) when the list names none of them.
         if let Some(r) = defaults::default_side_gain(choices) {
             return Choice::Card(r);
+        }
+        // Change with no listed gain: the cheapest card that costs more (the Debt is the difference), the best of those.
+        if _decision.source == Some(id::CHANGE) {
+            return iter_cards(choices).min_by_key(|&c| (cards::cost(c), -Self::card_value(c), c)).map(Choice::Card).unwrap_or(Choice::Pass);
         }
         // Nothing in the buy list is affordable/legal here (e.g. a small Workshop/Remodel gain
         // below everything we listed). Never gain Curse if there's an alternative, and avoid
@@ -795,6 +918,10 @@ impl Strategy {
     /// the best line; a single playable card is simply played. The rule order in `best_play` is
     /// only a fallback if the search can't run.
     fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
+        // A stated `[[debt]] pay = "all"` rule pays the Debt off before a Change is played (so that it remodels).
+        if matches!(decision.kind, DecisionKind::PlayAction) && choices.contains(&Choice::PayDebt) && self.stated_debt_choice(view, choices) == Some(Choice::PayDebt) {
+            return Choice::PayDebt;
+        }
         // No real choice (every action choice-free, all playable): the obvious order, no search.
         if self.search_play && matches!(decision.kind, DecisionKind::PlayAction) && decision.player == view.me() {
             if let Some(c) = obvious_play(view, choices) {
@@ -858,7 +985,8 @@ impl Strategy {
 
     /// Whether the trash rules (stated, then defaults) want `card` gone right now.
     pub fn wants_trash(&self, view: &PlayerView, card: CardId) -> bool {
-        self.trash.iter().any(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
+        // Rocks (Empires) gains a Silver when trashed, so it is always worth trashing (but not named: that would ask for its split pile).
+        card == id::ROCKS || self.trash.iter().any(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
     }
 
     // -----------------------------------------------------------------------------------------
@@ -885,7 +1013,7 @@ impl Strategy {
         let zone = zone_of(view, from, filter, choices);
         let mut wanted = Counts::EMPTY;
         let mut left = if min > 0 { min as u32 } else { max as u32 };
-        let mut order: [CardId; NUM_CARDS] = [0; NUM_CARDS];
+        let mut order: [CardId; NUM_ZONE_IDS] = [0; NUM_ZONE_IDS];
         for (i, o) in order.iter_mut().enumerate() {
             *o = i as CardId;
         }
@@ -972,7 +1100,7 @@ impl Strategy {
         }
         let mut need = (min as u32).saturating_sub(wanted.total());
         if need > 0 {
-            let mut rest: [CardId; NUM_CARDS] = [0; NUM_CARDS];
+            let mut rest: [CardId; NUM_ZONE_IDS] = [0; NUM_ZONE_IDS];
             for (i, r) in rest.iter_mut().enumerate() {
                 *r = i as CardId;
             }
@@ -1090,11 +1218,12 @@ impl Strategy {
     fn event_before_treasures(&self, view: &PlayerView, e: CardId) -> bool {
         let mut money = view.turn().coins as u32 + view.coffers() as u32;
         let mut potions = view.turn().potions;
+        let debt = view.debt_of(view.me()) as u32;
         for (c, n) in view.hand().iter().filter(|&(c, _)| cards::is(c, cards::TREASURE)) {
             money += cards::def(c).coins as u32 * n as u32;
             potions += cards::def(c).potions * n;
         }
-        self.first_reachable_with(view, money, potions) == Some(e)
+        money.checked_sub(debt).and_then(|m| self.first_reachable_with(view, m, potions)) == Some(e)
     }
 
     /// The `PlayTreasure` choice by rule order alone, without searching:
@@ -1499,6 +1628,7 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::InPlay => *view.in_play(),
         Zone::Trash => *view.trash(),
         Zone::Tavern => view.tavern_of(view.me()),
+        Zone::Archive => view.archive(),
         Zone::DeckTop => {
             let mut top = Counts::EMPTY;
             if let Some(c) = view.deck_known_top().next() {
@@ -1514,7 +1644,7 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
             c
         }
     };
-    for c in 0..NUM_CARDS as CardId {
+    for c in 0..NUM_ZONE_IDS as CardId {
         if !filter.matches(c) {
             z.set(c, 0);
         }
@@ -1529,7 +1659,7 @@ fn pick_wanted(wanted: &Counts, choices: &[Choice], ordered: bool, forced: bool)
     let pick = if ordered {
         iter_cards(choices).find(|&c| wanted.has(c))
     } else {
-        (0..NUM_CARDS as CardId).find(|&c| wanted.has(c) && has_card(choices, c))
+        (0..NUM_ZONE_IDS as CardId).find(|&c| wanted.has(c) && has_card(choices, c))
     };
     match pick {
         Some(c) => Choice::Card(c),

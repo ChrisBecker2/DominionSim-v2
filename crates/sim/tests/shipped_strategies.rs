@@ -52,3 +52,27 @@ fn reserve_engine_beats_big_money_ultimate() {
     // Reserve cards on the Tavern mat: Royal Carriage, Wine Merchant, Ratcatcher with a Smithy (~55%).
     beats_big_money_ultimate("reserve_engine.toml", "Royal Carriage,Wine Merchant,Ratcatcher,Smithy,Village,Market,Militia,Moat,Cellar,Workshop", 1500, 0.51);
 }
+
+#[test]
+fn conquest_bm_beats_big_money_ultimate() {
+    // The Conquest Event (Empires): two Silvers and a VP token for each Silver gained this turn (~80%).
+    beats_big_money_ultimate("conquest_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Conquest", 2000, 0.7);
+}
+
+#[test]
+fn forum_bm_beats_big_money_ultimate() {
+    // Two Forums (Empires), ~74%.
+    beats_big_money_ultimate("forum_bm.toml", "Forum,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.65);
+}
+
+#[test]
+fn wild_hunt_bm_beats_big_money_ultimate() {
+    // Two Wild Hunts (Empires, a Gathering card), ~70%.
+    beats_big_money_ultimate("wild_hunt_bm.toml", "Wild Hunt,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.62);
+}
+
+#[test]
+fn castles_bm_beats_big_money_ultimate() {
+    // The Castles pile bought behind Provinces by a rich deck (Empires), ~67%.
+    beats_big_money_ultimate("castles_bm.toml", "Castles,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.6);
+}

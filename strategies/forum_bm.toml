@@ -1,0 +1,29 @@
+# Forum + Big Money (Empires). Forum draws three, keeps the Action, and discards two; buying it also gives
+# a +Buy, which the strategy uses for a Province with the spare $. Two Forums are enough.
+
+name = "Forum-BM"
+description = "Big Money with two Forums as cantrip-ish drawers."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Forum"
+if = "count(Forum) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Forum"

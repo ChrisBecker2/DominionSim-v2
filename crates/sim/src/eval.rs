@@ -1,6 +1,6 @@
 //! Scoring a turn by a strategy's own priorities, for analysis of a strategy seat's decisions.
 
-use dominion_engine::cards::{id, CardId, NUM_CARDS};
+use dominion_engine::cards::{id, CardId, NUM_ZONE_IDS};
 use dominion_engine::{GameState, PlayerView};
 use dominion_engine::{Choice, Decision, DecisionKind};
 use dominion_search::{game_end_value, Evaluator, NextHandEvaluator};
@@ -70,7 +70,7 @@ impl GainListEvaluator<'_> {
                 }
             }
         }
-        for c in 0..NUM_CARDS as CardId {
+        for c in 0..NUM_ZONE_IDS as CardId {
             // A card that trashed itself as part of its effect was used, not lost.
             let gone = before.get(c) as i32 - after.get(c) as i32 - leaf.turn.used_up.get(c) as i32;
             // Trashing what the trash rules want is a plus; losing anything else (a lone
@@ -79,7 +79,30 @@ impl GainListEvaluator<'_> {
                 p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
-        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me) + self.mat_return_value(root, leaf, me)
+        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me) + self.mat_return_value(root, leaf, me) + self.debt_value(root, leaf, me)
+    }
+
+    /// Debt is money owed out of a later hand: each token is the opposite of a Coffers token, `vp_per_coin` while the game has turns left to pay it
+    /// in (nothing in the last turn). In a game with Change, one token left unpaid is worth something too: Change gives +$3 instead of remodeling
+    /// while its player has Debt, so for the chance that a Change is in the next hand (5 cards of the deck) a token is worth +$3 of that hand.
+    /// On the preference scale like Coffers: more than any play preference, never more than a gain-list difference.
+    fn debt_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        let (before, after) = (root.players[me as usize].debt as f64, leaf.players[me as usize].debt as f64);
+        if before == 0.0 && after == 0.0 {
+            return 0.0;
+        }
+        let w = &self.tie_break.weights;
+        if dominion_search::estimated_turns_left(root, w) - 1.0 <= 0.0 {
+            return 0.0;
+        }
+        let mut v = -(after - before) * w.vp_per_coin;
+        if after > 0.0 && root.emp.flags & dominion_engine::state::E_KEEP_DEBT != 0 {
+            let mine = root.players[me as usize].all_cards();
+            let changes = mine.get(dominion_engine::cards::id::CHANGE) as f64;
+            let n = (mine.total() as f64).max(5.0);
+            v += 3.0 * w.vp_per_coin * (5.0 * changes / n).min(1.0);
+        }
+        v
     }
 
     /// Reserve cards that left the Tavern mat this turn go back into the deck cycle (a called card is discarded at Clean-up, a Wine Merchant
@@ -171,7 +194,7 @@ impl Evaluator for GainListEvaluator<'_> {
             }
         }
         let mut v = exchanges as f64 * 0.5;
-        for c in 0..NUM_CARDS as CardId {
+        for c in 0..NUM_ZONE_IDS as CardId {
             let d = after.get(c) as i32 - before.get(c) as i32;
             // A card that trashed itself as part of its effect (Investment, Mining Village) was
             // used, not lost: no charge for it.
@@ -412,6 +435,8 @@ fn bank_too_early(state: &GameState, me: u8, c: CardId) -> bool {
         id::BANK => hand.iter().any(|(x, _)| x != id::BANK && state.is_treasure(x)),
         // Horn of Plenty counts the names in play: after every other Treasure (Bank may follow it).
         id::HORN_OF_PLENTY => hand.iter().any(|(x, _)| x != id::HORN_OF_PLENTY && x != id::BANK && state.is_treasure(x)),
+        // Fortune doubles the $ so far: after every other Treasure (Coffers are spent before it by the Treasure decision).
+        id::FORTUNE => hand.iter().any(|(x, _)| x != id::FORTUNE && state.is_treasure(x)),
         _ => false,
     }
 }

@@ -191,7 +191,7 @@ struct CardInfo {
     #[serde(rename = "costLabel")]
     cost_label: String,
     types: Vec<&'static str>,
-    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages" or "Adventures".
+    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires" or "Rising Sun".
     set: &'static str,
 }
 
@@ -210,14 +210,17 @@ fn card_info(c: CardId) -> CardInfo {
     if cards::is_event(c) {
         types.push("Event");
     }
+    if cards::is_landmark(c) {
+        types.push("Landmark");
+    }
     let set = cards::set_of(c).name();
     CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), cost_label: cards::cost_string(c), types, set }
 }
 
 fn cards_response() -> serde_json::Value {
-    // Adventures' Events are listed with the kingdom cards (type "Event"): a fixed kingdom may include them, and the evolving side may be barred from them.
+    // The Events (Adventures, Empires) and Landmarks (Empires) are listed with the kingdom cards (types "Event" and "Landmark"): a fixed kingdom may include them, and the evolving side may be barred from them.
     let kingdom: Vec<CardInfo> =
-        cards::kingdom_cards().chain(cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId).map(card_info).collect();
+        cards::kingdom_cards().chain(cards::FIRST_EVENT..cards::FIRST_EVENT + (cards::NUM_EVENTS + cards::NUM_LANDMARKS) as CardId).map(card_info).collect();
     let basic: Vec<CardInfo> = (0..cards::FIRST_KINGDOM).map(card_info).collect();
     json!({ "kingdom": kingdom, "basic": basic })
 }

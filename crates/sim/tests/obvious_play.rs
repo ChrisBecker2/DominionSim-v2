@@ -73,7 +73,9 @@ fn free_actions_of(adventures: bool) -> Vec<CardId> {
         .filter(|&c| !cards::is_kingdom(c) && cards::is(c, cards::ACTION) && cards::set_of(c) == cards::CardSet::DarkAges);
     // The Traveller upgrades of Adventures are not kingdom cards either.
     let upgrades = (id::TREASURE_HUNTER..=id::TEACHER).filter(|&c| cards::is(c, cards::ACTION));
-    let all: Vec<CardId> = cards::kingdom_cards().chain(others).chain(upgrades).collect();
+    // The bottom halves of the Empires split piles are Actions no kingdom names (Emporium).
+    let bottoms = [id::EMPORIUM];
+    let all: Vec<CardId> = cards::kingdom_cards().chain(others).chain(upgrades).chain(bottoms).collect();
     all.into_iter()
         .filter(|&c| (cards::set_of(c) == cards::CardSet::Adventures) == adventures)
         .filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE)
@@ -121,7 +123,9 @@ fn obvious_play_is_as_good_as_searching_inner(adventures: bool) {
         pool.extend_from_slice(&fillers);
         let deck: Vec<CardId> = (0..6 + rng.below(6)).map(|_| pick(&mut rng, &pool)).collect();
         let actions = 1 + rng.below(2);
-        let kingdom: Vec<CardId> = free.iter().copied().filter(|&c| cards::is_kingdom(c)).collect();
+        // Not Footpad: with it in the Supply every gain in an Action phase draws a card (a Curse from Familiar, say, gives the victim a draw), and
+        // the order of a cantrip and an Attack that gains then changes the value of the turn; that interplay is not what this test is about.
+        let kingdom: Vec<CardId> = free.iter().copied().filter(|&c| cards::is_kingdom(c) && c != id::FOOTPAD).collect();
         let text = format!(
             "players: 2\nkingdom: {}\nturn: 5  player: 1  phase: action  actions: {actions}  buys: 1  coins: 0\n\n\
              [player 1]\nhand: {}\ndeck: {}\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n",

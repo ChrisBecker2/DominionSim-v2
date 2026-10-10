@@ -1579,12 +1579,18 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 256 != 0 {
         v.push(cards::CardSet::Adventures);
     }
+    if sets_mask & 512 != 0 {
+        v.push(cards::CardSet::Empires);
+    }
+    if sets_mask & 1024 != 0 {
+        v.push(cards::CardSet::RisingSun);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures: its Events join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1843,6 +1849,11 @@ fn render_event(e: &Event) -> String {
         Event::Flip { player, up } => format!("Player {} turns their Journey token {}", player + 1, if up { "face up" } else { "face down" }),
         Event::MinusToken { player, token } => format!("Player {} takes their {} token", player + 1, cards::TOKEN_NAMES[token as usize]),
         Event::GameOver => "--- Game over ---".to_string(),
+        Event::TakeDebt { player, source, n } => format!("Player {} takes {n} Debt ({})", player + 1, cards::name(source)),
+        Event::PayDebt { player, n } => format!("Player {} pays off {n} Debt", player + 1),
+        Event::VpTokens { player, source, n } => format!("Player {} takes {n} VP token(s) ({})", player + 1, cards::name(source)),
+        Event::PileVp { pile, n } => format!("{n} VP token(s) are put on {}", cards::name(pile)),
+        Event::PileDebt { pile, n } => format!("{n} Debt is put on the {} pile", cards::name(pile)),
         Event::PlayAgain { player, card, source, nth } => {
             let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };
             format!("Player {} plays {} {again} ({})", player + 1, cards::name(card), cards::name(source))
@@ -1875,6 +1886,7 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::Trash => " from the trash",
         Zone::DeckTop => " from the top of your deck",
         Zone::Tavern => " from your Tavern mat",
+        Zone::Archive => " from the cards under your Archives",
     }
 }
 
@@ -1933,6 +1945,11 @@ fn filter_noun(f: Filter) -> (String, String) {
         ),
         Filter::GainableCopy => ("a card you can gain a copy of".into(), "cards you can gain a copy of".into()),
         Filter::InheritCard => ("a non-Duration, non-Command Action card costing up to $4".into(), "such Action cards".into()),
+        Filter::NonVictory => ("a non-Victory card".into(), "non-Victory cards".into()),
+        Filter::CommandCostUpTo(n) => (
+            format!("a non-Duration, non-Command Action card costing up to ${n}"),
+            format!("non-Duration, non-Command Action cards costing up to ${n}"),
+        ),
         Filter::Types(set) => match set {
             dominion_engine::state::TypeSet::Attack => ("an Attack card".into(), "Attack cards".into()),
             dominion_engine::state::TypeSet::Ruins => ("a Ruins".into(), "Ruins".into()),
@@ -1941,6 +1958,7 @@ fn filter_noun(f: Filter) -> (String, String) {
             dominion_engine::state::TypeSet::CurseRuinsShelterVictory => {
                 ("a Curse, Ruins, Shelter or Victory card".into(), "Curses, Ruins, Shelters and Victory cards".into())
             }
+            dominion_engine::state::TypeSet::Castle => ("a Castle".into(), "Castles".into()),
         },
         Filter::NonTreasure => ("a non-Treasure card".into(), "non-Treasure cards".into()),
         Filter::TreasureNonDuration => ("a non-Duration Treasure".into(), "non-Duration Treasures".into()),
@@ -2030,6 +2048,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Tavern => ("put", " onto your Tavern mat".to_string()),
                 Act::Call => ("call", String::new()),
                 Act::Exchange => ("exchange", String::new()),
+                Act::ToHand => ("take", " into your hand".to_string()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -2063,9 +2082,12 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Tavern => format!("Put {card} on your Tavern mat?"),
                 Act::Call => format!("Call {card}?"),
                 Act::Exchange => format!("Exchange {card} for the next card of its line?"),
+                Act::ToHand => format!("Take {card} into your hand?"),
             }
         }
+        DecisionKind::Token { token } if token as usize == dominion_engine::sets::empires::TOK_TAX => "Put 2 Debt on a Supply pile.".to_string(),
         DecisionKind::Token { token } => format!("Move your {} token to a pile.", cards::TOKEN_NAMES[token as usize]),
+        DecisionKind::Bid { min } => format!("Mountain Pass: bid Debt for 8 VP (at least {min}, or no bid)."),
         DecisionKind::Mode { picks, distinct } => {
             let what = if picks == 1 {
                 "one".to_string()
@@ -2148,6 +2170,10 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
     }
     match c {
         Choice::Coffers => "Spend a Coffers token (+$1)".to_string(),
+        Choice::PayDebt => "Pay off Debt".to_string(),
+        Choice::PayDebtKeep(n) => format!("Pay off Debt, keeping {n}"),
+        Choice::Bid(0) => "No bid".to_string(),
+        Choice::Bid(n) => format!("Bid {n} Debt"),
         Choice::Overpay(0) => "Don't overpay".to_string(),
         Choice::Overpay(coins) => format!("Overpay ${coins}"),
         Choice::OverpayPotion(coins) => format!("Overpay ${coins} + Potion"),
@@ -2182,6 +2208,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                     Act::Tavern => format!("Put {name} on the mat"),
                     Act::Call => format!("Call {name}"),
                     Act::Exchange => format!("Exchange {name}"),
+                    Act::ToHand => format!("Take {name} into your hand"),
                 },
                 DecisionKind::Token { .. } => format!("Put it on {name}"),
                 DecisionKind::YesNo { .. } => name.to_string(),
@@ -2190,6 +2217,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                 DecisionKind::StartOrder => start_effect_label(state, card),
                 DecisionKind::DeckPosition { .. } => name.to_string(),
                 DecisionKind::Overpay { .. } => name.to_string(),
+                DecisionKind::Bid { .. } => name.to_string(),
             }
         }
         Choice::Position(255) => "Bottom".to_string(),
@@ -2244,19 +2272,28 @@ fn sequence_json(iter: impl Iterator<Item = CardId>) -> String {
 /// `[{"name":"Alms","cost":0,"buyable":true},...]`: the Events of the game (Adventures), `buyable` for the turn's player right now.
 fn events_json(state: &GameState) -> String {
     let items: Vec<String> = (0..cards::NUM_EVENTS as CardId)
-        .filter(|i| state.events & (1 << i) != 0)
+        .filter(|i| state.events & (1u64 << i) != 0)
         .map(|i| {
             let e = cards::FIRST_EVENT + i;
             let buyable = state.turn.phase == Phase::Buy && dominion_engine::sets::adventures::event_buyable(state, e) && state.turn.buys > 0;
-            format!("{{\"name\":{},\"cost\":{},\"buyable\":{buyable}}}", jstr(cards::name(e)), cards::cost(e))
+            format!("{{\"name\":{},\"cost\":{},\"costLabel\":{},\"buyable\":{buyable}}}", jstr(cards::name(e)), cards::cost(e), jstr(&cards::cost_string(e)))
         })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `[{"name":"Arena","vp":12},...]`: the Landmarks of the game (Empires) and the VP tokens on each (`vp` is 0 for the scoring Landmarks).
+fn landmarks_json(state: &GameState) -> String {
+    let items: Vec<String> = (0..cards::NUM_LANDMARKS)
+        .filter(|&i| state.emp.landmarks & (1 << i) != 0)
+        .map(|i| format!("{{\"name\":{},\"vp\":{}}}", jstr(cards::name(cards::FIRST_LANDMARK + i as CardId)), state.emp.lm_vp[i]))
         .collect();
     format!("[{}]", items.join(","))
 }
 
 fn supply_json(state: &GameState) -> String {
     // The Knights and Ruins piles are one entry each, showing the top card (the only one that can be bought) and the cards left.
-    let mut ids: Vec<CardId> = (0..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c)).collect();
+    let mut ids: Vec<CardId> = (0..cards::FIRST_PILE_CARD).filter(|&c| state.in_supply(c) && !cards::is_castle(c)).collect();
     // The split pile Sauna/Avanto is one entry: the top half.
     if state.in_supply(id::SAUNA) {
         ids.retain(|&c| c != id::AVANTO && c != id::SAUNA);
@@ -2267,6 +2304,10 @@ fn supply_json(state: &GameState) -> String {
         if state.has_pile(pile) {
             piles.push((state.pile_top(pile).unwrap_or(pile.marker), state.pile_size(pile), name));
         }
+    }
+    // Empires: the Castles are one pile, showing the top Castle (the only one that can be bought).
+    if let Some(top) = state.castle_top() {
+        piles.push((top, state.castles_left() as u8, "Castles"));
     }
     ids.extend(piles.iter().map(|p| p.0));
     // Victory (Colony alongside Province), then treasure high to low (Platinum alongside Gold),
@@ -2305,6 +2346,22 @@ fn supply_json(state: &GameState) -> String {
                         }
                     }
                     if ts.is_empty() { String::new() } else { format!(",\"tokens\":[{}]", ts.join(",")) }
+                } + &{
+                    // Empires: VP and Debt tokens on the pile, and which half of a split pile this is.
+                    let (vp, debt) = (state.emp.piles.vp_on(c), state.emp.piles.debt_on(c));
+                    let mut s = String::new();
+                    if vp > 0 {
+                        s += &format!(",\"vp\":{vp}");
+                    }
+                    if debt > 0 {
+                        s += &format!(",\"debtTokens\":{debt}");
+                    }
+                    if cards::is_split_bottom(c) && c != id::AVANTO {
+                        s += ",\"half\":\"bottom\"";
+                    } else if cards::split_bottom(c).is_some() && c != id::SAUNA {
+                        s += ",\"half\":\"top\"";
+                    }
+                    s
                 }
             )
         })
@@ -2384,7 +2441,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
             "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"cleanupAside\":{cleanup_aside},",
             "\"tavern\":{tavern},\"tokens\":{tokens},\"journeyDown\":{journey},\"minusCard\":{mcard},\"minusCoin\":{mcoin},\"inherit\":{inherit},",
-            "\"saved\":{saved},\"boughtEvents\":{bought},",
+            "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         tavern = counts_json(&ps.tavern.counts()),
@@ -2405,7 +2462,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         saved = if ps.saved != 0 { jstr(cards::name(ps.saved)) } else { "null".to_string() },
         bought = {
             let items: Vec<String> = (0..cards::NUM_EVENTS as CardId)
-                .filter(|i| ps.events_bought & (1 << i) != 0)
+                .filter(|i| ps.events_bought & (1u64 << i) != 0)
                 .map(|i| jstr(cards::name(cards::FIRST_EVENT + i)))
                 .collect();
             format!("[{}]", items.join(","))
@@ -2428,6 +2485,8 @@ fn player_json(state: &GameState, p: usize) -> String {
         coffers = ps.coffers,
         farm_cards = counts_json(&ps.farm_cards.counts()),
         cleanup_aside = counts_json(&ps.cleanup_aside.counts()),
+        debt = ps.debt,
+        archive = counts_json(&ps.archive.counts()),
         vp = ps.vp(),
         vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,
@@ -2504,7 +2563,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"landmarks\":{landmarks},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -2519,6 +2578,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         tpot = state.turn.potions,
         supply = supply_json(state),
         events = events_json(state),
+        landmarks = landmarks_json(state),
         trash = counts_json(&state.trash),
         players = players.join(","),
         scores = scores_json.join(","),

@@ -1,0 +1,30 @@
+# Wild Hunt + Big Money (Empires). Wild Hunt either draws three and puts a VP token on its pile, or, when the
+# pile has tokens, gains an Estate and takes them all. The default mode choice does that (draw while the pile is
+# small, take the tokens when it holds enough); two copies are enough.
+
+name = "Wild-Hunt-BM"
+description = "Big Money with two Wild Hunts: draw early, cash in the pile's VP tokens later."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Wild Hunt"
+if = "count(Wild Hunt) < 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Wild Hunt"

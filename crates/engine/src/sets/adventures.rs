@@ -12,7 +12,8 @@ use crate::state::{
 };
 
 /// Card ids of this set (dense, contiguous, and stable: saved states and the text format name cards, but the ids index the card table).
-/// 202-231 are the kingdom cards, 234-241 the Traveller upgrades (232-233 are Sauna and Avanto, in the Promo set), 242-261 the Events.
+/// 202-231 are the kingdom cards, 272-279 the Traveller upgrades (232 is Sauna, in the Promo set), 296-315 the Events (pseudo-cards, above
+/// every id that can sit in a zone).
 pub mod ids {
     use crate::cards::CardId;
     pub const COIN_OF_THE_REALM: CardId = 202;
@@ -45,37 +46,36 @@ pub mod ids {
     pub const TREASURE_TROVE: CardId = 229;
     pub const WINE_MERCHANT: CardId = 230;
     pub const HIRELING: CardId = 231;
-    // (232 Sauna, 233 Avanto: promo.rs)
     // The Traveller upgrades: non-Supply piles of five.
-    pub const TREASURE_HUNTER: CardId = 234;
-    pub const WARRIOR: CardId = 235;
-    pub const HERO: CardId = 236;
-    pub const CHAMPION: CardId = 237;
-    pub const SOLDIER: CardId = 238;
-    pub const FUGITIVE: CardId = 239;
-    pub const DISCIPLE: CardId = 240;
-    pub const TEACHER: CardId = 241;
+    pub const TREASURE_HUNTER: CardId = 272;
+    pub const WARRIOR: CardId = 273;
+    pub const HERO: CardId = 274;
+    pub const CHAMPION: CardId = 275;
+    pub const SOLDIER: CardId = 276;
+    pub const FUGITIVE: CardId = 277;
+    pub const DISCIPLE: CardId = 278;
+    pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 242;
-    pub const BALL: CardId = 243;
-    pub const BONFIRE: CardId = 244;
-    pub const BORROW: CardId = 245;
-    pub const EXPEDITION: CardId = 246;
-    pub const FERRY: CardId = 247;
-    pub const INHERITANCE: CardId = 248;
-    pub const LOST_ARTS: CardId = 249;
-    pub const MISSION: CardId = 250;
-    pub const PATHFINDING: CardId = 251;
-    pub const PILGRIMAGE: CardId = 252;
-    pub const PLAN: CardId = 253;
-    pub const QUEST: CardId = 254;
-    pub const RAID: CardId = 255;
-    pub const SAVE: CardId = 256;
-    pub const SCOUTING_PARTY: CardId = 257;
-    pub const SEAWAY: CardId = 258;
-    pub const TRADE: CardId = 259;
-    pub const TRAINING: CardId = 260;
-    pub const TRAVELLING_FAIR: CardId = 261;
+    pub const ALMS: CardId = 296;
+    pub const BALL: CardId = 297;
+    pub const BONFIRE: CardId = 298;
+    pub const BORROW: CardId = 299;
+    pub const EXPEDITION: CardId = 300;
+    pub const FERRY: CardId = 301;
+    pub const INHERITANCE: CardId = 302;
+    pub const LOST_ARTS: CardId = 303;
+    pub const MISSION: CardId = 304;
+    pub const PATHFINDING: CardId = 305;
+    pub const PILGRIMAGE: CardId = 306;
+    pub const PLAN: CardId = 307;
+    pub const QUEST: CardId = 308;
+    pub const RAID: CardId = 309;
+    pub const SAVE: CardId = 310;
+    pub const SCOUTING_PARTY: CardId = 311;
+    pub const SEAWAY: CardId = 312;
+    pub const TRADE: CardId = 313;
+    pub const TRAINING: CardId = 314;
+    pub const TRAVELLING_FAIR: CardId = 315;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -552,13 +552,16 @@ pub fn event_buyable(g: &GameState, e: CardId) -> bool {
 /// `event_buyable` without the cost: the Event is in the game and nothing but its price keeps it from being bought (a Coffers token spent
 /// may still pay it).
 pub fn event_available(g: &GameState, e: CardId) -> bool {
-    let bit = 1u32 << (e - FIRST_EVENT);
+    let bit = 1u64 << (e - FIRST_EVENT);
     if g.events & bit == 0 {
         return false;
     }
     let p = g.turn.player as usize;
     if once_per_turn(e) && g.turn.adv.bought & bit != 0 {
         return false;
+    }
+    if e >= crate::sets::empires::ids::ADVANCE {
+        return crate::sets::empires::event_available(g, e);
     }
     match e {
         // Once per game; needs a card to set aside.
@@ -575,7 +578,7 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
 /// Whether Alms is still worth buying before the Treasures are played: it is in the game and not yet bought this turn, a Buy is left, no Treasure
 /// is in play and the hand holds one that would be played (`GameState::alms_window`; the caller has tested that Alms is in the game).
 pub(crate) fn alms_window(g: &GameState) -> bool {
-    let bit = 1u32 << (ids::ALMS - FIRST_EVENT);
+    let bit = 1u64 << (ids::ALMS - FIRST_EVENT);
     let p = g.turn.player;
     g.events & bit != 0
         && g.turn.adv.bought & bit == 0
@@ -588,6 +591,9 @@ pub(crate) fn alms_window(g: &GameState) -> bool {
 /// What buying the Event `e` does, after its cost and Buy are paid.
 pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, sink: &mut S) {
     use Act::*;
+    if e >= crate::sets::empires::ids::ADVANCE {
+        return crate::sets::empires::event_effect(g, e, p, sink);
+    }
     let pi = p as usize;
     match e {
         ids::ALMS => {
@@ -714,6 +720,12 @@ impl GameState {
     /// `p`'s token `tok` is on `pile` now.
     #[inline(never)]
     pub(crate) fn place_token<S: EventSink>(&mut self, p: u8, tok: usize, pile: CardId, sink: &mut S) {
+        // Tax (Empires): 2 Debt on a Supply pile.
+        if tok == crate::sets::empires::TOK_TAX {
+            self.emp.piles.add_debt(pile, 2);
+            sink.event(Event::PileDebt { pile, n: 2 });
+            return;
+        }
         self.players[p as usize].tok[tok] = pile;
         self.adv |= match tok {
             TOK_COST => G_COST_TOKEN,
@@ -731,7 +743,7 @@ impl GameState {
     /// Whether the Supply pile named `c` (a Supply id) is an Action Supply pile: the Knights count, the Ruins and the Supply's non-Actions do
     /// not (the Ruins pile is an Action pile by the rules, but a token there would be pointless).
     pub(crate) fn is_token_pile(&self, c: CardId) -> bool {
-        c < cards::FIRST_PILE_CARD && c != id::AVANTO && cards::is(c, ACTION)
+        c < cards::FIRST_PILE_CARD && cards::pile_of(c) == c && cards::is(c, ACTION)
     }
 
     /// Push the frame that moves `p`'s token `tok` to a pile of their choice; `fresh` = only a pile they have no token on (Teacher).
@@ -743,6 +755,23 @@ impl GameState {
     /// The piles `f` (a `K::Token` frame) may move its token to.
     #[inline(never)]
     pub(crate) fn token_choices(&self, f: Frame, out: &mut ChoiceBuf) {
+        // Tax: any Supply pile (a split pile by its top half, the Castles, the Knights and the Ruins by their markers).
+        if f.subject as usize == crate::sets::empires::TOK_TAX {
+            for c in self.supply_cards() {
+                if cards::pile_of(c) == c && c < cards::FIRST_PILE_CARD {
+                    out.push(Choice::Card(c));
+                }
+            }
+            for pk in [id::KNIGHTS, id::RUINS] {
+                if crate::sets::dark_ages::MixedPile::of_marker(pk).is_some_and(|mp| self.has_pile(mp)) {
+                    out.push(Choice::Card(pk));
+                }
+            }
+            if self.in_supply(id::HUMBLE_CASTLE) && self.castles_left() > 0 {
+                out.push(Choice::Card(id::CASTLES));
+            }
+            return;
+        }
         let ps = &self.players[f.player as usize];
         let ok = |pile: CardId| {
             // Teacher: not a pile that holds any of the player's tokens.
@@ -1076,7 +1105,7 @@ mod tests {
         assert_eq!(cards::token_by_name("+1 coin"), Some(3));
         assert_eq!(cards::token_by_name("Trashing token"), Some(5));
         assert_eq!(crate::state::NUM_PILE_TOKENS, 6);
-        for e in FIRST_EVENT..FIRST_EVENT + cards::NUM_EVENTS as CardId {
+        for e in FIRST_EVENT..FIRST_EVENT + cards::NUM_ADV_EVENTS as CardId {
             assert!(cards::is_event(e) && cards::set_of(e) == CardSet::Adventures);
         }
     }

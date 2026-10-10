@@ -44,6 +44,8 @@ pub const SHELTER: u16 = 4096;
 pub const TRAVELLER: u16 = 8192;
 /// Cards that go onto the Tavern mat when played (Adventures). (The type bits are all used now: the next set widens `types` to `u32`.)
 pub const RESERVE: u16 = 16384;
+/// The eight Castles (Empires): Victory cards in the Castles pile (a fixed order, only the top one can be gained).
+pub const CASTLE: u16 = 1 << 15;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
@@ -52,16 +54,27 @@ pub mod id {
     pub use crate::sets::base::ids::*;
     pub use crate::sets::cornucopia_guilds::ids::*;
     pub use crate::sets::dark_ages::ids::*;
+    pub use crate::sets::empires::ids::*;
     pub use crate::sets::intrigue::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
+    pub use crate::sets::rising_sun::ids::*;
     pub use crate::sets::seaside::ids::*;
 }
 
-/// The first of the twenty Events (pseudo-cards: ids for things that are bought but never gained, see `sets::adventures`).
+/// The first of the Events (pseudo-cards: ids for things that are bought but never gained, see `sets::adventures`). The Events are the 20
+/// of Adventures, then the 13 of Empires, and every id from here up (Events, then the Landmarks) is a pseudo-card: never in a zone, a pile
+/// or a supply mask, so `Counts` needs no lane for it.
 pub const FIRST_EVENT: CardId = id::ALMS;
-/// The number of Events.
-pub const NUM_EVENTS: usize = 20;
+/// The number of Adventures Events.
+pub const NUM_ADV_EVENTS: usize = 20;
+/// The number of Events (Adventures, then Empires): `events` masks are indexed by `event - FIRST_EVENT`.
+pub const NUM_EVENTS: usize = 33;
+/// The first of the 21 Landmarks (Empires), after the Events.
+pub const FIRST_LANDMARK: CardId = id::AQUEDUCT;
+pub const NUM_LANDMARKS: usize = 21;
+/// Ids below this can be in a zone (a hand, a pile, the trash); the pseudo-cards (Events, Landmarks) are above it. `counts::LANES` covers them.
+pub const NUM_ZONE_IDS: usize = FIRST_EVENT as usize;
 /// The first of the eight Traveller upgrade cards (Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive, Disciple, Teacher): non-Supply
 /// piles of five, in ids `FIRST_TRAV..FIRST_TRAV + NUM_TRAV`.
 pub const FIRST_TRAV: CardId = id::TREASURE_HUNTER;
@@ -88,6 +101,59 @@ pub fn is_event(card: CardId) -> bool {
     card.wrapping_sub(FIRST_EVENT) < NUM_EVENTS as CardId
 }
 
+/// The Gathering cards (Empires): Farmers' Market, Temple and Wild Hunt collect VP tokens on their piles. (Not a type bit: the type flags
+/// are all used.)
+#[inline(always)]
+pub fn is_gathering(card: CardId) -> bool {
+    matches!(card, id::FARMERS_MARKET | id::TEMPLE | id::WILD_HUNT)
+}
+
+/// Whether `card` is one of the Empires Landmarks (not a card at all: never bought or gained; it changes the scoring).
+#[inline(always)]
+pub fn is_landmark(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_LANDMARK) < NUM_LANDMARKS as CardId
+}
+
+/// Whether `card` is a pseudo-card (an Event or a Landmark): it has an id, a name and a cost but never sits in a zone.
+#[inline(always)]
+pub fn is_pseudo(card: CardId) -> bool {
+    card >= FIRST_EVENT
+}
+
+/// The bottom halves of the split piles (ids `AVANTO..AVANTO + 6`: Avanto, Plunder, Emporium, Bustling Village, Rocks, Fortune): in the
+/// Supply with their own count, but only gainable once the top half is gone.
+#[inline(always)]
+pub fn is_split_bottom(card: CardId) -> bool {
+    card.wrapping_sub(id::AVANTO) < 6
+}
+
+/// The top half of the split pile whose bottom half is `bottom`.
+#[inline]
+pub fn split_top(bottom: CardId) -> Option<CardId> {
+    const TOPS: [CardId; 6] = [id::SAUNA, id::ENCAMPMENT, id::PATRICIAN, id::SETTLERS, id::CATAPULT, id::GLADIATOR];
+    is_split_bottom(bottom).then(|| TOPS[(bottom - id::AVANTO) as usize])
+}
+
+/// The bottom half of the split pile whose top half is `top`.
+#[inline]
+pub fn split_bottom(top: CardId) -> Option<CardId> {
+    match top {
+        id::SAUNA => Some(id::AVANTO),
+        id::ENCAMPMENT => Some(id::PLUNDER),
+        id::PATRICIAN => Some(id::EMPORIUM),
+        id::SETTLERS => Some(id::BUSTLING_VILLAGE),
+        id::CATAPULT => Some(id::ROCKS),
+        id::GLADIATOR => Some(id::FORTUNE),
+        _ => None,
+    }
+}
+
+/// The eight Castles (ids `HUMBLE_CASTLE..HUMBLE_CASTLE + 8`, in cost order).
+#[inline(always)]
+pub fn is_castle(card: CardId) -> bool {
+    card.wrapping_sub(id::HUMBLE_CASTLE) < 8
+}
+
 /// The pile a card belongs to for the rules about piles (tokens, Ferry): the card itself, the Knights or Ruins marker for a member of
 /// those mixed piles, and Sauna for Avanto (the split pile).
 #[inline]
@@ -97,8 +163,10 @@ pub fn pile_of(card: CardId) -> CardId {
             Some(pile) => pile.marker,
             None => card,
         }
-    } else if card == id::AVANTO {
-        id::SAUNA
+    } else if is_split_bottom(card) {
+        split_top(card).unwrap_or(card)
+    } else if is_castle(card) {
+        id::CASTLES
     } else {
         card
     }
@@ -143,12 +211,16 @@ pub enum CardSet {
     DarkAges,
     /// Adventures (the Tavern mat and Reserve cards, Travellers, Events, tokens).
     Adventures,
+    /// Empires (Debt, split piles and the Castles, Gathering cards, Events, Landmarks).
+    Empires,
+    /// Rising Sun: only Change, the card that needs Debt (see `sets::rising_sun`).
+    RisingSun,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 9] = [
+    pub const ALL: [CardSet; 11] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
-        CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures,
+        CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun,
     ];
 
     pub fn name(self) -> &'static str {
@@ -162,6 +234,8 @@ impl CardSet {
             CardSet::CornucopiaGuilds => "Cornucopia & Guilds",
             CardSet::DarkAges => "Dark Ages",
             CardSet::Adventures => "Adventures",
+            CardSet::Empires => "Empires",
+            CardSet::RisingSun => "Rising Sun",
         }
     }
 }
@@ -194,6 +268,8 @@ pub struct CardDef {
     pub ready: bool,
     /// Whether the card does something "when you trash this" (`SetRules::on_trash`): the other cards' trash costs nothing extra.
     pub on_trash: bool,
+    /// The Debt in the card's cost (Empires): buying it takes this many Debt tokens. 0 for nearly every card.
+    pub debt: u8,
 }
 
 /// What playing an Action card means for its player's choice of play order.
@@ -232,7 +308,7 @@ pub enum OnPlay {
 }
 
 pub(crate) const fn c(name: &'static str, cost: u8, types: u16, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
-    CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true, on_trash: false }
+    CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true, on_trash: false, debt: 0 }
 }
 
 /// A Seaside card.
@@ -278,6 +354,21 @@ pub(crate) const fn adv(d: CardDef) -> CardDef {
 /// The card has a "when you trash this" effect.
 pub(crate) const fn on_trash(d: CardDef) -> CardDef {
     CardDef { on_trash: true, ..d }
+}
+
+/// An Empires card.
+pub(crate) const fn emp(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Empires, ..d }
+}
+
+/// A Rising Sun card.
+pub(crate) const fn rs(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::RisingSun, ..d }
+}
+
+/// The card's cost includes `n` Debt (buying it takes the tokens).
+pub(crate) const fn with_debt(d: CardDef, n: u8) -> CardDef {
+    CardDef { debt: n, ..d }
 }
 
 /// Not implemented yet: can't be put in a kingdom.
@@ -353,16 +444,41 @@ pub fn potion_cost(card: CardId) -> bool {
 /// "$2P" / "$4": the cost as printed on the card.
 /// Printed cost: "$3", "$2P", and "$2+" for a card you may overpay for (Stonemason, Herald).
 pub fn cost_string(card: CardId) -> String {
-    format!("${}{}{}", cost(card), if has_overpay(card) { "+" } else { "" }, if potion_cost(card) { "P" } else { "" })
+    let debt = debt_cost(card);
+    if debt > 0 && cost(card) == 0 {
+        return format!("{debt} Debt");
+    }
+    format!(
+        "${}{}{}{}",
+        cost(card),
+        if has_overpay(card) { "+" } else { "" },
+        if potion_cost(card) { "P" } else { "" },
+        if debt > 0 { format!(" and {debt} Debt") } else { String::new() }
+    )
 }
 #[inline(always)]
 pub fn is(card: CardId, flag: u16) -> bool {
     CARDS[card as usize].types & flag != 0
 }
+/// The Debt in the card's cost (Empires), 0 for a card without one.
+#[inline(always)]
+pub fn debt_cost(card: CardId) -> u8 {
+    CARDS[card as usize].debt
+}
 #[inline(always)]
 pub fn name(card: CardId) -> &'static str {
     CARDS[card as usize].name
 }
+
+/// The split piles: (top half, bottom half).
+pub const SPLIT_PILES: [(CardId, CardId); 6] = [
+    (id::SAUNA, id::AVANTO),
+    (id::ENCAMPMENT, id::PLUNDER),
+    (id::PATRICIAN, id::EMPORIUM),
+    (id::SETTLERS, id::BUSTLING_VILLAGE),
+    (id::CATAPULT, id::ROCKS),
+    (id::GLADIATOR, id::FORTUNE),
+];
 
 /// Case-insensitive lookup; ignores spaces, so "throneroom" and "Throne Room" both work.
 pub fn by_name(s: &str) -> Option<CardId> {
@@ -375,8 +491,10 @@ pub fn by_name(s: &str) -> Option<CardId> {
         return None;
     }
     // The split pile by its name: the card that stands for it in a kingdom (the strategy rules expand it to both halves).
-    if want == "sauna/avanto" {
-        return Some(id::SAUNA);
+    for (top, bottom) in SPLIT_PILES {
+        if want == format!("{}/{}", norm(name(top)), norm(name(bottom))) {
+            return Some(top);
+        }
     }
     (0..NUM_CARDS as CardId).find(|&c| norm(name(c)) == want)
 }
@@ -445,6 +563,14 @@ pub enum ModeOpt {
     DiscardFor { filter: Filter, n: u8, gain: CardId },
     /// Quest: do none of the options.
     Nothing,
+    /// Wild Hunt: `+n Cards` and add `v` VP tokens to the card's pile.
+    CardsGather(u8, u8),
+    /// Wild Hunt: gain a copy of the card; if it was gained, take the VP tokens on the source card's pile.
+    GainTakeVp(CardId),
+    /// Charm: `+b Buys` and `+$c`.
+    BuysCoins(u8, u8),
+    /// Charm: the next time a card is gained this turn, a differently named card costing the same may be gained too.
+    NextGainDouble,
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -502,6 +628,8 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::VictoryNot(_) => ("a", "Victory card"),
         Filter::GainableCopy => ("a", "card"),
         Filter::InheritCard => ("an", "Action"),
+        Filter::NonVictory => ("a", "non-Victory card"),
+        Filter::CommandCostUpTo(_) => ("an", "Action"),
     }
 }
 
@@ -571,6 +699,13 @@ impl ModeOpt {
                 if n == 1 { format!("Discard {a} {noun}") } else if noun == "card" { format!("Discard {n} cards") } else { format!("Discard {n} {noun}s") }
             }
             ModeOpt::Nothing => "Do nothing".to_string(),
+            ModeOpt::CardsGather(n, _) => format!("+{n} Cards"),
+            ModeOpt::GainTakeVp(c) => {
+                let (a, noun) = filter_words(Filter::Card(c));
+                format!("Gain {a} {noun} and take the VP tokens")
+            }
+            ModeOpt::BuysCoins(b, c) => format!("+{b} Buy and +${c}"),
+            ModeOpt::NextGainDouble => "Next gain brings another card".to_string(),
         }
     }
 }
@@ -608,7 +743,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::SAUNA;
+pub const LAST_KINGDOM: CardId = id::CHANGE;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -671,6 +806,8 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         | "cornucopiaguilds" => Some(CardSet::CornucopiaGuilds),
         "dark ages" | "darkages" | "dark_ages" | "da" => Some(CardSet::DarkAges),
         "adventures" | "adv" => Some(CardSet::Adventures),
+        "empires" | "emp" => Some(CardSet::Empires),
+        "rising sun" | "risingsun" | "rising_sun" | "rs" => Some(CardSet::RisingSun),
         _ => None,
     }
 }
@@ -717,10 +854,15 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
         out.sort_unstable();
     }
     add_potion_if_needed(&mut out);
-    if sets.contains(&CardSet::Adventures) {
+    if sets.iter().any(|&s| pseudo_cards_of(s).next().is_some()) {
         add_random_events(&mut out, sets, rng);
     }
     out
+}
+
+/// The Events and Landmarks of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks).
+pub fn pseudo_cards_of(set: CardSet) -> impl Iterator<Item = CardId> {
+    (FIRST_EVENT..FIRST_EVENT + (NUM_EVENTS + NUM_LANDMARKS) as CardId).filter(move |&c| set_of(c) == set)
 }
 
 /// Choosing Events for a randomized kingdom, after the rulebook's randomizer: the Events are shuffled in with the kingdom cards of `sets`,
@@ -730,7 +872,10 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
 /// with every set (about 300 cards) about 0.7 are dealt, so roughly half the games have none, 1 in 3 one, the rest two.
 pub fn add_random_events(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mut Rng) {
     let k = kingdom_cards().filter(|&c| sets.contains(&set_of(c))).count() as u32;
-    let mut events: Vec<CardId> = (FIRST_EVENT..FIRST_EVENT + NUM_EVENTS as CardId).filter(|e| !kingdom.contains(e)).collect();
+    let mut events: Vec<CardId> = sets.iter().flat_map(|&s| pseudo_cards_of(s)).filter(|e| !kingdom.contains(e)).collect();
+    if events.is_empty() {
+        return;
+    }
     let (mut cards_left, mut events_left) = (k, events.len() as u32);
     let mut dealt_cards = 0;
     let mut used = 0;

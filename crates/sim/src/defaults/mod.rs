@@ -20,6 +20,7 @@ mod alchemy;
 mod base;
 mod cornucopia_guilds;
 mod dark_ages;
+mod empires;
 mod intrigue;
 mod promo;
 mod prosperity;
@@ -63,6 +64,10 @@ macro_rules! with_set {
             }
             CardSet::Adventures => {
                 type $S = adventures::Adventures;
+                $body
+            }
+            CardSet::Empires | CardSet::RisingSun => {
+                type $S = empires::Empires;
                 $body
             }
         }
@@ -180,9 +185,17 @@ pub(super) fn rule_play(s: &Strategy, view: &PlayerView, decision: &Decision, ch
     with_set!(cards::set_of(source), S => S::rule_play(s, view, decision, choices))
 }
 
-/// Where to put token `tok` (Adventures).
+/// Where to put token `tok` (Adventures; Tax's Debt, Empires).
 pub(super) fn choose_token(s: &Strategy, view: &PlayerView, tok: usize, choices: &[Choice]) -> Choice {
+    if tok == dominion_engine::sets::empires::TOK_TAX {
+        return empires::choose_tax_pile(s, view, choices);
+    }
     adventures::choose_token(s, view, tok, choices)
+}
+
+/// A Mountain Pass bid (Empires).
+pub(super) fn choose_bid(view: &PlayerView, min: u8, choices: &[Choice]) -> Choice {
+    empires::choose_bid(view, min, choices)
 }
 
 /// The stated `[[call]]` / `[[exchange]]` rule for a Reserve card / Traveller: `Some(yes)` if there is one for it.
@@ -202,4 +215,5 @@ pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
         .or_else(|| promo::Promo::default_side_gain(choices))
         .or_else(|| cornucopia_guilds::CornucopiaGuilds::default_side_gain(choices))
         .or_else(|| dark_ages::DarkAges::default_side_gain(choices))
+        .or_else(|| empires::Empires::default_side_gain(choices))
 }

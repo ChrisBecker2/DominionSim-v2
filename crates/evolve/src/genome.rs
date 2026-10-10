@@ -28,6 +28,8 @@ pub enum Var {
     EmptyPiles,
     /// Times I have bought an Event (Adventures) this game.
     Bought(CardId),
+    /// Debt tokens I have (Empires).
+    Debt,
 }
 
 /// `Lt` prints as `<` (`<=` for `provinces_left`/`empty_piles`, which read better that way);
@@ -66,10 +68,15 @@ pub enum List {
     Token,
     /// `[[call]]` rules (Adventures): call the Reserve card `card` when the condition holds.
     Call,
+    /// `[[debt]]` rules (Empires): `opt` is how much Debt to pay (0 all, 1 all but one token, 2 none); `card` is unused.
+    Debt,
 }
 
+/// The `pay = ".."` words of a `[[debt]]` rule, indexed by `Rule::opt`.
+pub const DEBT_PAY: [&str; 3] = ["all", "keep1", "none"];
+
 impl List {
-    pub const ALL: [List; 6] = [List::Gain, List::Play, List::Trash, List::Mode, List::Token, List::Call];
+    pub const ALL: [List; 7] = [List::Gain, List::Play, List::Trash, List::Mode, List::Token, List::Call, List::Debt];
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -84,6 +91,8 @@ pub struct Genome {
     pub token: Vec<Rule>,
     /// Stated call rules (Adventures): the Reserve card to call, and when.
     pub call: Vec<Rule>,
+    /// Stated Debt payment rules (Empires): how much to pay (`Rule::opt`), and when.
+    pub debt: Vec<Rule>,
     pub keep_treasure: u8,
 }
 
@@ -114,6 +123,7 @@ impl Var {
             Var::TotalCards => (8, 50),
             Var::EmptyPiles => (1, 2),
             Var::Bought(_) => (1, 3),
+            Var::Debt => (1, 8),
         }
     }
 
@@ -137,6 +147,7 @@ impl Var {
             Var::TotalCards => "total_cards".into(),
             Var::EmptyPiles => "empty_piles".into(),
             Var::Bought(c) => format!("bought({})", cards::name(c)),
+            Var::Debt => "debt".into(),
         }
     }
 
@@ -162,6 +173,7 @@ impl Var {
             "my_turn" | "myturn" => Var::MyTurn,
             "total_cards" | "totalcards" => Var::TotalCards,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
+            "debt" => Var::Debt,
             _ => return None,
         })
     }
@@ -251,6 +263,13 @@ struct RawToken {
 }
 
 #[derive(Deserialize)]
+struct RawDebt {
+    pay: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct RawMode {
     card: String,
     choose: String,
@@ -284,6 +303,8 @@ struct RawFile {
     token: Vec<RawToken>,
     #[serde(default)]
     call: Vec<RawRule>,
+    #[serde(default)]
+    debt: Vec<RawDebt>,
     trash_priority: Option<Vec<String>>,
     keep_treasure: Option<u8>,
 }
@@ -320,7 +341,18 @@ impl Genome {
             token.push(r);
         }
         let call = rules(&raw.call)?;
-        Ok(Genome { gain, play, trash, mode, token, call, keep_treasure: raw.keep_treasure.unwrap_or(2) })
+        let mut debt = Vec::new();
+        for d in &raw.debt {
+            let mut r = Rule::new(0);
+            r.opt = DEBT_PAY.iter().position(|p| *p == d.pay.to_ascii_lowercase()).ok_or_else(|| format!("unknown pay {:?} in a [[debt]] rule", d.pay))? as u8;
+            if let Some(c) = d.cond.as_deref() {
+                for part in split_and(c) {
+                    r.conds.push(Atom::parse(part)?);
+                }
+            }
+            debt.push(r);
+        }
+        Ok(Genome { gain, play, trash, mode, token, call, debt, keep_treasure: raw.keep_treasure.unwrap_or(2) })
     }
 
     /// Rules plus condition atoms: the complexity charged by the parsimony penalty.
@@ -336,6 +368,7 @@ impl Genome {
             (List::Mode, &self.mode),
             (List::Token, &self.token),
             (List::Call, &self.call),
+            (List::Debt, &self.debt),
         ]
         .into_iter()
     }
@@ -348,6 +381,7 @@ impl Genome {
             List::Mode => &mut self.mode,
             List::Token => &mut self.token,
             List::Call => &mut self.call,
+            List::Debt => &mut self.debt,
         }
     }
 
@@ -393,12 +427,16 @@ impl Genome {
                 .join(" > ");
             let _ = write!(s, " | mode {modes}");
         }
-        for (name, list) in [("token", &self.token), ("call", &self.call)] {
+        for (name, list) in [("token", &self.token), ("call", &self.call), ("debt", &self.debt)] {
             if !list.is_empty() {
                 let items = list
                     .iter()
                     .map(|r| {
-                        let what = if name == "token" { format!("{} on {}", cards::TOKEN_NAMES[r.opt as usize], cards::name(r.card)) } else { cards::name(r.card).to_string() };
+                        let what = match name {
+                            "token" => format!("{} on {}", cards::TOKEN_NAMES[r.opt as usize], cards::name(r.card)),
+                            "debt" => format!("pay {}", DEBT_PAY[r.opt as usize]),
+                            _ => cards::name(r.card).to_string(),
+                        };
                         match r.cond_text() {
                             Some(c) => format!("{what} [{c}]"),
                             None => what,
@@ -440,6 +478,7 @@ impl Genome {
                 List::Mode => "mode",
                 List::Token => "token",
                 List::Call => "call",
+                List::Debt => "debt",
             };
             for (i, r) in rules.iter().enumerate() {
                 s.push('\n');
@@ -450,6 +489,8 @@ impl Genome {
                 if list == List::Token {
                     let _ = writeln!(s, "token = {}", quote(cards::TOKEN_NAMES[r.opt as usize]));
                     let _ = writeln!(s, "pile = {}", quote(cards::name(r.card)));
+                } else if list == List::Debt {
+                    let _ = writeln!(s, "pay = {}", quote(DEBT_PAY[r.opt as usize]));
                 } else {
                     let _ = writeln!(s, "card = {}", quote(cards::name(r.card)));
                 }
@@ -497,6 +538,7 @@ mod tests {
             ],
             token: vec![Rule { card: id::SMITHY, opt: 3, conds: vec![Atom { var: Var::MyTurn, op: Op::Ge, n: 4 }] }],
             call: vec![Rule { card: id::WINE_MERCHANT, opt: 0, conds: vec![] }],
+            debt: vec![Rule { card: 0, opt: 1, conds: vec![Atom { var: Var::Debt, op: Op::Ge, n: 3 }] }],
             keep_treasure: 3,
         };
         let meta = TomlMeta { name: "Test".into(), never_gain: vec![id::WITCH], header: vec!["hello".into()], ..Default::default() };
@@ -506,9 +548,10 @@ mod tests {
         assert!(text.contains("[[mode]]\ncard = \"Investment\"\nchoose = \"Trash this for +1 VP per Treasure type in hand\"\nif = \"provinces_left <= 3\""), "{text}");
         dominion_sim::Strategy::parse(&text).unwrap();
         assert_eq!(Genome::from_toml(&text).unwrap(), g);
-        assert_eq!(g.size(), 5 + 1 + 3 + 2 + 1 + 1 + 1 + 1);
+        assert_eq!(g.size(), 5 + 1 + 3 + 2 + 1 + 1 + 1 + 1 + 2);
         assert!(text.contains("[[token]]\ntoken = \"+$1\"\npile = \"Smithy\"\nif = \"my_turn >= 4\""), "{text}");
         assert!(text.contains("[[call]]\ncard = \"Wine Merchant\"\n"), "{text}");
+        assert!(text.contains("[[debt]]\npay = \"keep1\"\nif = \"debt >= 3\""), "{text}");
     }
 
     #[test]

@@ -10,9 +10,10 @@ pub mod ids {
     pub const WALLED_VILLAGE: CardId = 126;
     pub const ENVOY: CardId = 127;
     pub const CAPTAIN: CardId = 128;
-    /// The split pile Sauna/Avanto (five Sauna on top of five Avanto): ids after the Adventures kingdom cards, which it comes with.
+    /// The split pile Sauna/Avanto (five Sauna on top of five Avanto): Sauna follows the Adventures kingdom cards; Avanto, a bottom half, is
+    /// the first of the split-pile bottoms after the kingdom cards (`cards::is_split_bottom`).
     pub const SAUNA: CardId = 232;
-    pub const AVANTO: CardId = 233;
+    pub const AVANTO: CardId = 258;
 }
 
 const CARDS: &[(CardId, CardDef)] = &[

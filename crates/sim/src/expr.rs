@@ -66,6 +66,12 @@ pub enum Var {
     MinusCoin,
     /// Cards on my Tavern mat.
     MatCards,
+    /// Debt tokens I have (Empires): while there are any I cannot buy.
+    Debt,
+    /// VP tokens I have.
+    VpTokens,
+    /// The most Debt any opponent has.
+    OpponentDebt,
 }
 
 impl Var {
@@ -94,6 +100,9 @@ impl Var {
             Var::MinusCard => (view.adv_flags_of(view.me()) & dominion_engine::state::ADV_MINUS_CARD != 0) as i64,
             Var::MinusCoin => (view.adv_flags_of(view.me()) & dominion_engine::state::ADV_MINUS_COIN != 0) as i64,
             Var::MatCards => view.tavern_of(view.me()).total() as i64,
+            Var::Debt => view.debt_of(view.me()) as i64,
+            Var::VpTokens => view.vp_tokens_of(view.me()) as i64,
+            Var::OpponentDebt => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.debt_of(p)).max().unwrap_or(0) as i64,
         }
     }
 
@@ -118,6 +127,9 @@ impl Var {
             "minus_card" | "minuscard" => Var::MinusCard,
             "minus_coin" | "minuscoin" => Var::MinusCoin,
             "mat_cards" | "matcards" => Var::MatCards,
+            "debt" => Var::Debt,
+            "vp_tokens" | "vptokens" => Var::VpTokens,
+            "opponent_debt" | "opponentdebt" => Var::OpponentDebt,
             _ => return None,
         })
     }
@@ -137,6 +149,15 @@ pub enum Expr {
     Count(CardId),
     /// `count_type(action|treasure|victory|curse|attack|reaction)`.
     CountType(u16),
+    /// `count(Settlers/Bustling Village)`: copies of either half of a split pile.
+    CountPair(CardId, CardId),
+    /// `pile_vp(Card)`: VP tokens on the card's Supply pile (Farmers' Market, Temple, Wild Hunt, Aqueduct and Defiled Shrine's piles).
+    PileVp(CardId),
+    /// `debt_cost`: the Debt in the cost of the gain-list entry's card (0 for most cards).
+    DebtCost,
+    /// `landmark(Name)`: 1 if the Landmark is in this game; `landmark_vp(Name)`: the VP tokens left on it.
+    Landmark(CardId),
+    LandmarkVp(CardId),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
     /// `mat(Card)`: copies of `Card` on my Tavern mat (Adventures).
@@ -185,8 +206,18 @@ impl Expr {
                     let mine = view.my_cards();
                     pile.members().map(|m| mine.get(m) as i64).sum()
                 }
+                // `count(Castles)`: Castles owned, of any of the eight names.
+                None if *c == id::CASTLES => view.my_cards().count_type(cards::CASTLE) as i64,
                 None => view.my_cards().get(*c) as i64,
             },
+            CountPair(a, b) => {
+                let mine = view.my_cards();
+                mine.get(*a) as i64 + mine.get(*b) as i64
+            }
+            PileVp(c) => view.pile_vp(*c) as i64,
+            DebtCost => card.map_or(0, |c| cards::debt_cost(c) as i64),
+            Landmark(l) => view.has_landmark(*l) as i64,
+            LandmarkVp(l) => view.landmark_vp(*l) as i64,
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
             Mat(c) => view.tavern_of(view.me()).get(*c) as i64,
@@ -234,8 +265,9 @@ impl Expr {
     pub fn for_each_card_ref(&self, f: &mut impl FnMut(CardId)) {
         use Expr::*;
         match self {
-            Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame => {}
-            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) => f(*c),
+            Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost => {}
+            CountPair(a, _) => f(*a),
+            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
                 a.for_each_card_ref(f);
@@ -330,7 +362,10 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 });
                 // A function call's argument is a card name, taken verbatim up to the `)`, so
                 // names with spaces or apostrophes work: `count(Throne Room)`, `count(King's Court)`.
-                let is_function = matches!(word.to_ascii_lowercase().as_str(), "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on");
+                let is_function = matches!(
+                    word.to_ascii_lowercase().as_str(),
+                    "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp"
+                );
                 let mut j = i;
                 while j < b.len() && (b[j] as char).is_ascii_whitespace() {
                     j += 1;
@@ -469,6 +504,7 @@ impl<'a> Parser<'a> {
                     make_call(name, arg, self.src)
                 } else {
                     match name.to_ascii_lowercase().as_str() {
+                        "debt_cost" | "debtcost" => Ok(Expr::DebtCost),
                         "wins_game" | "winsgame" => Ok(Expr::WinsGame),
                         "loses_game" | "losesgame" => Ok(Expr::LosesGame),
                         _ => Var::parse(name).map(Expr::Var).ok_or_else(|| format!("unknown variable {name:?} in condition {:?}", self.src)),
@@ -484,7 +520,21 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
     match func.to_ascii_lowercase().as_str() {
         "count" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            // A split pile named as `Top/Bottom` counts both halves.
+            if arg.contains('/') {
+                if let Some(b) = cards::split_bottom(c) {
+                    return Ok(Expr::CountPair(c, b));
+                }
+            }
             Ok(Expr::Count(c))
+        }
+        "pile_vp" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::PileVp(cards::pile_of(c)))
+        }
+        "landmark" | "landmark_vp" => {
+            let l = cards::by_name(arg).filter(|&l| cards::is_landmark(l)).ok_or_else(|| format!("{arg:?} is not a Landmark, in condition {src:?}"))?;
+            Ok(if func.eq_ignore_ascii_case("landmark") { Expr::Landmark(l) } else { Expr::LandmarkVp(l) })
         }
         "supply" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
@@ -502,7 +552,7 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
             let (tok, pile) = arg.split_once(',').ok_or_else(|| format!("token_on needs a token and a pile, e.g. token_on(+1 Card, Smithy), in condition {src:?}"))?;
             let tok = cards::token_by_name(tok.trim()).filter(|&t| t < dominion_engine::state::NUM_PILE_TOKENS || t == 6).ok_or_else(|| format!("unknown token {:?} in condition {src:?}", tok.trim()))?;
             let pile = cards::by_name(pile.trim()).ok_or_else(|| format!("unknown card {:?} in condition {src:?}", pile.trim()))?;
-            let pile = if pile >= cards::id::DAME_ANNA { cards::id::KNIGHTS } else if tok == 6 { pile } else { cards::pile_of(pile) };
+            let pile = if pile >= cards::id::DAME_ANNA && pile < cards::NUM_ZONE_IDS as CardId { cards::id::KNIGHTS } else if tok == 6 { pile } else { cards::pile_of(pile) };
             Ok(Expr::TokenOn(tok, pile))
         }
         "count_type" => {
@@ -515,6 +565,7 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 "reaction" => cards::REACTION,
                 "traveller" => cards::TRAVELLER,
                 "reserve" => cards::RESERVE,
+                "castle" => cards::CASTLE,
                 _ => return Err(format!("unknown card type {arg:?} in condition {src:?}")),
             };
             Ok(Expr::CountType(flag))

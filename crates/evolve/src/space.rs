@@ -32,6 +32,9 @@ pub struct SearchSpace {
     pub max_mode_rules: usize,
     pub max_token_rules: usize,
     pub max_call_rules: usize,
+    /// Whether `[[debt]]` rules are worth searching: the pool has Change (Rising Sun), the one card that makes it matter whether Debt is paid.
+    pub debt_rules: bool,
+    pub max_debt_rules: usize,
     pub max_conds: usize,
 }
 
@@ -39,7 +42,8 @@ impl SearchSpace {
     /// `kingdom_pool`: kingdom cards that can appear in games; `forbidden`: cards we may not use.
     pub fn new(kingdom_pool: &[CardId], forbidden: &[CardId]) -> SearchSpace {
         let basics = [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER];
-        let mut gainable: Vec<CardId> = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c)).collect();
+        // Landmarks are never gained.
+        let mut gainable: Vec<CardId> = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c) && !cards::is_landmark(*c)).collect();
         // Joust brings the Rewards, which are not in the Supply but can be gained from it: a rule may
         // name one (their order in the gain list is the strategy's preference when Joust offers them).
         if gainable.contains(&id::JOUST) {
@@ -79,6 +83,8 @@ impl SearchSpace {
             reserves,
             max_token_rules: 3,
             max_call_rules: 3,
+            debt_rules: has(id::CHANGE),
+            max_debt_rules: 2,
             gainable,
             trashable: vec![id::CURSE, id::ESTATE, id::COPPER, id::SILVER],
             forbidden: forbidden.to_vec(),
@@ -104,6 +110,7 @@ impl SearchSpace {
             List::Mode => self.max_mode_rules,
             List::Token => self.max_token_rules,
             List::Call => self.max_call_rules,
+            List::Debt => self.max_debt_rules,
         }
     }
 
@@ -120,6 +127,9 @@ impl SearchSpace {
         // Token rules name a pile of this kingdom and a token something places; call rules a Reserve card of the pool.
         g.token.retain(|r| self.token_piles.contains(&r.card) && self.token_kinds.contains(&r.opt));
         g.call.retain(|r| self.reserves.contains(&r.card));
+        if !self.debt_rules {
+            g.debt.clear();
+        }
         for list in List::ALL {
             let max = self.max_rules(list);
             let rules = g.list_mut(list);

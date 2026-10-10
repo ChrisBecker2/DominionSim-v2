@@ -7,7 +7,7 @@ use crate::state::{GameConfig, TypeSet};
 /// Card ids of this set (dense, contiguous, and stable: saved states and the text format name cards, but
 /// the ids index the card table). The kingdom cards come first (161-195, the Knights pile marker among them), then the
 /// cards no kingdom contains (196-201); the Ruins and Knights, the members of the two mixed piles, are the highest ids
-/// (262-277: the Adventures cards and the Events sit between).
+/// (280-295: the Empires cards and the Traveller upgrades sit between; the Events and Landmarks come after them).
 pub mod ids {
     use crate::cards::CardId;
     pub const POOR_HOUSE: CardId = 161;
@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 262;
+    pub const RUINS: CardId = 280;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 263;
-    pub const RUINED_LIBRARY: CardId = 264;
-    pub const RUINED_MARKET: CardId = 265;
-    pub const RUINED_VILLAGE: CardId = 266;
-    pub const SURVIVORS: CardId = 267;
-    pub const DAME_ANNA: CardId = 268;
-    pub const DAME_JOSEPHINE: CardId = 269;
-    pub const DAME_MOLLY: CardId = 270;
-    pub const DAME_NATALIE: CardId = 271;
-    pub const DAME_SYLVIA: CardId = 272;
-    pub const SIR_BAILEY: CardId = 273;
-    pub const SIR_DESTRY: CardId = 274;
-    pub const SIR_MARTIN: CardId = 275;
-    pub const SIR_MICHAEL: CardId = 276;
-    pub const SIR_VANDER: CardId = 277;
+    pub const ABANDONED_MINE: CardId = 281;
+    pub const RUINED_LIBRARY: CardId = 282;
+    pub const RUINED_MARKET: CardId = 283;
+    pub const RUINED_VILLAGE: CardId = 284;
+    pub const SURVIVORS: CardId = 285;
+    pub const DAME_ANNA: CardId = 286;
+    pub const DAME_JOSEPHINE: CardId = 287;
+    pub const DAME_MOLLY: CardId = 288;
+    pub const DAME_NATALIE: CardId = 289;
+    pub const DAME_SYLVIA: CardId = 290;
+    pub const SIR_BAILEY: CardId = 291;
+    pub const SIR_DESTRY: CardId = 292;
+    pub const SIR_MARTIN: CardId = 293;
+    pub const SIR_MICHAEL: CardId = 294;
+    pub const SIR_VANDER: CardId = 295;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -599,6 +599,10 @@ impl GameState {
     pub(crate) fn trash_card<S: EventSink>(&mut self, p: u8, c: CardId, owned: bool, sink: &mut S) {
         self.trash.add(c, 1);
         sink.event(Event::Trash { player: p, card: c });
+        // Tomb (Empires): +1 VP token for each card trashed.
+        if self.emp.flags & crate::state::E_TOMB != 0 {
+            self.gain_vp_tokens(p, id::TOMB, 1, sink);
+        }
         if cards::def(c).on_trash || (owned && self.market_square_live()) {
             if self.trash_queue.len as usize == crate::state::TRASH_QUEUE_CAP {
                 self.flush_trash_triggers(0, sink);

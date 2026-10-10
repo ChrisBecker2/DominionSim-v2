@@ -10,11 +10,11 @@ use std::mem::size_of;
 #[test]
 fn game_state_stays_small() {
     let sizes = [
-        ("GameState", size_of::<GameState>(), 17_000),
-        ("PlayerState", size_of::<PlayerState>(), 2_200),
-        ("TurnState", size_of::<TurnState>(), 700),
+        ("GameState", size_of::<GameState>(), 18_500),
+        ("PlayerState", size_of::<PlayerState>(), 2_400),
+        ("TurnState", size_of::<TurnState>(), 720),
         ("Frame", size_of::<Frame>(), 48),
-        ("Counts", size_of::<Counts>(), 288),
+        ("Counts", size_of::<Counts>(), 320),
     ];
     for (name, size, limit) in sizes {
         assert!(size <= limit, "{name} is {size} bytes, over its {limit} byte bound: see tests/state_size.rs");

@@ -8,8 +8,9 @@
 //! - Cards from sets outside this simulator (Adventurer, Necropolis, Hovel,
 //!   Woodcutter, Poor House, Hamlet, the Ruins ...) are replaced by 2nd-edition cards with the
 //!   same relevant properties (Village for a +Actions card, Festival for a "+$" terminal, Estate
-//!   for Hovel); Ruins, shelters, the -1 Card token and Debt (Engineer,
-//!   City Quarter, Fortune) are not covered (those sets are not in this simulator).
+//!   for Hovel); Ruins, shelters and the -1 Card token are covered in their own sets' tests.
+//!   Debt costs (Empires) are the third part of a cost: the tests at the end of this file
+//!   compare them with Potion costs (`docs/alchemy-plan.md` section 5b).
 //! - Bot defaults are tested in `crates/sim/tests/alchemy_defaults.rs`.
 
 mod common;
@@ -315,8 +316,7 @@ fn workshop_and_smugglers_never_gain_potion_cost_cards() {
 // card costs no more if its coins are no more and it needs no more Potions, so a Potion-free
 // card fits under a Potion limit (Expand on Transmute may gain Village), while a Potion card
 // never fits under a Potion-free limit (Workshop can't gain Transmute).
-// TODO(Debt): when Empires adds Debt costs, extend these with the third cost part (a card with
-// Debt in its cost only fits under a limit with at least as much Debt).
+// Debt costs, the third cost part, are tested at the end of this file.
 
 #[test]
 fn remodel_on_transmute_gains_up_to_two_coins_and_a_potion() {
@@ -1520,7 +1520,7 @@ fn herbalist_offers_the_treasure_under_charlatan_curse_too() {
 
 #[test]
 fn alchemy_set_plumbing() {
-    assert_eq!(CardSet::ALL.len(), 9);
+    assert_eq!(CardSet::ALL.len(), 11);
     assert_eq!(cards::set_by_name("alchemy"), Some(CardSet::Alchemy));
     assert!(cards::by_name("Possession").is_none());
     assert_eq!(cards::kingdom_cards_in(CardSet::Alchemy).count(), 11);
@@ -1561,4 +1561,54 @@ fn herbalist_may_put_an_astrolabe_from_last_turn_onto_the_deck() {
     expect_decision(&mut g);
     pass(&mut g);
     assert!(choices(&g).contains(&Choice::Card(id::ASTROLABE)));
+}
+
+// ===========================================================================
+// Debt in costs (Empires): the third part of a cost. Wiki, Debt: "$4 Debt is not 'up to $4'", Debt
+// and $ are orthogonal, a card with Debt in its cost is never "up to" a limit of coins alone.
+// ===========================================================================
+
+#[test]
+fn workshop_and_remodel_never_gain_debt_cost_cards() {
+    // Engineer costs $0 and 4 Debt: "up to $4" does not include it, though its coin cost is 0.
+    let k = [id::WORKSHOP, id::ENGINEER, id::OVERLORD, id::FORTUNE, id::SMITHY, id::REMODEL];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    play(&mut g, id::WORKSHOP);
+    expect_decision(&mut g);
+    let o = offered(&g);
+    assert!(o.contains(&id::SMITHY) && o.contains(&id::SILVER));
+    assert!(!o.contains(&id::ENGINEER) && !o.contains(&id::OVERLORD), "$0 with Debt is not up to $4");
+    // Remodel a Gold ($6): up to $8. Fortune costs $8 and 8 Debt: not gainable; a Province is.
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::GOLD]);
+    play(&mut g, id::REMODEL);
+    expect_decision(&mut g);
+    let o = offered(&g);
+    assert!(o.contains(&id::PROVINCE) && !o.contains(&id::FORTUNE) && !o.contains(&id::OVERLORD));
+}
+
+#[test]
+fn remodel_on_a_debt_cost_card_keeps_the_limit_in_coins() {
+    // Trashing Engineer ($0, 4 Debt): up to $2 more in coins, and still no Debt-cost card.
+    let k = [id::REMODEL, id::ENGINEER, id::OVERLORD, id::VILLAGE, id::CELLAR, id::SMITHY];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::ENGINEER]);
+    play(&mut g, id::REMODEL);
+    expect_decision(&mut g);
+    let o = offered(&g);
+    assert!(o.contains(&id::CELLAR) && o.contains(&id::ESTATE) && o.contains(&id::COPPER));
+    assert!(!o.contains(&id::VILLAGE) && !o.contains(&id::SMITHY), "$3 and $4 are over the $2 limit");
+    assert!(!o.contains(&id::ENGINEER) && !o.contains(&id::OVERLORD));
+}
+
+#[test]
+fn cost_ranges_and_thresholds_compare_the_coins_only_but_exclude_debt_only_cards() {
+    // "$5 or more" (Patrician-style `CostAtLeast`): Fortune ($8 and 8 Debt) counts, Overlord ($0 and 8 Debt) does not.
+    assert_eq!((cards::cost(id::FORTUNE), cards::debt_cost(id::FORTUNE)), (8, 8));
+    assert_eq!((cards::cost(id::OVERLORD), cards::debt_cost(id::OVERLORD)), (0, 8));
+    assert_eq!(cards::cost_string(id::FORTUNE), "$8 and 8 Debt");
+    assert_eq!(cards::cost_string(id::OVERLORD), "8 Debt");
+    // A Debt cost never has a Potion; the two orthogonal parts are separate in the table.
+    assert!(!cards::potion_cost(id::FORTUNE) && !cards::potion_cost(id::OVERLORD));
 }

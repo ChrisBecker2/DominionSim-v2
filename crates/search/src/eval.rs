@@ -92,7 +92,8 @@ pub fn expected_next_hand_money_with(ps: &PlayerState, extra_draw: u8) -> f64 {
         extra_cards += cards::def(c).cards as u32 * n as u32;
         extra_coins += cards::def(c).coins as u32 * n as u32;
     }
-    extra_coins as f64 + ps.coffers as f64 + expected_hand_money(ps, 5 + extra_cards + extra_draw as u32)
+    // Debt is paid out of the next hand's $ before anything can be bought: negative money in the same terms as the Coffers' positive.
+    extra_coins as f64 + ps.coffers as f64 - ps.debt as f64 + expected_hand_money(ps, 5 + extra_cards + extra_draw as u32)
 }
 
 /// Exact expected treasure value of the next `hand` cards drawn. By linearity of expectation,
@@ -223,7 +224,7 @@ impl Evaluator for NextHandEvaluator {
         // coin look less valuable.
         let turns_left = estimated_turns_left(root, w);
         let future = expected_next_hand_money_with(ps, leaf.turn.extra_draw) + (turns_left - 1.0).max(0.0) * average_hand_money(&ps.all_cards());
-        game_end_value(leaf, me) + ps.vp() as f64 + w.vp_per_coin * future
+        game_end_value(leaf, me) + leaf.player_vp(me) as f64 + w.vp_per_coin * future
     }
 }
 
@@ -235,6 +236,6 @@ impl Evaluator for MoneyEvaluator {
     fn leaf_value(&self, _root: &GameState, leaf: &GameState, me: u8) -> f64 {
         let ps = &leaf.players[me as usize];
         let all = ps.all_cards();
-        ps.vp() as f64 * 1000.0 + treasure_value(&all) - 0.1 * all.total() as f64
+        leaf.player_vp(me) as f64 * 1000.0 + treasure_value(&all) - 0.1 * all.total() as f64
     }
 }

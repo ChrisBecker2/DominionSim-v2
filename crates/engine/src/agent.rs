@@ -71,7 +71,7 @@ impl<'a> PlayerView<'a> {
         self.state.players[self.me as usize].all_cards()
     }
     pub fn my_vp(&self) -> i32 {
-        self.state.players[self.me as usize].vp()
+        self.state.player_vp(self.me)
     }
     /// The card the pending decision is about (`Decision::subject`: the card a Jester discarded, for its
     /// Mode decision), or `None` with no decision pending.
@@ -137,18 +137,75 @@ impl<'a> PlayerView<'a> {
     }
     /// Whether the Event `e` is in this game.
     pub fn has_event(&self, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.events & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.events & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
     }
     /// The Events of this game (card ids), in id order.
     pub fn events(&self) -> impl Iterator<Item = CardId> + '_ {
-        (0..crate::cards::NUM_EVENTS as CardId).filter(|i| self.state.events & (1 << i) != 0).map(|i| crate::cards::FIRST_EVENT + i)
+        (0..crate::cards::NUM_EVENTS as CardId).filter(|i| self.state.events & (1u64 << i) != 0).map(|i| crate::cards::FIRST_EVENT + i)
     }
     /// Whether `p` has bought the Event `e` this game, and whether this turn (Alms, Borrow, Save and Pilgrimage once a turn).
     pub fn event_bought_by(&self, p: u8, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.players[p as usize].events_bought & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.players[p as usize].events_bought & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
     }
     pub fn event_bought_this_turn(&self, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.turn.adv.bought & (1 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.turn.adv.bought & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
+    }
+
+    // --- Empires ---
+    /// `p`'s Debt tokens (public).
+    pub fn debt_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].debt
+    }
+    /// `p`'s VP tokens (public).
+    pub fn vp_tokens_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].vp_tokens
+    }
+    /// VP tokens on the Supply pile of `c` (named by any of its cards: a split pile by either half, the Castles by any Castle).
+    pub fn pile_vp(&self, c: CardId) -> u8 {
+        self.state.emp.piles.vp_on(crate::cards::pile_of(c))
+    }
+    /// Debt tokens on the Supply pile of `c` (Tax).
+    pub fn pile_debt(&self, c: CardId) -> u8 {
+        self.state.emp.piles.debt_on(crate::cards::pile_of(c))
+    }
+    /// Whether the Landmark `l` is in this game.
+    pub fn has_landmark(&self, l: CardId) -> bool {
+        crate::cards::is_landmark(l) && self.state.emp.landmarks & crate::sets::empires::lm_bit(l) != 0
+    }
+    /// The Landmarks of this game (card ids), in id order.
+    pub fn landmarks(&self) -> impl Iterator<Item = CardId> + '_ {
+        (0..crate::cards::NUM_LANDMARKS as CardId).filter(|i| self.state.emp.landmarks & (1 << i) != 0).map(|i| crate::cards::FIRST_LANDMARK + i)
+    }
+    /// VP tokens left on the Landmark `l`.
+    pub fn landmark_vp(&self, l: CardId) -> u8 {
+        if crate::cards::is_landmark(l) { self.state.emp.lm_vp[crate::sets::empires::lm_index(l)] } else { 0 }
+    }
+    /// The pile the Obelisk scores (0 = none).
+    pub fn obelisk_pile(&self) -> CardId {
+        self.state.emp.obelisk
+    }
+    /// What the Landmarks would add to `p`'s score if the game ended now.
+    pub fn landmark_score_of(&self, p: u8) -> i32 {
+        self.state.landmark_score(p)
+    }
+    /// Whether Debt can be worth keeping in this game (Change is in it): then paying is a decision rather than automatic at the end of the turn.
+    pub fn debt_decision_matters(&self) -> bool {
+        self.state.emp.flags & crate::state::E_KEEP_DEBT != 0
+    }
+    /// The cards set aside under my Archives (private to me).
+    pub fn archive(&self) -> Counts {
+        self.state.players[self.me as usize].archive.counts()
+    }
+    /// The Castles left in the Castles pile, and its top Castle (the one that can be bought).
+    pub fn castles_left(&self) -> u32 {
+        self.state.castles_left()
+    }
+    pub fn castle_top(&self) -> Option<CardId> {
+        self.state.castle_top()
+    }
+    /// Whether the card `c` could be gained or bought from its pile now (the top of a split pile or of the Castles).
+    pub fn pile_open(&self, c: CardId) -> bool {
+        self.state.pile_open(c)
     }
     /// Cost of buying the Event `e`.
     pub fn event_cost(&self, e: CardId) -> u8 {
@@ -174,6 +231,8 @@ impl<'a> PlayerView<'a> {
         } else if let Some(pile) = MixedPile::of_marker(c) {
             // The Knights or Ruins pile (named by its marker): the cards left in it.
             self.state.pile_size(pile)
+        } else if c == crate::cards::id::CASTLES {
+            self.state.castles_left().min(u8::MAX as u32) as u8
         } else if c == crate::cards::id::SPOILS {
             self.state.spoils
         } else if c == crate::cards::id::MADMAN {
@@ -189,6 +248,7 @@ impl<'a> PlayerView<'a> {
     pub fn in_supply(&self, c: CardId) -> bool {
         match MixedPile::of_marker(c) {
             Some(pile) => self.state.has_pile(pile),
+            None if c == crate::cards::id::CASTLES => self.state.in_supply(crate::cards::id::HUMBLE_CASTLE),
             None => self.state.in_supply(c),
         }
     }
@@ -239,8 +299,9 @@ impl<'a> PlayerView<'a> {
     pub fn cards_of(&self, p: u8) -> Counts {
         self.state.players[p as usize].all_cards()
     }
+    /// `p`'s score if the game ended now: their cards, VP tokens and what the Landmarks add.
     pub fn vp_of(&self, p: u8) -> i32 {
-        self.state.players[p as usize].vp()
+        self.state.player_vp(p)
     }
     pub fn hand_size_of(&self, p: u8) -> u32 {
         self.state.players[p as usize].hand.total()
@@ -374,6 +435,8 @@ impl<'a> PlayerView<'a> {
             // none of the three poolings sample from each other's cards.
             let nv_mat_size = ps.native_village_mat.total();
             pool.add_all(&ps.native_village_mat.counts());
+            let archive_size = ps.archive.total();
+            ps.archive.add_into(&mut pool);
             if ps.saved != 0 {
                 pool.add(ps.saved, 1);
             }
@@ -411,6 +474,13 @@ impl<'a> PlayerView<'a> {
                 let c = pool.nth(rng.below(pool.total()));
                 pool.remove(c);
                 ps.native_village_mat.add(c, 1);
+            }
+            // Cards set aside under an Archive are face down: as hidden as the deck they came from (only their number is public).
+            ps.archive.clear();
+            for _ in 0..archive_size {
+                let c = pool.nth(rng.below(pool.total()));
+                pool.remove(c);
+                ps.archive.add(c, 1);
             }
             ps.deck_known = KnownStack::default();
             ps.deck_known_bottom = KnownStack::default();

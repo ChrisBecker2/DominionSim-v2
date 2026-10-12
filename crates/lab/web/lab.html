@@ -127,12 +127,12 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
     <div id="config-col">
       <section id="league-panel">
         <h2>Kingdom league</h2>
-        <label class="checkbox-row"><input type="checkbox" id="league-on"> Kingdom mode: find several distinct strategies for one kingdom, no opponents to pick</label>
+        <label class="checkbox-row"><input type="checkbox" id="league-on" checked> Kingdom mode: find several distinct strategies for one kingdom, no opponents to pick</label>
         <div id="league-form" style="display:none">
           <div class="hint">Baselines (Big Money Ultimate, Big Money + each useful card, trasher and engine templates) anchor the league; champions found along the way join it. One champion is kept per niche (key cards, trashing, game length).</div>
           <label>Recommended kingdom <select id="league-recommended"><option value="">(type your own)</option></select></label>
           <label>Kingdom (card names, comma separated)
-            <textarea id="league-kingdom" rows="3" placeholder="Artisan, Harbinger, Laboratory, Mine, Moneylender, Bank, Crystal Ball, Grand Market, Mint, Tiara"></textarea></label>
+            <textarea id="league-kingdom" rows="3"></textarea></label>
           <div class="grid2">
             <label>Colony / Platinum <select id="league-colonies"><option value="auto">auto (Prosperity cards)</option><option value="yes">yes</option><option value="no">no</option></select></label>
             <label>Niches kept <input type="number" id="league-niches" min="1" value="10"></label>
@@ -685,6 +685,12 @@ function poll() {
 }
 
 function onStart() {
+  // Kingdom mode needs a kingdom: an empty box would otherwise mean "every card of the selected sets".
+  if ($("league-on").checked && !$("league-kingdom").value.trim()) {
+    $("status-error").textContent = "Pick a recommended kingdom or type its 10 cards first.";
+    return;
+  }
+  $("status-error").textContent = "";
   var req = buildRequest();
   $("start-btn").disabled = true;
   postJson("/api/start", req).then(function () {
@@ -1111,6 +1117,7 @@ function renderLeague(p) {
 function init() {
   wireStaticEvents();
   wireLeague();
+  leagueFormShow(); // Kingdom mode is the default
   Promise.all([
     fetchJson("/api/cards"),
     fetchJson("/api/strategies"),

@@ -2608,9 +2608,9 @@ fn phase_json(p: Phase) -> &'static str {
 /// Nocturne: which Boons and Hexes are in the game and where they are, the States, Lost in the Woods. Null in a game without Boons, Hexes or Night cards.
 /// The piles whose cards are not all alike, in pile order (top first), for the "Piles" section:
 /// `[{"name":"Castles","order":"fixed","cards":[["Humble Castle",2],...]},
-///   {"name":"Knights","order":"hidden","top":"Dame Anna","left":10,"unseen":[["Sir Bailey",1],...]}]`.
-/// Castles and split piles are in a fixed order, known to everyone. Knights and Ruins are shuffled:
-/// only the top card is known, and the rest are drawn from the cards nobody has seen yet.
+///   {"name":"Knights","order":"dealt","cards":["Dame Anna","Sir Bailey",...]}]`.
+/// The Castles are in a fixed order, known to everyone (split piles are not listed: the Supply shows both halves). Knights and Ruins are
+/// shuffled: the cards are listed as dealt, one name each; only the first is face up in the game.
 fn pile_order_json(state: &GameState) -> String {
     use dominion_engine::sets::dark_ages::{KNIGHTS_PILE, RUINS_PILE};
     let list = |v: &[(CardId, u8)]| -> String {
@@ -2622,26 +2622,13 @@ fn pile_order_json(state: &GameState) -> String {
         let v: Vec<(CardId, u8)> = (id::HUMBLE_CASTLE..id::HUMBLE_CASTLE + 8).filter(|&c| state.supply.get(c) > 0).map(|c| (c, state.supply.get(c))).collect();
         out.push(format!("{{\"name\":\"Castles\",\"order\":\"fixed\",\"cards\":{}}}", list(&v)));
     }
-    for (top, bottom) in cards::SPLIT_PILES {
-        if state.in_supply(top) || state.in_supply(bottom) {
-            let v = [(top, state.supply.get(top)), (bottom, state.supply.get(bottom))];
-            out.push(format!(
-                "{{\"name\":{},\"order\":\"fixed\",\"cards\":{}}}",
-                jstr(&format!("{}/{}", cards::name(top), cards::name(bottom))),
-                list(&v)
-            ));
-        }
-    }
+    // Knights and Ruins: every card in the dealt order, top first. Only the top is face up; the page shows the others dimmed (it shows
+    // everything, both hands and decks included).
     for (pile, name) in [(&KNIGHTS_PILE, "Knights"), (&RUINS_PILE, "Ruins")] {
         if state.has_pile(pile) {
-            let unseen = state.pile_unseen(pile);
-            let v: Vec<(CardId, u8)> = pile.members().zip(unseen.iter()).filter(|(_, &n)| n > 0).map(|(c, &n)| (c, n)).collect();
-            out.push(format!(
-                "{{\"name\":\"{name}\",\"order\":\"hidden\",\"top\":{},\"left\":{},\"unseen\":{}}}",
-                state.pile_top(pile).map_or("null".to_string(), |c| jstr(cards::name(c))),
-                state.pile_size(pile),
-                list(&v)
-            ));
+            let (order, len) = state.pile_cards(pile);
+            let names: Vec<String> = order[..len].iter().map(|&c| jstr(cards::name(c))).collect();
+            out.push(format!("{{\"name\":\"{name}\",\"order\":\"dealt\",\"cards\":[{}]}}", names.join(",")));
         }
     }
     format!("[{}]", out.join(","))

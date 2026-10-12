@@ -571,4 +571,7 @@ section, .panel {
 #piles-panel { margin-top: 10px; }
 #piles-panel > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-dim); padding: 2px 0; }
 #piles-panel[open] > summary { margin-bottom: 4px; }
-.card.hidden-card { background: var(--border); color: var(--text-dim); cursor: help; }
+.card.face-down { opacity: 0.5; cursor: help; }
+.pile-row { line-height: 1.9; }
+#events-panel, #landmarks-panel { margin-bottom: 8px; }
+#events-panel h3, #landmarks-panel h3 { margin: 4px 0; font-size: 13px; }

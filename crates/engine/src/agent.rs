@@ -470,10 +470,16 @@ impl<'a> PlayerView<'a> {
         let mut s = *self.state;
         s.chance_mode = true;
         s.pause_at_turn_start = false;
-        // The state's own RNG stream is the real game's: it would reveal the next card of the Knights or Ruins pile exactly as it will
-        // be. The hidden part of those piles is not stored in the state at all (only the top card is), so a determinization needs nothing
-        // but a stream of its own to draw the next reveals from.
+        // The state's own RNG stream is the real game's: it would give the same Boons, Hexes and draws exactly as they will be, so a
+        // determinization has a stream of its own.
         s.rng = Rng::new(rng.next_u64());
+        // The face-down part of the Knights and Ruins piles is stored in the state in its true order: it is dealt again from the cards
+        // nobody has seen (for the Knights, the ones the pile still holds), so the real order cannot be read from a determinization.
+        for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
+            if s.has_pile(pile) {
+                s.deal_face_down(pile);
+            }
+        }
         // The Boons and Hexes are drawn at random from the cards of their decks (the order is not stored), so nothing about upcoming ones leaks;
         // a pending chance outcome is the search's own.
         s.noc.boon_top = 0;

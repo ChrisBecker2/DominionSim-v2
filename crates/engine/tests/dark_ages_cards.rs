@@ -218,6 +218,12 @@ fn six_players_use_all_fifty_ruins_ten_of_each_kind() {
         let mut g = new_game(&[id::MARAUDER], 6, seed);
         let mut got = [0u32; 5];
         let mut n = 0;
+        let (stored, len) = g.pile_cards(&RUINS_PILE);
+        let mut dealt = [0u32; 5];
+        for &c in &stored[..len] {
+            dealt[(c - id::ABANDONED_MINE) as usize] += 1;
+        }
+        assert_eq!((len, dealt), (50, [10; 5]), "the stored pile holds all fifty, seed {seed}");
         while let Some(top) = g.pile_top(&RUINS_PILE) {
             got[(top - id::ABANDONED_MINE) as usize] += 1;
             assert!(gain0(&mut g, top));
@@ -266,14 +272,37 @@ fn determinize_does_not_leak_the_hidden_part_of_the_ruins_or_knights_piles() {
         gain0(&mut real, real_top);
         let real_next = real.pile_top(pile).unwrap();
         // Searches run on determinized copies: they know the top and the size, and nothing of what is next.
+        let (real_order, len) = g.pile_cards(pile);
+        assert_eq!(real_order[1], real_next, "the stored order is what gaining reveals");
         let mut rng = Rng::new(5);
         let mut same_next = 0;
+        let mut same_all = 0;
+        let mut ruins_kinds = std::collections::HashSet::new();
         let runs = 300;
         for _ in 0..runs {
             let mut d = PlayerView::new(&g, 0).determinize(&mut rng);
             assert_eq!(d.pile_top(pile), Some(real_top), "the top card is public");
             assert_eq!(d.pile_size(pile), g.pile_size(pile));
             assert!(d.rng != g.rng, "a determinization draws from a stream of its own, not the real game's");
+            // The face-down part is dealt again: same size, a different order (and for the Ruins a different selection).
+            let (order, dlen) = d.pile_cards(pile);
+            assert_eq!(dlen, len);
+            assert_eq!(order[0], real_top);
+            if order[..len] == real_order[..len] {
+                same_all += 1;
+            }
+            if marker == id::KNIGHTS {
+                let mut a = order[..len].to_vec();
+                let mut b = real_order[..len].to_vec();
+                a.sort();
+                b.sort();
+                assert_eq!(a, b, "the Knights left are the same ten, in another order");
+            } else {
+                ruins_kinds.insert(order[..len].iter().fold([0u8; 5], |mut k, &c| {
+                    k[(c - id::ABANDONED_MINE) as usize] += 1;
+                    k
+                }));
+            }
             gain0(&mut d, real_top);
             if d.pile_top(pile) == Some(real_next) {
                 same_next += 1;
@@ -282,7 +311,65 @@ fn determinize_does_not_leak_the_hidden_part_of_the_ruins_or_knights_piles() {
         let expect = if marker == id::RUINS { 0.2 } else { 0.1 };
         let share = same_next as f64 / runs as f64;
         assert!((expect * 0.4..=expect * 1.9).contains(&share), "{}: the next card matched the real one {share:.2} of the time, expected about {expect}", cards::name(marker));
+        assert!(same_all <= 2, "{}: the whole order matched the real one in {same_all} of {runs}", cards::name(marker));
+        if marker == id::RUINS {
+            assert!(ruins_kinds.len() > 20, "the Ruins' composition is drawn again: {} compositions", ruins_kinds.len());
+        }
     }
+}
+
+#[test]
+fn the_dealt_pile_is_stored_and_gaining_reveals_it_in_order() {
+    for (looter, pile, players) in [(id::CULTIST, &RUINS_PILE, 2), (id::CULTIST, &RUINS_PILE, 4), (id::KNIGHTS, &KNIGHTS_PILE, 2)] {
+        for seed in 0..20u64 {
+            let mut g = new_game(&[looter], players, seed);
+            let (order, len) = g.pile_cards(pile);
+            assert_eq!(len, g.pile_size(pile) as usize);
+            assert_eq!(order[0], g.pile_top(pile).unwrap());
+            for &c in &order[..len] {
+                assert!(pile.members().contains(&c));
+            }
+            let mut revealed = Vec::new();
+            while let Some(top) = g.pile_top(pile) {
+                revealed.push(top);
+                assert!(gain0(&mut g, top));
+            }
+            assert_eq!(revealed, order[..len].to_vec(), "{players} players, seed {seed}");
+        }
+    }
+}
+
+#[test]
+fn the_stored_pile_survives_the_text_format_and_old_saves_without_it_load() {
+    let mut g = new_game(&[id::CULTIST, id::KNIGHTS], 2, 77);
+    for _ in 0..3 {
+        let t = g.pile_top(&RUINS_PILE).unwrap();
+        gain0(&mut g, t);
+        let t = g.pile_top(&KNIGHTS_PILE).unwrap();
+        gain0(&mut g, t);
+    }
+    let text = dominion_engine::text::format_state(&g);
+    assert!(text.contains("ruins pile: ") && text.contains("knights pile: "), "{text}");
+    let back = dominion_engine::text::parse_state(&text).unwrap();
+    for pile in [&RUINS_PILE, &KNIGHTS_PILE] {
+        let (a, la) = g.pile_cards(pile);
+        let (b, lb) = back.pile_cards(pile);
+        assert_eq!(a[..la], b[..lb], "the face-down order is kept");
+    }
+    // An old save has no such line: the pile keeps its top card and size, and the rest is dealt from the cards nobody has seen.
+    let old: String = text.lines().filter(|l| !l.starts_with("ruins pile:") && !l.starts_with("knights pile:")).collect::<Vec<_>>().join("\n");
+    let loaded = dominion_engine::text::parse_state(&old).unwrap();
+    for pile in [&RUINS_PILE, &KNIGHTS_PILE] {
+        let (a, la) = g.pile_cards(pile);
+        let (b, lb) = loaded.pile_cards(pile);
+        assert_eq!((a[0], la), (b[0], lb));
+    }
+    let (b, lb) = loaded.pile_cards(&KNIGHTS_PILE);
+    let mut left: Vec<CardId> = b[..lb].to_vec();
+    left.sort();
+    let mut real = g.pile_cards(&KNIGHTS_PILE).0[..lb].to_vec();
+    real.sort();
+    assert_eq!(left, real, "the Knights left are exactly the unseen ones");
 }
 
 // ===========================================================================
@@ -2551,6 +2638,7 @@ fn redealing_a_new_games_piles_draws_them_again_with_the_games_own_rng() {
     let base = new_game(&[id::KNIGHTS, id::CULTIST], 2, 5);
     let mut tops = std::collections::HashSet::new();
     let mut ruins = std::collections::HashSet::new();
+    let mut orders = std::collections::HashSet::new();
     for seed in 0..200u64 {
         let mut s = base;
         s.rng = Rng::derive(9, seed);
@@ -2559,7 +2647,9 @@ fn redealing_a_new_games_piles_draws_them_again_with_the_games_own_rng() {
         assert_eq!(KNIGHTS_PILE.members().filter(|&m| s.supply.get(m) > 0).count(), 1);
         tops.insert(s.pile_top(&KNIGHTS_PILE).unwrap());
         ruins.insert(s.pile_top(&RUINS_PILE).unwrap());
+        orders.insert(s.pile_cards(&RUINS_PILE).0);
     }
+    assert!(orders.len() > 190, "the whole stored order is dealt again for each game: {} distinct of 200", orders.len());
     assert_eq!((tops.len(), ruins.len()), (10, 5), "every Knight and every Ruins is on top in some games");
 }
 

@@ -1994,6 +1994,10 @@ pub struct GameState {
     pub spoils: u8,
     pub madman: u8,
     pub mercenary: u8,
+    /// The dealt order of the Ruins and Knights piles, bottom first: entry `offset + i` is the member index (0-based into the pile's cards) of
+    /// the card with `i` cards beneath it, so the top card is entry `offset + size - 1` (the Supply count of the top card is the pile's size).
+    /// Entries at or above the size are 0. Only the top card is public; the rest is face down (`PlayerView::determinize` deals it again).
+    pub pile_order: [u8; crate::sets::dark_ages::PILE_ORDER_LEN],
     /// The Events in this game (bit `event - cards::FIRST_EVENT`; Adventures, then Empires). Events are bought, never gained, and are in no zone or pile.
     pub events: u64,
     /// Empires: Landmarks, tokens on piles, Mountain Pass's bids, `E_*` flags.
@@ -2120,6 +2124,7 @@ impl GameState {
             spoils: da.spoils,
             madman: da.madman,
             mercenary: da.mercenary,
+            pile_order: [0; crate::sets::dark_ages::PILE_ORDER_LEN],
             events,
             emp: EmpState::default(),
             noc: NocState::default(),

@@ -1074,6 +1074,9 @@ impl GameState {
                         self.supply.set(m, 0);
                     }
                     self.supply.set(c, left + 1);
+                    if (left as usize) < pile.capacity() {
+                        self.pile_order[pile.offset as usize + left as usize] = (c - pile.first) as u8;
+                    }
                 }
             }
             _ => self.supply.add(c, 1),

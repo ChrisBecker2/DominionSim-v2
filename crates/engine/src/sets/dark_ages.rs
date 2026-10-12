@@ -153,12 +153,22 @@ pub struct MixedPile {
     pub first: CardId,
     pub kinds: u8,
     pub copies: u8,
+    /// Where the pile's dealt order starts in `GameState::pile_order`.
+    pub offset: u8,
 }
 
-pub const RUINS_PILE: MixedPile = MixedPile { marker: ids::RUINS, first: ids::ABANDONED_MINE, kinds: 5, copies: 10 };
-pub const KNIGHTS_PILE: MixedPile = MixedPile { marker: ids::KNIGHTS, first: ids::DAME_ANNA, kinds: 10, copies: 1 };
+/// The size of `GameState::pile_order`: 50 Ruins (a 6-player game's pile) then the 10 Knights.
+pub const PILE_ORDER_LEN: usize = 60;
+
+pub const RUINS_PILE: MixedPile = MixedPile { marker: ids::RUINS, first: ids::ABANDONED_MINE, kinds: 5, copies: 10, offset: 0 };
+pub const KNIGHTS_PILE: MixedPile = MixedPile { marker: ids::KNIGHTS, first: ids::DAME_ANNA, kinds: 10, copies: 1, offset: 50 };
 
 impl MixedPile {
+    /// The most cards the pile can hold (all its cards): the length of its slice of `GameState::pile_order`.
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.kinds as usize * self.copies as usize
+    }
     /// The member ids.
     #[inline]
     pub fn members(&self) -> std::ops::Range<CardId> {
@@ -757,8 +767,62 @@ impl GameState {
             self.in_supply.insert(m);
             self.supply.set(m, 0);
         }
+        self.deal_pile(pile, size);
+    }
+
+    /// Shuffle `pile` and deal it `size` cards: a top card drawn with the game's RNG, then the face-down part below it. The pile's members
+    /// must not be held by anyone yet (the cards come from `pile_unseen`).
+    fn deal_pile(&mut self, pile: &MixedPile, size: u8) {
+        for m in pile.members() {
+            self.supply.set(m, 0);
+        }
+        let off = pile.offset as usize;
+        self.pile_order[off..off + pile.capacity()].fill(0);
         let top = self.draw_unseen(pile).unwrap_or(pile.first);
         self.supply.set(top, size);
+        self.deal_face_down(pile);
+    }
+
+    /// Deal the face-down part of `pile` again, below its top card, from the cards nobody has seen (`pile_unseen`) with this state's RNG:
+    /// the order a pile loaded without one gets, and what a determinization (a state the searching player sees the pile of) does so that
+    /// the real order is not read from the state.
+    pub fn deal_face_down(&mut self, pile: &MixedPile) {
+        let Some(top) = self.pile_top(pile) else { return };
+        let size = (self.pile_size(pile) as usize).min(pile.capacity());
+        let off = pile.offset as usize;
+        let mut pool = self.pile_unseen(pile);
+        let mut total: u32 = pool.iter().map(|&n| n as u32).sum();
+        self.pile_order[off..off + pile.capacity()].fill(0);
+        self.pile_order[off + size - 1] = (top - pile.first) as u8;
+        for slot in (0..size - 1).rev() {
+            let mut idx = (top - pile.first) as usize;
+            if total > 0 {
+                let mut k = self.rng.below(total);
+                for (i, &n) in pool.iter().enumerate() {
+                    if k < n as u32 {
+                        idx = i;
+                        break;
+                    }
+                    k -= n as u32;
+                }
+                pool[idx] -= 1;
+                total -= 1;
+            }
+            self.pile_order[off + slot] = idx as u8;
+        }
+    }
+
+    /// The pile's cards, top first: the top card is the one in the Supply, the others are as dealt (face down). Returns the cards and how many.
+    pub fn pile_cards(&self, pile: &MixedPile) -> ([CardId; 50], usize) {
+        let mut out = [0 as CardId; 50];
+        let Some(top) = self.pile_top(pile) else { return (out, 0) };
+        let size = (self.pile_size(pile) as usize).min(pile.capacity());
+        let off = pile.offset as usize;
+        out[0] = top;
+        for d in 1..size {
+            out[d] = pile.first + self.pile_order[off + size - 1 - d] as CardId;
+        }
+        (out, size)
     }
 
     /// The copies of each member of `pile` nobody has seen yet, i.e. that are neither in a player's zones, nor in the trash, nor the pile's
@@ -802,11 +866,7 @@ impl GameState {
         for pile in [&RUINS_PILE, &KNIGHTS_PILE] {
             if self.has_pile(pile) {
                 let size = self.pile_size(pile);
-                for m in pile.members() {
-                    self.supply.set(m, 0);
-                }
-                let top = self.draw_unseen(pile).unwrap_or(pile.first);
-                self.supply.set(top, size);
+                self.deal_pile(pile, size);
             }
         }
         // Nocturne: Druid's three Boons are set aside at random too (the rest of the Boons and Hexes are drawn at random when needed).
@@ -822,7 +882,21 @@ impl GameState {
             return;
         }
         self.supply.set(old_top, 0);
-        let top = self.draw_unseen(pile).unwrap_or(old_top);
+        let off = pile.offset as usize;
+        let slot = (left as usize).min(pile.capacity());
+        // The next stored card is revealed. A state whose top card was forced by hand (a test, a hand-edited save) may store a card that has
+        // no unseen copy left; then the next one is drawn from the unseen cards instead.
+        let stored = self.pile_order[off + slot - 1] as usize;
+        let top = if stored < pile.kinds as usize && self.pile_unseen(pile)[stored] > 0 {
+            pile.first + stored as CardId
+        } else {
+            let t = self.draw_unseen(pile).unwrap_or(old_top);
+            self.pile_order[off + slot - 1] = (t - pile.first) as u8;
+            t
+        };
+        if slot < pile.capacity() {
+            self.pile_order[off + slot] = 0;
+        }
         self.supply.set(top, left);
     }
 

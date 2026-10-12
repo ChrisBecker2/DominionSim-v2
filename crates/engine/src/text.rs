@@ -38,8 +38,9 @@
 //!
 //! Dark Ages: the Knights pile is one `kingdom:` entry (`Knights`; the Ruins pile comes with a Looter and is not listed), `supply:` lists the
 //! top card of each of those piles with the number of cards left in the pile (`Sir Martin=9`; the other cards of the pile are not listed and
-//! have none), and `side piles:` also holds `Spoils=`, `Madman=` and `Mercenary=`. The hidden part of those piles is not stored at all (the next
-//! top card is drawn from the cards nobody has seen when the top card is taken). Shelters are implied by the players' decks (`Hovel`,
+//! have none), and `side piles:` also holds `Spoils=`, `Madman=` and `Mercenary=`. The dealt order of those piles is the line `ruins pile:` /
+//! `knights pile:` (every card, top first: `Survivors, 2 Ruined Village, ...`); a state without it gets the face-down part dealt from the cards
+//! nobody has seen, with the state's RNG, and a line that is present decides the pile (and its count in `supply:`). Shelters are implied by the players' decks (`Hovel`,
 //! `Necropolis`, `Overgrown Estate` anywhere in them).
 //!
 //! Empires: the split piles' halves and the Castles are listed in `supply:` (with their counts) like any pile; `kingdom:` names a split pile by its
@@ -461,6 +462,20 @@ pub fn format_state(state: &GameState) -> String {
         }
     }
     out.push_str(&format!("supply: {}\n", supply_parts.join(", ")));
+    // Dark Ages: the Ruins and Knights piles in their dealt order, top first (the top card is the one in `supply`).
+    for (pile, key) in [(&crate::sets::dark_ages::RUINS_PILE, "ruins pile"), (&crate::sets::dark_ages::KNIGHTS_PILE, "knights pile")] {
+        let (order, len) = state.pile_cards(pile);
+        if len > 0 {
+            let mut parts: Vec<String> = Vec::new();
+            let mut i = 0;
+            while i < len {
+                let run = order[i..len].iter().take_while(|&&c| c == order[i]).count();
+                parts.push(qty_str(order[i], run as u8));
+                i += run;
+            }
+            out.push_str(&format!("{key}: {}\n", parts.join(", ")));
+        }
+    }
 
     out.push_str(&format!("trash: {}\n", format_counts(&state.trash)));
 
@@ -864,6 +879,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut obelisk_val: Option<(usize, String)> = None;
     let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
+    let mut ruins_val: Option<(usize, String)> = None;
+    let mut knights_val: Option<(usize, String)> = None;
     let mut trash_val: Option<(usize, String)> = None;
     let mut held_val: Option<(usize, String)> = None;
     let mut bane_val: Option<(usize, String)> = None;
@@ -904,6 +921,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "obelisk" => obelisk_val = Some((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
+            "ruins pile" => ruins_val = Some((lineno, rest.to_string())),
+            "knights pile" => knights_val = Some((lineno, rest.to_string())),
             "trash" => trash_val = Some((lineno, rest.to_string())),
             "held" => held_val = Some((lineno, rest.to_string())),
             "bane" => bane_val = Some((lineno, rest.to_string())),
@@ -1361,6 +1380,45 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     }
     if state.players[..num_players].iter().any(|ps| ps.ench_by != 0) {
         state.emp.flags |= crate::state::E_ENCHANT;
+    }
+    // Dark Ages: the dealt order of the Ruins and Knights piles. A "ruins pile:" / "knights pile:" line (top first) decides the pile's cards;
+    // without one (a save from before the order was kept, a hand-written state) the face-down part is dealt from the cards nobody has seen,
+    // with the state's RNG.
+    for (pile, val, key) in [
+        (&crate::sets::dark_ages::RUINS_PILE, &ruins_val, "ruins pile"),
+        (&crate::sets::dark_ages::KNIGHTS_PILE, &knights_val, "knights pile"),
+    ] {
+        match val {
+            Some((ln, s)) => {
+                if !state.has_pile(pile) {
+                    return Err(format!("line {ln}: '{key}' but that pile is not in this game"));
+                }
+                let seq = parse_card_sequence(s).map_err(|e| format!("line {ln}: {e}"))?;
+                if seq.is_empty() || seq.len() > pile.capacity() {
+                    return Err(format!("line {ln}: '{key}' must list 1 to {} cards", pile.capacity()));
+                }
+                let mut held = [0u8; 10];
+                for &c in &seq {
+                    if !pile.members().contains(&c) {
+                        return Err(format!("line {ln}: {} is not in the {key}", cards::name(c)));
+                    }
+                    held[(c - pile.first) as usize] += 1;
+                    if held[(c - pile.first) as usize] > pile.copies {
+                        return Err(format!("line {ln}: too many {} in the {key}", cards::name(c)));
+                    }
+                }
+                for m in pile.members() {
+                    state.supply.set(m, 0);
+                }
+                state.supply.set(seq[0], seq.len() as u8);
+                let off = pile.offset as usize;
+                state.pile_order[off..off + pile.capacity()].fill(0);
+                for (d, &c) in seq.iter().enumerate() {
+                    state.pile_order[off + seq.len() - 1 - d] = (c - pile.first) as u8;
+                }
+            }
+            None => state.deal_face_down(pile),
+        }
     }
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).

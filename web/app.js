@@ -587,9 +587,9 @@
 
   // Nocturne: the Boons and Hexes decks (which are still to come, which are in the discard piles, which are set aside for Druid or kept in front of a
   // player), and Lost in the Woods. The States of each player are in the player's panel.
-  // The collapsed "Piles" section: the order of the piles whose cards differ (Castles and split
-  // piles in their fixed order; Knights and Ruins top card plus the unseen cards, order hidden),
-  // then Nocturne's Boons and Hexes. Shown only when the game has any of them; collapsed by default.
+  // The collapsed "Piles" section: the order of the piles whose cards differ (the Castles in their
+  // fixed order; Knights and Ruins as dealt, the top card face up and the rest dimmed; split piles
+  // are not listed, the Supply shows both halves), then Nocturne's Boons and Hexes. Shown only when the game has any of them; collapsed by default.
   function renderNocturne(view) {
     const panel = $("piles-panel");
     const list = $("nocturne-list");
@@ -602,33 +602,33 @@
     panel.hidden = !hasNocturne && !piles.length;
     if (panel.hidden) return;
     for (const p of piles) {
-      const r = el("div", "event-row");
+      const r = el("div", "event-row pile-row");
+      r.appendChild(el("span", "cost", `${p.name}: `));
       if (p.order === "fixed") {
-        r.appendChild(el("span", "cost", `${p.name} (top first): `));
         if (!p.cards.some(([, k]) => k > 0)) r.appendChild(document.createTextNode("empty"));
-        p.cards.filter(([, k]) => k > 0).forEach(([nm, k], i) => {
-          if (i) r.appendChild(document.createTextNode(" › "));
+        p.cards.filter(([, k]) => k > 0).forEach(([nm, k]) => {
           r.appendChild(cardChip(nm, k > 1 ? `${k} ${nm}` : nm));
+          r.appendChild(document.createTextNode(" "));
         });
+      } else if (!p.cards.length) {
+        r.appendChild(document.createTextNode("empty"));
       } else {
-        // Shuffled piles: the top card is face up, the rest face down. One "?" per hidden card;
-        // hovering one shows what it could be (the cards of the pile's kind nobody has seen yet).
-        r.appendChild(el("span", "cost", `${p.name} (top first, ${p.left} left): `));
-        if (!p.left || !p.top) {
-          r.appendChild(document.createTextNode("empty"));
-        } else {
-          r.appendChild(cardChip(p.top));
-          r.appendChild(el("span", "cost", " (shown)"));
-          const hidden = p.left - 1;
-          const could = p.unseen.map(([nm, k]) => (k > 1 ? `${k} ${nm}` : nm)).join(", ");
-          const shown = Math.min(hidden, 12);
-          for (let i = 0; i < shown; i++) {
-            r.appendChild(document.createTextNode(" › "));
-            const q = el("span", "card hidden-card", "?");
-            q.title = `Face down: one of ${could}`;
-            r.appendChild(q);
+        // Shuffled piles (Knights, Ruins): every card in the dealt order, top first. The top card is face
+        // up; the others are face down, drawn dimmed (this page shows everything). A long pile (50 Ruins
+        // with 6 players) folds runs of the same card into "Ruined Village ×3".
+        const fold = p.cards.length > 14;
+        for (let i = 0; i < p.cards.length; ) {
+          let n = 1;
+          if (fold && i > 0) while (i + n < p.cards.length && p.cards[i + n] === p.cards[i]) n++;
+          const nm = p.cards[i];
+          const chip = cardChip(nm, n > 1 ? `${nm} ×${n}` : nm);
+          if (i > 0) {
+            chip.classList.add("face-down");
+            chip.title = "Face down";
           }
-          if (hidden > shown) r.appendChild(el("span", "cost", ` › … (${hidden} face down)`));
+          r.appendChild(chip);
+          r.appendChild(document.createTextNode(" "));
+          i += n;
         }
       }
       orderList.appendChild(r);

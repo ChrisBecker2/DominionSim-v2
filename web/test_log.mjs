@@ -427,7 +427,7 @@ deck: 5 Estate
   check("no Nocturne data in other games", K.view().nocturne === null);
 }
 
-// The "Piles" section's data: pile orders for Castles and split piles (fixed), Knights and Ruins (top + unseen).
+// The "Piles" section's data: pile orders for the Castles (fixed), Knights and Ruins (every card as dealt, top first). Split piles are not listed.
 {
   const { w, view } = await instance();
   const k = enc.encode("Knights, Marauder, Castles, Settlers, Village, Smithy, Market, Cellar, Moat, Festival");
@@ -437,10 +437,12 @@ deck: 5 Estate
   const po = view().pileOrder || [];
   const by = (nm) => po.find((x) => x.name === nm);
   check("pile order lists the Castles top first", by("Castles") && by("Castles").order === "fixed" && by("Castles").cards[0][0] === "Humble Castle", JSON.stringify(po));
-  check("pile order lists the split pile halves", by("Settlers/Bustling Village") && by("Settlers/Bustling Village").cards.length === 2);
+  check("pile order does not list split piles", po.length === 3 && !po.some((x) => /\//.test(x.name)), JSON.stringify(po.map((x) => x.name)));
   const kn = by("Knights");
-  check("Knights: top card and 9 unseen others, order hidden", kn && kn.order === "hidden" && kn.left === 10 && kn.unseen.reduce((s, [, n]) => s + n, 0) === 9, JSON.stringify(kn));
-  check("Ruins (Marauder): 10 left, drawn from the 49 unseen", by("Ruins") && by("Ruins").left === 10 && by("Ruins").unseen.reduce((s, [, n]) => s + n, 0) === 49);
+  check("Knights: all ten listed, top first, each once", kn && kn.order === "dealt" && kn.cards.length === 10 && new Set(kn.cards).size === 10, JSON.stringify(kn));
+  const sup = view().supply.find((x) => x.pile === "Knights");
+  check("the first Knight listed is the Supply's top Knight", kn && sup && sup.name === kn.cards[0], JSON.stringify(sup));
+  check("Ruins (Marauder): 10 listed", by("Ruins") && by("Ruins").cards.length === 10 && by("Ruins").cards[0] === view().supply.find((x) => x.pile === "Ruins").name);
 }
 
 // Ruins pile size: 10 per opponent (2 players: 10), whatever the 50 Ruins it is dealt from.
@@ -467,8 +469,17 @@ deck: 7 Copper, 3 Estate
   const I = await instance();
   I.load(pasted);
   const ru = (I.view().pileOrder || []).find((x) => x.name === "Ruins");
-  check("2 players: the Ruins pile holds 10 (top Survivors shown, 9 face down)", ru && ru.left === 10 && ru.top === "Survivors", JSON.stringify(ru));
-  check("the 9 face-down Ruins are drawn from the 49 nobody has seen", ru && ru.unseen.reduce((t, [, n]) => t + n, 0) === 49);
+  check("2 players: the Ruins pile lists 10 cards, top first (Survivors on top)", ru && ru.cards.length === 10 && ru.cards[0] === "Survivors", JSON.stringify(ru));
+  check("every listed Ruins is one of the five", ru && ru.cards.every((c) => ["Abandoned Mine", "Ruined Library", "Ruined Market", "Ruined Village", "Survivors"].includes(c)), JSON.stringify(ru));
+  // A save without the pile's order deals it the same way every time it is loaded (the state's seed decides), and a saved order is kept.
+  const I2 = await instance();
+  I2.load(pasted);
+  check("loading the same save deals the same face-down Ruins", JSON.stringify((I2.view().pileOrder || []).find((x) => x.name === "Ruins")) === JSON.stringify(ru));
+  const withOrder = pasted.replace("seed:", "ruins pile: Survivors, 2 Ruined Village, 3 Abandoned Mine, 2 Ruined Market, 2 Ruined Library\nseed:");
+  const I3 = await instance();
+  I3.load(withOrder);
+  const ru3 = (I3.view().pileOrder || []).find((x) => x.name === "Ruins");
+  check("a 'ruins pile:' line sets the order", ru3 && ru3.cards.join() === "Survivors,Ruined Village,Ruined Village,Abandoned Mine,Abandoned Mine,Abandoned Mine,Ruined Market,Ruined Market,Ruined Library,Ruined Library", JSON.stringify(ru3));
   const sup = I.view().supply.find((x) => x.pile === "Ruins");
   check("the Supply shows the Ruins pile once, with its 10 cards", sup && sup.count === 10 && sup.name === "Survivors", JSON.stringify(sup));
   for (const [players, size] of [[2, 10], [3, 20], [4, 30]]) {
@@ -478,7 +489,7 @@ deck: 7 Copper, 3 Estate
     new Uint8Array(w.memory.buffer, p, k.length).set(k);
     w.new_game(players, p, k.length, 11n, 0);
     const r = (view().pileOrder || []).find((x) => x.name === "Ruins");
-    check(`${players} players: ${size} Ruins in the pile`, r && r.left === size, JSON.stringify(r));
+    check(`${players} players: ${size} Ruins in the pile`, r && r.cards.length === size, JSON.stringify(r));
   }
 }
 

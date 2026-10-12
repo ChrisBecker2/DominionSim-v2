@@ -4,7 +4,7 @@
 
 use dominion_engine::cards::CardId;
 use dominion_engine::rng::Rng;
-use dominion_sim::batch::{run_match, MatchConfig};
+use dominion_sim::batch::{run_match, run_match_profiled, MatchConfig, Profile};
 use dominion_sim::stats::wilson_ci;
 use dominion_sim::Strategy;
 
@@ -23,6 +23,8 @@ pub struct Score {
     pub games: f64,
     /// Games actually played.
     pub played: u64,
+    /// The candidate's own turns, summed over games played (unweighted).
+    pub turns: f64,
 }
 
 impl Score {
@@ -37,6 +39,11 @@ impl Score {
         self.wins += o.wins;
         self.games += o.games;
         self.played += o.played;
+        self.turns += o.turns;
+    }
+    /// Average number of the candidate's own turns per game.
+    pub fn avg_turns(&self) -> f64 {
+        if self.played > 0 { self.turns / self.played as f64 } else { 0.0 }
     }
 }
 
@@ -77,9 +84,16 @@ impl Arena {
     /// Play `games` games (split evenly over scenarios and opponents, rounded up to an even number
     /// per pairing so seats balance) with seeds derived from `round_seed`.
     pub fn evaluate(&self, candidate: &Strategy, scenarios: &[Scenario], games: u64, round_seed: u64) -> Score {
+        self.evaluate_with(candidate, scenarios, games, round_seed, false).0
+    }
+
+    /// [`Arena::evaluate`], optionally also profiling the candidate's gains and trashes (pooled
+    /// over all pairings) for niche descriptors.
+    pub fn evaluate_with(&self, candidate: &Strategy, scenarios: &[Scenario], games: u64, round_seed: u64, profiled: bool) -> (Score, Option<Profile>) {
         let pairings = (scenarios.len() * self.opponents.len()).max(1) as u64;
         let per = (games.div_ceil(pairings) + 1) & !1;
         let mut total = Score::default();
+        let mut profile: Option<Profile> = profiled.then(Profile::default);
         for (k, sc) in scenarios.iter().enumerate() {
             for (o, opp) in self.opponents.iter().enumerate() {
                 let cfg = MatchConfig {
@@ -88,12 +102,20 @@ impl Arena {
                     seed: Rng::derive(round_seed, (k as u64) << 16 | o as u64).next_u64(),
                     max_turns: self.max_turns,
                 };
-                let stats = run_match(&[candidate, &opp.strategy], &cfg);
+                let stats = match profile.as_mut() {
+                    Some(p) => {
+                        let (stats, mut profs) = run_match_profiled(&[candidate, &opp.strategy], &cfg);
+                        p.merge(&profs.swap_remove(0));
+                        stats
+                    }
+                    None => run_match(&[candidate, &opp.strategy], &cfg),
+                };
                 total.wins += stats[0].wins * opp.weight;
                 total.games += stats[0].games as f64 * opp.weight;
                 total.played += stats[0].games;
+                total.turns += stats[0].turns_sum;
             }
         }
-        total
+        (total, profile)
     }
 }

@@ -41,6 +41,66 @@ fn one() -> f64 {
     1.0
 }
 
+/// Kingdom league mode: instead of fixed opponents, a candidate plays a weighted mix of the
+/// automatic baselines (anchors) and champions found earlier in the same run (the hall of
+/// fame), keeps one champion per niche, and the niche champions are ranked in a round robin at
+/// the end. Needs `track = Fixed` with a kingdom; `opponents` is ignored. See the "Kingdom league"
+/// section of `docs/strategy-search-plan.md`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct LeagueConfig {
+    /// Share of a candidate's games played against the anchors (baselines), against the most
+    /// recent hall-of-fame members, and against a sample of older ones. Groups that are still
+    /// empty (no hall of fame yet) are dropped and the rest renormalized.
+    pub anchor_weight: f64,
+    pub recent_weight: f64,
+    pub old_weight: f64,
+    /// How many of the newest hall-of-fame members count as "recent".
+    pub recent_count: usize,
+    /// How many of the older ones are sampled each generation.
+    pub old_sample: usize,
+    /// Largest number of niches kept (the archive holds one champion per niche).
+    pub niches: usize,
+    /// The best this many new strategies per generation are validated and may join the hall of fame.
+    pub join_per_generation: usize,
+    /// Validated win rate against the league needed to join the hall of fame.
+    pub hof_min_win: f64,
+    /// Chance that a parent is drawn from the niche archive instead of by tournament.
+    pub archive_parent_rate: f64,
+    /// Added to the selection fitness of candidates in a niche nobody held before.
+    pub novelty_bonus: f64,
+    /// An island that contributed no new niche champion for this many generations is shaken up
+    /// (stronger mutation) or restarted from another baseline, alternately (0 = never).
+    pub stagnation_generations: usize,
+    /// Round robin among the niche champions and the anchors: games per pair.
+    pub final_games: u64,
+    /// Play the final round robin with full bot behaviour (turn search), not fast mode.
+    pub final_full: bool,
+    /// How many distinct top strategies the final report presents.
+    pub top_n: usize,
+}
+
+impl Default for LeagueConfig {
+    fn default() -> Self {
+        LeagueConfig {
+            anchor_weight: 0.4,
+            recent_weight: 0.4,
+            old_weight: 0.2,
+            recent_count: 4,
+            old_sample: 3,
+            niches: 10,
+            join_per_generation: 2,
+            hof_min_win: 0.5,
+            archive_parent_rate: 0.4,
+            novelty_bonus: 0.01,
+            stagnation_generations: 8,
+            final_games: 2_000,
+            final_full: true,
+            top_n: 5,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct EvolveConfig {
@@ -53,6 +113,8 @@ pub struct EvolveConfig {
     /// the fixed kingdom). The random track always follows the official per-kingdom rule.
     pub colonies: Colonies,
     pub opponents: Vec<OpponentSpec>,
+    /// Kingdom league mode (replaces `opponents`; needs a fixed kingdom). `None`: fixed opponents.
+    pub league: Option<LeagueConfig>,
     /// Cards candidates may never gain.
     pub forbidden: Vec<String>,
     /// Strategy TOML sources to seed the population with (ones using forbidden cards are
@@ -104,6 +166,7 @@ impl Default for EvolveConfig {
             sets: vec!["Base".into(), "Intrigue".into(), "Seaside".into(), "Prosperity".into()],
             colonies: Colonies::default(),
             opponents: Vec::new(),
+            league: None,
             forbidden: vec!["Witch".into()],
             seeds: Vec::new(),
             islands: 4,

@@ -234,8 +234,7 @@ fn pick_parent<'a>(members: &'a [(Genome, f64)], archive: &'a Archive, cfg: &Evo
 }
 
 fn champion_name(desc: &Descriptor, used: &mut HashSet<String>) -> String {
-    let names = desc.card_names();
-    let base = if names.is_empty() { "Money".to_string() } else { names.join(" + ") };
+    let base = desc.head().replace("Money only", "Money");
     let mut name = base.clone();
     let mut n = 1;
     while !used.insert(name.clone()) {

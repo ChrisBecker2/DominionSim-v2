@@ -173,6 +173,21 @@ Potion-cost and not forbidden (cap 2 for non-terminals and Treasures; terminals:
 at 14+ cards; X sits before Gold when it costs $6+, else before Silver); "Trash with T + money" for each
 trasher T; "Engine: village + draw" for the village and the two best terminal draws.
 
+**Event anchors.** For each Event in the kingdom list (Landmarks are never bought) "BM + Event": Big Money
+Ultimate plus one buy rule placed by a per-Event hint table (`EVENT_HINTS`). By cost, where a money deck would
+otherwise buy: before Gold ($6+: Lost Arts, Training, Inheritance, Conquest, Windfall), before Silver ($3-5:
+Ball, Raid, Trade, Pilgrimage, Bonfire, Expedition, Mission, Delve, Wedding, Salt the Earth, Seaway, Plan,
+Ferry), before Province ($8+: Pathfinding, Dominate), or after Silver for nearly free Events ($0-2: Alms, Borrow,
+Quest, Save, Scouting Party, Travelling Fair, Advance, Banquet, Donate, Tax, Annex, Triumph, Ritual). Alms comes
+last on purpose: the bot plays it before its Treasures when it is the first rule the hand reaches, so a poor hand
+gets a free Silver and a $3+ hand buys Silver. Once-per-turn limits are the engine's (the Event is not offered
+again), `bought(Event) < 1` (the variable is 0 or 1, not a count) makes the token Events, Inheritance, Mission, Annex, Donate and Tax
+once-per-game, Raid needs 3 Silvers, Trade the early game, and the Debt Events (Annex, Triumph, Conquest, Ritual,
+Salt the Earth) the endgame via `provinces_left`. A token Event (Pathfinding, Lost Arts, Seaway, Training, Ferry,
+Plan) also buys the kingdom's best partner Action (a non-terminal first; $4 or less for Seaway and Inheritance)
+and has a `[[token]]` rule putting its token on that pile; with no such Action there is no anchor. Names:
+"BM + Ball", "BM + Training on Port".
+
 **League scoring.** A candidate's fitness is its win rate (minus parsimony) against a weighted mix:
 anchors 0.4, the newest 4 hall-of-fame champions 0.4, a sample of 3 older ones 0.2. Empty groups drop
 out and the rest renormalize (`league_weights`). All candidates of a generation play the same deals
@@ -184,7 +199,10 @@ hall of fame if they win at least `hof_min_win` (51%) of the games.
 trashes per game and turns. A descriptor is: the top one or two kingdom cards gained (at least 0.75 per
 game; the second at least half as often as the first), trashing (none under 1 per game, light under 6,
 else heavy) and game length (against Big Money Ultimate's on this kingdom: under 0.88x fast, over 1.12x
-long). The archive keeps the best strategy per niche, up to `niches` (10; the fittest are kept).
+long), and the Event bought most (at least `min_events` = 0.5 per game, else none; the profile counts
+`Event::Buy` of Events per player in `ProfileSink`, a separate small counter because Events have no Gain event).
+Labels show it ("Magpie + Ball, no trashing, average games"; "Money + Ball" with no key card), and a strategy
+buying an Event lives in its own niche. The archive keeps the best strategy per niche, up to `niches` (10; the fittest are kept).
 Champions are re-raced every generation (protected from racing cuts), so fitness is always measured
 against the current league. Parents come from the archive with probability 0.4, otherwise by island
 tournament. A new niche earns a selection bonus of +1% win rate.

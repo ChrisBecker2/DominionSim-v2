@@ -27,19 +27,23 @@ pub struct NicheParams {
     pub trash_cuts: [f64; 2],
     /// Game length relative to the reference: below the first value: fast; above the second: slow.
     pub length_cuts: [f64; 2],
+    /// The Event a strategy buys most is its event key only if it buys at least this many per game.
+    pub min_events: f64,
 }
 
 impl Default for NicheParams {
     fn default() -> Self {
-        NicheParams { min_gains: 0.75, second_ratio: 0.5, trash_cuts: [1.0, 6.0], length_cuts: [0.88, 1.12] }
+        NicheParams { min_gains: 0.75, second_ratio: 0.5, trash_cuts: [1.0, 6.0], length_cuts: [0.88, 1.12], min_events: 0.5 }
     }
 }
 
-/// The niche of a strategy: key cards (sorted, so Lab+Mine and Mine+Lab are one niche), trashing
-/// bucket and length bucket.
+/// The niche of a strategy: key cards (sorted, so Lab+Mine and Mine+Lab are one niche), the Event
+/// it buys most (if it buys any regularly), trashing bucket and length bucket.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Descriptor {
     pub cards: [CardId; 2],
+    /// The Event bought most often (at least `min_events` per game), or [`NO_CARD`].
+    pub event: CardId,
     /// 0 none, 1 light, 2 heavy.
     pub trash: u8,
     /// 0 fast, 1 average, 2 slow.
@@ -55,10 +59,24 @@ impl Descriptor {
         self.cards.iter().filter(|&&c| c != NO_CARD).map(|&c| cards::name(c)).collect()
     }
 
-    /// e.g. "Laboratory + Mine, light trashing, long games"; "Money only, ..." with no key card.
+    /// The key cards and the Event, e.g. "Magpie + Ball" ("Money" with no key card, "Money only" with no Event either).
+    pub fn head(&self) -> String {
+        let mut names = self.card_names();
+        if self.event != NO_CARD {
+            if names.is_empty() {
+                names.push("Money");
+            }
+            names.push(cards::name(self.event));
+        } else if names.is_empty() {
+            names.push("Money only");
+        }
+        names.join(" + ")
+    }
+
+    /// e.g. "Laboratory + Mine, light trashing, long games"; "Money only, ..." with no key card;
+    /// "Magpie + Ball, no trashing, average games" with an Event.
     pub fn label(&self) -> String {
-        let names = self.card_names();
-        let head = if names.is_empty() { "Money only".to_string() } else { names.join(" + ") };
+        let head = self.head();
         format!("{head}, {}, {}", TRASH_LABELS[self.trash as usize], LENGTH_LABELS[self.length as usize])
     }
 }
@@ -68,6 +86,8 @@ impl Descriptor {
 pub struct Behaviour {
     /// Kingdom cards gained per game, most first.
     pub gains: Vec<(CardId, f64)>,
+    /// Events bought per game, most first.
+    pub events: Vec<(CardId, f64)>,
     pub trashes: f64,
     /// Own turns per game.
     pub turns: f64,
@@ -82,7 +102,12 @@ impl Behaviour {
             .filter(|&(_, g)| g > 0.0)
             .collect();
         gains.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-        Behaviour { gains, trashes: p.trashes_per_game(), turns: if games > 0 { turns_sum / games as f64 } else { 0.0 } }
+        let mut events: Vec<(CardId, f64)> = (cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId)
+            .map(|e| (e, p.events_per_game(e)))
+            .filter(|&(_, n)| n > 0.0)
+            .collect();
+        events.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        Behaviour { gains, events, trashes: p.trashes_per_game(), turns: if games > 0 { turns_sum / games as f64 } else { 0.0 } }
     }
 
     pub fn describe(&self, reference_turns: f64, prm: &NicheParams) -> Descriptor {
@@ -101,13 +126,24 @@ impl Behaviour {
         let trash = if self.trashes < prm.trash_cuts[0] { 0 } else if self.trashes < prm.trash_cuts[1] { 1 } else { 2 };
         let ratio = if reference_turns > 0.0 { self.turns / reference_turns } else { 1.0 };
         let length = if ratio < prm.length_cuts[0] { 0 } else if ratio > prm.length_cuts[1] { 2 } else { 1 };
-        Descriptor { cards: key, trash, length }
+        let event = match self.events.first() {
+            Some(&(e, n)) if n >= prm.min_events => e,
+            _ => NO_CARD,
+        };
+        Descriptor { cards: key, event, trash, length }
     }
 
     /// "Laboratory 3.2, Mine 1.1 gains/game; 4.0 trashes; 17.3 turns".
     pub fn text(&self) -> String {
         let gains: Vec<String> = self.gains.iter().take(3).map(|&(c, g)| format!("{} {:.1}", cards::name(c), g)).collect();
-        format!("{}; {:.1} trashes; {:.1} turns", if gains.is_empty() { "no kingdom cards".to_string() } else { gains.join(", ") }, self.trashes, self.turns)
+        let events: Vec<String> = self.events.iter().take(2).map(|&(e, n)| format!("{} {:.1}", cards::name(e), n)).collect();
+        let events = if events.is_empty() { String::new() } else { format!("; buys {}/game", events.join(", ")) };
+        format!(
+            "{}{events}; {:.1} trashes; {:.1} turns",
+            if gains.is_empty() { "no kingdom cards".to_string() } else { gains.join(", ") },
+            self.trashes,
+            self.turns
+        )
     }
 }
 
@@ -216,7 +252,7 @@ mod tests {
         for &(c, n) in gains {
             g[c as usize] = n;
         }
-        Profile { games, gains: g, trashes }
+        Profile { games, gains: g, trashes, events: Vec::new() }
     }
 
     fn elite(g: Genome, fitness: f64) -> Elite {
@@ -253,9 +289,39 @@ mod tests {
     }
 
     #[test]
+    fn buying_an_event_regularly_gives_its_own_niche() {
+        let mut p = profile(&[(id::MAGPIE, 200)], 0, 100);
+        let plain = Behaviour::from_profile(&p, 1500.0, 100).describe(15.0, &NicheParams::default());
+        assert_eq!(plain.event, NO_CARD);
+        assert!(plain.label().starts_with("Magpie, no trashing"), "{}", plain.label());
+        // Rare purchases (0.3 per game) do not count; 2 per game do, and the most-bought Event is the key.
+        p.events = vec![0; cards::NUM_EVENTS];
+        p.events[(id::ALMS - cards::FIRST_EVENT) as usize] = 30;
+        let rare = Behaviour::from_profile(&p, 1500.0, 100).describe(15.0, &NicheParams::default());
+        assert_eq!(rare, plain);
+        p.events[(id::BALL - cards::FIRST_EVENT) as usize] = 200;
+        let b = Behaviour::from_profile(&p, 1500.0, 100);
+        assert_eq!(b.events[0].0, id::BALL);
+        let ball = b.describe(15.0, &NicheParams::default());
+        assert_eq!(ball.event, id::BALL);
+        assert_ne!(ball, plain);
+        assert_eq!(ball.label(), "Magpie + Ball, no trashing, average games");
+        assert!(b.text().contains("buys Ball 2.0, Alms 0.3/game"), "{}", b.text());
+        // A money deck with an Event.
+        let money = Behaviour { events: vec![(id::BALL, 1.0)], turns: 15.0, ..Default::default() }.describe(15.0, &NicheParams::default());
+        assert!(money.label().starts_with("Money + Ball,"), "{}", money.label());
+        // Different archive cells.
+        let mut arch = Archive::default();
+        let g = crate::ops::big_money();
+        assert_eq!(arch.offer(plain, elite(g.clone(), 0.5)), Offer::New);
+        assert_eq!(arch.offer(ball, elite(crate::ops::big_money_with(&[(id::MAGPIE, 2)]), 0.4)), Offer::New);
+        assert_eq!(arch.len(), 2);
+    }
+
+    #[test]
     fn the_archive_keeps_the_best_per_niche_and_parents_come_from_it() {
-        let d1 = Descriptor { cards: [id::SMITHY, NO_CARD], trash: 0, length: 1 };
-        let d2 = Descriptor { cards: [id::LABORATORY, NO_CARD], trash: 0, length: 1 };
+        let d1 = Descriptor { cards: [id::SMITHY, NO_CARD], event: NO_CARD, trash: 0, length: 1 };
+        let d2 = Descriptor { cards: [id::LABORATORY, NO_CARD], event: NO_CARD, trash: 0, length: 1 };
         let a = crate::ops::big_money();
         let b = crate::ops::big_money_with(&[(id::SMITHY, 1)]);
         let c = crate::ops::big_money_with(&[(id::LABORATORY, 2)]);

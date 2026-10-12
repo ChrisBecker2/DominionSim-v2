@@ -4,7 +4,10 @@
 //! - "Big Money + X" for each kingdom card X that a money deck would buy one or two of (Actions
 //!   and Treasures, not Victory-only cards), with sensible caps and the usual endgame rules;
 //! - "trasher + money" when the kingdom has a trasher;
-//! - "village + draw" when it has both a village and a draw card.
+//! - "village + draw" when it has both a village and a draw card;
+//! - "BM + <Event>" for each Event of the kingdom (Landmarks are never bought): Big Money with one
+//!   rule buying the Event where a human would (see [`EVENT_HINTS`]), capped with `bought(Event)`
+//!   where repeating it is pointless, and with the `[[token]]` rule the Event needs.
 //!
 //! Every baseline is a [`Genome`], so it prints as an ordinary strategy file.
 
@@ -147,6 +150,127 @@ fn engine_plan(village: CardId, draw: CardId, colonies: bool) -> Genome {
     g
 }
 
+/// Where an Event's buy rule goes in Big Money's list.
+#[derive(Clone, Copy)]
+enum At {
+    /// Before Province/Colony (an Event nothing else outranks).
+    Top,
+    /// Before Gold: the Event is bought instead of Gold-or-less.
+    Gold,
+    /// Before Silver: instead of Silver-or-less.
+    Silver,
+    /// After Silver: only when no card is affordable (the Event is nearly free).
+    End,
+}
+
+/// A condition of an Event's buy rule.
+#[derive(Clone, Copy)]
+enum Cond {
+    /// `bought(Event) < 1`: once per game (`bought(Event)` is 1 once the Event has been bought, not a count).
+    Bought(i16),
+    /// `provinces_left <= n`: the endgame.
+    ProvincesLeft(i16),
+    /// At least n Silvers owned.
+    Silvers(i16),
+    /// `provinces_left >= n`: not in the endgame.
+    EarlyProvinces(i16),
+    /// `my_turn < n`.
+    TurnLt(i16),
+}
+
+/// Per-Event placement hints for "Big Money + Event": (name, position, conditions, token the Event
+/// places, as an index of `cards::TOKEN_NAMES`). Events that grant a token also buy a partner Action
+/// to put it on (the token pile). Once-per-turn and once-per-game limits are the engine's: the
+/// Event is simply not offered again, so they need no condition here; the `Bought` caps are for
+/// Events worth buying once (token moves, Inheritance, Mission, Annex, Donate, Tax).
+const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
+    // Adventures. Alms ($0, once per turn, only with no Treasure in play) is a free Silver for a poor hand: the bot
+    // plays it before its Treasures when it is the first rule the hand reaches, i.e. after Silver on the list.
+    ("Alms", At::End, &[], None),
+    ("Borrow", At::End, &[], None),
+    ("Quest", At::End, &[], None),
+    ("Save", At::End, &[], None),
+    ("Scouting Party", At::End, &[], None),
+    ("Travelling Fair", At::End, &[], None),
+    ("Bonfire", At::Silver, &[], None),
+    ("Expedition", At::Silver, &[], None),
+    ("Ferry", At::Silver, &[Cond::Bought(1)], Some(4)),
+    ("Plan", At::Silver, &[Cond::Bought(1)], Some(5)),
+    ("Mission", At::Silver, &[Cond::Bought(1)], None),
+    ("Pilgrimage", At::Silver, &[], None),
+    ("Ball", At::Silver, &[], None),
+    ("Raid", At::Silver, &[Cond::Silvers(3)], None),
+    ("Seaway", At::Silver, &[Cond::Bought(1)], Some(2)),
+    ("Trade", At::Silver, &[Cond::EarlyProvinces(3)], None),
+    ("Lost Arts", At::Gold, &[Cond::Bought(1)], Some(1)),
+    ("Training", At::Gold, &[Cond::Bought(1)], Some(3)),
+    ("Inheritance", At::Gold, &[Cond::Bought(1)], None),
+    ("Pathfinding", At::Top, &[Cond::Bought(1)], Some(0)),
+    // Empires. The Events with Debt in their cost wait for the endgame or a single early buy.
+    ("Advance", At::End, &[], None),
+    ("Annex", At::End, &[Cond::Bought(1), Cond::ProvincesLeft(4)], None),
+    ("Banquet", At::End, &[], None),
+    ("Conquest", At::Gold, &[Cond::ProvincesLeft(4)], None),
+    ("Delve", At::Silver, &[], None),
+    ("Dominate", At::Top, &[], None),
+    ("Donate", At::End, &[Cond::Bought(1), Cond::TurnLt(8)], None),
+    ("Ritual", At::End, &[Cond::ProvincesLeft(2)], None),
+    ("Salt the Earth", At::Silver, &[Cond::ProvincesLeft(3)], None),
+    ("Tax", At::End, &[Cond::Bought(1)], None),
+    ("Triumph", At::End, &[Cond::ProvincesLeft(4)], None),
+    ("Wedding", At::Silver, &[], None),
+    ("Windfall", At::Gold, &[], None),
+];
+
+fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {
+    conds
+        .iter()
+        .map(|c| match *c {
+            Cond::Bought(n) => atom(Var::Bought(e), Op::Lt, n),
+            Cond::ProvincesLeft(n) => atom(Var::ProvincesLeft, Op::Lt, n + 1),
+            Cond::Silvers(n) => atom(Var::Count(id::SILVER), Op::Ge, n),
+            Cond::EarlyProvinces(n) => atom(Var::ProvincesLeft, Op::Ge, n),
+            Cond::TurnLt(n) => atom(Var::MyTurn, Op::Lt, n),
+        })
+        .collect()
+}
+
+/// The Action pile an Event token goes on: a non-terminal if there is one, else any Action; costing at most `max_cost`.
+fn token_pile(actions: &[CardId], max_cost: u8) -> Option<CardId> {
+    let cheap: Vec<CardId> = actions.iter().copied().filter(|&c| cards::cost(c) <= max_cost).collect();
+    cheap.iter().copied().find(|&c| !is_terminal(c)).or_else(|| cheap.first().copied())
+}
+
+/// Big Money + the Event `e`, or `None` when the kingdom lacks what the Event needs (an Action to
+/// put its token on or to set aside).
+pub fn big_money_plus_event(e: CardId, colonies: bool, actions: &[CardId]) -> Option<Genome> {
+    let name = cards::name(e);
+    let &(_, at, conds, token) = EVENT_HINTS.iter().find(|h| h.0 == name)?;
+    let mut g = big_money_ultimate(colonies);
+    let mut partner = None;
+    if token.is_some() || name == "Inheritance" {
+        // Seaway gains an Action costing up to $4 and Inheritance sets one aside: both need one that cheap.
+        let cap = if matches!(name, "Seaway" | "Inheritance") { 4 } else { 8 };
+        let p = token_pile(actions, cap)?;
+        insert_rules(&mut g, p, partner_rules(p));
+        add_play(&mut g, p);
+        partner = Some(p);
+    }
+    let r = rule(e, event_conds(e, conds));
+    let pos = |g: &Genome, c: CardId| g.gain.iter().position(|r| r.card == c);
+    let index = match at {
+        At::Top => 0,
+        At::Gold => pos(&g, id::GOLD).unwrap_or(g.gain.len()),
+        At::Silver => pos(&g, id::SILVER).unwrap_or(g.gain.len()),
+        At::End => pos(&g, id::SILVER).map_or(g.gain.len(), |i| i + 1),
+    };
+    g.gain.insert(index, r);
+    if let (Some(t), Some(p)) = (token, partner) {
+        g.token.push(Rule { card: p, opt: t, conds: Vec::new() });
+    }
+    Some(g)
+}
+
 fn plain_name(c: CardId) -> &'static str {
     cards::name(c)
 }
@@ -155,6 +279,7 @@ fn plain_name(c: CardId) -> &'static str {
 /// `colonies` says whether Colony/Platinum are in the supply, and `forbidden` cards are never used.
 pub fn baselines(kingdom: &[CardId], colonies: bool, forbidden: &[CardId]) -> Vec<Baseline> {
     let cards_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_kingdom(c) && !forbidden.contains(&c)).collect();
+    let events_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_event(c) && !forbidden.contains(&c)).collect();
     let mut out: Vec<Baseline> = vec![Baseline {
         name: "Big Money Ultimate".into(),
         genome: big_money_ultimate(colonies),
@@ -192,6 +317,14 @@ pub fn baselines(kingdom: &[CardId], colonies: bool, forbidden: &[CardId]) -> Ve
             );
         }
     }
+    // Big Money + each Event (Landmarks are never bought).
+    let actions: Vec<CardId> = cards_in.iter().copied().filter(|&c| is_money_partner(c) && cards::is(c, ACTION)).collect();
+    for &e in &events_in {
+        if let Some(g) = big_money_plus_event(e, colonies, &actions) {
+            let on = g.token.first().map(|t| format!(" on {}", plain_name(t.card))).unwrap_or_default();
+            push(&mut out, format!("BM + {}{on}", plain_name(e)), g, format!("Big Money that also buys the Event {}.", plain_name(e)));
+        }
+    }
     out
 }
 
@@ -222,6 +355,49 @@ mod tests {
         let bmu = &b[0].genome;
         assert_eq!(bmu.gain[0].card, id::COLONY);
         assert!(bmu.gain.iter().any(|r| r.card == id::PLATINUM));
+    }
+
+    #[test]
+    fn events_of_the_kingdom_get_a_big_money_anchor_and_landmarks_never_do() {
+        let k = kingdom(&["Coin of the Realm", "Page", "Peasant", "Port", "Ranger", "Amulet", "Duplicate", "Lost City", "Magpie", "Miser", "Alms", "Ball"]);
+        let b = baselines(&k, false, &[]);
+        let n = names(&b);
+        assert!(n.contains(&"BM + Ball") && n.contains(&"BM + Alms"), "{n:?}");
+        let ball = &b.iter().find(|b| b.name == "BM + Ball").unwrap().genome;
+        let at = |c| ball.gain.iter().position(|r| r.card == c).unwrap();
+        assert!(at(id::BALL) < at(id::SILVER) && at(id::GOLD) < at(id::BALL), "Ball replaces Silver, not Gold");
+        let alms = &b.iter().find(|b| b.name == "BM + Alms").unwrap().genome;
+        assert_eq!(alms.gain.last().unwrap().card, id::ALMS, "Alms after Silver");
+        // No Events, no event anchors.
+        let plain = baselines(&kingdom(&["Village", "Smithy", "Laboratory", "Market", "Chapel"]), false, &[]);
+        assert!(plain.iter().all(|b| b.genome.gain.iter().all(|r| !cards::is_event(r.card))));
+        // Landmarks give no buy rule; Events do.
+        let e = baselines(&kingdom(&["Smithy", "Aqueduct", "Delve", "Tomb"]), false, &[]);
+        let all_rules: Vec<CardId> = e.iter().flat_map(|b| b.genome.gain.iter().map(|r| r.card)).collect();
+        assert!(all_rules.iter().all(|&c| !cards::is_landmark(c)));
+        assert!(names(&e).contains(&"BM + Delve"), "{:?}", names(&e));
+    }
+
+    #[test]
+    fn every_event_anchor_loads_and_plays_whole_games() {
+        use dominion_sim::{batch, Strategy};
+        let adv = ["Alms", "Borrow", "Quest", "Save", "Scouting Party", "Travelling Fair", "Bonfire", "Expedition", "Ferry", "Plan", "Mission", "Pilgrimage",
+            "Ball", "Raid", "Seaway", "Trade", "Lost Arts", "Training", "Inheritance", "Pathfinding"];
+        let emp = ["Advance", "Annex", "Banquet", "Conquest", "Delve", "Dominate", "Donate", "Ritual", "Salt the Earth", "Tax", "Triumph", "Wedding", "Windfall"];
+        let base = baselines(&kingdom(&["Village", "Smithy", "Market", "Port", "Magpie"]), false, &[]);
+        let bmu = Strategy::parse(&base[0].genome.to_toml(&Default::default())).unwrap();
+        for e in adv.iter().chain(emp.iter()) {
+            let mut k = kingdom(&["Village", "Smithy", "Market", "Port", "Magpie", "Peasant", "Page", "Lost City", "Festival", "Militia"]);
+            k.push(cards::by_name(e).unwrap());
+            let b = baselines(&k, false, &[]);
+            let a = b.iter().find(|b| b.name.starts_with(&format!("BM + {e}"))).unwrap_or_else(|| panic!("no anchor for {e}"));
+            let text = a.genome.to_toml(&Default::default());
+            let s = Strategy::parse(&text).unwrap_or_else(|er| panic!("{e}: {er}\n{text}"));
+            assert_eq!(Genome::from_toml(&text).unwrap(), a.genome, "{e}");
+            let cfg = batch::MatchConfig { games: 20, kingdom: k.clone(), seed: 5, max_turns: 60 };
+            let r = batch::run_match(&[&s, &bmu], &cfg);
+            assert_eq!(r[0].games, 20, "{e}");
+        }
     }
 
     #[test]

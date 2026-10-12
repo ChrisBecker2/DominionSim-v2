@@ -35,9 +35,14 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
     let mut g = big_money();
     let gold = g.gain.iter().position(|r| r.card == id::GOLD).unwrap_or(1);
     for (k, &(c, n)) in xs.iter().enumerate() {
-        // An Event is never owned: "n times" is a count of purchases.
-        let var = if cards::is_event(c) { Var::Bought(c) } else { Var::Count(c) };
-        g.gain.insert(gold + k, Rule { card: c, opt: 0, conds: vec![cond(var, Op::Lt, n)] });
+        // An Event is never owned, and `bought(E)` is only 0 or 1: one copy means "once per game";
+        // more means no cap (buy it whenever the rule is reached).
+        let conds = if cards::is_event(c) {
+            if n <= 1 { vec![cond(Var::Bought(c), Op::Lt, 1)] } else { vec![] }
+        } else {
+            vec![cond(Var::Count(c), Op::Lt, n)]
+        };
+        g.gain.insert(gold + k, Rule { card: c, opt: 0, conds });
         if crate::space::is_action(c) {
             g.play.push(Rule::new(c));
         }

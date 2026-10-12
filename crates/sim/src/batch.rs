@@ -8,7 +8,7 @@
 //! common random numbers: `game_index / players` is the same underlying seed across a
 //! rotation's `players` games).
 
-use dominion_engine::cards::CardId;
+use dominion_engine::cards::{self, CardId};
 use dominion_engine::rng::Rng;
 use dominion_engine::state::MAX_PLAYERS;
 use dominion_engine::{play_game, Agent, Event, EventSink, GameConfig, GameState, NoEvents};
@@ -68,11 +68,18 @@ pub struct Profile {
     /// Gains per card id, summed over games.
     pub gains: Vec<u64>,
     pub trashes: u64,
+    /// Purchases per Event (index `event - cards::FIRST_EVENT`), summed over games; empty when no Event was ever bought.
+    pub events: Vec<u64>,
 }
 
 impl Profile {
     pub fn gains_per_game(&self, card: CardId) -> f64 {
         if self.games == 0 { 0.0 } else { self.gains.get(card as usize).copied().unwrap_or(0) as f64 / self.games as f64 }
+    }
+    /// Times the strategy bought `event` per game.
+    pub fn events_per_game(&self, event: CardId) -> f64 {
+        let i = event.wrapping_sub(cards::FIRST_EVENT) as usize;
+        if self.games == 0 { 0.0 } else { self.events.get(i).copied().unwrap_or(0) as f64 / self.games as f64 }
     }
     pub fn trashes_per_game(&self) -> f64 {
         if self.games == 0 { 0.0 } else { self.trashes as f64 / self.games as f64 }
@@ -86,12 +93,20 @@ impl Profile {
         for (a, b) in self.gains.iter_mut().zip(&o.gains) {
             *a += b;
         }
+        if self.events.len() < o.events.len() {
+            self.events.resize(o.events.len(), 0);
+        }
+        for (a, b) in self.events.iter_mut().zip(&o.events) {
+            *a += b;
+        }
     }
 }
 
 pub struct ProfileSink {
     gains: [[u16; PROFILE_IDS]; MAX_PLAYERS],
     trashes: [u32; MAX_PLAYERS],
+    /// Event purchases per seat (Events are bought, never gained, so they have no `Gain` event).
+    events: [[u8; cards::NUM_EVENTS]; MAX_PLAYERS],
 }
 
 impl EventSink for ProfileSink {
@@ -101,6 +116,10 @@ impl EventSink for ProfileSink {
                 self.gains[player as usize][card as usize] += 1;
             }
             Event::Trash { player, .. } => self.trashes[player as usize] += 1,
+            Event::Buy { player, card } if cards::is_event(card) => {
+                let n = &mut self.events[player as usize][(card - cards::FIRST_EVENT) as usize];
+                *n = n.saturating_add(1);
+            }
             _ => {}
         }
     }
@@ -113,7 +132,7 @@ pub struct Profiles(pub Vec<Profile>);
 impl Tally for Profiles {
     type Sink = ProfileSink;
     fn sink() -> ProfileSink {
-        ProfileSink { gains: [[0; PROFILE_IDS]; MAX_PLAYERS], trashes: [0; MAX_PLAYERS] }
+        ProfileSink { gains: [[0; PROFILE_IDS]; MAX_PLAYERS], trashes: [0; MAX_PLAYERS], events: [[0; cards::NUM_EVENTS]; MAX_PLAYERS] }
     }
     fn absorb(&mut self, sink: &ProfileSink, strat_of_seat: &[usize]) {
         if self.0.len() < MAX_PLAYERS {
@@ -126,6 +145,14 @@ impl Tally for Profiles {
             }
             p.games += 1;
             p.trashes += sink.trashes[seat] as u64;
+            if sink.events[seat].iter().any(|&n| n > 0) {
+                if p.events.is_empty() {
+                    p.events = vec![0; cards::NUM_EVENTS];
+                }
+                for (a, b) in p.events.iter_mut().zip(sink.events[seat].iter()) {
+                    *a += *b as u64;
+                }
+            }
             for (a, b) in p.gains.iter_mut().zip(sink.gains[seat].iter()) {
                 *a += *b as u64;
             }

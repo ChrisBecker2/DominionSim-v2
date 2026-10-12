@@ -26,7 +26,7 @@ pub enum Var {
     /// Cards I own.
     TotalCards,
     EmptyPiles,
-    /// Times I have bought an Event (Adventures) this game.
+    /// 1 if I have bought the Event (Adventures, Empires) this game, else 0 (not a count).
     Bought(CardId),
     /// Debt tokens I have (Empires).
     Debt,
@@ -122,7 +122,8 @@ impl Var {
             Var::MyTurn => (2, 30),
             Var::TotalCards => (8, 50),
             Var::EmptyPiles => (1, 2),
-            Var::Bought(_) => (1, 3),
+            // 0 or 1 ("bought it this game"): the only threshold that changes anything is 1.
+            Var::Bought(_) => (1, 1),
             Var::Debt => (1, 8),
         }
     }

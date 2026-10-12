@@ -1,6 +1,12 @@
 //! Run a kingdom league from the command line and print the niche table and crosstable.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
+//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400)
 use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, Track};
+
+/// An environment override of a count (`ISLANDS=3`), for quicker runs.
+fn env(name: &str, default: usize) -> usize {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
 
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
@@ -11,9 +17,10 @@ fn main() {
         track: Track::Fixed { kingdom },
         league: Some(LeagueConfig { final_games, ..LeagueConfig::default() }),
         forbidden: vec![],
-        islands: 6,
-        island_size: 24,
+        islands: env("ISLANDS", 6),
+        island_size: env("ISLAND_SIZE", 24),
         generations,
+        race_games: if std::env::var("RACES").is_ok() { std::env::var("RACES").unwrap().split(',').filter_map(|x| x.parse().ok()).collect() } else { EvolveConfig::default().race_games },
         polish_games: 4000,
         validate_games: 10_000,
         ..EvolveConfig::default()

@@ -618,6 +618,9 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         let parena = Arena { opponents: popps, forbidden: forbidden.clone(), fast: cfg.fast_eval, max_turns: cfg.max_turns };
         let pseed = Rng::derive(cfg.seed ^ 0x9011_5400, 1).next_u64();
         for (_, g, _) in champions.iter_mut() {
+            if control.stopped() {
+                break;
+            }
             let p = polish(g, &parena, &setup.space, &scenario, cfg.polish_games, pseed, parsimony);
             progress.games_played += p.score.played;
             *g = p.genome;
@@ -645,7 +648,26 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     let strategies: Vec<Strategy> = genomes.iter().map(|g| final_template.compile(g)).collect::<Result<_, _>>()?;
     let refs: Vec<&Strategy> = strategies.iter().collect();
     let rr_seed = Rng::derive(cfg.seed ^ 0xF1AA_0000, 1).next_u64();
-    let rr = rank::round_robin(&refs, &names, lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns);
+    let ranking_started = start.elapsed().as_secs_f64();
+    let rr = {
+        let mut on_pair = |done: usize, total: usize| {
+            let spent = start.elapsed().as_secs_f64() - ranking_started;
+            let left = spent / done.max(1) as f64 * (total - done) as f64;
+            let eta = if left >= 90.0 { format!("~{:.0} min left", left / 60.0) } else { format!("~{left:.0} s left") };
+            progress.status = format!("ranking: pair {done} / {total}, {eta}");
+            progress.elapsed_secs = start.elapsed().as_secs_f64();
+            report(&progress);
+        };
+        rank::round_robin(&refs, &names, lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
+    };
+    let Some(rr) = rr else {
+        // Stopped during the final ranking: the niche champions found so far stay in the report.
+        progress.note(format!("stopped during the final ranking after {:.0} s; the niche champions above are unranked", start.elapsed().as_secs_f64() - ranking_started));
+        progress.status = "stopped".into();
+        progress.elapsed_secs = start.elapsed().as_secs_f64();
+        report(&progress);
+        return Ok(progress);
+    };
     let n = names.len();
     progress.games_played += (n * (n - 1) / 2) as u64 * rr.table.games;
 

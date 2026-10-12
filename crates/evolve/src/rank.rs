@@ -6,7 +6,8 @@ use dominion_engine::cards::CardId;
 use dominion_sim::batch::{run_match_profiled, MatchConfig, Profile};
 use dominion_sim::stats::{wilson_ci, Z_95};
 use dominion_sim::Strategy;
-use rayon::prelude::*;
+use dominion_engine::rng::Rng;
+use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 
 /// Results of a round robin. `rate[i][j]` is how often `i` beats `j` (ties count half; the
@@ -34,9 +35,24 @@ pub struct RoundRobin {
     pub games_played: Vec<u64>,
 }
 
-/// Every pair plays `games` games (seats balanced) on `kingdom` with the same seed, so all pairs
-/// see the same deals. Strategies are used as given (callers decide fast or full behaviour).
-pub fn round_robin(strategies: &[&Strategy], names: &[String], games: u64, kingdom: &[CardId], seed: u64, max_turns: u16) -> RoundRobin {
+/// Games per batch in `round_robin`: between batches it checks `stop` and reports progress, so a
+/// slow round robin (full searching bots on a choice-heavy kingdom) can be watched and stopped.
+const RR_BATCH: u64 = 250;
+
+/// Every pair plays `games` games (seats balanced) on `kingdom` with the same seeds, so all pairs
+/// see the same deals. Strategies are used as given (callers decide fast or full behaviour). Pairs
+/// are played one after another, each in batches of `RR_BATCH` games run in parallel; after each
+/// batch `progress(pairs_done, pairs_total)` is called and `stop` checked. `None` when stopped.
+pub fn round_robin(
+    strategies: &[&Strategy],
+    names: &[String],
+    games: u64,
+    kingdom: &[CardId],
+    seed: u64,
+    max_turns: u16,
+    stop: &AtomicBool,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Option<RoundRobin> {
     let n = strategies.len();
     let games = (games + 1) & !1;
     let mut pairs = Vec::new();
@@ -45,16 +61,33 @@ pub fn round_robin(strategies: &[&Strategy], names: &[String], games: u64, kingd
             pairs.push((i, j));
         }
     }
-    let results: Vec<(usize, usize, dominion_sim::stats::StratStats, dominion_sim::stats::StratStats, Profile, Profile)> = pairs
-        .par_iter()
-        .map(|&(i, j)| {
-            let cfg = MatchConfig { games, kingdom: kingdom.to_vec(), seed, max_turns };
+    let total = pairs.len();
+    let mut results: Vec<(usize, usize, dominion_sim::stats::StratStats, dominion_sim::stats::StratStats, Profile, Profile)> = Vec::new();
+    for (k, &(i, j)) in pairs.iter().enumerate() {
+        let (mut si, mut sj) = Default::default();
+        let (mut pi, mut pj) = (Profile::default(), Profile::default());
+        let mut played = 0u64;
+        let mut batch = 0u64;
+        while played < games {
+            if stop.load(Ordering::Relaxed) {
+                return None;
+            }
+            let n_games = RR_BATCH.min(games - played);
+            // Each batch has its own seed, the same for every pair: all pairs still see the same deals.
+            let cfg = MatchConfig { games: n_games, kingdom: kingdom.to_vec(), seed: Rng::derive(seed, batch).next_u64(), max_turns };
             let (s, mut p) = run_match_profiled(&[strategies[i], strategies[j]], &cfg);
-            let pj = p.pop().unwrap_or_default();
-            let pi = p.pop().unwrap_or_default();
-            (i, j, s[0], s[1], pi, pj)
-        })
-        .collect();
+            let bj = p.pop().unwrap_or_default();
+            let bi = p.pop().unwrap_or_default();
+            dominion_sim::stats::StratStats::merge(&mut si, &s[0]);
+            dominion_sim::stats::StratStats::merge(&mut sj, &s[1]);
+            pi.merge(&bi);
+            pj.merge(&bj);
+            played += n_games;
+            batch += 1;
+        }
+        results.push((i, j, si, sj, pi, pj));
+        progress(k + 1, total);
+    }
     let mut rate = vec![vec![0.5; n]; n];
     let mut lo = vec![vec![0.5; n]; n];
     let mut hi = vec![vec![0.5; n]; n];
@@ -80,7 +113,7 @@ pub fn round_robin(strategies: &[&Strategy], names: &[String], games: u64, kingd
     let mean_vs_field = mean_vs_field(&rate);
     let payoff: Vec<Vec<f64>> = rate.iter().map(|r| r.iter().map(|x| x - 0.5).collect()).collect();
     let nash = nash_mix(&payoff, 20_000);
-    RoundRobin { table: Crosstable { names: names.to_vec(), rate, lo, hi, games, mean_vs_field, nash }, profiles, turns_sum, games_played }
+    Some(RoundRobin { table: Crosstable { names: names.to_vec(), rate, lo, hi, games, mean_vs_field, nash }, profiles, turns_sum, games_played })
 }
 
 /// Each row's mean over the other columns (1.0 / 0 for a single strategy: 0.5).

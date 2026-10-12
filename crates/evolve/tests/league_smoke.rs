@@ -51,3 +51,39 @@ fn league_needs_a_fixed_kingdom() {
     c.track = Track::Random { required: vec![], kingdoms_per_generation: 2 };
     assert!(run(&c, &Control::default(), &mut |_| {}).is_err());
 }
+
+#[test]
+fn stop_during_the_final_ranking_ends_the_run_promptly() {
+    // Grand Scheme with full searching bots in the round robin: slow enough that it must be
+    // stoppable mid-ranking (it used to ignore Stop and report nothing until done).
+    let k = ["Artisan", "Council Room", "Market", "Militia", "Workshop", "Bridge", "Mill", "Mining Village", "Patrol", "Shanty Town"];
+    let cfg = EvolveConfig {
+        track: Track::Fixed { kingdom: k.iter().map(|s| s.to_string()).collect() },
+        league: Some(LeagueConfig { final_games: 2000, final_full: true, ..LeagueConfig::default() }),
+        forbidden: vec![],
+        islands: 2,
+        island_size: 8,
+        generations: 2,
+        race_games: vec![100],
+        validate_games: 200,
+        polish_games: 0,
+        ..EvolveConfig::default()
+    };
+    let control = Control::default();
+    let mut saw_ranking = false;
+    let mut stopped_at = None;
+    let p = run(&cfg, &control, &mut |pr| {
+        if pr.status.starts_with("ranking: pair") {
+            saw_ranking = true;
+            if stopped_at.is_none() {
+                control.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                stopped_at = Some(std::time::Instant::now());
+            }
+        }
+    })
+    .unwrap();
+    assert!(saw_ranking, "the ranking reports its progress pair by pair");
+    assert_eq!(p.status, "stopped");
+    let waited = stopped_at.unwrap().elapsed();
+    assert!(waited.as_secs_f64() < 30.0, "stopped {waited:?} after Stop");
+}

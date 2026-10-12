@@ -1027,12 +1027,21 @@ function wireLeague() {
   fetchJson("/api/recommended").then(function (list) {
     recommended = list;
     var sel = $("league-recommended");
+    // Grouped by set ("Base", then its kingdoms), each named with the sets it is played with.
+    var groups = {};
+    var order = [];
     list.forEach(function (k, i) {
+      if (!groups[k.set]) {
+        groups[k.set] = document.createElement("optgroup");
+        groups[k.set].label = k.set;
+        order.push(k.set);
+      }
       var o = document.createElement("option");
       o.value = i;
-      o.textContent = k.name + " (" + k.set + ")";
-      sel.appendChild(o);
+      o.textContent = k.name + (k["with"] && k["with"].length ? " (with " + k["with"].join(" & ") + ")" : "");
+      groups[k.set].appendChild(o);
     });
+    order.forEach(function (s) { sel.appendChild(groups[s]); });
     // "#kingdom" opens Kingdom mode; "#kingdom=<recommended kingdom name>" also picks that kingdom.
     var h = decodeURIComponent(location.hash || "");
     if (h.indexOf("#kingdom") === 0) {

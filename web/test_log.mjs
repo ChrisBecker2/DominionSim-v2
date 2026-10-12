@@ -443,5 +443,44 @@ deck: 5 Estate
   check("Ruins (Marauder): 10 left, drawn from the 49 unseen", by("Ruins") && by("Ruins").left === 10 && by("Ruins").unseen.reduce((s, [, n]) => s + n, 0) === 49);
 }
 
+// Ruins pile size: 10 per opponent (2 players: 10), whatever the 50 Ruins it is dealt from.
+{
+  const pasted = `players: 2
+kingdom: Bard, Candlestick Maker, Druid, Faithful Hound, Marauder, Monastery, Overlord, Transmogrify, Villa, Witch
+landmarks: Colonnade, Triumphal Arch
+landmark vp: Colonnade=12
+boon deck: The Earth's Gift, The Flame's Gift, The Forest's Gift, The Moon's Gift, The Mountain's Gift, The River's Gift, The Sea's Gift, The Swamp's Gift, The Wind's Gift
+druid boons: The Field's Gift, The Sky's Gift, The Sun's Gift
+side piles: Spoils=15, Will-o'-Wisp=12
+supply: Copper=46, Silver=40, Gold=30, Estate=8, Duchy=8, Province=8, Curse=10, Witch=10, Candlestick Maker=10, Marauder=10, Transmogrify=10, Overlord=10, Villa=10, Druid=10, Faithful Hound=10, Monastery=10, Bard=10, Survivors=10
+turn: 1  player: 1  phase: setup  actions: 1  buys: 1  coins: 0
+seed: 3406718355780431780
+
+[player 1]
+hand:
+deck: 7 Copper, 3 Estate
+
+[player 2]
+hand:
+deck: 7 Copper, 3 Estate
+`;
+  const I = await instance();
+  I.load(pasted);
+  const ru = (I.view().pileOrder || []).find((x) => x.name === "Ruins");
+  check("2 players: the Ruins pile holds 10 (top Survivors shown, 9 face down)", ru && ru.left === 10 && ru.top === "Survivors", JSON.stringify(ru));
+  check("the 9 face-down Ruins are drawn from the 49 nobody has seen", ru && ru.unseen.reduce((t, [, n]) => t + n, 0) === 49);
+  const sup = I.view().supply.find((x) => x.pile === "Ruins");
+  check("the Supply shows the Ruins pile once, with its 10 cards", sup && sup.count === 10 && sup.name === "Survivors", JSON.stringify(sup));
+  for (const [players, size] of [[2, 10], [3, 20], [4, 30]]) {
+    const { w, view } = await instance();
+    const k = enc.encode("Marauder, Village, Smithy, Market, Cellar, Moat, Festival, Laboratory, Witch, Mine");
+    const p = w.alloc(k.length);
+    new Uint8Array(w.memory.buffer, p, k.length).set(k);
+    w.new_game(players, p, k.length, 11n, 0);
+    const r = (view().pileOrder || []).find((x) => x.name === "Ruins");
+    check(`${players} players: ${size} Ruins in the pile`, r && r.left === size, JSON.stringify(r));
+  }
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

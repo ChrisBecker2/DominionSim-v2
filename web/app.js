@@ -611,14 +611,24 @@
           r.appendChild(cardChip(nm, k > 1 ? `${k} ${nm}` : nm));
         });
       } else {
-        r.appendChild(el("span", "cost", `${p.name}: ${p.left} left, top `));
-        r.appendChild(p.top ? cardChip(p.top) : document.createTextNode("none"));
-        if (p.left > 1 && p.unseen.length) {
-          r.appendChild(el("span", "cost", "; the rest (order hidden) come from: "));
-          p.unseen.forEach(([nm, k], i) => {
-            if (i) r.appendChild(document.createTextNode(" "));
-            r.appendChild(cardChip(nm, k > 1 ? `${k} ${nm}` : nm));
-          });
+        // Shuffled piles: the top card is face up, the rest face down. One "?" per hidden card;
+        // hovering one shows what it could be (the cards of the pile's kind nobody has seen yet).
+        r.appendChild(el("span", "cost", `${p.name} (top first, ${p.left} left): `));
+        if (!p.left || !p.top) {
+          r.appendChild(document.createTextNode("empty"));
+        } else {
+          r.appendChild(cardChip(p.top));
+          r.appendChild(el("span", "cost", " (shown)"));
+          const hidden = p.left - 1;
+          const could = p.unseen.map(([nm, k]) => (k > 1 ? `${k} ${nm}` : nm)).join(", ");
+          const shown = Math.min(hidden, 12);
+          for (let i = 0; i < shown; i++) {
+            r.appendChild(document.createTextNode(" › "));
+            const q = el("span", "card hidden-card", "?");
+            q.title = `Face down: one of ${could}`;
+            r.appendChild(q);
+          }
+          if (hidden > shown) r.appendChild(el("span", "cost", ` › … (${hidden} face down)`));
         }
       }
       orderList.appendChild(r);

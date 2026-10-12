@@ -571,3 +571,4 @@ section, .panel {
 #piles-panel { margin-top: 10px; }
 #piles-panel > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-dim); padding: 2px 0; }
 #piles-panel[open] > summary { margin-bottom: 4px; }
+.card.hidden-card { background: var(--border); color: var(--text-dim); cursor: help; }

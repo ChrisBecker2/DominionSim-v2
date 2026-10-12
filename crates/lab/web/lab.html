@@ -664,11 +664,34 @@ function renderStatus() {
   $("status-error").textContent = (st && st.error) ? st.error : "";
 
   lastHistory = p ? p.history : [];
-  renderChart(lastHistory);
-  renderResult(p);
-  renderHof(p ? p.hall_of_fame : []);
-  renderLog(p ? p.log : []);
-  renderLeague(p);
+  // The status is polled every second or few: redraw a section only when its data changed, and
+  // keep the scroll position of the boxes inside it when it does (a redraw would otherwise jump a
+  // strategy you are reading back to its top).
+  if (changed("chart", lastHistory)) renderChart(lastHistory);
+  if (changed("result", [state.selectedTomlSource, p && p.result, p && p.champion])) keepScroll($("result-panel"), function () { renderResult(p); });
+  if (changed("hof", p ? p.hall_of_fame : [])) keepScroll($("hof-panel"), function () { renderHof(p ? p.hall_of_fame : []); });
+  if (changed("log", p ? p.log : [])) renderLog(p ? p.log : []);
+  if (changed("league", p && p.league)) keepScroll($("niche-panel"), function () { keepScroll($("cross-panel"), function () { renderLeague(p); }); });
+}
+
+// Whether `data` differs from what section `key` last drew.
+var drawn = {};
+function changed(key, data) {
+  var sig = JSON.stringify(data === undefined ? null : data);
+  if (drawn[key] === sig) return false;
+  drawn[key] = sig;
+  return true;
+}
+
+// Run `draw` (which rebuilds `panel`'s contents) keeping the scroll offsets of its scrolling boxes,
+// matched by order, and the page's own scroll position.
+function keepScroll(panel, draw) {
+  var boxes = function () { return panel ? Array.prototype.slice.call(panel.querySelectorAll("pre, .list, div[style*='overflow'], #hof-body, #cross-body")) : []; };
+  var before = boxes().map(function (b) { return [b.scrollTop, b.scrollLeft]; });
+  var x = window.scrollX, y = window.scrollY;
+  draw();
+  boxes().forEach(function (b, i) { if (before[i]) { b.scrollTop = before[i][0]; b.scrollLeft = before[i][1]; } });
+  window.scrollTo(x, y);
 }
 
 function schedulePoll() {

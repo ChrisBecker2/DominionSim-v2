@@ -48,7 +48,7 @@ impl Plan {
     /// Expand from `root` (which must have `me`'s decision pending) until at least `target_tasks`
     /// open subtrees exist or the tree is exhausted.
     pub fn build<E: Evaluator>(root: &GameState, me: u8, target_tasks: usize, eval: &E) -> Plan {
-        let mut root = *root;
+        let mut root = root.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
         let d = root.pending_decision().expect("Plan::build: root has no pending decision");
@@ -72,7 +72,7 @@ impl Plan {
             if any_allowed && !eval.allows(&root, me, &d, choice) {
                 continue;
             }
-            let mut child = root;
+            let mut child = root.dup();
             child.apply(choice, &mut NoEvents).expect("legal root choice");
             let idx = new_open(&mut nodes, &mut states, &mut open, child);
             roots.push((choice, describe(&d, choice), idx));
@@ -86,7 +86,7 @@ impl Plan {
             nodes[n] = if is_leaf(&state) {
                 Node::Value(eval.leaf_value(&root, &state, me), end_of_turn_label(&state, me), outcome_label(&root, &state, me, eval))
             } else {
-                let mut s = state;
+                let mut s = state.dup();
                 match s.advance(&mut NoEvents) {
                     Step::GameOver | Step::TurnStart { .. } => {
                         Node::Value(eval.leaf_value(&root, &s, me), end_of_turn_label(&s, me), outcome_label(&root, &s, me, eval))
@@ -97,7 +97,7 @@ impl Plan {
                         let mut kids = Vec::new();
                         let (mut best, mut best_p) = (0, -1.0);
                         for (card, k) in outcomes.iter() {
-                            let mut c = s;
+                            let mut c = s.dup();
                             c.resolve_chance(player, card);
                             let p = k as f64 / total as f64;
                             let idx = new_open(&mut nodes, &mut states, &mut open, c);
@@ -113,7 +113,7 @@ impl Plan {
                         let mut buf = ChoiceBuf::default();
                         s.legal_choices(&mut buf);
                         if let Some(choice) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
-                            let mut c = s;
+                            let mut c = s.dup();
                             c.apply(choice, &mut NoEvents).expect("policy choice is legal");
                             let idx = new_open(&mut nodes, &mut states, &mut open, c);
                             Node::Forced(describe(&d, choice), idx)
@@ -124,7 +124,7 @@ impl Plan {
                                 if any_allowed && !eval.allows(&s, me, &d, choice) {
                                     continue;
                                 }
-                                let mut c = s;
+                                let mut c = s.dup();
                                 c.apply(choice, &mut NoEvents).expect("legal choice");
                                 let idx = new_open(&mut nodes, &mut states, &mut open, c);
                                 kids.push((describe(&d, choice), idx));

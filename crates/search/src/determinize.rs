@@ -56,7 +56,7 @@ in play:
             let d = determinize(&s, 0, &mut rng);
             // My own zones are untouched.
             assert!(d.players[0].hand == s.players[0].hand);
-            assert!(d.players[0].deck_known.counts().0 == s.players[0].deck_known.counts().0);
+            assert!(d.players[0].deck_known.counts() == s.players[0].deck_known.counts());
             assert!(d.players[0].deck_unknown == s.players[0].deck_unknown);
             assert!(d.players[0].discard == s.players[0].discard);
             assert!(d.chance_mode);

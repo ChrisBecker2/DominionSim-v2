@@ -1352,17 +1352,17 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     }
 
     // Shelters were in the starting decks if any player holds one anywhere.
-    state.shelters = state.players[..num_players].iter().any(|ps| {
+    state.shelters = state.players.iter().any(|ps| {
         let all = ps.all_cards();
         all.has(cards::id::HOVEL) || all.has(cards::id::NECROPOLIS) || all.has(cards::id::OVERGROWN_ESTATE)
     });
-    for ps in state.players[..num_players].iter_mut() {
+    for ps in state.players.iter_mut() {
         if ps.stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
             ps.stays.add(cards::id::PRINCE, 1);
         }
     }
     // Adventures: which token effects are live, and the -$1 token of the turn's player.
-    for ps in state.players[..num_players].iter() {
+    for ps in state.players.iter() {
         if ps.tok[..TOK_COST].iter().any(|&t| t != 0) {
             state.adv |= G_PLAY_TOKENS;
         }
@@ -1380,7 +1380,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         state.turn.adv.tax_live = true;
         state.turn.adv.tax_base = state.turn.coins;
     }
-    if state.players[..num_players].iter().any(|ps| ps.ench_by != 0) {
+    if state.players.iter().any(|ps| ps.ench_by != 0) {
         state.emp.flags |= crate::state::E_ENCHANT;
     }
     // Dark Ages: the dealt order of the Ruins and Knights piles. A "ruins pile:" / "knights pile:" line (top first) decides the pile's cards;

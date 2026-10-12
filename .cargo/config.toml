@@ -4,6 +4,7 @@
 # since it's a raw stack overflow), even though the exact same search runs fine natively (a
 # native thread's stack is megabytes larger by default). Give the wasm module more headroom;
 # native targets are unaffected (this only applies under `[target.wasm32-unknown-unknown]`).
-# 8 MiB: the search worker traps at 2 MiB and runs at 3 MiB with the 17 KB game state (16 MiB when the state was 20 KB, 4 MiB at 14 KB).
+# 8 MiB: with the 20.7 KB game state the search worker traps at 2 MiB, test_stress.mjs at 3 MiB, and everything runs at 4 MiB (16 MiB when the state was 20 KB before the
+# speed passes, 4 MiB at 14 KB). `GameState::dup` copies only the seats in the game, but every `GameState` local still reserves the whole struct, so the stack need did not shrink.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-args=-zstack-size=8388608"]

@@ -106,17 +106,28 @@ the log should say something (`engine.rs`, `web/app.js`'s log).
 
 ### Keeping `GameState` small
 
-`GameState` is copied by every search node and bot rollout, and six `PlayerState`s are carried in every game whatever the player count, so each byte of a
-per-player field is paid six times on every copy (Adventures added 6 KB and made whole games 18% slower until this was undone; `tests/state_size.rs` pins the sizes).
+`GameState` is copied by every search node and bot rollout, and `MAX_PLAYERS` (6) `PlayerState`s are reserved in every game whatever the player count. Adventures added 6 KB and made whole games
+18% slower until this was undone (`tests/state_size.rs` pins the sizes); the second speed pass (`docs/adventures-plan.md` section 6) made the player count matter less and the zones cheaper.
 
+* **Copy with `GameState::dup()`, not `*state`, in anything hot** (search nodes, rollouts, the bots' own copies). The seats beyond the game's players are `MaybeUninit` (`state::Seats`) and `dup` leaves them
+  out (`repr(C)` with `players` last: it copies a prefix of the struct): a 2-player game copies 9.8 KB of the 20.7 KB. `GameState::new` does not initialize them either. So reading a seat
+  `>= num_players` is a bug (a `debug_assert` catches it; release reads uninitialized memory), and a per-player byte is paid once per player *in the game* on a `dup`, not six times.
+  `state_size.rs` bounds the bytes a 2-player `dup` copies. Plain `*state` still works (it copies everything) and is what the cold code does.
 * A zone that is empty in nearly every game (a mat, a set-aside area, a record of this turn's gains) is a `SmallMultiset<N>` (a few distinct cards, about 3N bytes), never a `Counts`
-  (288 bytes). Pick `N` as the most distinct cards the zone can hold at once; adding past it aborts the game, so be generous but not wasteful (`MAT_CAP` 20, `TAVERN_CAP` 10, `WAR_CHEST_CAP` 24).
+  (384 bytes). Pick `N` as the most distinct cards the zone can hold at once; adding past it aborts the game, so be generous but not wasteful (`MAT_CAP` 20, `TAVERN_CAP` 10, `WAR_CHEST_CAP` 24).
   Only the zones that every turn touches (hand, deck, discard, in play) are `Counts`.
 * A stack that is nearly always short gets its own small capacity (`KnownStack<BOTTOM_CAP>` for the bottom of the deck, not `KNOWN_CAP`).
 * Per-turn scratch state goes in `TurnState` (one copy), per-game constants in `GameState` (one copy); only genuinely per-player state belongs in `PlayerState`.
 * Keep new fields out of the hot paths of games that do not use them: gate on a per-game mask or flag (`events`, `adv`, `in_supply` bits, `GAIN_LO`/`GAIN_HI`, `MAY_BUY_CARDS`) so other games pay one bit test.
-  `Counts::iter` walks 32 lanes per step, so a loop over a hand is cheap; a loop over every card id is not.
-* `GameState::phase_choices` and `Counts` are the hottest code: check the speed table in the plan doc after touching either.
+* **`Counts` is not a plain array any more.** Its last four lanes are bookkeeping (a bitmap of the 32-lane blocks that may hold a card, and the total), so `total`/`is_empty` are a load and `iter`,
+  `add_all` and `clear` visit only the blocks that have cards (a hand: two or three of twelve). Use its methods only (the field is private); a loop over a hand is cheap, a loop over every card id
+  (`0..NUM_ZONE_IDS`) is not: walk `iter()` of the zones involved (`choose_discard`, `zone_of` and the evaluators did sort or scan all 370 ids on every call before the second speed pass). Card ids
+  must stay below `LANES - 4`.
+* Loops over the supply (`phase_choices`' Buy list) go through masks over the card ids (`cards::buy_masks`: cards by cost, no-Potion cards) and `SupplyCards`, not one pile at a time.
+* **Hidden state is state.** `PlayerView::stable_seed` hashes the whole effect stack array, popped frames beyond `len` included, and the bots' searches are seeded from it: a fast path that leaves a
+  different stale frame (or any dead data that is hashed) than the step-by-step code changes bot play, whatever it does to the visible state. The cure is the check the speed passes use: the same seeds
+  must give the same `match` output (md5 of the stats on several pairings, searched strategies and 3-6 players included) before and after.
+* `GameState::phase_choices`, `Counts` and the Draw/cleanup steps are the hottest code: check the speed table in the plan doc after touching any of them.
 
 ## 2. Bots: `crates/sim/src/defaults/<set>.rs`
 

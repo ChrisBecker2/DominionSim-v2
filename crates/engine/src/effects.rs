@@ -475,15 +475,38 @@ impl GameState {
                         self.stack.set_top(f);
                     }
                 }
-                match take_top!(self, p, sink) {
-                    None => {
-                        self.stack.pop();
-                    }
-                    Some(c) => {
-                        self.players[pi].hand.add(c, 1);
-                        sink.event(Event::Draw { player: p, card: c });
-                        f.max -= 1;
-                        if f.max == 0 { self.stack.pop(); } else { self.stack.set_top(f); }
+                // The whole draw in one go: nothing between two draws of the frame looks at anything but the deck and the hand. The frame slot
+                // is written as the one-card-per-step version left it (after a draw but the last, and when the deck runs out or needs a chance
+                // outcome): a popped frame stays in the array beyond `len`, and `PlayerView::stable_seed` hashes the whole array.
+                let mut drew = false;
+                loop {
+                    match self.take_top(p, sink) {
+                        Err(NeedChance(q)) => {
+                            if drew {
+                                self.stack.set_top(f);
+                            }
+                            return Run::Chance(q);
+                        }
+                        Ok(None) => {
+                            if drew {
+                                self.stack.set_top(f);
+                            }
+                            self.stack.pop();
+                            break;
+                        }
+                        Ok(Some(c)) => {
+                            self.players[pi].hand.add(c, 1);
+                            sink.event(Event::Draw { player: p, card: c });
+                            if f.max == 1 {
+                                if drew {
+                                    self.stack.set_top(f);
+                                }
+                                self.stack.pop();
+                                break;
+                            }
+                            f.max -= 1;
+                            drew = true;
+                        }
                     }
                 }
                 Run::Continue

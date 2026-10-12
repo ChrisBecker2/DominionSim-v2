@@ -1018,16 +1018,10 @@ impl Strategy {
         let zone = zone_of(view, from, filter, choices);
         let mut wanted = Counts::EMPTY;
         let mut left = if min > 0 { min as u32 } else { max as u32 };
-        let mut order: [CardId; NUM_ZONE_IDS] = [0; NUM_ZONE_IDS];
-        for (i, o) in order.iter_mut().enumerate() {
-            *o = i as CardId;
-        }
-        order.sort_by_key(|&c| (Strategy::discard_rank(c), c));
-        for c in order {
-            if left == 0 {
-                break;
-            }
-            if min == 0 && Strategy::discard_rank(c) >= 0 {
+        // Worst card first, ties by id: pick the least (rank, id) among the zone's cards not yet taken (a zone holds few distinct cards).
+        while left > 0 {
+            let Some((rank, c)) = zone.iter().filter(|&(c, _)| wanted.get(c) == 0).map(|(c, _)| (Strategy::discard_rank(c), c)).min() else { break };
+            if min == 0 && rank >= 0 {
                 break;
             }
             let take = (zone.get(c) as u32).min(left);
@@ -1105,15 +1099,9 @@ impl Strategy {
         }
         let mut need = (min as u32).saturating_sub(wanted.total());
         if need > 0 {
-            let mut rest: [CardId; NUM_ZONE_IDS] = [0; NUM_ZONE_IDS];
-            for (i, r) in rest.iter_mut().enumerate() {
-                *r = i as CardId;
-            }
-            rest.sort_by_key(|&c| (cards::cost(c), c));
-            for c in rest {
-                if need == 0 {
-                    break;
-                }
+            // Cheapest first, ties by id, among the zone's cards not yet fully wanted.
+            while need > 0 {
+                let Some((_, c)) = zone.iter().filter(|&(c, n)| n > wanted.get(c)).map(|(c, _)| (cards::cost(c), c)).min() else { break };
                 let take = ((zone.get(c) - wanted.get(c)) as u32).min(need);
                 wanted.add(c, take as u8);
                 need -= take;
@@ -1701,12 +1689,18 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
             c
         }
     };
-    for c in 0..NUM_ZONE_IDS as CardId {
+    for (c, _) in z.clone().iter() {
         if !filter.matches(c) {
             z.set(c, 0);
         }
     }
-    z.max_with(|c| u8::from(has_card(choices, c)))
+    // At least one of each offered card.
+    for c in iter_cards(choices) {
+        if (c as usize) < NUM_ZONE_IDS && z.get(c) == 0 {
+            z.set(c, 1);
+        }
+    }
+    z
 }
 
 /// Multi-card selections offer picks in non-decreasing card order (so each set of cards has one
@@ -1716,7 +1710,7 @@ fn pick_wanted(wanted: &Counts, choices: &[Choice], ordered: bool, forced: bool)
     let pick = if ordered {
         iter_cards(choices).find(|&c| wanted.has(c))
     } else {
-        (0..NUM_ZONE_IDS as CardId).find(|&c| wanted.has(c) && has_card(choices, c))
+        wanted.iter().map(|(c, _)| c).find(|&c| has_card(choices, c))
     };
     match pick {
         Some(c) => Choice::Card(c),

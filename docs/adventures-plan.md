@@ -326,6 +326,41 @@ Not recovered: the zones that stay `Counts` (hand, deck, discard, in play, set-a
 remaining size; Library's set-aside zone is shared by many cards and can hold any card, so it was left as it is. The u16 `CardId` and the 288 lanes (against 224 before) still cost a few percent
 in every `Counts` operation: moving the 20 Events and 16 mixed-pile ids out of the lane range would bring it to 264.
 
+### Second speed pass (after Hinterlands)
+
+The Empires, Nocturne and Hinterlands widening (`Counts` 384 lanes) had taken `big_money_ultimate` vs `double_witch` from 1.82M to 1.64M games/s. Same sampling profiler as above
+(suspend the game thread, read RIP, symbolize with dbghelp; kept in a scratchpad, not committed). Results are bit-identical to before: the md5 of the `match` output on ten pairings
+(searched strategies, 3-6 players, Seaside/Prosperity/Adventures/Empires/Nocturne/Hinterlands kingdoms), and of 36 shipped strategies x 2 and 13 random sets x 3 seeds x (3 and 6 players),
+is unchanged.
+
+| Step (cumulative) | BMU vs Double Witch | Seaside/Prosperity | Skulk vs BMU | Reserve engine (5000) | Jack vs BMU |
+|---|---|---|---|---|---|
+| Before (HEAD) | 1.61-1.65M | 1.49-1.53M | 0.61-0.63M | 2.3k | 58-59k |
+| `choose_discard`, `zone_of`, the evaluators and `canonical_picks` walk the zone's cards, not all 370 ids (a sort of 370 ids per discard decision was 25% of a Militia game) | 1.64M | 1.53M | 1.00M | 2.6k | 89k |
+| `GameState::dup`: copies skip the empty seats; `GameState::new` builds without them | 1.69M | 1.56M | 0.99M | 2.7k | 95k |
+| Buy list by masks over cost (`cards::buy_masks`) instead of a walk over the piles | 1.80M | 1.66M | | | |
+| Copper/Silver/Gold played by a short path when no card acts on them | 1.88M | 1.71M | | | |
+| A Draw frame draws all its cards in one step (leaving the stack slot as before) | 1.97M | 1.80M | 1.13M | 2.8k | 96k |
+| Inlined `Choice ==` (the bots search the choice list several times a decision) | 2.12M | 1.90M | | | |
+| `Counts` bookkeeping lanes: block bitmap + cached total | 2.31M | 2.10M | 1.27M | 2.9k | 100k |
+| `stable_seed` hashes through a stack buffer (same bytes, 3.4 to 1.4 us) | 2.29M | 2.12M | 1.28M | 2.84k | 106k |
+
+Final, best of 7 interleaved with the HEAD binary: BMU vs Double Witch 1.61M -> 2.29M (+42%), Seaside/Prosperity 1.49M -> 2.12M (+42%), Skulk vs BMU 0.61M -> 1.28M (2.1x),
+Reserve engine 2.29k -> 2.84k (+24%), Jack of All Trades vs BMU 58k -> 106k (1.8x). The wasm page's `simulate` (2000 games, Node) 161 ms -> 61 ms.
+
+Tried and not kept: a fused draw-and-remove (`take_nth`) and a bit set of the offered cards in `match_gain_list` (both within noise); a cached total alone (+1%); `assert!` instead of
+`debug_assert!` on a seat index (-3%).
+
+Not done because it changes results: the search's transposition-table hash (`search::hash`) is a serial chain over ~530 words, 360 ns a node, and about half of a Reserve-engine game; hashing
+only the nonzero 32-byte blocks of a `Counts` is 2.5x faster (+16% Reserve, +8% Jack) but moves which table slots are evicted and so changed one 4-player pairing by a few games in 2000.
+`stable_seed` could use a faster hasher too (the SipHash of ~6 KB is still 1.4 us), which changes every determinization. Both are one-file patches if the identical-results rule is relaxed.
+
+Hidden state lesson: `stable_seed` hashes the effect stack array including popped frames, so a faster Draw that left a different stale frame changed bot play; the Draw step rewrites the slot
+exactly as the one-card-per-step version did.
+
+Sizes: `GameState` 20 704 B (a `dup` of a 2-player game copies 9 824), `PlayerState` 2 720, `TurnState` 800, `Frame` 48, `Counts` 384 (before: about 20.7 KB, 2 720, 768-800, 48, 384).
+The wasm stack stays 8 MiB (4 MiB is the smallest that passes every suite: the full `GameState` is still reserved by each local).
+
 ## 7. Deferred
 
 * Lurker can pick Avanto from the Supply while Sauna remains (the Lurker choice list is not filtered by `may_buy`).

@@ -89,3 +89,14 @@ ids above `NUM_ZONE_IDS` so that no loop over zone ids ever visits them.
   `Counts::LANES` 352 -> 384 (the next multiple of 32), `SupplyMask` still 384 bits (370 fit; 14 ids remain).
 * Cost: whole games 1.69M -> about 1.57M/s right after the widening, 1.59-1.63M with the full set. `GameState` about 20.7 KB (`PlayerState` 2720, `Counts` 384).
   The next set needs per-game compaction or a cached total in `Counts` first (sections 3-4).
+
+## 7. After the second speed pass (`Counts` bookkeeping, seats)
+
+* `Counts` keeps 4 bookkeeping lanes at the end (a bitmap of the 32-lane blocks that may hold a card, and the cached total), so card ids must be below `LANES - 4` = 380: 370 are used,
+  **10 are spare** before the next widening (it was 14).
+* Because `total`, `is_empty`, `iter`, `add_all` and `clear` now cost with the blocks that hold cards, not with `LANES`, the widening is cheap: `LANES` 384 -> 416 measured at
+  -0% (BMU vs Double Witch, 2.28M vs 2.31M games/s) and -3% (Seaside/Prosperity pairing, 2.09M vs 2.02M), in the noise of the first. A set that needs up to 412 zone ids is a plain
+  widening to 416 (13 blocks; the bitmap is a `u16`, so at most 16 blocks = 512 lanes); `SupplyMask` is still 384 bits and needs its fourth word past 384 ids.
+* The per-game compaction of section 3 stays unneeded for now; the "cached total" idea of section 6 is done (and gave about 1%: the block bitmap is what paid).
+* `GameState` is 20 704 bytes, but `GameState::dup()` copies 9.8 KB in a 2-player game (see `docs/adding-a-set.md`, "Keeping `GameState` small"): the size matters less than the live part.
+

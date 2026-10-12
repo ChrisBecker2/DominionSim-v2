@@ -507,6 +507,35 @@ pub fn def(card: CardId) -> &'static CardDef {
 pub fn cost(card: CardId) -> u8 {
     CARDS[card as usize].cost
 }
+
+/// Masks over the zone ids (the words of a `state::SupplyMask`) for the Buy decision's filter: the cards by printed cost, so the legal
+/// purchases are the bits of `in_supply & masks.le[coins]` that have a pile left, not a walk over every pile.
+pub struct BuyMasks {
+    /// `le[k]`: the cards whose printed cost is at most `k` coins (`k` capped at the last entry: no card costs more).
+    pub le: Vec<[u128; 3]>,
+    /// The cards whose cost has no Potion.
+    pub no_potion: [u128; 3],
+}
+
+/// `BuyMasks`, built on first use.
+pub fn buy_masks() -> &'static BuyMasks {
+    static MASKS: std::sync::OnceLock<BuyMasks> = std::sync::OnceLock::new();
+    MASKS.get_or_init(|| {
+        let max_cost = (0..NUM_ZONE_IDS as CardId).map(cost).max().unwrap_or(0) as usize;
+        let mut le = vec![[0u128; 3]; max_cost + 1];
+        let mut no_potion = [0u128; 3];
+        for c in 0..NUM_ZONE_IDS as CardId {
+            let (w, b) = (c as usize / 128, c as usize % 128);
+            for m in &mut le[cost(c) as usize..] {
+                m[w] |= 1u128 << b;
+            }
+            if !potion_cost(c) {
+                no_potion[w] |= 1u128 << b;
+            }
+        }
+        BuyMasks { le, no_potion }
+    })
+}
 /// Whether the card's cost includes a Potion.
 #[inline(always)]
 pub fn potion_cost(card: CardId) -> bool {

@@ -111,7 +111,7 @@ impl Searcher {
     /// of at most `max_nodes` nodes.
     pub fn search_graph<E: Evaluator>(&mut self, state: &GameState, me: u8, cfg: &SearchConfig, eval: &E, max_nodes: usize) -> SearchGraph {
         let analysis = self.analyze(state, me, cfg, eval);
-        let mut root = *state;
+        let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
 
@@ -143,7 +143,7 @@ impl Searcher {
             if any_allowed && !eval.allows(&root, me, &d, choice) {
                 continue;
             }
-            let mut child = root;
+            let mut child = root.dup();
             child.apply(choice, &mut NoEvents).expect("search_graph: root choice rejected");
             let label = describe(&d, choice);
             self.link(&root, me, cfg, eval, 0, child, label, None, 1, max_nodes, &mut nodes, &mut edges, &mut index, &mut queue, &mut truncated);
@@ -151,7 +151,7 @@ impl Searcher {
 
         while let Some((id, s)) = queue.pop_front() {
             let depth = nodes[id as usize].depth + 1;
-            let mut t = s;
+            let mut t = s.dup();
             match t.advance(&mut NoEvents) {
                 Step::Chance { player } => {
                     let outcomes = t.chance_outcomes(player);
@@ -213,7 +213,7 @@ impl Searcher {
             if is_leaf(&s) {
                 break NodeKind::Leaf;
             }
-            let mut t = s;
+            let mut t = s.dup();
             match t.advance(&mut NoEvents) {
                 Step::GameOver | Step::TurnStart { .. } => {
                     s = t;

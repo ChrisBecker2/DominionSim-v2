@@ -181,7 +181,7 @@ impl Searcher {
         self.generation = self.generation.wrapping_add(1).max(1);
         let start = now();
 
-        let mut root = *state;
+        let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
         let d = root.pending_decision().expect("analyze: root state has no pending decision");
@@ -195,7 +195,7 @@ impl Searcher {
             if any_allowed && !eval.allows(&root, me, &d, choice) {
                 continue;
             }
-            let mut child = root;
+            let mut child = root.dup();
             child.apply(choice, &mut NoEvents).expect("analyze: root choice rejected by the engine");
             let r = self.node_value(&root, &child, me, cfg, eval);
             let mut pv = vec![describe(&d, choice)];
@@ -224,7 +224,7 @@ impl Searcher {
         self.tt_stores = 0;
         self.rng = Rng::new(cfg.seed);
         self.generation = self.generation.wrapping_add(1).max(1);
-        let mut root = *state;
+        let mut root = state.dup();
         root.chance_mode = true;
         let d = root.pending_decision()?;
         if d.player != me {
@@ -237,7 +237,7 @@ impl Searcher {
             if any_allowed && !eval.allows(&root, me, &d, choice) {
                 continue;
             }
-            let mut child = root;
+            let mut child = root.dup();
             child.apply(choice, &mut NoEvents).ok()?;
             let r = self.node_value(&root, &child, me, cfg, eval);
             if accept(r.ev, r.exact) {
@@ -256,7 +256,7 @@ impl Searcher {
         self.tt_stores = 0;
         self.rng = Rng::new(cfg.seed);
         self.generation = self.generation.wrapping_add(1).max(1);
-        let mut root = *state;
+        let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
         let d = root.pending_decision()?;
@@ -272,7 +272,7 @@ impl Searcher {
             if any_allowed && !eval.allows(&root, me, &d, choice) {
                 continue;
             }
-            let mut child = root;
+            let mut child = root.dup();
             child.apply(choice, &mut NoEvents).ok()?;
             let r = self.node_value(&root, &child, me, cfg, eval);
             all_exact &= r.exact;
@@ -329,7 +329,7 @@ impl Searcher {
             return self.rollout(root, state, me, eval);
         }
 
-        let mut s = *state;
+        let mut s = state.dup();
         let result = match s.advance(&mut NoEvents) {
             Step::GameOver | Step::TurnStart { .. } => Eval { ev: eval.leaf_value(root, &s, me), exact: true },
             Step::Chance { player } => self.chance_value(root, &s, player, me, cfg, eval),
@@ -338,7 +338,7 @@ impl Searcher {
                 s.legal_choices(&mut buf);
                 debug_assert!(!buf.is_empty());
                 if let Some(choice) = fixed_choice(eval, &s, me, &d, buf.as_slice()) {
-                    let mut child = s;
+                    let mut child = s.dup();
                     child.apply(choice, &mut NoEvents).expect("fixed policy chose an illegal choice");
                     self.node_value(root, &child, me, cfg, eval)
                 } else {
@@ -355,7 +355,7 @@ impl Searcher {
                         if any_allowed && !eval.allows(&s, me, &d, choice) {
                             continue;
                         }
-                        let mut child = s;
+                        let mut child = s.dup();
                         child.apply(choice, &mut NoEvents).expect("legal choice rejected by the engine");
                         let r = self.node_value(root, &child, me, cfg, eval);
                         exact &= r.exact;
@@ -376,7 +376,7 @@ impl Searcher {
     /// One playout to the end of the turn: draws sampled, my decisions greedy on the evaluator
     /// one step ahead, others by the fixed policy. Linear cost; approximate.
     fn rollout<E: Evaluator>(&mut self, root: &GameState, state: &GameState, me: u8, eval: &E) -> Eval {
-        let mut s = *state;
+        let mut s = state.dup();
         let mut buf = ChoiceBuf::default();
         loop {
             self.nodes += 1;
@@ -403,7 +403,7 @@ impl Searcher {
                             if any_allowed && !eval.allows(&s, me, &d, c) {
                                 continue;
                             }
-                            let mut child = s;
+                            let mut child = s.dup();
                             child.apply(c, &mut NoEvents).expect("legal choice");
                             let v = eval.leaf_value(root, &child, me);
                             if v > best.0 {
@@ -437,7 +437,7 @@ impl Searcher {
             let mut ev = 0.0;
             let mut exact = true;
             for (card, n) in outcomes.iter() {
-                let mut child = *state;
+                let mut child = state.dup();
                 child.resolve_chance(player, card);
                 let p = n as f64 / total as f64;
                 let r = self.node_value(root, &child, me, cfg, eval);
@@ -451,7 +451,7 @@ impl Searcher {
             for _ in 0..k {
                 let pick = self.rng.below(total);
                 let card = outcomes.nth(pick);
-                let mut child = *state;
+                let mut child = state.dup();
                 child.resolve_chance(player, card);
                 sum += self.node_value(root, &child, me, cfg, eval).ev;
             }
@@ -503,7 +503,7 @@ impl Searcher {
                     if *budget > 0 {
                         *budget -= 1;
                         for (card, n) in outcomes.iter() {
-                            let mut c = s;
+                            let mut c = s.dup();
                             c.resolve_chance(player, card);
                             self.outcomes_rec(root, c, me, cfg, eval, p * n as f64 / total, budget, acc);
                         }
@@ -524,7 +524,7 @@ impl Searcher {
                             if any_allowed && !eval.allows(&s, me, &d, c) {
                                 continue;
                             }
-                            let mut child = s;
+                            let mut child = s.dup();
                             child.apply(c, &mut NoEvents).expect("legal choice");
                             let r = self.node_value(root, &child, me, cfg, eval);
                             if r.ev > best.0 {
@@ -545,7 +545,7 @@ impl Searcher {
     // ------------------------------------------------------------------------------------
 
     pub(crate) fn build_pv<E: Evaluator>(&mut self, root: &GameState, after: &GameState, me: u8, cfg: &SearchConfig, eval: &E) -> Vec<String> {
-        let mut s = *after;
+        let mut s = after.dup();
         let mut parts = Vec::new();
         loop {
             if is_leaf(&s) {
@@ -581,7 +581,7 @@ impl Searcher {
                             if any_allowed && !eval.allows(&s, me, &d, c) {
                                 continue;
                             }
-                            let mut child = s;
+                            let mut child = s.dup();
                             child.apply(c, &mut NoEvents).expect("legal choice rejected by the engine");
                             let r = self.node_value(root, &child, me, cfg, eval);
                             if r.ev > best {
@@ -639,7 +639,7 @@ pub(crate) fn end_of_turn_label(leaf: &GameState, me: u8) -> String {
 /// cards), cards trashed, cards gained, and the game result if the turn ends it. E.g.
 /// "Play Witch · Trash Estate · Gain Gold + Win Game". "Nothing" if none of those happened.
 pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me: u8, eval: &E) -> String {
-    use dominion_engine::cards::{CardId, NUM_ZONE_IDS, TREASURE};
+    use dominion_engine::cards::{CardId, TREASURE};
     let list = |items: &mut Vec<(u8, CardId, i32)>| -> String {
         items.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         items
@@ -650,7 +650,7 @@ pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me
     };
     let (mut played, mut trashed, mut gained) = (Vec::new(), Vec::new(), Vec::new());
     if leaf.turn.player == me && leaf.turn.number == root.turn.number {
-        for c in 0..NUM_ZONE_IDS as CardId {
+        for (c, _) in leaf.turn.played.iter() {
             let n = leaf.turn.played.get(c) as i32 - root.turn.played.get(c) as i32;
             if n > 0 && !cards::is(c, TREASURE) && eval.outcome_shows_play(c) {
                 played.push((cards::cost(c), c, n));
@@ -659,7 +659,9 @@ pub(crate) fn outcome_label<E: Evaluator>(root: &GameState, leaf: &GameState, me
     }
     let before = root.players[me as usize].all_cards();
     let after = leaf.players[me as usize].all_cards();
-    for c in 0..NUM_ZONE_IDS as CardId {
+    let mut touched = after;
+    touched.max_assign(&before);
+    for (c, _) in touched.iter() {
         let d = after.get(c) as i32 - before.get(c) as i32;
         if d > 0 {
             gained.push((cards::cost(c), c, d));

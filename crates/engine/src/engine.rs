@@ -13,7 +13,7 @@
 //! The engine never calls out to players; it stops and returns whenever input is needed.
 //! Because `GameState` is `Copy`, any point can be snapshotted, forked, or searched.
 
-use crate::cards::{self, id, CardId, ACTION, NUM_ZONE_IDS};
+use crate::cards::{self, id, CardId, ACTION};
 use crate::counts::Counts;
 use crate::state::{Act, Dest, DurationHeld, Filter, Frame, FrameKind, GameState, Phase, Then, TurnState, Zone};
 pub use crate::effects::OVERPAY_CAP;
@@ -116,7 +116,7 @@ pub struct Upgrade {
     pub dest_by_type: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Hash)]
 pub enum Choice {
     Pass,
     Card(CardId),
@@ -143,6 +143,26 @@ pub enum Choice {
     PayDebtKeep(u8),
     /// A Mountain Pass bid of this many Debt (`DecisionKind::Bid`); 0 = no bid.
     Bid(u8),
+}
+
+/// `==` written out and inlined: the derived one is an out-of-line call, and the bots look for a choice in the list (`contains`) several
+/// times in every decision.
+impl PartialEq for Choice {
+    #[inline(always)]
+    fn eq(&self, other: &Choice) -> bool {
+        use Choice::*;
+        match (self, other) {
+            (Card(a), Card(b)) => a == b,
+            (Pass, Pass) | (Yes, Yes) | (No, No) | (Coffers, Coffers) | (PayDebt, PayDebt) => true,
+            (Mode(a), Mode(b))
+            | (Position(a), Position(b))
+            | (Overpay(a), Overpay(b))
+            | (OverpayPotion(a), OverpayPotion(b))
+            | (PayDebtKeep(a), PayDebtKeep(b))
+            | (Bid(a), Bid(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl Choice {
@@ -641,14 +661,31 @@ impl GameState {
                         && self.adv & crate::state::G_COST_TOKEN == 0;
                     // Nocturne: Deluded, no Action can be bought this turn.
                     let no_actions = self.turn.noc.deluded;
-                    for c in self.supply_cards() {
-                        if self.supply.get(c) > 0
-                            && (if plain { cards::cost(c) } else { self.cost(c) }) as u16 <= self.turn.coins
-                            && (self.turn.potions > 0 || !cards::potion_cost(c))
-                            && self.may_buy(c)
-                            && !(no_actions && cards::is(c, ACTION))
-                        {
-                            out.push(Choice::Card(c));
+                    if plain {
+                        // The piles whose printed cost is within the $ (and has no Potion unless there is one), by mask; those with cards left.
+                        let masks = cards::buy_masks();
+                        let afford = &masks.le[(self.turn.coins as usize).min(masks.le.len() - 1)];
+                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2]];
+                        if self.turn.potions == 0 {
+                            for (w, np) in m.iter_mut().zip(masks.no_potion) {
+                                *w &= np;
+                            }
+                        }
+                        for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2]) {
+                            if self.supply.get(c) > 0 && self.may_buy(c) && !(no_actions && cards::is(c, ACTION)) {
+                                out.push(Choice::Card(c));
+                            }
+                        }
+                    } else {
+                        for c in self.supply_cards() {
+                            if self.supply.get(c) > 0
+                                && self.cost(c) as u16 <= self.turn.coins
+                                && (self.turn.potions > 0 || !cards::potion_cost(c))
+                                && self.may_buy(c)
+                                && !(no_actions && cards::is(c, ACTION))
+                            {
+                                out.push(Choice::Card(c));
+                            }
                         }
                     }
                 }
@@ -858,10 +895,40 @@ impl GameState {
     fn play_all_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player;
         let hand = self.players[p as usize].hand;
+        // Copper, Silver and Gold are played by a short path unless a card of this game acts on their plays: Envious (Silver and Gold make $1),
+        // Sauna (a trash for each Silver) or Corsair (the first Silver or Gold of a turn is trashed).
+        let plain = !self.turn.noc.envy && self.turn.adv.sauna == 0 && !self.in_supply(id::CORSAIR);
         for (c, n) in hand.iter() {
-            if self.is_treasure(c) && cards::is_choice_free(c) {
+            if c <= id::GOLD && plain {
+                self.play_plain_treasure(c, n, sink);
+            } else if self.is_treasure(c) && cards::is_choice_free(c) {
                 self.play_free_treasure(c, n, sink);
             }
+        }
+    }
+
+    /// `play_free_treasure` of `n` Coppers, Silvers or Golds from the hand when nothing acts on them (see `play_all_choice_free_treasures`):
+    /// the same plays and events, without the checks for the other Treasures' extras.
+    #[inline(always)]
+    fn play_plain_treasure<S: EventSink>(&mut self, c: CardId, n: u8, sink: &mut S) {
+        debug_assert!(c <= id::GOLD);
+        let p = self.turn.player;
+        let ps = &mut self.players[p as usize];
+        ps.hand.set(c, ps.hand.get(c) - n);
+        ps.in_play.add(c, n);
+        self.turn.played.add(c, n);
+        for _ in 0..n {
+            sink.event(Event::Play { player: p, card: c });
+        }
+        self.turn.coins += cards::def(c).coins as u16 * n as u16;
+        let merchant = if c == id::SILVER && self.turn.silvers_played == 0 { self.turn.merchants as u16 } else { 0 };
+        sink.depth(1);
+        sink.bonus(p, c, 0, 0, 0, 0);
+        sink.bonus(p, id::MERCHANT, 0, 0, merchant, 0);
+        sink.depth(0);
+        if c == id::SILVER {
+            self.turn.coins += merchant;
+            self.turn.silvers_played += n;
         }
     }
 
@@ -1051,7 +1118,9 @@ impl GameState {
         // Smugglers' gain record: snapshot this turn's gains as "gained on their last turn" for
         // the player whose turn just ended (see `gain`; empty when Smugglers isn't in play, so
         // this is a cheap no-op copy for Base-only games).
-        self.players[p].last_turn_gains = self.turn.gained_this_turn;
+        if !self.turn.gained_this_turn.is_empty() || !self.players[p].last_turn_gains.is_empty() {
+            self.players[p].last_turn_gains = self.turn.gained_this_turn;
+        }
         // Outpost: "take an extra turn after this one (not a 3rd turn in a row)". Checked
         // against the in-play snapshot before Duration cards are split out below (Outpost has no
         // start-of-turn effect of its own, so it's never in `pending_durations`; only presence in
@@ -1102,9 +1171,8 @@ impl GameState {
         if self.turn.duration_held.is_empty() && self.players[p].stays.is_empty() {
             // The common turn: nothing stays in play, so the hand and play area both discard.
             let ps = &mut self.players[p];
-            let (hand, play) = (ps.hand, ps.in_play);
-            ps.discard.add_all(&hand);
-            ps.discard.add_all(&play);
+            ps.discard.add_all(&ps.hand);
+            ps.discard.add_all(&ps.in_play);
             ps.hand.clear();
             ps.in_play.clear();
         } else {
@@ -1396,21 +1464,27 @@ impl GameState {
 pub(crate) fn canonical_picks(from: &Counts, min: CardId, need: u32, filter: impl Fn(CardId) -> bool, out: &mut ChoiceBuf) {
     // One more pick (or none) needed: any card that is there and passes the filter leaves enough.
     if need <= 1 {
-        for c in min as usize..NUM_ZONE_IDS {
-            if from.0[c] > 0 && filter(c as CardId) {
-                out.push(Choice::Card(c as CardId));
+        for (c, _) in from.iter() {
+            if c >= min && filter(c) {
+                out.push(Choice::Card(c));
             }
         }
         return;
     }
-    let mut at_or_above = [0u32; NUM_ZONE_IDS + 1];
-    for c in (0..NUM_ZONE_IDS).rev() {
-        let n = if from.0[c] > 0 && filter(c as CardId) { from.0[c] as u32 } else { 0 };
-        at_or_above[c] = at_or_above[c + 1] + n;
+    // Cards at or above `c` that pass the filter: the total less those below `c`.
+    let mut total = 0u32;
+    for (c, n) in from.iter() {
+        if filter(c) {
+            total += n as u32;
+        }
     }
-    for c in min as usize..NUM_ZONE_IDS {
-        if from.0[c] > 0 && filter(c as CardId) && at_or_above[c] >= need {
-            out.push(Choice::Card(c as CardId));
+    let mut below = 0u32;
+    for (c, n) in from.iter() {
+        if filter(c) {
+            if c >= min && total - below >= need {
+                out.push(Choice::Card(c));
+            }
+            below += n as u32;
         }
     }
 }

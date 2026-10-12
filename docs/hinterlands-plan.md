@@ -89,8 +89,9 @@ A Border Village / Inn list that spent hands on Inn did worse than Smithy and Ma
 | Complete set (final build) | 1.59-1.63M (-3.7% vs before) |
 
 `GameState` 19.6 KB to about 20.7 KB; `PlayerState` 2560 to 2720; `Counts` 384. Rare handlers are `#[inline(never)]`.
+The second speed pass (`docs/adventures-plan.md` section 6) took this benchmark to 2.29M.
 
 ## 8. Deferred
 
 Searching Develop / Jack / Cartographer / Scheme like the play order; cost changes between Develop's gains; Cauldron played during the third gain;
-Trader exchange of a Silver; a cached total in `Counts` to win the widening back.
+Trader exchange of a Silver; a cached total in `Counts` to win the widening back (done in the second speed pass).

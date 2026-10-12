@@ -431,7 +431,7 @@ impl<'a> PlayerView<'a> {
         if !last_province && !last_pile {
             return None;
         }
-        let mut after = *s;
+        let mut after = s.dup();
         after.supply.remove(card);
         after.players[self.me as usize].discard.add(card, 1);
         after.result_if_turn_ends()
@@ -442,7 +442,7 @@ impl<'a> PlayerView<'a> {
     pub fn stable_seed(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let s = self.state;
-        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut h = BufferedSip::new();
         self.me.hash(&mut h);
         s.players[self.me as usize].hash(&mut h);
         s.turn.hash(&mut h);
@@ -467,7 +467,7 @@ impl<'a> PlayerView<'a> {
     /// discard, in-play and set-aside cards are public and kept. `chance_mode` is turned on,
     /// so draws from any unknown deck surface as `Step::Chance`.
     pub fn determinize(&self, rng: &mut Rng) -> GameState {
-        let mut s = *self.state;
+        let mut s = self.state.dup();
         s.chance_mode = true;
         s.pause_at_turn_start = false;
         // The state's own RNG stream is the real game's: it would give the same Boons, Hexes and draws exactly as they will be, so a
@@ -581,6 +581,47 @@ impl<'a> PlayerView<'a> {
             ps.passed.clear();
         }
         s
+    }
+}
+
+/// `DefaultHasher` fed through a stack buffer. The derived `Hash` of a state is hundreds of one-field writes (an effect-stack frame alone is
+/// about fourteen), and SipHash pays its tail handling on every call; writing the same bytes in a few large pieces gives the same hash
+/// (SipHash is a function of the byte stream, not of how it is cut up) for a fraction of the time.
+struct BufferedSip {
+    inner: std::collections::hash_map::DefaultHasher,
+    buf: [u8; Self::CAP],
+    len: usize,
+}
+
+impl BufferedSip {
+    const CAP: usize = 4096;
+    fn new() -> Self {
+        BufferedSip { inner: std::collections::hash_map::DefaultHasher::new(), buf: [0; Self::CAP], len: 0 }
+    }
+    fn flush(&mut self) {
+        use std::hash::Hasher as _;
+        self.inner.write(&self.buf[..self.len]);
+        self.len = 0;
+    }
+}
+
+impl std::hash::Hasher for BufferedSip {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        if bytes.len() > Self::CAP - self.len {
+            self.flush();
+            if bytes.len() >= Self::CAP {
+                self.inner.write(bytes);
+                return;
+            }
+        }
+        self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+        self.len += bytes.len();
+    }
+    fn finish(&self) -> u64 {
+        let mut h = self.inner.clone();
+        h.write(&self.buf[..self.len]);
+        h.finish()
     }
 }
 

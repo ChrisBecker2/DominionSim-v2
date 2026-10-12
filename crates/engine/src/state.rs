@@ -130,6 +130,14 @@ pub struct SupplyCards {
     top: u128,
 }
 
+impl SupplyCards {
+    /// The cards of a mask given as its three words (see `SupplyMask`).
+    #[inline(always)]
+    pub fn from_words(lo: u128, hi: u128, top: u128) -> SupplyCards {
+        SupplyCards { lo, hi, top }
+    }
+}
+
 impl Iterator for SupplyCards {
     type Item = CardId;
     #[inline]
@@ -2030,10 +2038,87 @@ impl TrashQueue {
     }
 }
 
+/// The players' seats: `MAX_PLAYERS` slots of which only the first `n` (the game's player count) hold a player. The others are uninitialized
+/// (`MaybeUninit`) and never read, so `GameState::dup` can leave them out of a copy: a 2-player game then copies 5.4 KB of seats, not 16.3 KB.
+/// Indexing a seat that is not in the game is a bug: debug builds assert, a release build would read uninitialized memory.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Seats {
+    n: u8,
+    seats: [std::mem::MaybeUninit<PlayerState>; MAX_PLAYERS],
+}
+
+impl Seats {
+    /// `n` seats, not yet initialized: `init` must run before any is used.
+    fn uninit(n: usize) -> Seats {
+        debug_assert!(n <= MAX_PLAYERS);
+        Seats { n: n as u8, seats: [std::mem::MaybeUninit::uninit(); MAX_PLAYERS] }
+    }
+    /// Gives each of the `n` seats an empty player, in place.
+    fn init(&mut self) {
+        for s in &mut self.seats[..self.n as usize] {
+            s.write(PlayerState::default());
+        }
+    }
+    /// The players in the game, in seat order.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &PlayerState> {
+        // SAFETY: the first `n` seats were initialized by `new` and are the only ones `Seats` hands out.
+        self.seats[..self.n as usize].iter().map(|s| unsafe { s.assume_init_ref() })
+    }
+    #[inline]
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut PlayerState> {
+        // SAFETY: as in `iter`.
+        self.seats[..self.n as usize].iter_mut().map(|s| unsafe { s.assume_init_mut() })
+    }
+    pub fn len(&self) -> usize {
+        self.n as usize
+    }
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+}
+
+impl std::ops::Index<usize> for Seats {
+    type Output = PlayerState;
+    #[inline(always)]
+    fn index(&self, i: usize) -> &PlayerState {
+        debug_assert!(i < self.n as usize, "seat {i} is not in this {}-player game", self.n);
+        // SAFETY: seats below `n` are initialized (see `iter`).
+        unsafe { self.seats[i].assume_init_ref() }
+    }
+}
+
+impl std::ops::IndexMut<usize> for Seats {
+    #[inline(always)]
+    fn index_mut(&mut self, i: usize) -> &mut PlayerState {
+        debug_assert!(i < self.n as usize, "seat {i} is not in this {}-player game", self.n);
+        // SAFETY: seats below `n` are initialized (see `iter`).
+        unsafe { self.seats[i].assume_init_mut() }
+    }
+}
+
+impl PartialEq for Seats {
+    fn eq(&self, other: &Seats) -> bool {
+        self.n == other.n && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl Eq for Seats {}
+
+impl std::hash::Hash for Seats {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.n.hash(state);
+        for p in self.iter() {
+            p.hash(state);
+        }
+    }
+}
+
+/// `repr(C)` with `players` last: `GameState::dup` copies a prefix of the struct, leaving out the seats beyond the game's players.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct GameState {
-    pub num_players: u8,
-    pub players: [PlayerState; MAX_PLAYERS],
     pub supply: Counts,
     /// Bitmask of card ids whose piles are part of this game's supply.
     pub in_supply: SupplyMask,
@@ -2081,6 +2166,8 @@ pub struct GameState {
     /// stepping through a game turn by turn). Simulation and search leave it off.
     pub pause_at_turn_start: bool,
     pub pending: Pending,
+    pub num_players: u8,
+    pub players: Seats,
 }
 
 /// The bits of `in_supply.top` of the bottom halves of the split piles (ids 258-263).
@@ -2100,6 +2187,29 @@ pub fn province_pile_size(n: usize) -> u8 {
 }
 
 impl GameState {
+    /// A copy of this state, as `*self` but without the seats beyond the game's players (they are not read, see `Seats`): the copy the search
+    /// and the bots make at every node, in a 2-player game about half the bytes of a plain copy (`dup_bytes`).
+    #[inline]
+    pub fn dup(&self) -> GameState {
+        let live = self.dup_bytes();
+        let mut out = std::mem::MaybeUninit::<GameState>::uninit();
+        // SAFETY: `players` is the last field of this `repr(C)` struct and `seats` the last of `Seats`, so the first `live` bytes hold every field
+        // but the seats `n..`; the rest of `out` stays uninitialized, which is valid for the `MaybeUninit` seats it belongs to. (Padding bytes
+        // inside the copied prefix are copied as they are.)
+        unsafe {
+            std::ptr::copy_nonoverlapping(self as *const GameState as *const u8, out.as_mut_ptr() as *mut u8, live);
+            out.assume_init()
+        }
+    }
+
+    /// How many bytes of this state `dup` copies: all of it but the seats beyond the game's players (the first `dup_bytes` bytes of the struct).
+    #[inline]
+    pub fn dup_bytes(&self) -> usize {
+        let live = std::mem::offset_of!(GameState, players) + std::mem::offset_of!(Seats, seats) + self.players.n as usize * std::mem::size_of::<PlayerState>();
+        debug_assert!(live <= std::mem::size_of::<GameState>());
+        live
+    }
+
     /// Standard setup: supply sized per player count, 7 Copper + 3 Estate each,
     /// initial 5-card draws pending on the stack (resolved by the first `advance`).
     pub fn new(cfg: &GameConfig) -> Self {
@@ -2169,7 +2279,7 @@ impl GameState {
         let pile_size = |k: CardId| if cards::is(k, cards::VICTORY) { victory_pile_size(n) } else { 10 };
         let mut s = GameState {
             num_players: n as u8,
-            players: [PlayerState::default(); MAX_PLAYERS],
+            players: Seats::uninit(n),
             supply,
             in_supply,
             bane,
@@ -2197,6 +2307,7 @@ impl GameState {
             pause_at_turn_start: false,
             pending: Pending::None,
         };
+        s.players.init();
         for p in 0..n {
             s.players[p].deck_unknown.set(id::COPPER, 7);
             // The Shelters replace the Estates in the unknown deck: the opening hand is dealt from it with this game's RNG.
@@ -2222,7 +2333,8 @@ impl GameState {
         // Hinterlands: discards are watched when a card reacts to them.
         crate::sets::hinterlands::setup(&mut s);
         s.push_opening_deal();
-        s
+        // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
+        s.dup()
     }
 
     /// The `Phase::Setup` stack: every player's opening 5-card draw (player 0 first). Advancing

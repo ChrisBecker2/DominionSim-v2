@@ -1,6 +1,6 @@
 //! Scoring a turn by a strategy's own priorities, for analysis of a strategy seat's decisions.
 
-use dominion_engine::cards::{id, CardId, NUM_ZONE_IDS};
+use dominion_engine::cards::{id, CardId};
 use dominion_engine::{GameState, PlayerView};
 use dominion_engine::{Choice, Decision, DecisionKind};
 use dominion_search::{game_end_value, Evaluator, NextHandEvaluator};
@@ -70,7 +70,7 @@ impl GainListEvaluator<'_> {
                 }
             }
         }
-        for c in 0..NUM_ZONE_IDS as CardId {
+        for (c, _) in before.iter() {
             // A card that trashed itself as part of its effect was used, not lost.
             let gone = before.get(c) as i32 - after.get(c) as i32 - leaf.turn.used_up.get(c) as i32;
             // Trashing what the trash rules want is a plus; losing anything else (a lone
@@ -194,7 +194,13 @@ impl Evaluator for GainListEvaluator<'_> {
             }
         }
         let mut v = exchanges as f64 * 0.5;
-        for c in 0..NUM_ZONE_IDS as CardId {
+        // Only cards owned before or after, or used up, can have changed.
+        let mut touched = after;
+        touched.max_assign(&before);
+        for (c, _) in leaf.turn.used_up.iter() {
+            touched.set(c, touched.get(c).max(1));
+        }
+        for (c, _) in touched.iter() {
             let d = after.get(c) as i32 - before.get(c) as i32;
             // A card that trashed itself as part of its effect (Investment, Mining Village) was
             // used, not lost: no charge for it.
@@ -208,7 +214,7 @@ impl Evaluator for GainListEvaluator<'_> {
                 v += if k == 0 {
                     self.weight(&view, c)
                 } else {
-                    let mut owned = *root;
+                    let mut owned = root.dup();
                     owned.players[me as usize].discard.add(c, k as u8);
                     owned.supply.set(c, owned.supply.get(c).saturating_sub(k as u8));
                     self.weight(&PlayerView::new(&owned, me), c)

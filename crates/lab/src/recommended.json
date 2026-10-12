@@ -1,0 +1,8832 @@
+[
+ {
+  "name": "[[First Game]]",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Market",
+   "Merchant",
+   "Militia",
+   "Mine",
+   "Moat",
+   "Remodel",
+   "Smithy",
+   "Village",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Size Distortion",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Bandit",
+   "Bureaucrat",
+   "Chapel",
+   "Festival",
+   "Gardens",
+   "Sentry",
+   "Throne Room",
+   "Witch",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Deck Top",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Bureaucrat",
+   "Council Room",
+   "Festival",
+   "Harbinger",
+   "Laboratory",
+   "Moneylender",
+   "Sentry",
+   "Vassal",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Sleight of Hand",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Council Room",
+   "Festival",
+   "Gardens",
+   "Harbinger",
+   "Library",
+   "Militia",
+   "Poacher",
+   "Smithy",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Improvements",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Cellar",
+   "Market",
+   "Merchant",
+   "Mine",
+   "Moat",
+   "Moneylender",
+   "Poacher",
+   "Remodel",
+   "Witch"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Silver & Gold",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Bureaucrat",
+   "Chapel",
+   "Harbinger",
+   "Laboratory",
+   "Merchant",
+   "Mine",
+   "Moneylender",
+   "Throne Room",
+   "Vassal"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Underlings",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Library",
+   "Sentry",
+   "Vassal",
+   "Courtier",
+   "Diplomat",
+   "Minion",
+   "Nobles",
+   "Pawn"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Grand Scheme",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Council Room",
+   "Market",
+   "Militia",
+   "Workshop",
+   "Bridge",
+   "Mill",
+   "Mining Village",
+   "Patrol",
+   "Shanty Town"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Deconstruction",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Mine",
+   "Remodel",
+   "Throne Room",
+   "Village",
+   "Diplomat",
+   "Harem",
+   "Lurker",
+   "Replace",
+   "Swindler"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Cellar",
+   "Council Room",
+   "Vassal",
+   "Village",
+   "Cutpurse",
+   "Lookout",
+   "Monkey",
+   "Sea Witch",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Harbinger",
+   "Militia",
+   "Remodel",
+   "Workshop",
+   "Caravan",
+   "Outpost",
+   "Pirate",
+   "Sea Chart",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Arts",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Cellar",
+   "Council Room",
+   "Gardens",
+   "Laboratory",
+   "Throne Room",
+   "Apprentice",
+   "Familiar",
+   "Possession",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Potion Mixers",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Poacher",
+   "Smithy",
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Transmute"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Chemistry Lesson",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Market",
+   "Moat",
+   "Remodel",
+   "Vassal",
+   "Witch",
+   "Alchemist",
+   "Golem",
+   "Philosopher's Stone",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Harbinger",
+   "Laboratory",
+   "Mine",
+   "Moneylender",
+   "Bank",
+   "Crystal Ball",
+   "Grand Market",
+   "Mint",
+   "Tiara"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Council Room",
+   "Merchant",
+   "Moat",
+   "Village",
+   "Collection",
+   "Expand",
+   "King's Court",
+   "Rabble",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Happy Trails",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop",
+   "Berserker",
+   "Highway",
+   "Nomads",
+   "Oasis",
+   "Trail"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Laboratory",
+   "Remodel",
+   "Sentry",
+   "Vassal",
+   "Crossroads",
+   "Fool's Gold",
+   "Guard Dog",
+   "Souk",
+   "Witch's Hut"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "High and Low",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Moneylender",
+   "Throne Room",
+   "Witch",
+   "Workshop",
+   "Hermit",
+   "Hunting Grounds",
+   "Mystic",
+   "Poor House",
+   "Wandering Minstrel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Chivalry and Revelry",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Gardens",
+   "Laboratory",
+   "Library",
+   "Remodel",
+   "Altar",
+   "Knights",
+   "Rats",
+   "Scavenger",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Level Up",
+  "set": "Base",
+  "cards": [
+   "Market",
+   "Merchant",
+   "Militia",
+   "Throne Room",
+   "Workshop",
+   "Dungeon",
+   "Gear",
+   "Guide",
+   "Lost City",
+   "Miser"
+  ],
+  "extras": [
+   "Training"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Son of Size Distortion",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Bureaucrat",
+   "Gardens",
+   "Moneylender",
+   "Witch",
+   "Amulet",
+   "Duplicate",
+   "Giant",
+   "Messenger",
+   "Treasure Trove"
+  ],
+  "extras": [
+   "Bonfire",
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Everything in Moderation",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Library",
+   "Remodel",
+   "Village",
+   "Workshop",
+   "Enchantress",
+   "Forum",
+   "Legionary",
+   "Overlord",
+   "Temple"
+  ],
+  "extras": [
+   "Windfall",
+   "Orchard"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Silver Bullets",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Gardens",
+   "Laboratory",
+   "Market",
+   "Moneylender",
+   "Catapult/Rocks",
+   "Charm",
+   "Farmers' Market",
+   "Groundskeeper",
+   "Patrician/Emporium"
+  ],
+  "extras": [
+   "Conquest",
+   "Aqueduct"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Night Shift",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Gardens",
+   "Mine",
+   "Poacher",
+   "Smithy",
+   "Druid",
+   "Exorcist",
+   "Ghost Town",
+   "Idol",
+   "Night Watchman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Idle Hands",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Harbinger",
+   "Market",
+   "Merchant",
+   "Moneylender",
+   "Bard",
+   "Conclave",
+   "Cursed Village",
+   "Devil's Workshop",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "First Game",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Market",
+   "Militia",
+   "Mine",
+   "Moat",
+   "Remodel",
+   "Smithy",
+   "Village",
+   "Woodcutter",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Big Money",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Bureaucrat",
+   "Chancellor",
+   "Chapel",
+   "Feast",
+   "Laboratory",
+   "Market",
+   "Mine",
+   "Moneylender",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Interaction",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Chancellor",
+   "Council Room",
+   "Festival",
+   "Library",
+   "Militia",
+   "Moat",
+   "Spy",
+   "Thief",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Size Distortion",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Chapel",
+   "Feast",
+   "Gardens",
+   "Laboratory",
+   "Thief",
+   "Village",
+   "Witch",
+   "Woodcutter",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Village_Square",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Cellar",
+   "Festival",
+   "Library",
+   "Market",
+   "Remodel",
+   "Smithy",
+   "Throne Room",
+   "Village",
+   "Woodcutter"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Deconstruction",
+  "set": "Base",
+  "cards": [
+   "Remodel",
+   "Spy",
+   "Thief",
+   "Throne Room",
+   "Bridge",
+   "Mining Village",
+   "Saboteur",
+   "Secret Chamber",
+   "Swindler",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Underlings",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Library",
+   "Witch",
+   "Baron",
+   "Masquerade",
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Cellar",
+   "Council Room",
+   "Spy",
+   "Village",
+   "Cutpurse",
+   "Ghost Ship",
+   "Lookout",
+   "Sea Hag",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Base",
+  "cards": [
+   "Chancellor",
+   "Festival",
+   "Militia",
+   "Workshop",
+   "Caravan",
+   "Explorer",
+   "Outpost",
+   "Pearl Diver",
+   "Pirate Ship",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Give and Take",
+  "set": "Base",
+  "cards": [
+   "Library",
+   "Market",
+   "Moneylender",
+   "Witch",
+   "Ambassador",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Salvager",
+   "Smugglers"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Cellar",
+   "Council Room",
+   "Vassal",
+   "Village",
+   "Cutpurse",
+   "Ghost Ship",
+   "Lookout",
+   "Sea Hag",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Harbinger",
+   "Militia",
+   "Workshop",
+   "Caravan",
+   "Explorer",
+   "Outpost",
+   "Pearl Diver",
+   "Pirate Ship",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Give and Take",
+  "set": "Base",
+  "cards": [
+   "Library",
+   "Market",
+   "Moneylender",
+   "Witch",
+   "Ambassador",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Salvager",
+   "Smugglers"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Arts",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Council Room",
+   "Gardens",
+   "Laboratory",
+   "Thief",
+   "Throne Room",
+   "Apprentice",
+   "Familiar",
+   "Possession",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Potion Mixers",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Chancellor",
+   "Festival",
+   "Militia",
+   "Smithy",
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Transmute"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Chemistry Lesson",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Market",
+   "Moat",
+   "Remodel",
+   "Witch",
+   "Woodcutter",
+   "Alchemist",
+   "Golem",
+   "Philosopher's Stone",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Laboratory",
+   "Mine",
+   "Moneylender",
+   "Spy",
+   "Bank",
+   "Grand Market",
+   "Mint",
+   "Royal Seal",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Council Room",
+   "Moat",
+   "Spy",
+   "Village",
+   "Expand",
+   "Goons",
+   "King's Court",
+   "Rabble",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Good Life",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Cellar",
+   "Chancellor",
+   "Gardens",
+   "Village",
+   "Contraband",
+   "Counting House",
+   "Hoard",
+   "Monument",
+   "Mountebank"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Harbinger",
+   "Laboratory",
+   "Mine",
+   "Moneylender",
+   "Bank",
+   "Grand Market",
+   "Mint",
+   "Royal Seal",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Council Room",
+   "Merchant",
+   "Moat",
+   "Village",
+   "Expand",
+   "Goons",
+   "King's Court",
+   "Rabble",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Good Life",
+  "set": "Base",
+  "cards": [
+   "Artisan",
+   "Bureaucrat",
+   "Cellar",
+   "Gardens",
+   "Village",
+   "Contraband",
+   "Counting House",
+   "Hoard",
+   "Monument",
+   "Mountebank"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Bounty of the Hunt",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Moneylender",
+   "Smithy",
+   "Harvest",
+   "Horn of Plenty",
+   "Hunting Party",
+   "Menagerie",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bad Omens",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Bureaucrat",
+   "Laboratory",
+   "Spy",
+   "Throne Room",
+   "Fortune Teller",
+   "Hamlet",
+   "Horn of Plenty",
+   "Jester",
+   "Remake"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Arts and Crafts",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Laboratory",
+   "Moneylender",
+   "Workshop",
+   "Advisor",
+   "Baker",
+   "Journeyman",
+   "Merchant Guild",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clean Living",
+  "set": "Base",
+  "cards": [
+   "Gardens",
+   "Militia",
+   "Moneylender",
+   "Thief",
+   "Village",
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Doctor",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gilding the Lily",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Chancellor",
+   "Library",
+   "Market",
+   "Remodel",
+   "Candlestick Maker",
+   "Herald",
+   "Masterpiece",
+   "Plaza",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bounty of the Hunt",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Moneylender",
+   "Smithy",
+   "Harvest",
+   "Horn of Plenty",
+   "Hunting Party",
+   "Menagerie",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bad Omens",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Laboratory",
+   "Merchant",
+   "Poacher",
+   "Throne Room",
+   "Fortune Teller",
+   "Hamlet",
+   "Horn of Plenty",
+   "Jester",
+   "Remake"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Arts and Crafts",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Laboratory",
+   "Moneylender",
+   "Workshop",
+   "Advisor",
+   "Baker",
+   "Journeyman",
+   "Merchant Guild",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clean Living",
+  "set": "Base",
+  "cards": [
+   "Bandit",
+   "Gardens",
+   "Militia",
+   "Moneylender",
+   "Village",
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Doctor",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gilding the Lily",
+  "set": "Base",
+  "cards": [
+   "Library",
+   "Merchant",
+   "Market",
+   "Remodel",
+   "Sentry",
+   "Candlestick Maker",
+   "Herald",
+   "Masterpiece",
+   "Plaza",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Highway Robbery",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop",
+   "Highway",
+   "Inn",
+   "Margrave",
+   "Noble Brigand",
+   "Oasis"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Base",
+  "cards": [
+   "Adventurer",
+   "Chancellor",
+   "Festival",
+   "Laboratory",
+   "Remodel",
+   "Crossroads",
+   "Farmland",
+   "Fool's Gold",
+   "Oracle",
+   "Spice Merchant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Highway Robbery",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop",
+   "Highway",
+   "Inn",
+   "Margrave",
+   "Noble Brigand",
+   "Oasis"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Laboratory",
+   "Remodel",
+   "Sentry",
+   "Vassal",
+   "Crossroads",
+   "Farmland",
+   "Fool's Gold",
+   "Oracle",
+   "Spice Merchant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "High and Low",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Moneylender",
+   "Throne Room",
+   "Witch",
+   "Workshop",
+   "Hermit",
+   "Hunting Grounds",
+   "Mystic",
+   "Poor House",
+   "Wandering Minstrel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Chivalry and Revelry",
+  "set": "Base",
+  "cards": [
+   "Festival",
+   "Gardens",
+   "Laboratory",
+   "Library",
+   "Remodel",
+   "Altar",
+   "Knights",
+   "Rats",
+   "Scavenger",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Level Up",
+  "set": "Base",
+  "cards": [
+   "Market",
+   "Militia",
+   "Spy",
+   "Throne Room",
+   "Workshop",
+   "Dungeon",
+   "Gear",
+   "Guide",
+   "Lost City",
+   "Miser"
+  ],
+  "extras": [
+   "Training"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Son of Size Distortion",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Gardens",
+   "Moneylender",
+   "Thief",
+   "Witch",
+   "Amulet",
+   "Duplicate",
+   "Giant",
+   "Messenger",
+   "Treasure Trove"
+  ],
+  "extras": [
+   "Bonfire",
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Victory Dance",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Courtier",
+   "Duke",
+   "Harem",
+   "Ironworks",
+   "Masquerade",
+   "Mill",
+   "Nobles",
+   "Patrol",
+   "Replace"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Plot Thickens",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Ironworks",
+   "Lurker",
+   "Mining Village",
+   "Pawn",
+   "Secret Passage",
+   "Steward",
+   "Swindler",
+   "Torturer",
+   "Trading Post"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Best Wishes",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Conspirator",
+   "Courtyard",
+   "Diplomat",
+   "Duke",
+   "Secret Passage",
+   "Shanty Town",
+   "Torturer",
+   "Upgrade",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Underlings",
+  "set": "Intrigue",
+  "cards": [
+   "Courtier",
+   "Diplomat",
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Cellar",
+   "Festival",
+   "Library",
+   "Sentry",
+   "Vassal"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Grand Scheme",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Mill",
+   "Mining Village",
+   "Patrol",
+   "Shanty Town",
+   "Artisan",
+   "Council Room",
+   "Market",
+   "Militia",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Deconstruction",
+  "set": "Intrigue",
+  "cards": [
+   "Diplomat",
+   "Harem",
+   "Lurker",
+   "Replace",
+   "Swindler",
+   "Bandit",
+   "Mine",
+   "Remodel",
+   "Throne Room",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Star to Steer By",
+  "set": "Intrigue",
+  "cards": [
+   "Courtier",
+   "Diplomat",
+   "Secret Passage",
+   "Swindler",
+   "Wishing Well",
+   "Bazaar",
+   "Lookout",
+   "Monkey",
+   "Tide Pools",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shore Patrol",
+  "set": "Intrigue",
+  "cards": [
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Trading Post",
+   "Cutpurse",
+   "Island",
+   "Lighthouse",
+   "Sea Chart",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Servants",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Mill",
+   "Minion",
+   "Pawn",
+   "Steward",
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Secret Research",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Masquerade",
+   "Minion",
+   "Nobles",
+   "Shanty Town",
+   "Torturer",
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pools, Tools, and Fools",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Ironworks",
+   "Lurker",
+   "Nobles",
+   "Trading Post",
+   "Wishing Well",
+   "Apothecary",
+   "Apprentice",
+   "Golem",
+   "Scrying Pool"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade",
+   "Bishop",
+   "Collection",
+   "Magnate",
+   "Monument",
+   "Peddler"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Mining Village",
+   "Patrol",
+   "Upgrade",
+   "Wishing Well",
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Tiara"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Masquerade",
+   "Mill",
+   "Nobles",
+   "Secret Passage",
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Intrigue",
+  "cards": [
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Torturer",
+   "Cartographer",
+   "Jack of All Trades",
+   "Tunnel",
+   "Weaver",
+   "Wheelwright"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade",
+   "Guard Dog",
+   "Inn",
+   "Scheme",
+   "Trail",
+   "Wheelwright"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Prophecy",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Conspirator",
+   "Nobles",
+   "Secret Passage",
+   "Wishing Well",
+   "Armory",
+   "Ironmonger",
+   "Mystic",
+   "Rebuild",
+   "Vagrant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Invasion",
+  "set": "Intrigue",
+  "cards": [
+   "Diplomat",
+   "Harem",
+   "Swindler",
+   "Torturer",
+   "Upgrade",
+   "Beggar",
+   "Marauder",
+   "Rogue",
+   "Squire",
+   "Urchin"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Royalty Factory",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Courtier",
+   "Harem",
+   "Nobles",
+   "Swindler",
+   "Bridge Troll",
+   "Duplicate",
+   "Page",
+   "Raze",
+   "Royal Carriage"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Masters of Finance",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Pawn",
+   "Shanty Town",
+   "Steward",
+   "Upgrade",
+   "Artificer",
+   "Distant Lands",
+   "Gear",
+   "Transmogrify",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Ball",
+   "Borrow"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Delicious Torture",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Bridge",
+   "Harem",
+   "Ironworks",
+   "Torturer",
+   "Castles",
+   "Crown",
+   "Enchantress",
+   "Sacrifice",
+   "Settlers/Bustling Village"
+  ],
+  "extras": [
+   "Banquet",
+   "Arena"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Buddy System",
+  "set": "Intrigue",
+  "cards": [
+   "Masquerade",
+   "Mining Village",
+   "Nobles",
+   "Pawn",
+   "Trading Post",
+   "Archive",
+   "Capital",
+   "Catapult/Rocks",
+   "Engineer",
+   "Forum"
+  ],
+  "extras": [
+   "Salt the Earth",
+   "Wolf Den"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shadowy Figures",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Conspirator",
+   "Mill",
+   "Nobles",
+   "Secret Passage",
+   "Cobbler",
+   "Conclave",
+   "Faithful Hound",
+   "Shepherd",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Impending Doom",
+  "set": "Intrigue",
+  "cards": [
+   "Courtier",
+   "Lurker",
+   "Mining Village",
+   "Swindler",
+   "Upgrade",
+   "Leprechaun",
+   "Monastery",
+   "Necromancer",
+   "Tormentor",
+   "Werewolf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Victory Dance",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Duke",
+   "Great Hall",
+   "Harem",
+   "Ironworks",
+   "Masquerade",
+   "Nobles",
+   "Pawn",
+   "Scout",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Plot Thickens",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Harem",
+   "Ironworks",
+   "Pawn",
+   "Saboteur",
+   "Shanty Town",
+   "Steward",
+   "Swindler",
+   "Trading Post",
+   "Tribute"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Best Wishes",
+  "set": "Intrigue",
+  "cards": [
+   "Coppersmith",
+   "Courtyard",
+   "Masquerade",
+   "Scout",
+   "Shanty Town",
+   "Steward",
+   "Torturer",
+   "Trading Post",
+   "Upgrade",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Deconstruction",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Mining Village",
+   "Saboteur",
+   "Secret Chamber",
+   "Swindler",
+   "Torturer",
+   "Remodel",
+   "Spy",
+   "Thief",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Underlings",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Masquerade",
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward",
+   "Cellar",
+   "Festival",
+   "Library",
+   "Witch"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Star to Steer By",
+  "set": "Intrigue",
+  "cards": [
+   "Courtier",
+   "Diplomat",
+   "Secret Passage",
+   "Swindler",
+   "Wishing Well",
+   "Ghost Ship",
+   "Haven",
+   "Lookout",
+   "Outpost",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shore Patrol",
+  "set": "Intrigue",
+  "cards": [
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Trading Post",
+   "Cutpurse",
+   "Island",
+   "Lighthouse",
+   "Warehouse",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bridge Crossing",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Conspirator",
+   "Duke",
+   "Lurker",
+   "Nobles",
+   "Embargo",
+   "Native Village",
+   "Salvager",
+   "Smugglers",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Servants",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Great Hall",
+   "Minion",
+   "Pawn",
+   "Steward",
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pools, Tools, and Fools",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Coppersmith",
+   "Ironworks",
+   "Nobles",
+   "Trading Post",
+   "Wishing Well",
+   "Apothecary",
+   "Apprentice",
+   "Golem",
+   "Scrying Pool"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade",
+   "Bishop",
+   "Counting House",
+   "Goons",
+   "Monument",
+   "Peddler"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "All Along the Watchtower",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Great Hall",
+   "Mining Village",
+   "Pawn",
+   "Torturer",
+   "Hoard",
+   "Talisman",
+   "Trade Route",
+   "Vault",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Coppersmith",
+   "Swindler",
+   "Tribute",
+   "Wishing Well",
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade",
+   "Bishop",
+   "Counting House",
+   "Goons",
+   "Monument",
+   "Peddler"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "All Along the Watchtower",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Mill",
+   "Mining Village",
+   "Pawn",
+   "Torturer",
+   "Hoard",
+   "Talisman",
+   "Trade Route",
+   "Vault",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Lurker",
+   "Patrol",
+   "Swindler",
+   "Wishing Well",
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Last Laughs",
+  "set": "Intrigue",
+  "cards": [
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward",
+   "Swindler",
+   "Farming Village",
+   "Harvest",
+   "Horse Traders",
+   "Hunting Party",
+   "Jester"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Small Victories",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Duke",
+   "Great Hall",
+   "Harem",
+   "Pawn",
+   "Fortune Teller",
+   "Hamlet",
+   "Hunting Party",
+   "Remake",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Name that Card",
+  "set": "Intrigue",
+  "cards": [
+   "Courtyard",
+   "Harem",
+   "Nobles",
+   "Tribute",
+   "Wishing Well",
+   "Advisor",
+   "Baker",
+   "Doctor",
+   "Masterpiece",
+   "Plaza"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Coppersmith",
+   "Great Hall",
+   "Masquerade",
+   "Nobles",
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Decisions, Decisions",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Duke",
+   "Mining Village",
+   "Pawn",
+   "Upgrade",
+   "Butcher",
+   "Candlestick Maker",
+   "Masterpiece",
+   "Merchant Guild",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Last Laughs",
+  "set": "Intrigue",
+  "cards": [
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward",
+   "Swindler",
+   "Farming Village",
+   "Harvest",
+   "Horse Traders",
+   "Hunting Party",
+   "Jester"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Name that Card",
+  "set": "Intrigue",
+  "cards": [
+   "Courtyard",
+   "Harem",
+   "Nobles",
+   "Replace",
+   "Wishing Well",
+   "Advisor",
+   "Baker",
+   "Doctor",
+   "Masterpiece",
+   "Plaza"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Masquerade",
+   "Mill",
+   "Nobles",
+   "Secret Passage",
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Intrigue",
+  "cards": [
+   "Coppersmith",
+   "Great Hall",
+   "Pawn",
+   "Shanty Town",
+   "Torturer",
+   "Cache",
+   "Cartographer",
+   "Jack of all Trades",
+   "Silk Road",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade",
+   "Duchess",
+   "Haggler",
+   "Inn",
+   "Noble Brigand",
+   "Scheme"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Intrigue",
+  "cards": [
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Torturer",
+   "Cache",
+   "Cartographer",
+   "Jack of All Trades",
+   "Silk Road",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade",
+   "Duchess",
+   "Haggler",
+   "Inn",
+   "Noble Brigand",
+   "Scheme"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Prophecy",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Conspirator",
+   "Great Hall",
+   "Nobles",
+   "Wishing Well",
+   "Armory",
+   "Ironmonger",
+   "Mystic",
+   "Rebuild",
+   "Vagrant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Invasion",
+  "set": "Intrigue",
+  "cards": [
+   "Harem",
+   "Mining Village",
+   "Swindler",
+   "Torturer",
+   "Upgrade",
+   "Beggar",
+   "Marauder",
+   "Rogue",
+   "Squire",
+   "Urchin"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Royalty Factory",
+  "set": "Intrigue",
+  "cards": [
+   "Conspirator",
+   "Harem",
+   "Nobles",
+   "Secret Chamber",
+   "Swindler",
+   "Bridge Troll",
+   "Duplicate",
+   "Page",
+   "Raze",
+   "Royal Carriage"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Masters of Finance",
+  "set": "Intrigue",
+  "cards": [
+   "Bridge",
+   "Pawn",
+   "Shanty Town",
+   "Steward",
+   "Upgrade",
+   "Artificer",
+   "Distant Lands",
+   "Gear",
+   "Transmogrify",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Ball",
+   "Borrow"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "High Seas",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Blockade",
+   "Caravan",
+   "Corsair",
+   "Haven",
+   "Island",
+   "Lookout",
+   "Pirate",
+   "Warehouse",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Buried Treasure",
+  "set": "Seaside",
+  "cards": [
+   "Astrolabe",
+   "Cutpurse",
+   "Fishing Village",
+   "Lighthouse",
+   "Monkey",
+   "Outpost",
+   "Sailor",
+   "Sea Chart",
+   "Tactician",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Lookout",
+   "Monkey",
+   "Sea Witch",
+   "Treasure Map",
+   "Artisan",
+   "Cellar",
+   "Council Room",
+   "Vassal",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Outpost",
+   "Pirate",
+   "Sea Chart",
+   "Treasury",
+   "Festival",
+   "Harbinger",
+   "Militia",
+   "Remodel",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Star to Steer By",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Lookout",
+   "Monkey",
+   "Tide Pools",
+   "Treasure Map",
+   "Courtier",
+   "Diplomat",
+   "Secret Passage",
+   "Swindler",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shore Patrol",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Island",
+   "Lighthouse",
+   "Sea Chart",
+   "Wharf",
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Trading Post"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gummed Up",
+  "set": "Seaside",
+  "cards": [
+   "Haven",
+   "Sailor",
+   "Sea Chart",
+   "Sea Witch",
+   "Warehouse",
+   "Apprentice",
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exploding Kingdom",
+  "set": "Seaside",
+  "cards": [
+   "Fishing Village",
+   "Lookout",
+   "Outpost",
+   "Tactician",
+   "Wharf",
+   "Bishop",
+   "City",
+   "Grand Market",
+   "King's Court",
+   "Quarry"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Pirate Bay",
+  "set": "Seaside",
+  "cards": [
+   "Astrolabe",
+   "Corsair",
+   "Monkey",
+   "Native Village",
+   "Treasury",
+   "Charlatan",
+   "Hoard",
+   "Investment",
+   "Magnate",
+   "Mint"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Collecting",
+  "set": "Seaside",
+  "cards": [
+   "Blockade",
+   "Fishing Village",
+   "Monkey",
+   "Smugglers",
+   "Tide Pools",
+   "Fairgrounds",
+   "Farmhands",
+   "Farrier",
+   "Footpad",
+   "Hunting Party"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Seaside",
+  "cards": [
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Sea Chart",
+   "Treasury",
+   "Advisor",
+   "Baker",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Travelers",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Island",
+   "Lookout",
+   "Merchant Ship",
+   "Warehouse",
+   "Cartographer",
+   "Crossroads",
+   "Farmland",
+   "Souk",
+   "Stables"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Runners",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Blockade",
+   "Caravan",
+   "Smugglers",
+   "Sailor",
+   "Berserker",
+   "Cauldron",
+   "Guard Dog",
+   "Nomads",
+   "Wheelwright"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Watery Graves",
+  "set": "Seaside",
+  "cards": [
+   "Corsair",
+   "Native Village",
+   "Salvager",
+   "Treasure Map",
+   "Treasury",
+   "Count",
+   "Graverobber",
+   "Hermit",
+   "Rats",
+   "Scavenger"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Peasants",
+  "set": "Seaside",
+  "cards": [
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Lighthouse",
+   "Warehouse",
+   "Armory",
+   "Band of Misfits",
+   "Forager",
+   "Poor House",
+   "Vagrant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Prince of Orange",
+  "set": "Seaside",
+  "cards": [
+   "Astrolabe",
+   "Caravan",
+   "Fishing Village",
+   "Merchant Ship",
+   "Sailor",
+   "Amulet",
+   "Dungeon",
+   "Haunted Woods",
+   "Page",
+   "Swamp Hag"
+  ],
+  "extras": [
+   "Mission"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gifts and Mathoms",
+  "set": "Seaside",
+  "cards": [
+   "Blockade",
+   "Haven",
+   "Sailor",
+   "Salvager",
+   "Smugglers",
+   "Bridge Troll",
+   "Caravan Guard",
+   "Hireling",
+   "Lost City",
+   "Messenger"
+  ],
+  "extras": [
+   "Expedition",
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Boxed In",
+  "set": "Seaside",
+  "cards": [
+   "Salvager",
+   "Smugglers",
+   "Tactician",
+   "Warehouse",
+   "Wharf",
+   "Castles",
+   "Chariot Race",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Gladiator/Fortune"
+  ],
+  "extras": [
+   "Tax",
+   "Wall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "King of the Sea",
+  "set": "Seaside",
+  "cards": [
+   "Corsair",
+   "Haven",
+   "Native Village",
+   "Pirate",
+   "Sea Witch",
+   "Archive",
+   "Farmers' Market",
+   "Overlord",
+   "Temple",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Delve",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The New Black",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Corsair",
+   "Merchant Ship",
+   "Sailor",
+   "Tactician",
+   "Cobbler",
+   "Den of Sin",
+   "Ghost Town",
+   "Raider",
+   "Secret Cave"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Isle",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Monkey",
+   "Pirate",
+   "Salvager",
+   "Tide Pools",
+   "Blessed Village",
+   "Cemetery",
+   "Idol",
+   "Tracker",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "High Seas",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Caravan",
+   "Embargo",
+   "Explorer",
+   "Haven",
+   "Island",
+   "Lookout",
+   "Pirate Ship",
+   "Smugglers",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Buried Treasure",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Cutpurse",
+   "Fishing Village",
+   "Lighthouse",
+   "Outpost",
+   "Pearl Diver",
+   "Tactician",
+   "Treasure Map",
+   "Warehouse",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shipwrecks",
+  "set": "Seaside",
+  "cards": [
+   "Ghost Ship",
+   "Merchant Ship",
+   "Native Village",
+   "Navigator",
+   "Pearl Diver",
+   "Salvager",
+   "Sea Hag",
+   "Smugglers",
+   "Treasury",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Ghost Ship",
+   "Lookout",
+   "Sea Hag",
+   "Treasure Map",
+   "Adventurer",
+   "Cellar",
+   "Council Room",
+   "Spy",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Explorer",
+   "Outpost",
+   "Pearl Diver",
+   "Pirate Ship",
+   "Treasury",
+   "Chancellor",
+   "Festival",
+   "Militia",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Give and Take",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Salvager",
+   "Smugglers",
+   "Library",
+   "Market",
+   "Moneylender",
+   "Witch"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Reach for Tomorrow",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Ghost Ship",
+   "Lookout",
+   "Sea Hag",
+   "Treasure Map",
+   "Artisan",
+   "Cellar",
+   "Council Room",
+   "Vassal",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Repetition",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Explorer",
+   "Outpost",
+   "Pearl Diver",
+   "Pirate Ship",
+   "Treasury",
+   "Festival",
+   "Harbinger",
+   "Militia",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Give and Take",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Salvager",
+   "Smugglers",
+   "Library",
+   "Market",
+   "Moneylender",
+   "Witch"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Star to Steer By",
+  "set": "Seaside",
+  "cards": [
+   "Ghost Ship",
+   "Haven",
+   "Lookout",
+   "Outpost",
+   "Treasure Map",
+   "Courtier",
+   "Diplomat",
+   "Secret Passage",
+   "Swindler",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shore Patrol",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Island",
+   "Lighthouse",
+   "Warehouse",
+   "Wharf",
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Trading Post"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bridge Crossing",
+  "set": "Seaside",
+  "cards": [
+   "Embargo",
+   "Native Village",
+   "Salvager",
+   "Smugglers",
+   "Treasury",
+   "Bridge",
+   "Conspirator",
+   "Duke",
+   "Lurker",
+   "Nobles"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forewarned",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Embargo",
+   "Ghost Ship",
+   "Native Village",
+   "Treasure Map",
+   "Apothecary",
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gummed Up",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Haven",
+   "Sea Hag",
+   "Smugglers",
+   "Warehouse",
+   "Apprentice",
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exploding Kingdom",
+  "set": "Seaside",
+  "cards": [
+   "Fishing Village",
+   "Lookout",
+   "Outpost",
+   "Tactician",
+   "Wharf",
+   "Bishop",
+   "City",
+   "Grand Market",
+   "King's Court",
+   "Quarry"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Pirate Bay",
+  "set": "Seaside",
+  "cards": [
+   "Bazaar",
+   "Lighthouse",
+   "Pirate Ship",
+   "Smugglers",
+   "Warehouse",
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Trade Route",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Collector",
+  "set": "Seaside",
+  "cards": [
+   "Embargo",
+   "Fishing Village",
+   "Merchant Ship",
+   "Navigator",
+   "Smugglers",
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Harvest",
+   "Hunting Party"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Ghosts & Taxes",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Ghost Ship",
+   "Haven",
+   "Outpost",
+   "Smugglers",
+   "Butcher",
+   "Candlestick Maker",
+   "Herald",
+   "Soothsayer",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Seaside",
+  "cards": [
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Tactician",
+   "Treasury",
+   "Baker",
+   "Doctor",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collector",
+  "set": "Seaside",
+  "cards": [
+   "Blockade",
+   "Fishing Village",
+   "Merchant Ship",
+   "Smugglers",
+   "Tide Pools",
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Harvest",
+   "Hunting Party"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Seaside",
+  "cards": [
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Sea Chart",
+   "Treasury",
+   "Advisor",
+   "Baker",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Travelers",
+  "set": "Seaside",
+  "cards": [
+   "Cutpurse",
+   "Island",
+   "Lookout",
+   "Merchant Ship",
+   "Warehouse",
+   "Cartographer",
+   "Crossroads",
+   "Farmland",
+   "Silk Road",
+   "Stables"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Diplomacy",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Bazaar",
+   "Caravan",
+   "Embargo",
+   "Smugglers",
+   "Embassy",
+   "Farmland",
+   "Ill-Gotten Gains",
+   "Noble Brigand",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Watery Graves",
+  "set": "Seaside",
+  "cards": [
+   "Native Village",
+   "Pirate Ship",
+   "Salvager",
+   "Treasure Map",
+   "Treasury",
+   "Count",
+   "Graverobber",
+   "Hermit",
+   "Scavenger",
+   "Urchin"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Peasants",
+  "set": "Seaside",
+  "cards": [
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Lighthouse",
+   "Warehouse",
+   "Death Cart",
+   "Feodum",
+   "Poor House",
+   "Urchin",
+   "Vagrant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Prince of Orange",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Fishing Village",
+   "Merchant Ship",
+   "Tactician",
+   "Treasure Map",
+   "Amulet",
+   "Dungeon",
+   "Haunted Woods",
+   "Page",
+   "Swamp Hag"
+  ],
+  "extras": [
+   "Mission"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gifts and Mathoms",
+  "set": "Seaside",
+  "cards": [
+   "Ambassador",
+   "Embargo",
+   "Haven",
+   "Salvager",
+   "Smugglers",
+   "Bridge Troll",
+   "Caravan Guard",
+   "Hireling",
+   "Lost City",
+   "Messenger"
+  ],
+  "extras": [
+   "Expedition",
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Boxed In",
+  "set": "Seaside",
+  "cards": [
+   "Salvager",
+   "Smugglers",
+   "Tactician",
+   "Warehouse",
+   "Wharf",
+   "Castles",
+   "Chariot Race",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Gladiator/Fortune"
+  ],
+  "extras": [
+   "Tax",
+   "Wall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "King of the Sea",
+  "set": "Seaside",
+  "cards": [
+   "Explorer",
+   "Haven",
+   "Native Village",
+   "Pirate Ship",
+   "Sea Hag",
+   "Archive",
+   "Farmers' Market",
+   "Overlord",
+   "Temple",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Delve",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The New Black",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Haven",
+   "Merchant Ship",
+   "Outpost",
+   "Tactician",
+   "Cobbler",
+   "Den of Sin",
+   "Ghost Town",
+   "Raider",
+   "Secret Cave"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Isle",
+  "set": "Seaside",
+  "cards": [
+   "Fishing Village",
+   "Ghost Ship",
+   "Lookout",
+   "Salvager",
+   "Treasure Map",
+   "Blessed Village",
+   "Cemetery",
+   "Idol",
+   "Tracker",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Beginners",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Clerk",
+   "Crystal Ball",
+   "Expand",
+   "Magnate",
+   "Monument",
+   "Rabble",
+   "Tiara",
+   "Watchtower",
+   "Worker's Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Friendly Interactive",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "City",
+   "Collection",
+   "Forge",
+   "Hoard",
+   "Peddler",
+   "Tiara",
+   "Vault",
+   "War Chest",
+   "Worker's Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Crystal Ball",
+   "Grand Market",
+   "Mint",
+   "Tiara",
+   "Artisan",
+   "Harbinger",
+   "Laboratory",
+   "Mine",
+   "Moneylender"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Prosperity",
+  "cards": [
+   "Collection",
+   "Expand",
+   "King's Court",
+   "Rabble",
+   "Vault",
+   "Bureaucrat",
+   "Council Room",
+   "Merchant",
+   "Moat",
+   "Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Collection",
+   "Magnate",
+   "Monument",
+   "Peddler",
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Tiara",
+   "Baron",
+   "Mining Village",
+   "Patrol",
+   "Upgrade",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Exploding Kingdom",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "City",
+   "Grand Market",
+   "King's Court",
+   "Quarry",
+   "Fishing Village",
+   "Lookout",
+   "Outpost",
+   "Tactician",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Pirate Bay",
+  "set": "Prosperity",
+  "cards": [
+   "Charlatan",
+   "Hoard",
+   "Investment",
+   "Magnate",
+   "Mint",
+   "Astrolabe",
+   "Corsair",
+   "Monkey",
+   "Native Village",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lower Learning",
+  "set": "Prosperity",
+  "cards": [
+   "Anvil",
+   "Bishop",
+   "Charlatan",
+   "Mint",
+   "Peddler",
+   "Worker's Village",
+   "Apprentice",
+   "Familiar",
+   "University",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Prosperity",
+  "cards": [
+   "Clerk",
+   "Crystal Ball",
+   "Forge",
+   "Hoard",
+   "Magnate",
+   "Farmhands",
+   "Horn of Plenty",
+   "Jester",
+   "Joust",
+   "Remake"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Prosperity",
+  "cards": [
+   "Charlatan",
+   "City",
+   "Expand",
+   "Grand Market",
+   "Quarry",
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Merchant Guild",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Instant Gratification",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Watchtower",
+   "Berserker",
+   "Cauldron",
+   "Haggler",
+   "Oasis",
+   "Trail"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Treasure Trove",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Clerk",
+   "Crystal Ball",
+   "Monument",
+   "Tiara",
+   "Cauldron",
+   "Develop",
+   "Fool's Gold",
+   "Guard Dog",
+   "Inn"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "One Man's Trash",
+  "set": "Prosperity",
+  "cards": [
+   "Anvil",
+   "City",
+   "Crystal Ball",
+   "Magnate",
+   "War Chest",
+   "Counterfeit",
+   "Forager",
+   "Market Square",
+   "Pillage",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Honor Among Thieves",
+  "set": "Prosperity",
+  "cards": [
+   "Collection",
+   "Forge",
+   "Hoard",
+   "Quarry",
+   "Watchtower",
+   "Bandit Camp",
+   "Marauder",
+   "Procession",
+   "Rogue",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Last Will and Monument",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Collection",
+   "Magnate",
+   "Monument",
+   "Vault",
+   "Coin of the Realm",
+   "Dungeon",
+   "Messenger",
+   "Port",
+   "Relic"
+  ],
+  "extras": [
+   "Inheritance"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Think Big",
+  "set": "Prosperity",
+  "cards": [
+   "Expand",
+   "Hoard",
+   "King's Court",
+   "Peddler",
+   "War Chest",
+   "Distant Lands",
+   "Giant",
+   "Hireling",
+   "Miser",
+   "Storyteller"
+  ],
+  "extras": [
+   "Ball",
+   "Ferry"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Big Time",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Forge",
+   "Grand Market",
+   "Investment",
+   "Tiara",
+   "Capital",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Royal Blacksmith",
+   "Villa"
+  ],
+  "extras": [
+   "Dominate",
+   "Obelisk"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Gilded Gates",
+  "set": "Prosperity",
+  "cards": [
+   "Anvil",
+   "Collection",
+   "Mint",
+   "Peddler",
+   "War Chest",
+   "Chariot Race",
+   "City Quarter",
+   "Encampment/Plunder",
+   "Groundskeeper",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Basilica",
+   "Palace"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Treasures of the Night",
+  "set": "Prosperity",
+  "cards": [
+   "Charlatan",
+   "Crystal Ball",
+   "Investment",
+   "Tiara",
+   "War Chest",
+   "Crypt",
+   "Guardian",
+   "Night Watchman",
+   "Raider",
+   "Vampire"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Day at the Races",
+  "set": "Prosperity",
+  "cards": [
+   "Anvil",
+   "Bishop",
+   "Clerk",
+   "Peddler",
+   "Watchtower",
+   "Blessed Village",
+   "Cemetery",
+   "Druid",
+   "Tormentor",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Beginners",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Counting House",
+   "Expand",
+   "Goons",
+   "Monument",
+   "Rabble",
+   "Royal Seal",
+   "Venture",
+   "Watchtower",
+   "Worker's Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Friendly Interactive",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "City",
+   "Contraband",
+   "Forge",
+   "Hoard",
+   "Peddler",
+   "Royal Seal",
+   "Trade Route",
+   "Vault",
+   "Worker's Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Big Actions",
+  "set": "Prosperity",
+  "cards": [
+   "City",
+   "Expand",
+   "Grand Market",
+   "King's Court",
+   "Loan",
+   "Mint",
+   "Quarry",
+   "Rabble",
+   "Talisman",
+   "Vault"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Grand Market",
+   "Mint",
+   "Royal Seal",
+   "Venture",
+   "Adventurer",
+   "Laboratory",
+   "Mine",
+   "Moneylender",
+   "Spy"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Prosperity",
+  "cards": [
+   "Expand",
+   "Goons",
+   "King's Court",
+   "Rabble",
+   "Vault",
+   "Bureaucrat",
+   "Council Room",
+   "Moat",
+   "Spy",
+   "Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Good Life",
+  "set": "Prosperity",
+  "cards": [
+   "Contraband",
+   "Counting House",
+   "Hoard",
+   "Monument",
+   "Mountebank",
+   "Bureaucrat",
+   "Cellar",
+   "Chancellor",
+   "Gardens",
+   "Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Biggest Money",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Grand Market",
+   "Mint",
+   "Royal Seal",
+   "Venture",
+   "Artisan",
+   "Harbinger",
+   "Laboratory",
+   "Mine",
+   "Moneylender"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The King's Army",
+  "set": "Prosperity",
+  "cards": [
+   "Expand",
+   "Goons",
+   "King's Court",
+   "Rabble",
+   "Vault",
+   "Bureaucrat",
+   "Council Room",
+   "Merchant",
+   "Moat",
+   "Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Good Life",
+  "set": "Prosperity",
+  "cards": [
+   "Contraband",
+   "Counting House",
+   "Hoard",
+   "Monument",
+   "Mountebank",
+   "Artisan",
+   "Bureaucrat",
+   "Cellar",
+   "Gardens",
+   "Village"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Counting House",
+   "Goons",
+   "Monument",
+   "Peddler",
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "All Along the Watchtower",
+  "set": "Prosperity",
+  "cards": [
+   "Hoard",
+   "Talisman",
+   "Trade Route",
+   "Vault",
+   "Watchtower",
+   "Bridge",
+   "Great Hall",
+   "Mining Village",
+   "Pawn",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Vault",
+   "Bridge",
+   "Coppersmith",
+   "Swindler",
+   "Tribute",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Paths to Victory",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Counting House",
+   "Goons",
+   "Monument",
+   "Peddler",
+   "Baron",
+   "Harem",
+   "Pawn",
+   "Shanty Town",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "All Along the Watchtower",
+  "set": "Prosperity",
+  "cards": [
+   "Hoard",
+   "Talisman",
+   "Trade Route",
+   "Vault",
+   "Watchtower",
+   "Bridge",
+   "Mill",
+   "Mining Village",
+   "Pawn",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lucky Seven",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Expand",
+   "Forge",
+   "King's Court",
+   "Vault",
+   "Bridge",
+   "Lurker",
+   "Patrol",
+   "Swindler",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Exploding Kingdom",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "City",
+   "Grand Market",
+   "King's Court",
+   "Quarry",
+   "Fishing Village",
+   "Lookout",
+   "Outpost",
+   "Tactician",
+   "Wharf"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Pirate Bay",
+  "set": "Prosperity",
+  "cards": [
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Trade Route",
+   "Watchtower",
+   "Bazaar",
+   "Lighthouse",
+   "Pirate Ship",
+   "Smugglers",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Counting Contest",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Counting House",
+   "Goons",
+   "Hoard",
+   "Rabble",
+   "Quarry",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Philosopher's Stone"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Lower Learning",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Mint",
+   "Peddler",
+   "Talisman",
+   "Vault",
+   "Worker's Village",
+   "Apprentice",
+   "Familiar",
+   "University",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Prosperity",
+  "cards": [
+   "Hoard",
+   "Peddler",
+   "Rabble",
+   "Trade Route",
+   "Venture",
+   "Farming Village",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Prosperity",
+  "cards": [
+   "City",
+   "Expand",
+   "Grand Market",
+   "Mountebank",
+   "Quarry",
+   "Baker",
+   "Merchant Guild",
+   "Soothsayer",
+   "Stonemason",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Metal & Meat",
+  "set": "Prosperity",
+  "cards": [
+   "Forge",
+   "King's Court",
+   "Monument",
+   "Venture",
+   "Watchtower",
+   "Butcher",
+   "Candlestick Maker",
+   "Plaza",
+   "Stonemason",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Penny Pinching",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Counting House",
+   "Goons",
+   "Peddler",
+   "Royal Seal",
+   "Advisor",
+   "Doctor",
+   "Herald",
+   "Journeyman",
+   "Merchant Guild"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Prosperity",
+  "cards": [
+   "Clerk",
+   "Crystal Ball",
+   "Forge",
+   "Hoard",
+   "Magnate",
+   "Farming Village",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Prosperity",
+  "cards": [
+   "Charlatan",
+   "City",
+   "Expand",
+   "Grand Market",
+   "Quarry",
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Merchant Guild",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Instant Gratification",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Watchtower",
+   "Farmland",
+   "Haggler",
+   "Ill-Gotten Gains",
+   "Noble Brigand",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Treasure Trove",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Monument",
+   "Royal Seal",
+   "Trade Route",
+   "Venture",
+   "Cache",
+   "Develop",
+   "Fool's Gold",
+   "Ill-Gotten Gains",
+   "Mandarin"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "One Man's Trash",
+  "set": "Prosperity",
+  "cards": [
+   "City",
+   "Grand Market",
+   "Monument",
+   "Talisman",
+   "Venture",
+   "Counterfeit",
+   "Forager",
+   "Graverobber",
+   "Market Square",
+   "Rogue"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Honor Among Thieves",
+  "set": "Prosperity",
+  "cards": [
+   "Forge",
+   "Hoard",
+   "Peddler",
+   "Quarry",
+   "Watchtower",
+   "Bandit Camp",
+   "Procession",
+   "Rebuild",
+   "Rogue",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Last Will and Monument",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Counting House",
+   "Monument",
+   "Rabble",
+   "Vault",
+   "Coin of the Realm",
+   "Dungeon",
+   "Messenger",
+   "Relic",
+   "Treasure Trove"
+  ],
+  "extras": [
+   "Inheritance"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Think Big",
+  "set": "Prosperity",
+  "cards": [
+   "Contraband",
+   "Expand",
+   "Hoard",
+   "King's Court",
+   "Peddler",
+   "Distant Lands",
+   "Giant",
+   "Hireling",
+   "Miser",
+   "Storyteller"
+  ],
+  "extras": [
+   "Ball",
+   "Ferry"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Big Time",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Forge",
+   "Grand Market",
+   "Loan",
+   "Royal Seal",
+   "Capital",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Royal Blacksmith",
+   "Villa"
+  ],
+  "extras": [
+   "Dominate",
+   "Obelisk"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Gilded Gates",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Monument",
+   "Mint",
+   "Peddler",
+   "Talisman",
+   "Chariot Race",
+   "City Quarter",
+   "Encampment/Plunder",
+   "Groundskeeper",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Basilica",
+   "Palace"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Treasures of the Night",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Contraband",
+   "Loan",
+   "Royal Seal",
+   "Venture",
+   "Crypt",
+   "Guardian",
+   "Night Watchman",
+   "Raider",
+   "Vampire"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Day at the Races",
+  "set": "Prosperity",
+  "cards": [
+   "Bishop",
+   "Peddler",
+   "Talisman",
+   "Trade Route",
+   "Watchtower",
+   "Blessed Village",
+   "Cemetery",
+   "Druid",
+   "Tormentor",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Arts",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Possession",
+   "University",
+   "Bandit",
+   "Cellar",
+   "Council Room",
+   "Gardens",
+   "Laboratory",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Potion Mixers",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Transmute",
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Poacher",
+   "Smithy"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Chemistry Lesson",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Golem",
+   "Philosopher's Stone",
+   "University",
+   "Bureaucrat",
+   "Market",
+   "Moat",
+   "Remodel",
+   "Vassal",
+   "Witch"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Servants",
+  "set": "Alchemy",
+  "cards": [
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard",
+   "Conspirator",
+   "Mill",
+   "Minion",
+   "Pawn",
+   "Steward"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Secret Research",
+  "set": "Alchemy",
+  "cards": [
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "University",
+   "Bridge",
+   "Masquerade",
+   "Minion",
+   "Nobles",
+   "Shanty Town",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pools, Tools, and Fools",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Apprentice",
+   "Golem",
+   "Scrying Pool",
+   "Baron",
+   "Ironworks",
+   "Lurker",
+   "Nobles",
+   "Trading Post",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gummed Up",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Vineyard",
+   "Haven",
+   "Sailor",
+   "Sea Chart",
+   "Sea Witch",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clown College",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Familiar",
+   "Golem",
+   "University",
+   "Candlestick Maker",
+   "Carnival",
+   "Herald",
+   "Infirmary",
+   "Jester",
+   "Menagerie"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Wine Country",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Golem",
+   "University",
+   "Vineyard",
+   "Farmland",
+   "Guard Dog",
+   "Highway",
+   "Margrave",
+   "Nomads"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Infestations",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard",
+   "Armory",
+   "Cultist",
+   "Feodum",
+   "Market Square",
+   "Rats",
+   "Wandering Minstrel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Lamentations",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "University",
+   "Beggar",
+   "Catacombs",
+   "Counterfeit",
+   "Forager",
+   "Ironmonger",
+   "Pillage"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Haste Potion",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Scrying Pool",
+   "Transmute",
+   "University",
+   "Vineyard",
+   "Magpie",
+   "Messenger",
+   "Port",
+   "Royal Carriage",
+   "Treasure Trove"
+  ],
+  "extras": [
+   "Plan"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cursecatchers",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Familiar",
+   "Golem",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Amulet",
+   "Bridge Troll",
+   "Caravan Guard",
+   "Peasant",
+   "Ratcatcher"
+  ],
+  "extras": [
+   "Save",
+   "Trade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collectors",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Apprentice",
+   "Herbalist",
+   "Transmute",
+   "University",
+   "City Quarter",
+   "Crown",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Farmers' Market"
+  ],
+  "extras": [
+   "Colonnade",
+   "Museum"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Nightmare Fuel",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Apprentice",
+   "Transmute",
+   "Vineyard",
+   "Bard",
+   "Blessed Village",
+   "Cemetery",
+   "Sacred Grove",
+   "Skulk",
+   "Tracker"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Arts",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Possession",
+   "University",
+   "Cellar",
+   "Council Room",
+   "Gardens",
+   "Laboratory",
+   "Thief",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Potion Mixers",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Transmute",
+   "Cellar",
+   "Chancellor",
+   "Festival",
+   "Militia",
+   "Smithy"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Chemistry Lesson",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Golem",
+   "Philosopher's Stone",
+   "University",
+   "Bureaucrat",
+   "Market",
+   "Moat",
+   "Remodel",
+   "Witch",
+   "Woodcutter"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Servants",
+  "set": "Alchemy",
+  "cards": [
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard",
+   "Conspirator",
+   "Great Hall",
+   "Minion",
+   "Pawn",
+   "Steward"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Secret Research",
+  "set": "Alchemy",
+  "cards": [
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "University",
+   "Bridge",
+   "Masquerade",
+   "Minion",
+   "Nobles",
+   "Shanty Town",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pools, Tools, and Fools",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Apprentice",
+   "Golem",
+   "Scrying Pool",
+   "Baron",
+   "Coppersmith",
+   "Ironworks",
+   "Nobles",
+   "Trading Post",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forewarned",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Golem",
+   "Possession",
+   "Scrying Pool",
+   "Transmute",
+   "Cutpurse",
+   "Embargo",
+   "Ghost Ship",
+   "Native Village",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gummed Up",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Vineyard",
+   "Ambassador",
+   "Haven",
+   "Sea Hag",
+   "Smugglers",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Counting Contest",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Bank",
+   "Counting House",
+   "Goons",
+   "Hoard",
+   "Quarry",
+   "Rabble"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Clown College",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Familiar",
+   "Golem",
+   "Philosopher's Stone",
+   "University",
+   "Jester",
+   "Harvest",
+   "Horse Traders",
+   "Menagerie",
+   "Remake"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Illuminati",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Golem",
+   "Philosopher's Stone",
+   "Scrying Pool",
+   "University",
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Merchant Guild",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tonics & Toxins",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Familiar",
+   "Herbalist",
+   "Transmute",
+   "Vineyard",
+   "Baker",
+   "Candlestick Maker",
+   "Doctor",
+   "Plaza",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Schemes and Dreams",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Apprentice",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Transmute",
+   "Duchess",
+   "Fool's Gold",
+   "Ill-Gotten Gains",
+   "Jack of All Trades",
+   "Scheme"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Wine Country",
+  "set": "Alchemy",
+  "cards": [
+   "Apprentice",
+   "Familiar",
+   "Golem",
+   "University",
+   "Vineyard",
+   "Crossroads",
+   "Farmland",
+   "Haggler",
+   "Highway",
+   "Nomad Camp"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Misfortune",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Candlestick Maker",
+   "Carnival",
+   "Fairgrounds",
+   "Farmhands",
+   "Horn of Plenty",
+   "Infirmary",
+   "Jester",
+   "Merchant Guild",
+   "Soothsayer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Baking Contest",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Farrier",
+   "Hamlet",
+   "Herald",
+   "Hunting Party",
+   "Joust",
+   "Menagerie",
+   "Remake",
+   "Shop",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason",
+   "Conspirator",
+   "Masquerade",
+   "Mill",
+   "Nobles",
+   "Secret Passage"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collecting",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Farmhands",
+   "Farrier",
+   "Footpad",
+   "Hunting Party",
+   "Blockade",
+   "Fishing Village",
+   "Monkey",
+   "Smugglers",
+   "Tide Pools"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason",
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Sea Chart",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clown College",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Candlestick Maker",
+   "Carnival",
+   "Herald",
+   "Infirmary",
+   "Jester",
+   "Menagerie",
+   "Apothecary",
+   "Familiar",
+   "Golem",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Farmhands",
+   "Horn of Plenty",
+   "Jester",
+   "Joust",
+   "Remake",
+   "Clerk",
+   "Crystal Ball",
+   "Forge",
+   "Hoard",
+   "Magnate"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Merchant Guild",
+   "Soothsayer",
+   "Charlatan",
+   "City",
+   "Expand",
+   "Grand Market",
+   "Quarry"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Stoneground",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Farrier",
+   "Plaza",
+   "Shop",
+   "Stonemason",
+   "Hunting Grounds",
+   "Ironmonger",
+   "Marauder",
+   "Procession",
+   "Rogue"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "The Hero's Return",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Carnival",
+   "Farmhands",
+   "Footpad",
+   "Menagerie",
+   "Shop",
+   "Artificer",
+   "Miser",
+   "Page",
+   "Ranger",
+   "Relic"
+  ],
+  "extras": [
+   "Travelling Fair"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cash Flow",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Carnival",
+   "Herald",
+   "Infirmary",
+   "Soothsayer",
+   "Castles",
+   "City Quarter",
+   "Engineer",
+   "Gladiator/Fortune",
+   "Royal Blacksmith"
+  ],
+  "extras": [
+   "Baths",
+   "Mountain Pass"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Endless Fair",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Carnival",
+   "Fairgrounds",
+   "Farmhands",
+   "Merchant Guild",
+   "Devil's Workshop",
+   "Exorcist",
+   "Monastery",
+   "Pixie",
+   "Shepherd"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Misfortune",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Candlestick Maker",
+   "Doctor",
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Horse Traders",
+   "Jester",
+   "Soothsayer",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Baking Contest",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Farming Village",
+   "Harvest",
+   "Herald",
+   "Journeyman",
+   "Masterpiece",
+   "Menagerie",
+   "Remake",
+   "Stonemason",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bounty of the Hunt",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Harvest",
+   "Horn of Plenty",
+   "Hunting Party",
+   "Menagerie",
+   "Tournament",
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Moneylender",
+   "Smithy"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bad Omens",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fortune Teller",
+   "Hamlet",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Adventurer",
+   "Bureaucrat",
+   "Laboratory",
+   "Spy",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Arts and Crafts",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Journeyman",
+   "Merchant Guild",
+   "Stonemason",
+   "Cellar",
+   "Festival",
+   "Laboratory",
+   "Moneylender",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clean Living",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Doctor",
+   "Soothsayer",
+   "Gardens",
+   "Militia",
+   "Moneylender",
+   "Thief",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gilding the Lily",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Candlestick Maker",
+   "Herald",
+   "Masterpiece",
+   "Plaza",
+   "Taxman",
+   "Adventurer",
+   "Chancellor",
+   "Library",
+   "Market",
+   "Remodel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bounty of the Hunt",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Harvest",
+   "Horn of Plenty",
+   "Hunting Party",
+   "Menagerie",
+   "Tournament",
+   "Cellar",
+   "Festival",
+   "Militia",
+   "Moneylender",
+   "Smithy"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bad Omens",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fortune Teller",
+   "Hamlet",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Bureaucrat",
+   "Laboratory",
+   "Merchant",
+   "Poacher",
+   "Throne Room"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Arts and Crafts",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Journeyman",
+   "Merchant Guild",
+   "Stonemason",
+   "Cellar",
+   "Festival",
+   "Laboratory",
+   "Moneylender",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clean Living",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Doctor",
+   "Soothsayer",
+   "Bandit",
+   "Gardens",
+   "Militia",
+   "Moneylender",
+   "Village"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gilding the Lily",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Candlestick Maker",
+   "Herald",
+   "Masterpiece",
+   "Plaza",
+   "Taxman",
+   "Library",
+   "Market",
+   "Merchant",
+   "Remodel",
+   "Sentry"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Last Laughs",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Farming Village",
+   "Harvest",
+   "Horse Traders",
+   "Hunting Party",
+   "Jester",
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward",
+   "Swindler"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Small Victories",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fortune Teller",
+   "Hamlet",
+   "Hunting Party",
+   "Remake",
+   "Tournament",
+   "Conspirator",
+   "Duke",
+   "Great Hall",
+   "Harem",
+   "Pawn"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Name that Card",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Doctor",
+   "Masterpiece",
+   "Plaza",
+   "Courtyard",
+   "Harem",
+   "Nobles",
+   "Tribute",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason",
+   "Conspirator",
+   "Coppersmith",
+   "Great Hall",
+   "Masquerade",
+   "Nobles"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Decisions, Decisions",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Candlestick Maker",
+   "Masterpiece",
+   "Merchant Guild",
+   "Taxman",
+   "Bridge",
+   "Duke",
+   "Mining Village",
+   "Pawn",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Last Laughs",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Farming Village",
+   "Harvest",
+   "Horse Traders",
+   "Hunting Party",
+   "Jester",
+   "Minion",
+   "Nobles",
+   "Pawn",
+   "Steward",
+   "Swindler"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Name that Card",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Doctor",
+   "Masterpiece",
+   "Plaza",
+   "Courtyard",
+   "Harem",
+   "Nobles",
+   "Replace",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tricks of the Trade",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Journeyman",
+   "Soothsayer",
+   "Stonemason",
+   "Conspirator",
+   "Masquerade",
+   "Mill",
+   "Nobles",
+   "Secret Passage"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collector",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Harvest",
+   "Hunting Party",
+   "Embargo",
+   "Fishing Village",
+   "Merchant Ship",
+   "Navigator",
+   "Smugglers"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Ghosts & Taxes",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Candlestick Maker",
+   "Herald",
+   "Soothsayer",
+   "Taxman",
+   "Cutpurse",
+   "Ghost Ship",
+   "Haven",
+   "Outpost",
+   "Smugglers"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Doctor",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason",
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Tactician",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collector",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Harvest",
+   "Hunting Party",
+   "Blockade",
+   "Fishing Village",
+   "Merchant Ship",
+   "Smugglers",
+   "Tide Pools"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island Builder",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Merchant Guild",
+   "Plaza",
+   "Stonemason",
+   "Island",
+   "Native Village",
+   "Salvager",
+   "Sea Chart",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clown College",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Jester",
+   "Harvest",
+   "Horse Traders",
+   "Menagerie",
+   "Remake",
+   "Alchemist",
+   "Familiar",
+   "Golem",
+   "Philosopher's Stone",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Illuminati",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Merchant Guild",
+   "Stonemason",
+   "Apprentice",
+   "Golem",
+   "Philosopher's Stone",
+   "Scrying Pool",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tonics & Toxins",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Candlestick Maker",
+   "Doctor",
+   "Plaza",
+   "Soothsayer",
+   "Alchemist",
+   "Familiar",
+   "Herbalist",
+   "Transmute",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Farming Village",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Tournament",
+   "Hoard",
+   "Peddler",
+   "Rabble",
+   "Trade Route",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Merchant Guild",
+   "Soothsayer",
+   "Stonemason",
+   "Taxman",
+   "City",
+   "Expand",
+   "Grand Market",
+   "Mountebank",
+   "Quarry"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Metal & Meat",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Candlestick Maker",
+   "Plaza",
+   "Stonemason",
+   "Taxman",
+   "Forge",
+   "King's Court",
+   "Monument",
+   "Venture",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Penny Pinching",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Doctor",
+   "Herald",
+   "Journeyman",
+   "Merchant Guild",
+   "Bank",
+   "Counting House",
+   "Goons",
+   "Peddler",
+   "Royal Seal"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Detours",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Farming Village",
+   "Horn of Plenty",
+   "Jester",
+   "Remake",
+   "Tournament",
+   "Clerk",
+   "Crystal Ball",
+   "Forge",
+   "Hoard",
+   "Magnate"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Quarrymen",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Candlestick Maker",
+   "Merchant Guild",
+   "Soothsayer",
+   "Charlatan",
+   "City",
+   "Expand",
+   "Grand Market",
+   "Quarry"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Blue Harvest",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Hamlet",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Tournament",
+   "Fool's Gold",
+   "Mandarin",
+   "Noble Brigand",
+   "Trader",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Traveling Circus",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Farming Village",
+   "Hunting Party",
+   "Jester",
+   "Menagerie",
+   "Border Village",
+   "Embassy",
+   "Fool's Gold",
+   "Nomad Camp",
+   "Oasis"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exchanges",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Soothsayer",
+   "Stonemason",
+   "Border Village",
+   "Develop",
+   "Ill-Gotten Gains",
+   "Stables",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Road to Riches",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Candlestick Maker",
+   "Journeyman",
+   "Merchant Guild",
+   "Crossroads",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Blue Harvest",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Hamlet",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Tournament",
+   "Fool's Gold",
+   "Trail",
+   "Tunnel",
+   "Weaver",
+   "Witch's Hut"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exchanges",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Soothsayer",
+   "Stonemason",
+   "Border Village",
+   "Cauldron",
+   "Develop",
+   "Stables",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dark Carnival",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Hamlet",
+   "Horn of Plenty",
+   "Menagerie",
+   "Band of Misfits",
+   "Cultist",
+   "Fortress",
+   "Hermit",
+   "Junk Dealer",
+   "Knights"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "To the Victor",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Harvest",
+   "Hunting Party",
+   "Remake",
+   "Tournament",
+   "Bandit Camp",
+   "Counterfeit",
+   "Death Cart",
+   "Marauder",
+   "Pillage",
+   "Sage"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Stoneground",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Candlestick Maker",
+   "Plaza",
+   "Stonemason",
+   "Hunting Grounds",
+   "Ironmonger",
+   "Marauder",
+   "Procession",
+   "Rogue"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Class Struggle",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Butcher",
+   "Doctor",
+   "Journeyman",
+   "Merchant Guild",
+   "Taxman",
+   "Feodum",
+   "Fortress",
+   "Knights",
+   "Market Square",
+   "Poor House"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "The Hero's Return",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Farming Village",
+   "Horse Traders",
+   "Jester",
+   "Menagerie",
+   "Artificer",
+   "Miser",
+   "Page",
+   "Ranger",
+   "Relic"
+  ],
+  "extras": [
+   "Travelling Fair"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Spendthrift",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Doctor",
+   "Masterpiece",
+   "Merchant Guild",
+   "Soothsayer",
+   "Stonemason",
+   "Artificer",
+   "Gear",
+   "Magpie",
+   "Miser",
+   "Storyteller"
+  ],
+  "extras": [
+   "Lost Arts"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Queen of Tan",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Butcher",
+   "Candlestick Maker",
+   "Herald",
+   "Journeyman",
+   "Coin of the Realm",
+   "Duplicate",
+   "Guide",
+   "Ratcatcher",
+   "Royal Carriage"
+  ],
+  "extras": [
+   "Pathfinding",
+   "Save"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Zookeepers",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Fairgrounds",
+   "Horse Traders",
+   "Jester",
+   "Menagerie",
+   "Tournament",
+   "Overlord",
+   "Sacrifice",
+   "Settlers/Bustling Village",
+   "Villa",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Annex",
+   "Colonnade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cash Flow",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Doctor",
+   "Herald",
+   "Soothsayer",
+   "Castles",
+   "City Quarter",
+   "Engineer",
+   "Gladiator/Fortune",
+   "Royal Blacksmith"
+  ],
+  "extras": [
+   "Baths",
+   "Mountain Pass"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Endless Fair",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Merchant Guild",
+   "Devil's Workshop",
+   "Exorcist",
+   "Monastery",
+   "Pixie",
+   "Shepherd"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Happy Chaos",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Doctor",
+   "Harvest",
+   "Herald",
+   "Jester",
+   "Masterpiece",
+   "Blessed Village",
+   "Changeling",
+   "Faithful Hound",
+   "Fool",
+   "Sacred Grove"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Grim Parade",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Band of Misfits",
+   "Catacombs",
+   "Cultist",
+   "Forager",
+   "Fortress",
+   "Hunting Grounds",
+   "Knights",
+   "Market Square",
+   "Procession"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Playing Chess With Death",
+  "set": "Dark Ages",
+  "cards": [
+   "Bandit Camp",
+   "Graverobber",
+   "Junk Dealer",
+   "Mystic",
+   "Pillage",
+   "Rats",
+   "Sage",
+   "Scavenger",
+   "Storeroom",
+   "Vagrant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "High and Low",
+  "set": "Dark Ages",
+  "cards": [
+   "Hermit",
+   "Hunting Grounds",
+   "Mystic",
+   "Poor House",
+   "Wandering Minstrel",
+   "Cellar",
+   "Moneylender",
+   "Throne Room",
+   "Witch",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Chivalry and Revelry",
+  "set": "Dark Ages",
+  "cards": [
+   "Altar",
+   "Knights",
+   "Rats",
+   "Scavenger",
+   "Squire",
+   "Festival",
+   "Gardens",
+   "Laboratory",
+   "Library",
+   "Remodel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Prophecy",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Ironmonger",
+   "Mystic",
+   "Rebuild",
+   "Vagrant",
+   "Baron",
+   "Conspirator",
+   "Nobles",
+   "Secret Passage",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Invasion",
+  "set": "Dark Ages",
+  "cards": [
+   "Beggar",
+   "Marauder",
+   "Rogue",
+   "Squire",
+   "Urchin",
+   "Diplomat",
+   "Harem",
+   "Swindler",
+   "Torturer",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Watery Graves",
+  "set": "Dark Ages",
+  "cards": [
+   "Count",
+   "Graverobber",
+   "Hermit",
+   "Rats",
+   "Scavenger",
+   "Corsair",
+   "Native Village",
+   "Salvager",
+   "Treasure Map",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Peasants",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Band of Misfits",
+   "Forager",
+   "Poor House",
+   "Vagrant",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Lighthouse",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Infestations",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Cultist",
+   "Feodum",
+   "Market Square",
+   "Rats",
+   "Wandering Minstrel",
+   "Apprentice",
+   "Scrying Pool",
+   "Transmute",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Lamentations",
+  "set": "Dark Ages",
+  "cards": [
+   "Beggar",
+   "Catacombs",
+   "Counterfeit",
+   "Forager",
+   "Ironmonger",
+   "Pillage",
+   "Apothecary",
+   "Golem",
+   "Herbalist",
+   "University"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "One Man's Trash",
+  "set": "Dark Ages",
+  "cards": [
+   "Counterfeit",
+   "Forager",
+   "Market Square",
+   "Pillage",
+   "Squire",
+   "Anvil",
+   "City",
+   "Crystal Ball",
+   "Magnate",
+   "War Chest"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Honor Among Thieves",
+  "set": "Dark Ages",
+  "cards": [
+   "Bandit Camp",
+   "Marauder",
+   "Procession",
+   "Rogue",
+   "Squire",
+   "Collection",
+   "Forge",
+   "Hoard",
+   "Quarry",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Stoneground",
+  "set": "Dark Ages",
+  "cards": [
+   "Hunting Grounds",
+   "Ironmonger",
+   "Marauder",
+   "Procession",
+   "Rogue",
+   "Advisor",
+   "Farrier",
+   "Plaza",
+   "Shop",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Far From Home",
+  "set": "Dark Ages",
+  "cards": [
+   "Catacombs",
+   "Count",
+   "Feodum",
+   "Fortress",
+   "Wandering Minstrel",
+   "Cartographer",
+   "Develop",
+   "Fool's Gold",
+   "Weaver",
+   "Witch's Hut"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Expeditions",
+  "set": "Dark Ages",
+  "cards": [
+   "Altar",
+   "Catacombs",
+   "Ironmonger",
+   "Poor House",
+   "Storeroom",
+   "Highway",
+   "Nomads",
+   "Oasis",
+   "Scheme",
+   "Spice Merchant"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Cemetery Polka",
+  "set": "Dark Ages",
+  "cards": [
+   "Graverobber",
+   "Marauder",
+   "Procession",
+   "Rogue",
+   "Wandering Minstrel",
+   "Amulet",
+   "Caravan Guard",
+   "Hireling",
+   "Peasant",
+   "Relic"
+  ],
+  "extras": [
+   "Alms"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Groovy Decay",
+  "set": "Dark Ages",
+  "cards": [
+   "Cultist",
+   "Death Cart",
+   "Fortress",
+   "Knights",
+   "Rats",
+   "Dungeon",
+   "Haunted Woods",
+   "Ratcatcher",
+   "Raze",
+   "Transmogrify"
+  ],
+  "extras": [
+   "Lost Arts",
+   "Pathfinding"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Tomb of the Rat King",
+  "set": "Dark Ages",
+  "cards": [
+   "Death Cart",
+   "Fortress",
+   "Pillage",
+   "Rats",
+   "Storeroom",
+   "Castles",
+   "Chariot Race",
+   "City Quarter",
+   "Legionary",
+   "Sacrifice"
+  ],
+  "extras": [
+   "Advance",
+   "Tomb"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Triumph of the Bandit King",
+  "set": "Dark Ages",
+  "cards": [
+   "Bandit Camp",
+   "Catacombs",
+   "Hunting Grounds",
+   "Market Square",
+   "Procession",
+   "Capital",
+   "Charm",
+   "Engineer",
+   "Groundskeeper",
+   "Legionary"
+  ],
+  "extras": [
+   "Triumph",
+   "Defiled Shrine"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "The Squire's Ritual",
+  "set": "Dark Ages",
+  "cards": [
+   "Feodum",
+   "Hermit",
+   "Ironmonger",
+   "Rogue",
+   "Squire",
+   "Archive",
+   "Catapult/Rocks",
+   "Crown",
+   "Patrician/Emporium",
+   "Settlers/Bustling Village"
+  ],
+  "extras": [
+   "Ritual",
+   "Museum"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Grave Matters",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Forager",
+   "Graverobber",
+   "Market Square",
+   "Squire",
+   "Cemetery",
+   "Cursed Village",
+   "Necromancer",
+   "Skulk",
+   "Tormentor"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Rats and Bats",
+  "set": "Dark Ages",
+  "cards": [
+   "Catacombs",
+   "Count",
+   "Fortress",
+   "Hermit",
+   "Rats",
+   "Changeling",
+   "Devil's Workshop",
+   "Sacred Grove",
+   "Tracker",
+   "Vampire"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "High and Low",
+  "set": "Dark Ages",
+  "cards": [
+   "Hermit",
+   "Hunting Grounds",
+   "Mystic",
+   "Poor House",
+   "Wandering Minstrel",
+   "Cellar",
+   "Moneylender",
+   "Throne Room",
+   "Witch",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Chivalry and Revelry",
+  "set": "Dark Ages",
+  "cards": [
+   "Altar",
+   "Knights",
+   "Rats",
+   "Scavenger",
+   "Squire",
+   "Festival",
+   "Gardens",
+   "Laboratory",
+   "Library",
+   "Remodel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Prophecy",
+  "set": "Dark Ages",
+  "cards": [
+   "Armory",
+   "Ironmonger",
+   "Mystic",
+   "Rebuild",
+   "Vagrant",
+   "Baron",
+   "Conspirator",
+   "Great Hall",
+   "Nobles",
+   "Wishing Well"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Invasion",
+  "set": "Dark Ages",
+  "cards": [
+   "Beggar",
+   "Marauder",
+   "Rogue",
+   "Squire",
+   "Urchin",
+   "Harem",
+   "Mining Village",
+   "Swindler",
+   "Torturer",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Watery Graves",
+  "set": "Dark Ages",
+  "cards": [
+   "Count",
+   "Graverobber",
+   "Hermit",
+   "Scavenger",
+   "Urchin",
+   "Native Village",
+   "Pirate Ship",
+   "Salvager",
+   "Treasure Map",
+   "Treasury"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Peasants",
+  "set": "Dark Ages",
+  "cards": [
+   "Death Cart",
+   "Feodum",
+   "Poor House",
+   "Urchin",
+   "Vagrant",
+   "Fishing Village",
+   "Haven",
+   "Island",
+   "Lighthouse",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "One Man's Trash",
+  "set": "Dark Ages",
+  "cards": [
+   "Counterfeit",
+   "Forager",
+   "Graverobber",
+   "Market Square",
+   "Rogue",
+   "City",
+   "Grand Market",
+   "Monument",
+   "Talisman",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Honor Among Thieves",
+  "set": "Dark Ages",
+  "cards": [
+   "Bandit Camp",
+   "Procession",
+   "Rebuild",
+   "Rogue",
+   "Squire",
+   "Forge",
+   "Hoard",
+   "Peddler",
+   "Quarry",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": true
+ },
+ {
+  "name": "Dark Carnival",
+  "set": "Dark Ages",
+  "cards": [
+   "Band of Misfits",
+   "Cultist",
+   "Fortress",
+   "Hermit",
+   "Junk Dealer",
+   "Knights",
+   "Fairgrounds",
+   "Hamlet",
+   "Horn of Plenty",
+   "Menagerie"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Class Struggle",
+  "set": "Dark Ages",
+  "cards": [
+   "Feodum",
+   "Fortress",
+   "Knights",
+   "Market Square",
+   "Poor House",
+   "Butcher",
+   "Doctor",
+   "Journeyman",
+   "Merchant Guild",
+   "Taxman"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Far From Home",
+  "set": "Dark Ages",
+  "cards": [
+   "Beggar",
+   "Count",
+   "Feodum",
+   "Marauder",
+   "Wandering Minstrel",
+   "Cartographer",
+   "Develop",
+   "Embassy",
+   "Fool's Gold",
+   "Haggler"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Expeditions",
+  "set": "Dark Ages",
+  "cards": [
+   "Altar",
+   "Catacombs",
+   "Ironmonger",
+   "Poor House",
+   "Storeroom",
+   "Crossroads",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Gentle Intro",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Distant Lands",
+   "Dungeon",
+   "Duplicate",
+   "Giant",
+   "Hireling",
+   "Port",
+   "Ranger",
+   "Ratcatcher",
+   "Treasure Trove"
+  ],
+  "extras": [
+   "Scouting Party"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Expert Intro",
+  "set": "Adventures",
+  "cards": [
+   "Caravan Guard",
+   "Coin of the Realm",
+   "Haunted Woods",
+   "Lost City",
+   "Magpie",
+   "Peasant",
+   "Raze",
+   "Swamp Hag",
+   "Transmogrify",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Mission",
+   "Plan"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Level Up",
+  "set": "Adventures",
+  "cards": [
+   "Dungeon",
+   "Gear",
+   "Guide",
+   "Lost City",
+   "Miser",
+   "Market",
+   "Merchant",
+   "Militia",
+   "Throne Room",
+   "Workshop"
+  ],
+  "extras": [
+   "Training"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Son of Size Distortion",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Duplicate",
+   "Giant",
+   "Messenger",
+   "Treasure Trove",
+   "Bandit",
+   "Bureaucrat",
+   "Gardens",
+   "Moneylender",
+   "Witch"
+  ],
+  "extras": [
+   "Bonfire",
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Royalty Factory",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Duplicate",
+   "Page",
+   "Raze",
+   "Royal Carriage",
+   "Conspirator",
+   "Courtier",
+   "Harem",
+   "Nobles",
+   "Swindler"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Masters of Finance",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Distant Lands",
+   "Gear",
+   "Transmogrify",
+   "Wine Merchant",
+   "Bridge",
+   "Pawn",
+   "Shanty Town",
+   "Steward",
+   "Upgrade"
+  ],
+  "extras": [
+   "Ball",
+   "Borrow"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Prince of Orange",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Dungeon",
+   "Haunted Woods",
+   "Page",
+   "Swamp Hag",
+   "Astrolabe",
+   "Caravan",
+   "Fishing Village",
+   "Merchant Ship",
+   "Sailor"
+  ],
+  "extras": [
+   "Mission"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gifts and Mathoms",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Caravan Guard",
+   "Hireling",
+   "Lost City",
+   "Messenger",
+   "Blockade",
+   "Haven",
+   "Sailor",
+   "Salvager",
+   "Smugglers"
+  ],
+  "extras": [
+   "Expedition",
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Haste Potion",
+  "set": "Adventures",
+  "cards": [
+   "Magpie",
+   "Messenger",
+   "Port",
+   "Royal Carriage",
+   "Treasure Trove",
+   "Apprentice",
+   "Scrying Pool",
+   "Transmute",
+   "University",
+   "Vineyard"
+  ],
+  "extras": [
+   "Plan"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cursecatchers",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Bridge Troll",
+   "Caravan Guard",
+   "Peasant",
+   "Ratcatcher",
+   "Apothecary",
+   "Familiar",
+   "Golem",
+   "Herbalist",
+   "Philosopher's Stone"
+  ],
+  "extras": [
+   "Save",
+   "Trade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Last Will and Monument",
+  "set": "Adventures",
+  "cards": [
+   "Coin of the Realm",
+   "Dungeon",
+   "Messenger",
+   "Port",
+   "Relic",
+   "Bishop",
+   "Collection",
+   "Magnate",
+   "Monument",
+   "Vault"
+  ],
+  "extras": [
+   "Inheritance"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Think Big",
+  "set": "Adventures",
+  "cards": [
+   "Distant Lands",
+   "Giant",
+   "Hireling",
+   "Miser",
+   "Storyteller",
+   "Expand",
+   "Hoard",
+   "King's Court",
+   "Peddler",
+   "War Chest"
+  ],
+  "extras": [
+   "Ball",
+   "Ferry"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Hero's Return",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Miser",
+   "Page",
+   "Ranger",
+   "Relic",
+   "Carnival",
+   "Farmhands",
+   "Footpad",
+   "Menagerie",
+   "Shop"
+  ],
+  "extras": [
+   "Travelling Fair"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Traders and Raiders",
+  "set": "Adventures",
+  "cards": [
+   "Haunted Woods",
+   "Lost City",
+   "Page",
+   "Port",
+   "Wine Merchant",
+   "Berserker",
+   "Guard Dog",
+   "Haggler",
+   "Spice Merchant",
+   "Trader"
+  ],
+  "extras": [
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Journeys",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Distant Lands",
+   "Giant",
+   "Guide",
+   "Ranger",
+   "Cartographer",
+   "Crossroads",
+   "Highway",
+   "Inn",
+   "Trail"
+  ],
+  "extras": [
+   "Expedition",
+   "Inheritance"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cemetery Polka",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Caravan Guard",
+   "Hireling",
+   "Peasant",
+   "Relic",
+   "Graverobber",
+   "Marauder",
+   "Procession",
+   "Rogue",
+   "Wandering Minstrel"
+  ],
+  "extras": [
+   "Alms"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Groovy Decay",
+  "set": "Adventures",
+  "cards": [
+   "Dungeon",
+   "Haunted Woods",
+   "Ratcatcher",
+   "Raze",
+   "Transmogrify",
+   "Cultist",
+   "Death Cart",
+   "Fortress",
+   "Knights",
+   "Rats"
+  ],
+  "extras": [
+   "Lost Arts",
+   "Pathfinding"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Area Control",
+  "set": "Adventures",
+  "cards": [
+   "Coin of the Realm",
+   "Page",
+   "Relic",
+   "Treasure Trove",
+   "Wine Merchant",
+   "Capital",
+   "Catapult/Rocks",
+   "Charm",
+   "Crown",
+   "Farmers' Market"
+  ],
+  "extras": [
+   "Banquet",
+   "Keep"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "No Money No Problems",
+  "set": "Adventures",
+  "cards": [
+   "Dungeon",
+   "Duplicate",
+   "Hireling",
+   "Peasant",
+   "Transmogrify",
+   "Archive",
+   "Encampment/Plunder",
+   "Royal Blacksmith",
+   "Temple",
+   "Villa"
+  ],
+  "extras": [
+   "Mission",
+   "Bandit Fort"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Monster Mash",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Giant",
+   "Messenger",
+   "Ratcatcher",
+   "Storyteller",
+   "Conclave",
+   "Guardian",
+   "Pixie",
+   "Vampire",
+   "Werewolf"
+  ],
+  "extras": [
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Lost in the Woods",
+  "set": "Adventures",
+  "cards": [
+   "Caravan Guard",
+   "Guide",
+   "Haunted Woods",
+   "Hireling",
+   "Ranger",
+   "Blessed Village",
+   "Druid",
+   "Fool",
+   "Sacred Grove",
+   "Tracker"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Sooner or Later",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Caravan Guard",
+   "Dungeon",
+   "Giant",
+   "Raze",
+   "Barge",
+   "Gatekeeper",
+   "Groom",
+   "Mastermind",
+   "Village Green"
+  ],
+  "extras": [
+   "Mission",
+   "Toil"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Level Up",
+  "set": "Adventures",
+  "cards": [
+   "Dungeon",
+   "Gear",
+   "Guide",
+   "Lost City",
+   "Miser",
+   "Market",
+   "Militia",
+   "Spy",
+   "Throne Room",
+   "Workshop"
+  ],
+  "extras": [
+   "Training"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Son of Size Distortion",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Duplicate",
+   "Giant",
+   "Messenger",
+   "Treasure Trove",
+   "Bureaucrat",
+   "Gardens",
+   "Moneylender",
+   "Thief",
+   "Witch"
+  ],
+  "extras": [
+   "Bonfire",
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Royalty Factory",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Duplicate",
+   "Page",
+   "Raze",
+   "Royal Carriage",
+   "Conspirator",
+   "Harem",
+   "Nobles",
+   "Secret Chamber",
+   "Swindler"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Masters of Finance",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Distant Lands",
+   "Gear",
+   "Transmogrify",
+   "Wine Merchant",
+   "Bridge",
+   "Pawn",
+   "Shanty Town",
+   "Steward",
+   "Upgrade"
+  ],
+  "extras": [
+   "Ball",
+   "Borrow"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Prince of Orange",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Dungeon",
+   "Haunted Woods",
+   "Page",
+   "Swamp Hag",
+   "Caravan",
+   "Fishing Village",
+   "Merchant Ship",
+   "Tactician",
+   "Treasure Map"
+  ],
+  "extras": [
+   "Mission"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gifts and Mathoms",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Caravan Guard",
+   "Hireling",
+   "Lost City",
+   "Messenger",
+   "Ambassador",
+   "Embargo",
+   "Haven",
+   "Salvager",
+   "Smugglers"
+  ],
+  "extras": [
+   "Expedition",
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Last Will and Monument",
+  "set": "Adventures",
+  "cards": [
+   "Coin of the Realm",
+   "Dungeon",
+   "Messenger",
+   "Relic",
+   "Treasure Trove",
+   "Bishop",
+   "Counting House",
+   "Monument",
+   "Rabble",
+   "Vault"
+  ],
+  "extras": [
+   "Inheritance"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Think Big",
+  "set": "Adventures",
+  "cards": [
+   "Distant Lands",
+   "Giant",
+   "Hireling",
+   "Miser",
+   "Storyteller",
+   "Contraband",
+   "Expand",
+   "Hoard",
+   "King's Court",
+   "Peddler"
+  ],
+  "extras": [
+   "Ball",
+   "Ferry"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Hero's Return",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Miser",
+   "Page",
+   "Ranger",
+   "Relic",
+   "Fairgrounds",
+   "Farming Village",
+   "Horse Traders",
+   "Jester",
+   "Menagerie"
+  ],
+  "extras": [
+   "Travelling Fair"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Spendthrift",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Gear",
+   "Magpie",
+   "Miser",
+   "Storyteller",
+   "Doctor",
+   "Masterpiece",
+   "Merchant Guild",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [
+   "Lost Arts"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Queen of Tan",
+  "set": "Adventures",
+  "cards": [
+   "Coin of the Realm",
+   "Duplicate",
+   "Guide",
+   "Ratcatcher",
+   "Royal Carriage",
+   "Advisor",
+   "Butcher",
+   "Candlestick Maker",
+   "Herald",
+   "Journeyman"
+  ],
+  "extras": [
+   "Pathfinding",
+   "Save"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Traders and Raiders",
+  "set": "Adventures",
+  "cards": [
+   "Haunted Woods",
+   "Lost City",
+   "Page",
+   "Port",
+   "Wine Merchant",
+   "Develop",
+   "Farmland",
+   "Haggler",
+   "Spice Merchant",
+   "Trader"
+  ],
+  "extras": [
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Journeys",
+  "set": "Adventures",
+  "cards": [
+   "Bridge Troll",
+   "Distant Lands",
+   "Giant",
+   "Guide",
+   "Ranger",
+   "Cartographer",
+   "Crossroads",
+   "Highway",
+   "Inn",
+   "Silk Road"
+  ],
+  "extras": [
+   "Expedition",
+   "Inheritance"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Basic Intro",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Chariot Race",
+   "City Quarter",
+   "Engineer",
+   "Farmers' Market",
+   "Forum",
+   "Legionary",
+   "Patrician/Emporium",
+   "Sacrifice",
+   "Villa"
+  ],
+  "extras": [
+   "Wedding",
+   "Tower"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Advanced Intro",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Capital",
+   "Catapult/Rocks",
+   "Crown",
+   "Enchantress",
+   "Gladiator/Fortune",
+   "Groundskeeper",
+   "Royal Blacksmith",
+   "Settlers/Bustling Village",
+   "Temple"
+  ],
+  "extras": [
+   "Arena",
+   "Triumphal Arch"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Everything in Moderation",
+  "set": "Empires",
+  "cards": [
+   "Enchantress",
+   "Forum",
+   "Legionary",
+   "Overlord",
+   "Temple",
+   "Cellar",
+   "Library",
+   "Remodel",
+   "Village",
+   "Workshop"
+  ],
+  "extras": [
+   "Windfall",
+   "Orchard"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Silver Bullets",
+  "set": "Empires",
+  "cards": [
+   "Catapult/Rocks",
+   "Charm",
+   "Farmers' Market",
+   "Groundskeeper",
+   "Patrician/Emporium",
+   "Bureaucrat",
+   "Gardens",
+   "Laboratory",
+   "Market",
+   "Moneylender"
+  ],
+  "extras": [
+   "Conquest",
+   "Aqueduct"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Delicious Torture",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Crown",
+   "Enchantress",
+   "Sacrifice",
+   "Settlers/Bustling Village",
+   "Baron",
+   "Bridge",
+   "Harem",
+   "Ironworks",
+   "Torturer"
+  ],
+  "extras": [
+   "Banquet",
+   "Arena"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Buddy System",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Capital",
+   "Catapult/Rocks",
+   "Engineer",
+   "Forum",
+   "Masquerade",
+   "Mining Village",
+   "Nobles",
+   "Pawn",
+   "Trading Post"
+  ],
+  "extras": [
+   "Salt the Earth",
+   "Wolf Den"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Boxed In",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Chariot Race",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Gladiator/Fortune",
+   "Salvager",
+   "Smugglers",
+   "Tactician",
+   "Warehouse",
+   "Wharf"
+  ],
+  "extras": [
+   "Tax",
+   "Wall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "King of the Sea",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Farmers' Market",
+   "Overlord",
+   "Temple",
+   "Wild Hunt",
+   "Corsair",
+   "Haven",
+   "Native Village",
+   "Pirate",
+   "Sea Witch"
+  ],
+  "extras": [
+   "Delve",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Collectors",
+  "set": "Empires",
+  "cards": [
+   "City Quarter",
+   "Crown",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Farmers' Market",
+   "Apothecary",
+   "Apprentice",
+   "Herbalist",
+   "Transmute",
+   "University"
+  ],
+  "extras": [
+   "Colonnade",
+   "Museum"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Big Time",
+  "set": "Empires",
+  "cards": [
+   "Capital",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Royal Blacksmith",
+   "Villa",
+   "Bank",
+   "Forge",
+   "Grand Market",
+   "Investment",
+   "Tiara"
+  ],
+  "extras": [
+   "Dominate",
+   "Obelisk"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Gilded Gates",
+  "set": "Empires",
+  "cards": [
+   "Chariot Race",
+   "City Quarter",
+   "Encampment/Plunder",
+   "Groundskeeper",
+   "Wild Hunt",
+   "Anvil",
+   "Collection",
+   "Mint",
+   "Peddler",
+   "War Chest"
+  ],
+  "extras": [
+   "Basilica",
+   "Palace"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Cash Flow",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "City Quarter",
+   "Engineer",
+   "Gladiator/Fortune",
+   "Royal Blacksmith",
+   "Baker",
+   "Carnival",
+   "Herald",
+   "Infirmary",
+   "Soothsayer"
+  ],
+  "extras": [
+   "Baths",
+   "Mountain Pass"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Simple Plans",
+  "set": "Empires",
+  "cards": [
+   "Catapult/Rocks",
+   "Enchantress",
+   "Forum",
+   "Patrician/Emporium",
+   "Villa",
+   "Border Village",
+   "Cauldron",
+   "Haggler",
+   "Stables",
+   "Wheelwright"
+  ],
+  "extras": [
+   "Donate",
+   "Labyrinth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Expansion",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Charm",
+   "Encampment/Plunder",
+   "Engineer",
+   "Legionary",
+   "Farmland",
+   "Oasis",
+   "Spice Merchant",
+   "Stables",
+   "Tunnel"
+  ],
+  "extras": [
+   "Battlefield",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Tomb of the Rat King",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Chariot Race",
+   "City Quarter",
+   "Legionary",
+   "Sacrifice",
+   "Death Cart",
+   "Fortress",
+   "Pillage",
+   "Rats",
+   "Storeroom"
+  ],
+  "extras": [
+   "Advance",
+   "Tomb"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Triumph of the Bandit King",
+  "set": "Empires",
+  "cards": [
+   "Capital",
+   "Charm",
+   "Engineer",
+   "Groundskeeper",
+   "Legionary",
+   "Bandit Camp",
+   "Catacombs",
+   "Hunting Grounds",
+   "Market Square",
+   "Procession"
+  ],
+  "extras": [
+   "Triumph",
+   "Defiled Shrine"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "The Squire's Ritual",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Catapult/Rocks",
+   "Crown",
+   "Patrician/Emporium",
+   "Settlers/Bustling Village",
+   "Feodum",
+   "Hermit",
+   "Ironmonger",
+   "Rogue",
+   "Squire"
+  ],
+  "extras": [
+   "Ritual",
+   "Museum"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Area Control",
+  "set": "Empires",
+  "cards": [
+   "Capital",
+   "Catapult/Rocks",
+   "Charm",
+   "Crown",
+   "Farmers' Market",
+   "Coin of the Realm",
+   "Page",
+   "Relic",
+   "Treasure Trove",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Banquet",
+   "Keep"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "No Money No Problems",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Encampment/Plunder",
+   "Royal Blacksmith",
+   "Temple",
+   "Villa",
+   "Dungeon",
+   "Duplicate",
+   "Hireling",
+   "Peasant",
+   "Transmogrify"
+  ],
+  "extras": [
+   "Mission",
+   "Bandit Fort"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Luftschloss",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Castles",
+   "Catapult/Rocks",
+   "Engineer",
+   "Temple",
+   "Cemetery",
+   "Changeling",
+   "Exorcist",
+   "Fool",
+   "Shepherd"
+  ],
+  "extras": [
+   "Tomb"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pooka Pranks",
+  "set": "Empires",
+  "cards": [
+   "Chariot Race",
+   "Forum",
+   "Groundskeeper",
+   "Sacrifice",
+   "Settlers/Bustling Village",
+   "Faithful Hound",
+   "Ghost Town",
+   "Pixie",
+   "Pooka",
+   "Skulk"
+  ],
+  "extras": [
+   "Banquet"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Detours and Shortcuts",
+  "set": "Empires",
+  "cards": [
+   "Enchantress",
+   "Overlord",
+   "Sacrifice",
+   "Settlers/Bustling Village",
+   "Wild Hunt",
+   "Camel Train",
+   "Fisherman",
+   "Gatekeeper",
+   "Sanctuary",
+   "Snowy Village"
+  ],
+  "extras": [
+   "transport",
+   "Triumphal Arch"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Boxed In",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Chariot Race",
+   "Encampment/Plunder",
+   "Enchantress",
+   "Gladiator/Fortune",
+   "Salvager",
+   "Smugglers",
+   "Tactician",
+   "Warehouse",
+   "Wharf"
+  ],
+  "extras": [
+   "Tax",
+   "Wall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "King of the Sea",
+  "set": "Empires",
+  "cards": [
+   "Archive",
+   "Farmers' Market",
+   "Overlord",
+   "Temple",
+   "Wild Hunt",
+   "Explorer",
+   "Haven",
+   "Native Village",
+   "Pirate Ship",
+   "Sea Hag"
+  ],
+  "extras": [
+   "Delve",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Big Time",
+  "set": "Empires",
+  "cards": [
+   "Capital",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Royal Blacksmith",
+   "Villa",
+   "Bank",
+   "Forge",
+   "Grand Market",
+   "Loan",
+   "Royal Seal"
+  ],
+  "extras": [
+   "Dominate",
+   "Obelisk"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Gilded Gates",
+  "set": "Empires",
+  "cards": [
+   "Chariot Race",
+   "City Quarter",
+   "Encampment/Plunder",
+   "Groundskeeper",
+   "Wild Hunt",
+   "Bishop",
+   "Mint",
+   "Monument",
+   "Peddler",
+   "Talisman"
+  ],
+  "extras": [
+   "Basilica",
+   "Palace"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Zookeepers",
+  "set": "Empires",
+  "cards": [
+   "Overlord",
+   "Sacrifice",
+   "Settlers/Bustling Village",
+   "Villa",
+   "Wild Hunt",
+   "Fairgrounds",
+   "Horse Traders",
+   "Jester",
+   "Menagerie",
+   "Tournament"
+  ],
+  "extras": [
+   "Annex",
+   "Colonnade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cash Flow",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "City Quarter",
+   "Engineer",
+   "Gladiator/Fortune",
+   "Royal Blacksmith",
+   "Baker",
+   "Butcher",
+   "Doctor",
+   "Herald",
+   "Soothsayer"
+  ],
+  "extras": [
+   "Baths",
+   "Mountain Pass"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Simple Plans",
+  "set": "Empires",
+  "cards": [
+   "Catapult/Rocks",
+   "Forum",
+   "Patrician/Emporium",
+   "Temple",
+   "Villa",
+   "Border Village",
+   "Develop",
+   "Haggler",
+   "Ill-Gotten Gains",
+   "Stables"
+  ],
+  "extras": [
+   "Donate",
+   "Labyrinth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Expansion",
+  "set": "Empires",
+  "cards": [
+   "Castles",
+   "Charm",
+   "Encampment/Plunder",
+   "Engineer",
+   "Legionary",
+   "Cache",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel"
+  ],
+  "extras": [
+   "Battlefield",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dusk",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cobbler",
+   "Den of Sin",
+   "Faithful Hound",
+   "Fool",
+   "Monastery",
+   "Night Watchman",
+   "Shepherd",
+   "Tormentor",
+   "Tragic Hero"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Midnight",
+  "set": "Nocturne",
+  "cards": [
+   "Conclave",
+   "Crypt",
+   "Cursed Village",
+   "Devil's Workshop",
+   "Druid",
+   "Exorcist",
+   "Leprechaun",
+   "Pooka",
+   "Raider",
+   "Secret Cave"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Night Shift",
+  "set": "Nocturne",
+  "cards": [
+   "Druid",
+   "Exorcist",
+   "Ghost Town",
+   "Idol",
+   "Night Watchman",
+   "Bandit",
+   "Gardens",
+   "Mine",
+   "Poacher",
+   "Smithy"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Idle Hands",
+  "set": "Nocturne",
+  "cards": [
+   "Bard",
+   "Conclave",
+   "Cursed Village",
+   "Devil's Workshop",
+   "Tragic Hero",
+   "Cellar",
+   "Harbinger",
+   "Market",
+   "Merchant",
+   "Moneylender"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shadowy Figures",
+  "set": "Nocturne",
+  "cards": [
+   "Cobbler",
+   "Conclave",
+   "Faithful Hound",
+   "Shepherd",
+   "Tragic Hero",
+   "Bridge",
+   "Conspirator",
+   "Mill",
+   "Nobles",
+   "Secret Passage"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Impending Doom",
+  "set": "Nocturne",
+  "cards": [
+   "Leprechaun",
+   "Monastery",
+   "Necromancer",
+   "Tormentor",
+   "Werewolf",
+   "Courtier",
+   "Lurker",
+   "Mining Village",
+   "Swindler",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The New Black",
+  "set": "Nocturne",
+  "cards": [
+   "Cobbler",
+   "Den of Sin",
+   "Ghost Town",
+   "Raider",
+   "Secret Cave",
+   "Caravan",
+   "Corsair",
+   "Merchant Ship",
+   "Sailor",
+   "Tactician"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Isle",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cemetery",
+   "Idol",
+   "Tracker",
+   "Tragic Hero",
+   "Bazaar",
+   "Monkey",
+   "Pirate",
+   "Salvager",
+   "Tide Pools"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Nightmare Fuel",
+  "set": "Nocturne",
+  "cards": [
+   "Bard",
+   "Blessed Village",
+   "Cemetery",
+   "Sacred Grove",
+   "Skulk",
+   "Tracker",
+   "Alchemist",
+   "Apprentice",
+   "Transmute",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Treasures of the Night",
+  "set": "Nocturne",
+  "cards": [
+   "Crypt",
+   "Guardian",
+   "Night Watchman",
+   "Raider",
+   "Vampire",
+   "Charlatan",
+   "Crystal Ball",
+   "Investment",
+   "Tiara",
+   "War Chest"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Day at the Races",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cemetery",
+   "Druid",
+   "Tormentor",
+   "Tragic Hero",
+   "Anvil",
+   "Bishop",
+   "Clerk",
+   "Peddler",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Endless Fair",
+  "set": "Nocturne",
+  "cards": [
+   "Devil's Workshop",
+   "Exorcist",
+   "Monastery",
+   "Pixie",
+   "Shepherd",
+   "Baker",
+   "Carnival",
+   "Fairgrounds",
+   "Farmhands",
+   "Merchant Guild"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Search Party",
+  "set": "Nocturne",
+  "cards": [
+   "Cobbler",
+   "Conclave",
+   "Druid",
+   "Faithful Hound",
+   "Werewolf",
+   "Cartographer",
+   "Inn",
+   "Oasis",
+   "Scheme",
+   "Souk"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Counting Sheep",
+  "set": "Nocturne",
+  "cards": [
+   "Crypt",
+   "Leprechaun",
+   "Pooka",
+   "Secret Cave",
+   "Shepherd",
+   "Crossroads",
+   "Farmland",
+   "Oasis",
+   "Tunnel",
+   "Weaver"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Grave Matters",
+  "set": "Nocturne",
+  "cards": [
+   "Cemetery",
+   "Cursed Village",
+   "Necromancer",
+   "Skulk",
+   "Tormentor",
+   "Armory",
+   "Forager",
+   "Graverobber",
+   "Market Square",
+   "Squire"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Rats and Bats",
+  "set": "Nocturne",
+  "cards": [
+   "Changeling",
+   "Devil's Workshop",
+   "Sacred Grove",
+   "Tracker",
+   "Vampire",
+   "Catacombs",
+   "Count",
+   "Fortress",
+   "Hermit",
+   "Rats"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Monster Mash",
+  "set": "Nocturne",
+  "cards": [
+   "Conclave",
+   "Guardian",
+   "Pixie",
+   "Vampire",
+   "Werewolf",
+   "Bridge Troll",
+   "Giant",
+   "Messenger",
+   "Ratcatcher",
+   "Storyteller"
+  ],
+  "extras": [
+   "Quest"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Lost in the Woods",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Druid",
+   "Fool",
+   "Sacred Grove",
+   "Tracker",
+   "Caravan Guard",
+   "Guide",
+   "Haunted Woods",
+   "Hireling",
+   "Ranger"
+  ],
+  "extras": [
+   "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Luftschloss",
+  "set": "Nocturne",
+  "cards": [
+   "Cemetery",
+   "Changeling",
+   "Exorcist",
+   "Fool",
+   "Shepherd",
+   "Archive",
+   "Castles",
+   "Catapult/Rocks",
+   "Engineer",
+   "Temple"
+  ],
+  "extras": [
+   "Tomb"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pooka Pranks",
+  "set": "Nocturne",
+  "cards": [
+   "Faithful Hound",
+   "Ghost Town",
+   "Pixie",
+   "Pooka",
+   "Skulk",
+   "Chariot Race",
+   "Forum",
+   "Groundskeeper",
+   "Sacrifice",
+   "Settlers/Bustling Village"
+  ],
+  "extras": [
+   "Banquet"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The New Black",
+  "set": "Nocturne",
+  "cards": [
+   "Cobbler",
+   "Den of Sin",
+   "Ghost Town",
+   "Raider",
+   "Secret Cave",
+   "Caravan",
+   "Haven",
+   "Merchant Ship",
+   "Outpost",
+   "Tactician"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Forbidden Isle",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cemetery",
+   "Idol",
+   "Tracker",
+   "Tragic Hero",
+   "Fishing Village",
+   "Ghost Ship",
+   "Lookout",
+   "Salvager",
+   "Treasure Map"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Treasures of the Night",
+  "set": "Nocturne",
+  "cards": [
+   "Crypt",
+   "Guardian",
+   "Night Watchman",
+   "Raider",
+   "Vampire",
+   "Bank",
+   "Contraband",
+   "Loan",
+   "Royal Seal",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Day at the Races",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cemetery",
+   "Druid",
+   "Tormentor",
+   "Tragic Hero",
+   "Bishop",
+   "Peddler",
+   "Talisman",
+   "Trade Route",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "The Endless Fair",
+  "set": "Nocturne",
+  "cards": [
+   "Devil's Workshop",
+   "Exorcist",
+   "Monastery",
+   "Pixie",
+   "Shepherd",
+   "Baker",
+   "Fairgrounds",
+   "Farming Village",
+   "Fortune Teller",
+   "Merchant Guild"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Happy Chaos",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Changeling",
+   "Faithful Hound",
+   "Fool",
+   "Sacred Grove",
+   "Doctor",
+   "Harvest",
+   "Herald",
+   "Jester",
+   "Masterpiece"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Search Party",
+  "set": "Nocturne",
+  "cards": [
+   "Cobbler",
+   "Conclave",
+   "Druid",
+   "Faithful Hound",
+   "Werewolf",
+   "Cartographer",
+   "Highway",
+   "Inn",
+   "Oasis",
+   "Scheme"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Counting Sheep",
+  "set": "Nocturne",
+  "cards": [
+   "Bard",
+   "Crypt",
+   "Leprechaun",
+   "Pooka",
+   "Shepherd",
+   "Crossroads",
+   "Farmland",
+   "Haggler",
+   "Noble Brigand",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ }
+]

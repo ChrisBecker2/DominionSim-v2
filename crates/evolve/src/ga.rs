@@ -25,7 +25,7 @@ pub struct Control {
 }
 
 impl Control {
-    fn stopped(&self) -> bool {
+    pub(crate) fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
     }
 }
@@ -158,7 +158,11 @@ impl Setup {
                 (Kingdoms::Random { required, pool: pool.clone(), per_gen: (*kingdoms_per_generation).max(1), sets: sets.clone() }, space_pool)
             }
         };
-        if cfg.opponents.is_empty() {
+        if cfg.league.is_some() {
+            if !matches!(&cfg.track, Track::Fixed { kingdom } if !kingdom.is_empty()) {
+                return Err("kingdom league needs a fixed kingdom (type the cards)".into());
+            }
+        } else if cfg.opponents.is_empty() {
             return Err("choose at least one opponent".into());
         }
         let opponents = |fast: bool| -> Result<Vec<Opponent>, String> {
@@ -181,6 +185,14 @@ impl Setup {
         space.max_mode_rules = cfg.max_mode_rules;
         space.max_conds = cfg.max_conds;
         Ok(Setup { arena, val_arena, space, kingdoms, opponent_names: cfg.opponents.iter().map(|o| o.name.clone()).collect(), added_for_opponents })
+    }
+
+    /// The kingdom of a fixed track, including Platinum/Colony/Potion when they are in play.
+    pub fn fixed_kingdom(&self) -> Option<&[CardId]> {
+        match &self.kingdoms {
+            Kingdoms::Fixed(k) => Some(k),
+            Kingdoms::Random { .. } => None,
+        }
     }
 
     /// Kingdoms for one round; random kingdoms are drawn from `rng`.
@@ -330,6 +342,9 @@ fn meta_for(cfg: &EvolveConfig, setup: &Setup, generation: usize, score: &Score,
 /// Run the search. `report` is called with a fresh snapshot after every generation and status
 /// change; the final snapshot is also returned.
 pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progress)) -> Result<Progress, String> {
+    if cfg.league.is_some() {
+        return crate::league::run(cfg, control, report);
+    }
     let setup = Setup::new(cfg)?;
     let start = Instant::now();
     let mut progress = Progress { status: "starting".into(), generations: cfg.generations, ..Default::default() };
@@ -429,6 +444,8 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             median_win_rate: median,
             validated_win_rate: None,
             best_summary: c.genome.summary(),
+            niches: 0,
+            hall: hall.len(),
         };
 
         // Validation on held-out seeds.

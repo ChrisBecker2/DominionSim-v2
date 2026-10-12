@@ -12,20 +12,26 @@
 //!   with common random numbers so every candidate faces the same deals.
 //! - [`ga`]: the island-model genetic algorithm with racing, parsimony, validation on
 //!   held-out seeds and a hall of fame; reports [`progress::Progress`] snapshots.
+//! - [`baselines`], [`niche`], [`rank`], [`league`]: the kingdom league (automatic anchors, niche
+//!   archive, round robin with a Nash mix) for kingdoms without premade opponents.
 //! - [`polish`]: rule ablation: drop rules that don't matter, annotate the rest with their impact.
 //! - [`config`]: the serializable run configuration.
 
 pub mod arena;
+pub mod baselines;
 pub mod config;
 pub mod ga;
 pub mod genome;
+pub mod league;
+pub mod niche;
 pub mod ops;
 pub mod polish;
 pub mod progress;
+pub mod rank;
 pub mod space;
 
 pub use arena::{Arena, Scenario, Score};
-pub use config::{Colonies, EvolveConfig, OpponentSpec, Track};
+pub use config::{Colonies, EvolveConfig, LeagueConfig, OpponentSpec, Track};
 pub use ga::{assess, run, Control};
 pub use genome::{Atom, Genome, Op, Rule, Var};
 pub use progress::{Entry, Progress};

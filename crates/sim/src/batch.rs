@@ -11,7 +11,7 @@
 use dominion_engine::cards::CardId;
 use dominion_engine::rng::Rng;
 use dominion_engine::state::MAX_PLAYERS;
-use dominion_engine::{play_game, Agent, GameConfig, GameState, NoEvents};
+use dominion_engine::{play_game, Agent, Event, EventSink, GameConfig, GameState, NoEvents};
 use rayon::prelude::*;
 
 use crate::agent::StrategyAgent;
@@ -34,12 +34,130 @@ pub struct MatchConfig {
     pub max_turns: u16,
 }
 
+/// Extra per-game tallies a match can collect besides the win counts. The default `()` collects
+/// nothing and costs nothing (`NoEvents` compiles away); [`Profiles`] counts gains and trashes.
+pub trait Tally: Default + Send {
+    type Sink: EventSink;
+    fn sink() -> Self::Sink;
+    /// Fold in one finished game. `strat_of_seat[i]` is the index (in the `strategies` slice) of
+    /// the strategy that sat in seat `i`.
+    fn absorb(&mut self, sink: &Self::Sink, strat_of_seat: &[usize]);
+    fn merge(&mut self, other: &Self);
+}
+
+impl Tally for () {
+    type Sink = NoEvents;
+    #[inline(always)]
+    fn sink() -> NoEvents {
+        NoEvents
+    }
+    #[inline(always)]
+    fn absorb(&mut self, _: &NoEvents, _: &[usize]) {}
+    #[inline(always)]
+    fn merge(&mut self, _: &()) {}
+}
+
+/// Ids at or above this (Events, Landmarks, Boons, ...) are not counted by [`Profile`].
+pub const PROFILE_IDS: usize = 512;
+
+/// What one strategy did over a batch of games: cards gained (bought or otherwise) and cards
+/// trashed. Cheap statistics for describing a strategy's behaviour.
+#[derive(Clone, Debug, Default)]
+pub struct Profile {
+    pub games: u64,
+    /// Gains per card id, summed over games.
+    pub gains: Vec<u64>,
+    pub trashes: u64,
+}
+
+impl Profile {
+    pub fn gains_per_game(&self, card: CardId) -> f64 {
+        if self.games == 0 { 0.0 } else { self.gains.get(card as usize).copied().unwrap_or(0) as f64 / self.games as f64 }
+    }
+    pub fn trashes_per_game(&self) -> f64 {
+        if self.games == 0 { 0.0 } else { self.trashes as f64 / self.games as f64 }
+    }
+    pub fn merge(&mut self, o: &Profile) {
+        self.games += o.games;
+        self.trashes += o.trashes;
+        if self.gains.len() < o.gains.len() {
+            self.gains.resize(o.gains.len(), 0);
+        }
+        for (a, b) in self.gains.iter_mut().zip(&o.gains) {
+            *a += b;
+        }
+    }
+}
+
+pub struct ProfileSink {
+    gains: [[u16; PROFILE_IDS]; MAX_PLAYERS],
+    trashes: [u32; MAX_PLAYERS],
+}
+
+impl EventSink for ProfileSink {
+    fn event(&mut self, e: Event) {
+        match e {
+            Event::Gain { player, card, .. } if (card as usize) < PROFILE_IDS => {
+                self.gains[player as usize][card as usize] += 1;
+            }
+            Event::Trash { player, .. } => self.trashes[player as usize] += 1,
+            _ => {}
+        }
+    }
+}
+
+/// One [`Profile`] per strategy.
+#[derive(Clone, Debug, Default)]
+pub struct Profiles(pub Vec<Profile>);
+
+impl Tally for Profiles {
+    type Sink = ProfileSink;
+    fn sink() -> ProfileSink {
+        ProfileSink { gains: [[0; PROFILE_IDS]; MAX_PLAYERS], trashes: [0; MAX_PLAYERS] }
+    }
+    fn absorb(&mut self, sink: &ProfileSink, strat_of_seat: &[usize]) {
+        if self.0.len() < MAX_PLAYERS {
+            self.0.resize(MAX_PLAYERS, Profile::default());
+        }
+        for (seat, &s) in strat_of_seat.iter().enumerate() {
+            let p = &mut self.0[s];
+            if p.gains.is_empty() {
+                p.gains = vec![0; PROFILE_IDS];
+            }
+            p.games += 1;
+            p.trashes += sink.trashes[seat] as u64;
+            for (a, b) in p.gains.iter_mut().zip(sink.gains[seat].iter()) {
+                *a += *b as u64;
+            }
+        }
+    }
+    fn merge(&mut self, o: &Profiles) {
+        if self.0.len() < o.0.len() {
+            self.0.resize(o.0.len(), Profile::default());
+        }
+        for (a, b) in self.0.iter_mut().zip(&o.0) {
+            a.merge(b);
+        }
+    }
+}
+
 /// Play `strategies.len()` strategies against each other (one per seat) for `cfg.games` games,
 /// rotating seats: each group of `p` consecutive games shares one deal and rotates the seating,
 /// so every strategy sits in every seat once (2 players: both go first once). With 3+ players
 /// each group also starts from a random seating, so every relative order comes up. Returns one
 /// `StratStats` per input strategy, in input order.
 pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats> {
+    run_match_tally::<()>(strategies, cfg).0
+}
+
+/// [`run_match`] that also profiles each strategy's gains and trashes.
+pub fn run_match_profiled(strategies: &[&Strategy], cfg: &MatchConfig) -> (Vec<StratStats>, Vec<Profile>) {
+    let (stats, mut t) = run_match_tally::<Profiles>(strategies, cfg);
+    t.0.resize(strategies.len(), Profile::default());
+    (stats, t.0)
+}
+
+fn run_match_tally<T: Tally>(strategies: &[&Strategy], cfg: &MatchConfig) -> (Vec<StratStats>, T) {
     init_thread_pool();
     let p = strategies.len();
     assert!((2..=MAX_PLAYERS).contains(&p), "match needs 2..={MAX_PLAYERS} strategies, got {p}");
@@ -47,11 +165,11 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
     let base_seed = cfg.seed;
     let base_cfg = GameConfig { num_players: p, kingdom: cfg.kingdom.clone(), seed: 0, max_turns: cfg.max_turns, ..Default::default() };
 
-    let totals: [StratStats; MAX_PLAYERS] = (0..cfg.games)
+    let (totals, tally): ([StratStats; MAX_PLAYERS], T) = (0..cfg.games)
         .into_par_iter()
         .fold(
-            || (base_cfg.clone(), [StratStats::default(); MAX_PLAYERS]),
-            |(mut gcfg, mut acc), g| {
+            || (base_cfg.clone(), [StratStats::default(); MAX_PLAYERS], T::default()),
+            |(mut gcfg, mut acc, mut tally), g| {
                 let rotation = (g % p as u64) as usize;
                 gcfg.seed = Rng::derive(base_seed, g / p as u64).next_u64();
                 // Base seating for this group: identity for 2 players (rotation already covers
@@ -76,10 +194,13 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
                     std::array::from_fn(|_| it.next().unwrap() as &mut dyn Agent)
                 };
 
-                let result = play_game(&mut state, &mut refs[..p], &mut NoEvents);
+                let mut sink = T::sink();
+                let result = play_game(&mut state, &mut refs[..p], &mut sink);
+                let strat_of_seat: [usize; MAX_PLAYERS] = std::array::from_fn(|i| base[(i + rotation) % p]);
+                tally.absorb(&sink, &strat_of_seat[..p]);
                 let win_share = 1.0 / result.winners.count_ones().max(1) as f64;
                 for i in 0..p {
-                    let strat_idx = base[(i + rotation) % p];
+                    let strat_idx = strat_of_seat[i];
                     let s = &mut acc[strat_idx];
                     s.games += 1;
                     if result.winners & (1 << i) != 0 {
@@ -91,21 +212,22 @@ pub fn run_match(strategies: &[&Strategy], cfg: &MatchConfig) -> Vec<StratStats>
                         s.capped_games += 1;
                     }
                 }
-                (gcfg, acc)
+                (gcfg, acc, tally)
             },
         )
-        .map(|(_, acc)| acc)
+        .map(|(_, acc, tally)| (acc, tally))
         .reduce(
-            || [StratStats::default(); MAX_PLAYERS],
-            |mut a, b| {
+            || ([StratStats::default(); MAX_PLAYERS], T::default()),
+            |(mut a, mut ta), (b, tb)| {
                 for i in 0..MAX_PLAYERS {
                     a[i].merge(&b[i]);
                 }
-                a
+                ta.merge(&tb);
+                (a, ta)
             },
         );
 
-    totals[..p].to_vec()
+    (totals[..p].to_vec(), tally)
 }
 
 /// One row of a round-robin league table: `a` vs `b`, from `a`'s perspective.

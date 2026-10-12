@@ -156,3 +156,55 @@ surrogate and for policy training in 5.2.
   Witches"): extend the language with a few opponent-aware variables (`opp_count(C)`, `curses_left`)
   when the GA plateaus. They're still readable.
 - **Slow engine evaluations:** rule-order evaluation in the inner loop, full search only for finalists.
+
+---
+
+## 9. Kingdom league (no premade opponents)
+
+For a fixed 10-card kingdom there is no Double Witch to beat. The league mode
+(`EvolveConfig.league = Some(LeagueConfig)`, with `track = Fixed { kingdom }`; `opponents` is
+ignored) finds several distinct good strategies instead of one. Code: `evolve/src/{baselines,league,niche,rank}.rs`;
+in the Lab, tick "Kingdom mode". `cargo run --release -p dominion-evolve --example league_run -- "A,B,..." 40`
+runs it from the command line.
+
+**Anchors** (`baselines.rs`). Generated from the kingdom: Big Money Ultimate (with Colony and Platinum
+when Colony is in play); "BM + X" for every Action or Treasure X that is not Victory-only, not
+Potion-cost and not forbidden (cap 2 for non-terminals and Treasures; terminals: 1, and a second only
+at 14+ cards; X sits before Gold when it costs $6+, else before Silver); "Trash with T + money" for each
+trasher T; "Engine: village + draw" for the village and the two best terminal draws.
+
+**League scoring.** A candidate's fitness is its win rate (minus parsimony) against a weighted mix:
+anchors 0.4, the newest 4 hall-of-fame champions 0.4, a sample of 3 older ones 0.2. Empty groups drop
+out and the rest renormalize (`league_weights`). All candidates of a generation play the same deals
+(common random numbers). Each generation the best `join_per_generation` (2) strategies from distinct
+niches, that are not anchors, are validated on held-out seeds against the same league and join the
+hall of fame if they win at least `hof_min_win` (51%) of the games.
+
+**Niches** (`niche.rs`, MAP-Elites). The last race stage runs profiled games, giving gains per game,
+trashes per game and turns. A descriptor is: the top one or two kingdom cards gained (at least 0.75 per
+game; the second at least half as often as the first), trashing (none under 1 per game, light under 6,
+else heavy) and game length (against Big Money Ultimate's on this kingdom: under 0.88x fast, over 1.12x
+long). The archive keeps the best strategy per niche, up to `niches` (10; the fittest are kept).
+Champions are re-raced every generation (protected from racing cuts), so fitness is always measured
+against the current league. Parents come from the archive with probability 0.4, otherwise by island
+tournament. A new niche earns a selection bonus of +1% win rate.
+
+**Escaping local optima.** Islands are seeded from different anchors (every n-th anchor unmutated, the
+rest mutants of the island's own). Migration: the best moves on and a random niche champion is injected.
+An island with no new or improved niche champion for 8 generations is shaken (strong mutants of its
+best) or restarted from another anchor, alternately. A run stops after `stall_generations` generations
+with no new champion or hall-of-fame member.
+
+**Final ranking** (`rank.rs`). The niche champions (polished) and all anchors play a round robin of
+`final_games` games per pair on one seed (the same deals for every pair), with full bots by default.
+The report holds:
+- the crosstable: row beats column, ties counting half, with 95% Wilson intervals (hover in the UI);
+- each strategy's mean against the field (the other strategies equally weighted);
+- an approximate Nash mix (multiplicative weights on win rate minus 0.5): weights are the share of an
+  equilibrium mix of the strategies. A strategy with 0 is beaten by or no better than a mix of the
+  others; rock-paper-scissors cycles show up as several strategies with weight;
+- the top N distinct strategies (distinct niche descriptors, measured on the round robin's games).
+
+Caveats: league fitness is relative, so absolute numbers drift as the hall of fame strengthens; the
+inner loop uses fast bots (no turn search), which under-rates engines that need play-order search, so
+rerun candidate engines with full bots (Assess).

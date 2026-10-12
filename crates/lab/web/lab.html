@@ -125,6 +125,30 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
 
   <main>
     <div id="config-col">
+      <section id="league-panel">
+        <h2>Kingdom league</h2>
+        <label class="checkbox-row"><input type="checkbox" id="league-on"> Kingdom mode: find several distinct strategies for one kingdom, no opponents to pick</label>
+        <div id="league-form" style="display:none">
+          <div class="hint">Baselines (Big Money Ultimate, Big Money + each useful card, trasher and engine templates) anchor the league; champions found along the way join it. One champion is kept per niche (key cards, trashing, game length).</div>
+          <label>Recommended kingdom <select id="league-recommended"><option value="">(type your own)</option></select></label>
+          <label>Kingdom (card names, comma separated)
+            <textarea id="league-kingdom" rows="3" placeholder="Artisan, Harbinger, Laboratory, Mine, Moneylender, Bank, Crystal Ball, Grand Market, Mint, Tiara"></textarea></label>
+          <div class="grid2">
+            <label>Colony / Platinum <select id="league-colonies"><option value="auto">auto (Prosperity cards)</option><option value="yes">yes</option><option value="no">no</option></select></label>
+            <label>Niches kept <input type="number" id="league-niches" min="1" value="10"></label>
+            <label>Final games per pair <input type="number" id="league-final_games" min="2" value="2000"></label>
+            <label>Hall-of-fame games <input type="number" id="league-validate" min="100" value="10000"></label>
+            <label>Anchor weight <input type="number" id="league-anchor_weight" step="0.05" min="0" value="0.4"></label>
+            <label>Recent champions weight <input type="number" id="league-recent_weight" step="0.05" min="0" value="0.4"></label>
+            <label>Older champions weight <input type="number" id="league-old_weight" step="0.05" min="0" value="0.2"></label>
+            <label>Novelty bonus (%) <input type="number" id="league-novelty" step="0.1" min="0" value="1"></label>
+            <label>Island stagnation (gens) <input type="number" id="league-stagnation" min="0" value="8"></label>
+          </div>
+          <label class="checkbox-row"><input type="checkbox" id="league-full" checked> Full bots in the final round robin</label>
+          <div class="hint">Islands, island size, generations and the other search settings below apply too (try 6 islands, 24 each, 40 generations).</div>
+        </div>
+      </section>
+
       <section id="config-panel">
         <h2>Configuration</h2>
 
@@ -263,6 +287,19 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
           <svg id="chart" viewBox="0 0 640 240" style="width:100%;height:240px;display:block"></svg>
           <div id="chart-tooltip"></div>
         </div>
+      </section>
+
+      <section id="niche-panel" style="display:none">
+        <h2>Niche champions</h2>
+        <div class="hint" id="niche-hint"></div>
+        <div id="niche-body" class="muted">None yet.</div>
+      </section>
+
+      <section id="cross-panel" style="display:none">
+        <h2>Final ranking</h2>
+        <div id="top-body"></div>
+        <div class="hint">Crosstable: the row strategy beats the column strategy this often (ties count half; hover for the 95% interval). Mean = average over the other strategies. Nash = share of an approximate equilibrium mix of the strategies: only strategies in the mix are not beaten by a combination of the others.</div>
+        <div id="cross-body" style="overflow:auto"></div>
       </section>
 
       <section id="result-panel">
@@ -549,6 +586,21 @@ function buildRequest() {
     hall_of_fame: Math.max(1, Math.round(n.hall_of_fame)),
   };
 
+  if ($("league-on").checked) {
+    var kingdom = $("league-kingdom").value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    config.track = { kind: "fixed", kingdom: kingdom };
+    config.forbidden = [];
+    config.colonies = $("league-colonies").value;
+    config.validate_games = Math.max(100, parseInt($("league-validate").value, 10) || 10000);
+    var num = function (id, d) { var v = parseFloat($(id).value); return isNaN(v) ? d : v; };
+    config.league = {
+      anchor_weight: num("league-anchor_weight", 0.4), recent_weight: num("league-recent_weight", 0.4), old_weight: num("league-old_weight", 0.2),
+      niches: Math.max(1, Math.round(num("league-niches", 10))), final_games: Math.max(2, Math.round(num("league-final_games", 2000))),
+      final_full: $("league-full").checked, novelty_bonus: num("league-novelty", 1) / 100,
+      stagnation_generations: Math.max(0, Math.round(num("league-stagnation", 8))),
+    };
+    return { config: config, opponents: [], seed_files: [] };
+  }
   return { config: config, opponents: opponents, seed_files: Array.from(form.seeds) };
 }
 
@@ -613,6 +665,7 @@ function renderStatus() {
   renderResult(p);
   renderHof(p ? p.hall_of_fame : []);
   renderLog(p ? p.log : []);
+  renderLeague(p);
 }
 
 function schedulePoll() {
@@ -916,8 +969,132 @@ function wireStaticEvents() {
   $("assess-run").addEventListener("click", runAssess);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Kingdom league: form, niche table, ranking
+// ---------------------------------------------------------------------------------------------
+
+var recommended = [];
+
+function leagueFormShow() {
+  var on = $("league-on").checked;
+  $("league-form").style.display = on ? "" : "none";
+  $("config-panel").style.display = on ? "none" : "";
+  $("assess-panel").style.display = on ? "none" : "";
+  $("hof-panel").style.display = on ? "none" : "";
+}
+
+function wireLeague() {
+  $("league-on").addEventListener("change", leagueFormShow);
+  $("league-recommended").addEventListener("change", function () {
+    var k = recommended[parseInt($("league-recommended").value, 10)];
+    if (!k) return;
+    $("league-kingdom").value = k.cards.concat(k.extras || []).join(", ");
+    $("league-colonies").value = k.colony ? "yes" : "no";
+  });
+  fetchJson("/api/recommended").then(function (list) {
+    recommended = list;
+    var sel = $("league-recommended");
+    list.forEach(function (k, i) {
+      var o = document.createElement("option");
+      o.value = i;
+      o.textContent = k.name + " (" + k.set + ")";
+      sel.appendChild(o);
+    });
+  }).catch(function () {});
+}
+
+function saveButton(entry, label) {
+  var b = document.createElement("button");
+  b.textContent = label || "Save";
+  b.addEventListener("click", function () {
+    postJson("/api/save", { toml: entry.toml }).then(function (res) { b.textContent = "saved: " + res.path; }).catch(function (e) { b.textContent = "error: " + e.message; });
+  });
+  return b;
+}
+
+function showEntry(entry) {
+  state.selectedTomlSource = entry;
+  renderResult(state.status && state.status.progress);
+  window.scrollTo({ top: $("result-panel").offsetTop, behavior: "smooth" });
+}
+
+function renderLeague(p) {
+  var L = p && p.league;
+  $("niche-panel").style.display = L ? "" : "none";
+  $("cross-panel").style.display = L && L.crosstable ? "" : "none";
+  if (!L) return;
+  $("niche-hint").textContent = "Anchors: " + L.anchors.map(function (a) { return a.name; }).join(", ") +
+    ". League now: " + (L.league_now.length ? L.league_now.length + " opponents" : "-") + ". Win rates are against the league of the latest generation (anchors plus hall-of-fame champions), not a fixed opponent.";
+  var body = $("niche-body");
+  body.innerHTML = "";
+  if (!L.niches.length) { body.className = "muted"; body.textContent = "None yet."; return; }
+  body.className = "";
+  var t = document.createElement("table");
+  t.className = "hof";
+  t.innerHTML = "<thead><tr><th>#</th><th>niche</th><th>vs league</th><th>behaviour</th><th>strategy</th><th></th></tr></thead>";
+  var tb = document.createElement("tbody");
+  L.niches.forEach(function (r, i) {
+    var tr = document.createElement("tr");
+    tr.className = "hof-row";
+    tr.innerHTML = "<td>" + (i + 1) + "</td><td><b>" + escapeHtml(r.label) + "</b></td><td>" + fmtPct(r.entry.win_rate) + "</td><td>" + escapeHtml(r.behaviour) + "</td><td>" + escapeHtml(r.entry.summary) + "</td>";
+    var td = document.createElement("td");
+    td.appendChild(saveButton(r.entry));
+    tr.appendChild(td);
+    tr.addEventListener("click", function () { showEntry(r.entry); });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  body.appendChild(t);
+
+  if (!L.crosstable) return;
+  var C = L.crosstable;
+  var top = $("top-body");
+  top.innerHTML = "";
+  var tt = document.createElement("table");
+  tt.className = "hof";
+  tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th>what it does</th><th></th></tr></thead>";
+  var tbody = document.createElement("tbody");
+  L.top.forEach(function (r) {
+    var tr = document.createElement("tr");
+    tr.className = "hof-row";
+    tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + escapeHtml(r.description) + "</td>";
+    var td = document.createElement("td");
+    td.appendChild(saveButton(L.strategies[r.index]));
+    tr.appendChild(td);
+    tr.addEventListener("click", function () { showEntry(L.strategies[r.index]); });
+    tbody.appendChild(tr);
+  });
+  tt.appendChild(tbody);
+  top.appendChild(tt);
+
+  var x = document.createElement("table");
+  x.className = "hof";
+  var head = "<thead><tr><th></th>";
+  C.names.forEach(function (n, j) { head += "<th title=\"" + escapeHtml(n) + "\">" + j + "</th>"; });
+  head += "<th>mean</th><th>Nash</th></tr></thead>";
+  x.innerHTML = head;
+  var xb = document.createElement("tbody");
+  C.names.forEach(function (n, i) {
+    var tr = document.createElement("tr");
+    var h = "<td style=\"white-space:nowrap\">" + i + " " + escapeHtml(n) + (L.kinds[i] === "anchor" ? "" : " *") + "</td>";
+    C.names.forEach(function (m, j) {
+      var v = C.rate[i][j];
+      var shade = i === j ? "" : " style=\"background:rgba(" + (v >= 0.5 ? "60,160,90" : "200,80,70") + "," + (Math.abs(v - 0.5) * 1.4).toFixed(2) + ")\"";
+      h += "<td" + shade + " title=\"" + escapeHtml(n) + " vs " + escapeHtml(m) + ": " + fmtPct(C.lo[i][j]) + "-" + fmtPct(C.hi[i][j]) + "\">" + (i === j ? "-" : Math.round(v * 100)) + "</td>";
+    });
+    h += "<td><b>" + fmtPct(C.mean_vs_field[i]) + "</b></td><td>" + Math.round(C.nash[i] * 100) + "%</td>";
+    tr.innerHTML = h;
+    xb.appendChild(tr);
+  });
+  x.appendChild(xb);
+  var cb = $("cross-body");
+  cb.innerHTML = "";
+  cb.appendChild(x);
+}
+
 function init() {
   wireStaticEvents();
+  wireLeague();
   Promise.all([
     fetchJson("/api/cards"),
     fetchJson("/api/strategies"),

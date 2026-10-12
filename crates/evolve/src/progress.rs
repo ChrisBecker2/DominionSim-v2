@@ -30,6 +30,9 @@ pub struct GenStat {
     /// The champion's validated win rate, when validated this generation.
     pub validated_win_rate: Option<f64>,
     pub best_summary: String,
+    /// League mode: niches held and hall-of-fame size after this generation.
+    pub niches: usize,
+    pub hall: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -48,8 +51,65 @@ pub struct Progress {
     pub hall_of_fame: Vec<Entry>,
     /// The polished final strategy, when the run finishes.
     pub result: Option<Entry>,
+    /// Kingdom league mode: anchors, niche champions, final crosstable.
+    pub league: Option<LeagueReport>,
     /// Recent messages (newest last).
     pub log: Vec<String>,
+}
+
+/// A baseline strategy that anchors the league.
+#[derive(Clone, Debug, Serialize)]
+pub struct AnchorInfo {
+    pub name: String,
+    pub description: String,
+    pub toml: String,
+}
+
+/// The champion of one niche.
+#[derive(Clone, Debug, Serialize)]
+pub struct NicheRow {
+    pub label: String,
+    pub key_cards: Vec<String>,
+    pub trash: String,
+    pub length: String,
+    /// "Laboratory 3.2, Mine 1.1; 4.0 trashes; 17.3 turns".
+    pub behaviour: String,
+    /// Win rate is against the league of the generation it was measured in.
+    pub entry: Entry,
+    pub island: usize,
+    pub generation: usize,
+}
+
+/// One line of the final presentation.
+#[derive(Clone, Debug, Serialize)]
+pub struct TopRow {
+    pub rank: usize,
+    /// Index into the crosstable.
+    pub index: usize,
+    pub name: String,
+    pub description: String,
+    pub baseline: bool,
+    pub mean_vs_field: f64,
+    pub nash: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct LeagueReport {
+    pub anchors: Vec<AnchorInfo>,
+    /// Niche champions, fittest first (updated every generation).
+    pub niches: Vec<NicheRow>,
+    /// The opponents of the latest generation's league.
+    pub league_now: Vec<String>,
+    /// Average game length of Big Money Ultimate here (the reference for the length buckets).
+    pub reference_turns: f64,
+    /// Final round robin (anchors then niche champions), when finished.
+    pub crosstable: Option<crate::rank::Crosstable>,
+    /// Per crosstable row: the strategy file and its mean win rate against the field.
+    pub strategies: Vec<Entry>,
+    /// Per crosstable row: "anchor" or "champion".
+    pub kinds: Vec<String>,
+    /// The best distinct strategies by mean against the field, with their Nash weight.
+    pub top: Vec<TopRow>,
 }
 
 impl Progress {

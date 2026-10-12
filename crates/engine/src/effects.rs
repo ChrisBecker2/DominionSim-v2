@@ -408,10 +408,17 @@ impl GameState {
             // Costs are the current costs (Bridge and Quarry count).
             Filter::CostAtLeast(n) => self.cost(c) >= n,
             Filter::CostRange(lo, hi) => !cards::potion_cost(c) && cards::debt_cost(c) == 0 && (lo..=hi).contains(&self.cost(c)),
-            Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0,
+            Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0 && self.pile_open(c),
             Filter::InheritCard => self.action_cost_ok(4, c) && !cards::is(c, cards::COMMAND),
             Filter::CommandCostUpTo(n) => self.action_cost_ok(n, c) && !cards::is(c, cards::COMMAND),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
+            Filter::TreasureNot(x) => c != x && self.is_treasure(c),
+            // Raider: a copy of a card the Attack's player has in play (the turn's player).
+            Filter::CopyInAttackersPlay => self.players[self.turn.player as usize].in_play.has(c),
+            // Necromancer: a non-Duration Action in the trash, not already turned face down this turn.
+            Filter::NecroTarget => {
+                cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.trash.get(c) > self.turn.noc.necro.get(c)
+            }
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
             filter => filter.matches(c),
         }
@@ -488,6 +495,7 @@ impl GameState {
                         sink.event(Event::Reveal { player: p, card: c });
                         if self.filter_ok(p, f.filter, c) {
                             f.count += 1;
+                            f.last = c;
                         }
                         if f.count >= f.max { self.finish_reveal_top(f, sink); } else { self.stack.set_top(f); }
                     }
@@ -530,8 +538,8 @@ impl GameState {
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
-                if f.zone == Zone::Supply {
-                    // Played from the Supply (Captain): the card stays there, so it is not in play and a card
+                if f.zone == Zone::Supply || f.zone == Zone::Trash {
+                    // Played from the Supply (Captain) or the trash (Necromancer): the card stays there, so it is not in play and a card
                     // that tries to move itself fails to (`prince_play`, shared with Prince's held card).
                     sink.event(Event::StartPlay { player: p, source: f.source, card: f.subject });
                     self.turn.prince_play = true;
@@ -709,7 +717,11 @@ impl GameState {
             K::TopCard if matches!(f.then, Then::GiantReveal | Then::WarriorHit) => self.run_adv_top_card(f, sink),
             K::TopCard if f.then == Then::ChariotRace => self.run_chariot(f, sink),
             K::Bid => self.run_bid(f, sink),
+            K::TopCard if matches!(f.then, Then::LocustsHit | Then::MasonTrash) => self.run_noc_top_card(f, sink),
             K::TopCard => self.run_jester_top_card(f, sink),
+            K::ReceiveBoon => self.run_receive_boon(f, sink),
+            K::ReceiveHex => self.run_receive_hex(f, sink),
+            K::PickBoon => self.run_pick_boon(f, sink),
             K::AfterPlay => self.run_after_play(f),
             K::Token => self.run_token(f),
             K::Overpay => self.run_overpay(f),
@@ -761,6 +773,15 @@ impl GameState {
                     }
                 }
             }
+            K::Gain if f.gf & crate::state::GF_SPIRITS != 0 => {
+                // Exorcist: a Spirit pile with a card left that costs less than the card trashed (`max`, with `potion` for a Potion in it).
+                for c in [id::WILL_O_WISP, id::IMP, id::GHOST] {
+                    let cost = self.cost(c);
+                    if self.noc.piles[(c - id::WILL_O_WISP) as usize] > 0 && cost <= f.max && !(cost == f.max && !f.potion) {
+                        out.push(Choice::Card(c));
+                    }
+                }
+            }
             K::Gain => {
                 for c in self.supply_cards() {
                     // Potion: "up to $X" admits Potion-cost cards only when the reference cost has a
@@ -805,10 +826,12 @@ impl GameState {
                     out.push(Choice::Pass);
                 }
             }
-            K::YesNo | K::Library | K::Ask => {
+            K::YesNo | K::Library | K::Ask | K::ReceiveBoon => {
                 out.push(Choice::Yes);
                 out.push(Choice::No);
             }
+            K::PickBoon => self.pick_boon_choices(f, out),
+            K::ReceiveHex => {}
             K::Mode => {
                 // Every option is always legal to pick (a player may choose one they can't fully
                 // perform, e.g. Torturer with fewer than 2 cards in hand); only already-chosen
@@ -886,7 +909,7 @@ impl GameState {
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
-                let gained = if f.gf & crate::state::GF_FROM_SIDE != 0 {
+                let gained = if f.gf & (crate::state::GF_FROM_SIDE | crate::state::GF_SPIRITS) != 0 {
                     self.gain_side(p, c, dest, f.source, sink)
                 } else {
                     self.gain(p, c, dest, false, f.source, sink)
@@ -972,7 +995,11 @@ impl GameState {
                 let storyteller = f.then == Then::StorytellerPlay;
                 // Crown in the Buy phase: a choice-free Treasure is played from the hand by the usual path, twice.
                 let crown = f.then == Then::CrownTreasure && cards::is_choice_free(c);
-                let in_place = f.act == Act::Reveal || (f.act == Act::Play && f.zone == Zone::Supply) || storyteller || crown;
+                let in_place = f.act == Act::Reveal || (f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) || storyteller || crown;
+                // Necromancer: the Action is turned face down in the trash for the rest of the turn.
+                if f.act == Act::Play && f.zone == Zone::Trash {
+                    self.turn.noc.necro.add_or_drop(c, 1);
+                }
                 if !in_place {
                     let removed = self.zone_take(p, f.zone, c);
                     debug_assert!(removed);
@@ -988,7 +1015,7 @@ impl GameState {
                     if c >= cards::FIRST_PILE_CARD {
                         self.advance_pile(c);
                     }
-                } else if !(f.act == Act::Play && f.zone == Zone::Supply) {
+                } else if !(f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }
                 match f.then {
@@ -1004,6 +1031,9 @@ impl GameState {
             (K::Gain, Choice::Pass) => {
                 self.stack.pop();
             }
+            (K::ReceiveBoon, Choice::Yes) => self.answer_receive_boon(f, true),
+            (K::ReceiveBoon, _) => self.answer_receive_boon(f, false),
+            (K::PickBoon, Choice::Card(b)) => self.apply_pick_boon(f, b),
             (K::Select, _) => self.finish_select(f, sink),
             (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
             (K::Bid, Choice::Bid(n)) => self.apply_bid(f, n),
@@ -1055,6 +1085,7 @@ impl GameState {
                         self.gain_side(p, id::MERCENARY, Dest::Discard, f.subject, sink);
                     }
                     Then::Called => self.call_effect(&f, sink),
+                    Then::HoundAside | Then::PixieTrash | Then::ChangelingSwap => self.noc_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
                     Then::RazeSelf => {
@@ -1122,7 +1153,14 @@ impl GameState {
             Act::Discard => {
                 ps.discard.add(c, 1);
                 sink.event(Event::Discard { player: p, card: c });
+                // Nocturne: a discarded Faithful Hound may be set aside.
+                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                    self.hounds_discarded(p, 1);
+                }
             }
+            // Nocturne: back to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling).
+            Act::Return => self.return_to_pile(p, c, sink),
+            Act::Archive => ps.archive.add(c, 1),
             // Queued for its "when you trash this" effects, which go on the stack when the effect that trashed it is done picking.
             Act::Trash => self.trash_card(p, c, true, sink),
             Act::Topdeck => {
@@ -1219,6 +1257,9 @@ impl GameState {
                 }
                 ps.discard.add_all(&rest);
                 ps.set_aside.clear();
+                if self.noc.flags & crate::state::N_HOUND != 0 {
+                    self.hounds_discarded(p, rest.get(id::FAITHFUL_HOUND));
+                }
             }
             Then::CoinsIfCount { count, coins } => {
                 if f.count == count {
@@ -1472,6 +1513,19 @@ impl GameState {
             }
             Then::PlayTwiceCopy => self.push_play_twice_copy(&f),
             Then::Inherit => self.finish_inherit(&f),
+            Then::DrawNPerPick(_)
+            | Then::DrawActionsIfPicked { .. }
+            | Then::ConclavePlay
+            | Then::MirrorGhost
+            | Then::ExorcistGain
+            | Then::MonasteryCopper
+            | Then::TragicHero
+            | Then::SecretCave
+            | Then::BatExchange
+            | Then::VampireBat
+            | Then::LostBoon
+            | Then::CryptSet
+            | Then::HoundsToHand => self.finish_noc_select(&f, sink),
             Then::ChangeGain
             | Then::EncampmentReveal
             | Then::CatapultHit
@@ -1528,7 +1582,18 @@ impl GameState {
             | Then::ArchiveSet
             | Then::ChariotRace
             | Then::SmallCastle
-            | Then::MountainPass => {}
+            | Then::MountainPass
+            | Then::PixieDraw
+            | Then::PixieTrash
+            | Then::VillageDraw
+            | Then::GroveBoon
+            | Then::WispCheck
+            | Then::ChangelingSwap
+            | Then::HoundAside
+            | Then::LocustsHit
+            | Then::MasonTrash
+            | Then::FamineSort
+            | Then::GhostSet => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
         self.flush_trash_triggers(f.depth, sink);
@@ -1714,7 +1779,7 @@ impl GameState {
         // Pushed last-first so the 1st resolution is on top; `count` = which play.
         for nth in (1..=times).rev() {
             self.stack.push(Frame {
-                subject: f.last, count: nth, zone: if f.zone == Zone::Supply { Zone::Supply } else { Zone::Hand },
+                subject: f.last, count: nth, zone: if f.zone == Zone::Supply || f.zone == Zone::Trash { f.zone } else { Zone::Hand },
                 ..Frame::new(K::PlayEffects, p, f.source)
             });
         }
@@ -1731,6 +1796,9 @@ impl GameState {
             for _ in 0..n {
                 sink.event(Event::Discard { player: p, card: c });
             }
+        }
+        if self.noc.flags & crate::state::N_HOUND != 0 {
+            self.hounds_discarded(p, hand.get(id::FAITHFUL_HOUND));
         }
     }
 
@@ -1798,6 +1866,8 @@ impl GameState {
         let pi = p as usize;
         // Corsair and Blockade end now ("until your next turn"), and so do Enchantress's marks on the other players.
         self.players[pi].shielded = 0;
+        // Nocturne: Guardian's protection lasts until this turn starts.
+        self.players[pi].noc &= !crate::state::P_GUARDED;
         if self.emp.flags & crate::state::E_ENCHANT != 0 {
             self.clear_enchantments(p);
         }
@@ -1939,6 +2009,7 @@ impl GameState {
             Then::IronmongerReveal => self.finish_ironmonger(&f, sink),
             Then::KeepMatchingDiscardRest => self.finish_keep_matching(&f, sink),
             Then::PatricianCheck | Then::ArchiveSet => self.empires_reveal_done(&f, sink),
+            Then::WispCheck | Then::FamineSort | Then::GhostSet => self.finish_noc_reveal(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;
@@ -1962,6 +2033,9 @@ impl GameState {
                         for _ in 0..n {
                             sink.event(Event::Discard { player: f.player, card: c });
                         }
+                        if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                            self.hounds_discarded(f.player, n);
+                        }
                     }
                 }
             }
@@ -1977,6 +2051,9 @@ impl GameState {
                         self.players[p].discard.add(c, n);
                         for _ in 0..n {
                             sink.event(Event::Discard { player: f.player, card: c });
+                        }
+                        if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                            self.hounds_discarded(f.player, n);
                         }
                     }
                 }

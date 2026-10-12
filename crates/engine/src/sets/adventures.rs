@@ -56,26 +56,26 @@ pub mod ids {
     pub const DISCIPLE: CardId = 278;
     pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 296;
-    pub const BALL: CardId = 297;
-    pub const BONFIRE: CardId = 298;
-    pub const BORROW: CardId = 299;
-    pub const EXPEDITION: CardId = 300;
-    pub const FERRY: CardId = 301;
-    pub const INHERITANCE: CardId = 302;
-    pub const LOST_ARTS: CardId = 303;
-    pub const MISSION: CardId = 304;
-    pub const PATHFINDING: CardId = 305;
-    pub const PILGRIMAGE: CardId = 306;
-    pub const PLAN: CardId = 307;
-    pub const QUEST: CardId = 308;
-    pub const RAID: CardId = 309;
-    pub const SAVE: CardId = 310;
-    pub const SCOUTING_PARTY: CardId = 311;
-    pub const SEAWAY: CardId = 312;
-    pub const TRADE: CardId = 313;
-    pub const TRAINING: CardId = 314;
-    pub const TRAVELLING_FAIR: CardId = 315;
+    pub const ALMS: CardId = 344;
+    pub const BALL: CardId = 345;
+    pub const BONFIRE: CardId = 346;
+    pub const BORROW: CardId = 347;
+    pub const EXPEDITION: CardId = 348;
+    pub const FERRY: CardId = 349;
+    pub const INHERITANCE: CardId = 350;
+    pub const LOST_ARTS: CardId = 351;
+    pub const MISSION: CardId = 352;
+    pub const PATHFINDING: CardId = 353;
+    pub const PILGRIMAGE: CardId = 354;
+    pub const PLAN: CardId = 355;
+    pub const QUEST: CardId = 356;
+    pub const RAID: CardId = 357;
+    pub const SAVE: CardId = 358;
+    pub const SCOUTING_PARTY: CardId = 359;
+    pub const SEAWAY: CardId = 360;
+    pub const TRADE: CardId = 361;
+    pub const TRAINING: CardId = 362;
+    pub const TRAVELLING_FAIR: CardId = 363;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.

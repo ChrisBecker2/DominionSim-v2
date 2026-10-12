@@ -73,3 +73,12 @@ Revisit when any of these happens, in this order of cost:
 Smaller steps that need no redesign and buy headroom: put the cards of mixed piles (Knights, Ruins) and the Prizes/Rewards/Traveller upgrades, which are only
 ever in a few zones, into `SmallMultiset` side zones; keep the Castle ids consecutive and the split bottoms in one range (already so), and keep the new pseudo
 ids above `NUM_ZONE_IDS` so that no loop over zone ids ever visits them.
+
+## 5. After Nocturne (actual numbers)
+
+* Zone ids 0..344 (Nocturne 280-327, Ruins/Knights 328-343); pseudo ids 344..427 (Events 344-376, Landmarks 377-397, Boons 398-409, Hexes 410-421, States 422-426),
+  `NUM_CARDS` 427, `Counts::LANES` 352 (the next multiple of 32), `SupplyMask` still 384 bits (the 344 zone ids fit; 40 ids remain).
+* Rising Sun's remaining ~100 cards do not fit: a further +128 ids would need LANES 480 and a larger supply mask, so per-game compaction (section 3) is the next step if Rising Sun is done.
+* Cost: LANES 320 -> 352 alone cost 2.5% speed (1.77M -> 1.725M games/s); the Nocturne code another 0.5% (final 1.70-1.72M). `GameState` 18.4 KB -> 19.55 KB (`PlayerState` 2560 B, `TurnState` 768 B,
+  `Counts` 352 B, `Frame` 48 B, `CardDef` 40 B); `tests/state_size.rs` bounds: 19,700 / 2,600 / 800 / 48 / 352.
+* Boons, Hexes and States are pseudo-cards kept in masks (`NocState`), not in `Counts` lanes, so they cost nothing in the zone width.

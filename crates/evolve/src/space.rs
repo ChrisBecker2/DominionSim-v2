@@ -4,9 +4,9 @@ use dominion_engine::cards::{self, id, CardId, ACTION};
 
 use crate::genome::{Genome, List, Rule};
 
-/// Whether a rule for `c` plays an Action: an Action card, or the Knights pile (a rule for "Knights" plays whichever Knight is in hand).
+/// Whether a rule for `c` plays an Action or a Night card (Nocturne: Night cards are ranked in the same `[[play]]` list): an Action or Night card, or the Knights pile (a rule for "Knights" plays whichever Knight is in hand).
 pub fn is_action(c: CardId) -> bool {
-    cards::is(c, ACTION) || c == id::KNIGHTS
+    cards::is(c, ACTION | cards::NIGHT) || c == id::KNIGHTS
 }
 
 #[derive(Clone, Debug)]

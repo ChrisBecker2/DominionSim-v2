@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 280;
+    pub const RUINS: CardId = 328;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 281;
-    pub const RUINED_LIBRARY: CardId = 282;
-    pub const RUINED_MARKET: CardId = 283;
-    pub const RUINED_VILLAGE: CardId = 284;
-    pub const SURVIVORS: CardId = 285;
-    pub const DAME_ANNA: CardId = 286;
-    pub const DAME_JOSEPHINE: CardId = 287;
-    pub const DAME_MOLLY: CardId = 288;
-    pub const DAME_NATALIE: CardId = 289;
-    pub const DAME_SYLVIA: CardId = 290;
-    pub const SIR_BAILEY: CardId = 291;
-    pub const SIR_DESTRY: CardId = 292;
-    pub const SIR_MARTIN: CardId = 293;
-    pub const SIR_MICHAEL: CardId = 294;
-    pub const SIR_VANDER: CardId = 295;
+    pub const ABANDONED_MINE: CardId = 329;
+    pub const RUINED_LIBRARY: CardId = 330;
+    pub const RUINED_MARKET: CardId = 331;
+    pub const RUINED_VILLAGE: CardId = 332;
+    pub const SURVIVORS: CardId = 333;
+    pub const DAME_ANNA: CardId = 334;
+    pub const DAME_JOSEPHINE: CardId = 335;
+    pub const DAME_MOLLY: CardId = 336;
+    pub const DAME_NATALIE: CardId = 337;
+    pub const DAME_SYLVIA: CardId = 338;
+    pub const SIR_BAILEY: CardId = 339;
+    pub const SIR_DESTRY: CardId = 340;
+    pub const SIR_MARTIN: CardId = 341;
+    pub const SIR_MICHAEL: CardId = 342;
+    pub const SIR_VANDER: CardId = 343;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -142,7 +142,7 @@ const CARDS: &[(CardId, CardDef)] = &[
 ];
 
 /// Action-Attack-Knight.
-const KNIGHTS_T: u16 = ACTION | ATTACK | KNIGHT;
+const KNIGHTS_T: u32 = ACTION | ATTACK | KNIGHT;
 
 /// A Supply pile of different cards, shuffled, of which only the top card is known and gainable: the Ruins and the Knights.
 /// Its members are consecutive ids; `copies` of each exist (10 of each Ruins, 1 of each Knight). See the plan, 2.2.
@@ -660,6 +660,9 @@ impl GameState {
                 sink.event(Event::Discard { player: p, card: c });
             }
         }
+        if self.noc.flags & crate::state::N_HOUND != 0 {
+            self.hounds_discarded(p, rest.get(id::FAITHFUL_HOUND));
+        }
     }
 
     /// Ironmonger, once the top card is revealed: its types give +1 Action, +$1 and +1 Card (the draw comes after the choice to discard it,
@@ -793,7 +796,7 @@ impl GameState {
     }
 
     /// Draw again the top card of the Knights and Ruins piles of a game that has not started (nothing gained, nothing seen), keeping their
-    /// sizes, with this state's RNG. A set of games that start from one new game (the page's "Simulate from a new game") calls it with each
+    /// sizes (and Druid's Boons, Nocturne), with this state's RNG. A set of games that start from one new game (the page's "Simulate from a new game") calls it with each
     /// game's own RNG, so every game has its own pile order, as at a real table, and not the one `new` drew.
     pub fn redeal_mixed_piles(&mut self) {
         for pile in [&RUINS_PILE, &KNIGHTS_PILE] {
@@ -806,6 +809,8 @@ impl GameState {
                 self.supply.set(top, size);
             }
         }
+        // Nocturne: Druid's three Boons are set aside at random too (the rest of the Boons and Hexes are drawn at random when needed).
+        self.redeal_druid_boons();
     }
 
     /// The pile's top card was just taken (gained, or trashed from the Supply) and is now in a zone or the trash: if the pile has cards left,

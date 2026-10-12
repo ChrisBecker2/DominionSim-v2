@@ -1,0 +1,23 @@
+# Werewolf Big Money: Werewolf is a $5 Smithy by day and a Hex attack at Night. Played in the Action phase it draws three; a spare Werewolf (a second
+# one in hand, or no Action to play it with) is played at Night to hand every opponent the next Hex. Buy two, then Big Money.
+# Needs Werewolf in the kingdom.
+
+name = "Werewolf BM"
+description = "Two Werewolves (Smithy by day, Hexes at Night), then Big Money."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Werewolf"
+if = "count(Werewolf) < 2"
+[[gain]]
+card = "Silver"
+
+# By day Werewolf draws (only one Action a turn); what is left in hand attacks at Night.
+[[play]]
+card = "Werewolf"

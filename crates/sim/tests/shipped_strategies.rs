@@ -76,3 +76,21 @@ fn castles_bm_beats_big_money_ultimate() {
     // The Castles pile bought behind Provinces by a rich deck (Empires), ~67%.
     beats_big_money_ultimate("castles_bm.toml", "Castles,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.6);
 }
+
+#[test]
+fn skulk_bm_beats_big_money_ultimate() {
+    // Two Skulks (Nocturne, a Doom card): a Gold on gain and a Hex per play, ~80%.
+    beats_big_money_ultimate("skulk_bm.toml", "Skulk,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.7);
+}
+
+#[test]
+fn sacred_grove_bm_beats_big_money_ultimate() {
+    // Two Sacred Groves (Nocturne, a Fate card): a terminal Gold with a Boon, ~72%.
+    beats_big_money_ultimate("sacred_grove_bm.toml", "Sacred Grove,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.62);
+}
+
+#[test]
+fn werewolf_bm_beats_big_money_ultimate() {
+    // Two Werewolves (Nocturne): a Smithy by day, a Hex at Night, ~69%.
+    beats_big_money_ultimate("werewolf_bm.toml", "Werewolf,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.6);
+}

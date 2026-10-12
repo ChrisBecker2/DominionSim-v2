@@ -1,0 +1,25 @@
+# Skulk Big Money: Skulk is a $4 terminal +Buy that hands every opponent the next Hex when played, and comes with a Gold when gained. A Hex attacker that
+# is also a Gold gainer: buy two, then Big Money. The Hexes (Delusion, Envy, Misery, Plague, Locusts...) are random, so the attack is a steady drip,
+# not a lock. Needs Skulk in the kingdom (a Doom card: the Hexes are in the game).
+
+name = "Skulk BM"
+description = "Two Skulks (a Gold on gain, a Hex per play), then Big Money."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+[[gain]]
+card = "Skulk"
+if = "count(Skulk) < 2"
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Skulk"

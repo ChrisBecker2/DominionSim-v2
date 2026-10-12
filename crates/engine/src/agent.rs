@@ -220,6 +220,87 @@ impl<'a> PlayerView<'a> {
         crate::cards::is_event(e) && crate::sets::adventures::event_available(self.state, e)
     }
 
+    // --- Nocturne ---
+    /// Whether this game has Boons (a Fate card is in the kingdom) / Hexes (a Doom card is).
+    pub fn has_boons(&self) -> bool {
+        self.state.noc.flags & crate::state::N_BOONS != 0
+    }
+    pub fn has_hexes(&self) -> bool {
+        self.state.noc.flags & crate::state::N_HEXES != 0
+    }
+    /// Whether a Night card can be in a hand in this game (a Night phase may follow the Buy phase).
+    pub fn night_possible(&self) -> bool {
+        self.state.noc.flags & crate::state::N_NIGHT != 0
+    }
+    /// Whether the Boon `b` is in the Boons deck (face down: a Boon not yet drawn since the last shuffle; their order is hidden, which ones they
+    /// are is public), in the Boons discard pile, set aside face up for Druid, or in front of a player until Clean-up.
+    pub fn boon_in_deck(&self, b: CardId) -> bool {
+        crate::cards::is_boon(b) && self.state.noc.boon_deck & (1 << (b - crate::cards::FIRST_BOON)) != 0
+    }
+    pub fn boon_in_discard(&self, b: CardId) -> bool {
+        crate::cards::is_boon(b) && self.state.noc.boon_discard & (1 << (b - crate::cards::FIRST_BOON)) != 0
+    }
+    pub fn boon_set_aside_for_druid(&self, b: CardId) -> bool {
+        crate::cards::is_boon(b) && self.state.noc.boon_druid & (1 << (b - crate::cards::FIRST_BOON)) != 0
+    }
+    /// The Boons in the deck / discard pile / set aside for Druid, as bit masks (bit `i` is the Boon `FIRST_BOON + i`).
+    pub fn boon_deck_mask(&self) -> u16 {
+        self.state.noc.boon_deck
+    }
+    pub fn boon_discard_mask(&self) -> u16 {
+        self.state.noc.boon_discard
+    }
+    pub fn druid_boon_mask(&self) -> u16 {
+        self.state.noc.boon_druid
+    }
+    /// The same for the Hexes.
+    pub fn hex_in_deck(&self, h: CardId) -> bool {
+        crate::cards::is_hex(h) && self.state.noc.hex_deck & (1 << (h - crate::cards::FIRST_HEX)) != 0
+    }
+    pub fn hex_in_discard(&self, h: CardId) -> bool {
+        crate::cards::is_hex(h) && self.state.noc.hex_discard & (1 << (h - crate::cards::FIRST_HEX)) != 0
+    }
+    pub fn hex_deck_mask(&self) -> u16 {
+        self.state.noc.hex_deck
+    }
+    pub fn hex_discard_mask(&self) -> u16 {
+        self.state.noc.hex_discard
+    }
+    /// Whether `p` has the State `state` (Deluded, Envious, Miserable, Twice Miserable, Lost in the Woods).
+    pub fn has_state(&self, p: u8, state: CardId) -> bool {
+        use crate::cards::id;
+        use crate::state::*;
+        let f = self.state.players[p as usize].noc;
+        match state {
+            id::DELUDED => f & P_DELUDED != 0,
+            id::ENVIOUS => f & P_ENVIOUS != 0,
+            id::MISERABLE => f & P_MISERABLE != 0 && f & P_TWICE_MISERABLE == 0,
+            id::TWICE_MISERABLE => f & P_TWICE_MISERABLE != 0,
+            id::LOST_IN_THE_WOODS => self.state.noc.lost == p + 1,
+            _ => false,
+        }
+    }
+    /// The seat of the player with Lost in the Woods, `None` when nobody has it.
+    pub fn lost_in_the_woods(&self) -> Option<u8> {
+        self.state.noc.lost.checked_sub(1)
+    }
+    /// The Faithful Hounds `p` has set aside until the end of the turn.
+    pub fn hounds_set_aside_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].hounds
+    }
+    /// The Boons Blessed Villages took for `p` (bit per Boon), to be received at the start of their next turn (face up, public).
+    pub fn boons_waiting_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].boons_later
+    }
+    /// Whether Guardian protects `p` from other players' Attacks until the start of their next turn.
+    pub fn guarded_of(&self, p: u8) -> bool {
+        self.state.players[p as usize].noc & crate::state::P_GUARDED != 0
+    }
+    /// The cards gained so far this turn (counted while Monastery, Devil's Workshop or a card gained to the hand is in the game).
+    pub fn gains_this_turn(&self) -> u8 {
+        self.state.turn.noc.gains
+    }
+
     // --- Public information ---
     /// Cards left in `c`'s pile: a Supply pile, Ferryman's pile or a Reward (the piles outside the
     /// Supply are counted here too, so `supply(Courser)` reads the Rewards pile).
@@ -241,6 +322,8 @@ impl<'a> PlayerView<'a> {
             self.state.mercenary
         } else if c >= crate::cards::FIRST_TRAV && ((c - crate::cards::FIRST_TRAV) as usize) < crate::cards::NUM_TRAV {
             self.state.trav[(c - crate::cards::FIRST_TRAV) as usize]
+        } else if (crate::cards::id::WILL_O_WISP..=crate::cards::id::GHOST).contains(&c) {
+            self.state.noc.piles[(c - crate::cards::id::WILL_O_WISP) as usize]
         } else {
             self.state.supply.get(c)
         }
@@ -391,6 +474,10 @@ impl<'a> PlayerView<'a> {
         // be. The hidden part of those piles is not stored in the state at all (only the top card is), so a determinization needs nothing
         // but a stream of its own to draw the next reveals from.
         s.rng = Rng::new(rng.next_u64());
+        // The Boons and Hexes are drawn at random from the cards of their decks (the order is not stored), so nothing about upcoming ones leaks;
+        // a pending chance outcome is the search's own.
+        s.noc.boon_top = 0;
+        s.noc.hex_top = 0;
         for p in 0..s.num_players {
             if p == self.me {
                 continue;

@@ -19,6 +19,13 @@
   --c-reaction: #bcd6f2;
   --c-attack-edge: #b54a3c;
   --c-duration: #f2bd84;
+  --c-night: #3b3b4f;
+  --c-night-text: #f0f0f5;
+  --c-heirloom: #e8c230;
+  --c-boon: #e9d27a;
+  --c-hex: #7b5aa6;
+  --c-hex-text: #fff;
+  --c-state: #c9c9c9;
   --c-text: #23221d;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -45,6 +52,13 @@
     --c-reaction: #243f5e;
     --c-attack-edge: #d9705f;
     --c-duration: #6e451c;
+    --c-night: #20202c;
+    --c-night-text: #d8d8e6;
+    --c-heirloom: #b8962a;
+    --c-boon: #6f6128;
+    --c-hex: #54397a;
+    --c-hex-text: #f0e8ff;
+    --c-state: #55555a;
     --c-text: #f1ede2;
   }
 }
@@ -337,6 +351,13 @@ section, .panel {
 .card.attack.shelter { box-shadow: inset 3px 0 0 var(--c-attack-edge), inset 0 -3px 0 var(--c-shelter-edge); }
 .card.attack { box-shadow: inset 3px 0 0 var(--c-attack-edge); padding-left: 7px; }
 .card.duration { background: var(--c-duration); }
+/* Nocturne: Night cards are dark, Heirlooms get a yellow underline, Boons are gold, Hexes purple, States grey. */
+.card.night { background: var(--c-night); color: var(--c-night-text); }
+.card.heirloom { box-shadow: inset 0 -3px 0 var(--c-heirloom); }
+.card.boon { background: var(--c-boon); }
+.card.hex { background: var(--c-hex); color: var(--c-hex-text); }
+.card.state { background: var(--c-state); }
+#nocturne-list .event-row { margin-bottom: 2px; }
 #log-list .card, #analysis-table .card, .decision-choices .card { padding: 0 4px; }
 
 #log-list .phase-marker { color: var(--text-dim); font-style: italic; padding-left: 8px; }
@@ -543,4 +564,5 @@ section, .panel {
   #sg-side { flex-basis: 100%; max-height: none; }
 }
 .card.dual-duration-treasure { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-treasure) 50%); }
+.card.dual-duration-night { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-night) 50%); }
 .card.dual-duration-reaction { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-reaction) 50%); }

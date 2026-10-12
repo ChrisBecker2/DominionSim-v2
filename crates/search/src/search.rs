@@ -45,11 +45,14 @@ pub(crate) fn is_leaf(state: &GameState) -> bool {
     state.pending() == Pending::None
         && (state.turn.phase == Phase::CleanupDraw
             // The last Buy is used and nothing it caused is still to resolve (an overpay's gains, a reaction). Not when a Wine Merchant
-            // may still be discarded from the Tavern mat at the end of the Buy phase: that offer is part of the turn.
+            // may still be discarded from the Tavern mat at the end of the Buy phase: that offer is part of the turn. Nor when a Night phase
+            // follows (Nocturne): the Night cards are part of the turn too.
             || (state.turn.phase == Phase::Buy
                 && state.turn.buys == 0
                 && state.stack.is_empty()
-                && !(state.turn.coins >= 2 && state.players[state.turn.player as usize].tavern.has(cards::id::WINE_MERCHANT))))
+                && !(state.turn.coins >= 2 && state.players[state.turn.player as usize].tavern.has(cards::id::WINE_MERCHANT))
+                && !(state.noc.flags & dominion_engine::state::N_NIGHT != 0
+                    && state.players[state.turn.player as usize].hand.any_type(cards::NIGHT))))
 }
 
 #[derive(Clone, Copy)]
@@ -561,7 +564,7 @@ impl Searcher {
                 Step::Chance { player } => {
                     let outcomes = s.chance_outcomes(player);
                     let total = outcomes.total();
-                    parts.push(describe_chance(&outcomes, total));
+                    parts.push(describe_chance(player, &outcomes, total));
                     let (card, _) = outcomes.iter().max_by_key(|&(_, n)| n).expect("nonempty outcomes");
                     s.resolve_chance(player, card);
                 }
@@ -610,6 +613,8 @@ fn verb(act: Act) -> &'static str {
         Act::Call => "Call",
         Act::Exchange => "Exchange",
         Act::ToHand => "Take",
+        Act::Return => "Return",
+        Act::Archive => "Set aside",
     }
 }
 
@@ -696,6 +701,10 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::Buy, Choice::PayDebtKeep(n)) => format!("Pay off Debt, keeping {n}"),
         (DecisionKind::PlayAction, Choice::Card(c)) => format!("Play {}", cards::name(c)),
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
+        (DecisionKind::PlayNight, Choice::Card(c)) => format!("Play {} (Night)", cards::name(c)),
+        (DecisionKind::PlayNight, _) => "End Night".to_string(),
+        (DecisionKind::PickBoon, Choice::Card(c)) => format!("Receive {}", cards::name(c)),
+        (DecisionKind::PickBoon, _) => "?".to_string(),
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
         (DecisionKind::Buy, Choice::Coffers) => "Spend a Coffers (+$1)".to_string(),
         (DecisionKind::Buy, _) => "End buys".to_string(),
@@ -739,11 +748,23 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
     with_source(base, d.source, choice_card)
 }
 
-pub(crate) fn describe_chance(outcomes: &dominion_engine::Counts, total: u32) -> String {
+/// The name of the outcome `card` of the chance event of `player`: a card of the deck, or (the Boon and Hex draws of Nocturne) the Boon or Hex.
+pub(crate) fn chance_name(player: u8, card: dominion_engine::CardId) -> &'static str {
+    use dominion_engine::state::{BOON_CHANCE, HEX_CHANCE};
+    if player == BOON_CHANCE {
+        cards::name(cards::FIRST_BOON + card)
+    } else if player == HEX_CHANCE {
+        cards::name(cards::FIRST_HEX + card)
+    } else {
+        cards::name(card)
+    }
+}
+
+pub(crate) fn describe_chance(player: u8, outcomes: &dominion_engine::Counts, total: u32) -> String {
     let mut items: Vec<(dominion_engine::CardId, u8)> = outcomes.iter().collect();
     items.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     let inner: Vec<String> =
-        items.iter().map(|&(c, n)| format!("{} {:.0}%", cards::name(c), 100.0 * n as f64 / total as f64)).collect();
+        items.iter().map(|&(c, n)| format!("{} {:.0}%", chance_name(player, c), 100.0 * n as f64 / total as f64)).collect();
     format!("draw {{{}}}", inner.join(", "))
 }
 

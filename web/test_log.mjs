@@ -370,5 +370,62 @@ deck: 5 Estate
   check("log: the overpay", v.log.some((l) => l.trim() === "Player 1 overpays $2 for Farrier"), v.log.join(" | "));
 }
 
+// --- Nocturne: chips, the Night phase, Boons, Hexes and States in the view and the log --------------------
+{
+  const src = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  const a = src.indexOf("// <chip-class>");
+  const z = src.indexOf("// </chip-class>");
+  const chipClass = new Function(src.slice(src.indexOf("\n", a) + 1, z) + "\nreturn chipClass;")();
+  const I = await instance();
+  I.w.card_info();
+  const types = Object.fromEntries(JSON.parse(I.rd()).map((c) => [c.name, c.types]));
+  const cls = (n) => chipClass(types[n]).split(" ");
+  check("a Night card is dark", cls("Monastery").includes("night") && cls("Bat").includes("night"));
+  check("a Night-Duration card is split orange/dark", cls("Ghost Town").includes("dual-duration-night") && cls("Raider").includes("dual-duration-night"));
+  check("Werewolf stays an Action chip; Heirlooms are marked", cls("Werewolf").includes("action") && cls("Goat").includes("heirloom") && cls("Goat").includes("treasure"));
+  check("Boons, Hexes and States have chips of their own", cls("The Sea's Gift").includes("boon") && cls("War").includes("hex") && cls("Deluded").includes("state"));
+  check("card_info carries the Nocturne types", types["Werewolf"].includes("night") && types["Bard"].includes("fate") && types["Skulk"].includes("doom") && types["Imp"].includes("spirit"));
+  const css = readFileSync(new URL("./style.css", import.meta.url), "utf8");
+  const dark = css.slice(css.indexOf("prefers-color-scheme: dark"));
+  check("light and dark tokens exist for the Nocturne chips", ["--c-night", "--c-boon", "--c-hex", "--c-state", "--c-heirloom"].every((t) => css.includes(t + ":") && dark.includes(t + ":")));
+
+  const text = `players: 2
+kingdom: Monastery, Ghost Town, Bard, Skulk, Druid, Village, Smithy, Market, Militia, Moat
+boon deck: The Earth's Gift, The Sun's Gift
+boon discard: The Sea's Gift
+druid boons: The Moon's Gift
+hex deck: Greed, War
+hex discard: Envy
+lost in the woods: 2
+side piles: Will-o'-Wisp=12
+turn: 3  player: 1  phase: buy  actions: 0  buys: 1  coins: 0
+
+[player 1]
+hand: Monastery, Estate
+deck: 5 Copper
+states: Deluded, Miserable
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+`;
+  const J = await instance();
+  J.load(text);
+  let v = J.view();
+  check("the view carries the Boons and Hexes", v.nocturne && v.nocturne.boons && v.nocturne.hexes && v.nocturne.boonDeck.length === 2 && v.nocturne.hexDiscard[0] === "Envy" && v.nocturne.lost === 1, JSON.stringify(v.nocturne));
+  check("the States are in the player's view", v.players[0].states.join(",") === "Deluded,Miserable", JSON.stringify(v.players[0].states));
+  check("Will-o'-Wisp is listed as a pile outside the Supply", v.supply.some((c) => c.name === "Will-o'-Wisp" && c.side && c.count === 12));
+  // Pass the Buy phase: the Night phase offers the Monastery.
+  const pass = v.pending.choices.find((c) => /Done buying/.test(c.label));
+  J.w.choose(pass.index);
+  v = J.view();
+  check("the Night phase asks which Night card to play", v.turn.phase === "night" && /Night/.test(v.pending.description) && v.pending.choices.some((c) => c.label === "Play Monastery (Night)"), v.pending.description);
+  check("log: the Night phase starts", v.log.some((l) => /:: Night phase \(Player 1\)/.test(l)), v.log.join(" | "));
+  // A game without Boons or Hexes has no panel data.
+  const K = await instance();
+  K.load("players: 2\nkingdom: Village, Smithy, Market, Militia, Moat, Cellar, Mine, Remodel, Workshop, Merchant\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: 5 Copper\ndeck: 5 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n");
+  check("no Nocturne data in other games", K.view().nocturne === null);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

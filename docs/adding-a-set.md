@@ -152,3 +152,19 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
   (about 1.8M games/s since the speed pass of the Adventures plan, section 6; 1.76M with Empires) and one pairing that uses the new set; best of five, before and after. Dispatch by set is a
   `match` on the card's set (no indirect call); keep it that way.
 * The plan doc's status line, and `CLAUDE.md` if the layout changed.
+
+## 6. Learned with Nocturne
+
+* **Widen before you run out.** Six type bits pushed `CardDef::types` and the flag constants from `u16` to `u32`; check the free bits (`cards.rs`) first.
+  The ids moved too: Nocturne took 280-327 in the zone range, so Ruins/Knights, Events and Landmarks were renumbered (all by name in the code; only tests that pin
+  `NUM_CARDS` or the last Landmark needed a change) and `Counts::LANES` went 320 -> 352, which alone costs 2.5% speed (`docs/card-id-capacity.md`).
+* **A new phase must be gated.** `Phase::Night` is entered only when the game has Night cards (`NocState::flags`) and the player holds one; the Buy phase's end
+  calls `night_follows()` first, so other games pay a byte test. Move the end-of-turn offers behind the new phase (they belong to Clean-up).
+* **Decks with hidden order are masks plus chance.** Boons and Hexes store *which* cards are in the deck, never the order; the next one is drawn with the game RNG,
+  or, in chance mode, returned as `Step::Chance` with the cards of the deck as outcome lanes of a temporary `Counts` (pseudo player ids 254/255), so the search,
+  `determinize` and the plan/graph tools need only labels. Store a revealed-but-not-yet-applied card (`boon_top`) and clear it in `determinize`.
+* **Pseudo-cards for rules objects.** Boons, Hexes and States have `CardDef`s (names for the log, strategies and Lab) after the Landmarks, outside every zone, `Counts` and supply mask.
+* **`#[inline(never)]` the rare handlers.** The first version of the set cost 6.5%; marking the rarely used frame handlers and `end_night` `#[inline(never)]` recovered 2.5%
+  of it (an inlined handler grows `run_frame` and costs the hot path registers). Measure after every new frame, not at the end.
+* **Test with a conservation fuzz.** `nocturne_cards.rs` plays thousands of random games over random kingdoms, checking the card count and the piles after each step and asserting
+  coverage (every card played, every Boon and Hex received). It found real bugs (Guardian's protection never ending; Urchin versus an Attack in the obvious-play rule).

@@ -251,6 +251,7 @@ impl Evaluator for GainListEvaluator<'_> {
         // thread-local searcher.
         Some(match decision.kind {
             DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
+            DecisionKind::PlayNight => self.strategy.rule_night(&view, choices),
             DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
             DecisionKind::PlayTreasure => self.strategy.rule_play_treasure(choices),
             _ => self.strategy.decide_by_rules(&view, decision, choices),
@@ -282,6 +283,9 @@ impl Evaluator for GainListEvaluator<'_> {
                     }
                 });
                 return shortcut.map(Choice::Card);
+            }
+            if matches!(decision.kind, DecisionKind::PlayNight) && decision.player == me && self.strategy.search_play {
+                return crate::strategy::night_obvious(&view, choices).map(Choice::Card);
             }
             return None;
         }
@@ -339,6 +343,7 @@ impl Evaluator for WinFinder<'_> {
         // thread-local searcher.
         Some(match decision.kind {
             DecisionKind::PlayAction | DecisionKind::Select { act: dominion_engine::Act::Play, .. } => self.strategy.rule_play(&view, decision, choices),
+            DecisionKind::PlayNight => self.strategy.rule_night(&view, choices),
             DecisionKind::Mode { .. } => self.strategy.rule_mode(&view, decision, choices),
             DecisionKind::PlayTreasure => self.strategy.rule_play_treasure(choices),
             _ => self.strategy.decide_by_rules(&view, decision, choices),
@@ -361,6 +366,8 @@ pub fn is_play_decision(turn_player: u8, d: &Decision) -> bool {
     matches!(
         d.kind,
         DecisionKind::PlayAction
+            | DecisionKind::PlayNight
+            | DecisionKind::PickBoon
             | DecisionKind::PlayTreasure
             | DecisionKind::Select { act: dominion_engine::Act::Play, .. }
             | DecisionKind::Select { act: dominion_engine::Act::Reveal, .. }

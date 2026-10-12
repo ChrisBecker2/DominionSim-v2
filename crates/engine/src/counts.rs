@@ -4,7 +4,7 @@ use crate::cards::{CardId, NUM_ZONE_IDS};
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
 /// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
 /// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
-pub const LANES: usize = 320;
+pub const LANES: usize = 352;
 const _: () = assert!(crate::cards::NUM_ZONE_IDS <= LANES, "more card ids that can sit in a zone than Counts lanes: widen LANES");
 
 /// A multiset of cards stored as per-card counts. `Copy`, `LANES` bytes, never allocates. Big (288 bytes): a zone that is empty in nearly every game belongs in a
@@ -90,10 +90,10 @@ impl Counts {
         self.0 = [0; LANES];
     }
     /// Count of cards matching a type flag (see `cards::ACTION` etc.).
-    pub fn count_type(&self, flag: u16) -> u32 {
+    pub fn count_type(&self, flag: u32) -> u32 {
         self.iter().filter(|&(c, _)| crate::cards::is(c, flag)).map(|(_, n)| n as u32).sum()
     }
-    pub fn any_type(&self, flag: u16) -> bool {
+    pub fn any_type(&self, flag: u32) -> bool {
         self.iter().any(|(c, _)| crate::cards::is(c, flag))
     }
     /// Iterate (card, count) for nonzero counts, in card-id order. Hands, decks and piles hold

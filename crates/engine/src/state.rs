@@ -55,6 +55,36 @@ pub const E_TOMB: u8 = 64;
 /// Donate: at the start of this player's next turn they put their deck and discard pile into the hand, trash, shuffle and draw 5.
 pub const P_DONATE: u8 = 1;
 
+/// `NocState::flags`: which Nocturne effects are live in this game, so that other games skip each check with one byte test.
+/// A Night card can be in a hand: the Buy phase is followed by a Night phase when the player holds one.
+pub const N_NIGHT: u8 = 1;
+/// Boons are in the game (a Fate card is in the kingdom).
+pub const N_BOONS: u8 = 2;
+/// Hexes are in the game (a Doom card is in the kingdom).
+pub const N_HEXES: u8 = 4;
+/// Faithful Hound is in the game: a discarded Hound may be set aside.
+pub const N_HOUND: u8 = 8;
+/// Cards gained are counted per turn (Monastery, Devil's Workshop) and some are gained to the hand (Guardian, Ghost Town, Night Watchman, Den of Sin).
+pub const N_GAIN_HOOK: u8 = 16;
+/// `PlayerState::noc` flags: the States in front of a player. Deluded and Envious are the two sides of one card (a player has at most one).
+pub const P_DELUDED: u8 = 1;
+pub const P_ENVIOUS: u8 = 2;
+/// Miserable (-2 VP); flipped over it is Twice Miserable (-4 VP): both bits.
+pub const P_MISERABLE: u8 = 4;
+pub const P_TWICE_MISERABLE: u8 = 8;
+/// Guardian: until the start of the player's next turn, other players' Attacks do not affect them.
+pub const P_GUARDED: u8 = 16;
+/// The piles outside the Supply of Nocturne, in `NocState::piles` order: Will-o'-Wisp, Wish, Bat, Imp, Ghost.
+pub const NOC_WISP: usize = 0;
+pub const NOC_WISH: usize = 1;
+pub const NOC_BAT: usize = 2;
+pub const NOC_IMP: usize = 3;
+pub const NOC_GHOST: usize = 4;
+/// Chance "players" for the Boon and Hex draws: `Step::Chance { player: BOON_CHANCE }` asks which Boon is drawn (the outcomes are lanes
+/// `0..12` of `chance_outcomes`, one count each for every Boon in the deck, so the search treats them like any other draw).
+pub const BOON_CHANCE: u8 = 254;
+pub const HEX_CHANCE: u8 = 255;
+
 /// `PlayerState::tok` indices: the pile each of a player's pile tokens is on (Adventures).
 pub const TOK_CARD: usize = 0;
 pub const TOK_ACTION: usize = 1;
@@ -618,6 +648,12 @@ pub struct PlayerState {
     pub ench_by: u8,
     /// `P_*` flags.
     pub emp: u8,
+    /// Nocturne: the States in front of the player and Guardian's protection (`P_DELUDED` ...).
+    pub noc: u8,
+    /// Nocturne: Faithful Hounds set aside until the end of the turn, when they go into the hand. Counted as owned.
+    pub hounds: u8,
+    /// Nocturne: the Boons (bit per Boon) Blessed Villages took, to be received at the start of this player's next turn. Not in the Boons deck meanwhile.
+    pub boons_later: u16,
 }
 
 impl PlayerState {
@@ -655,11 +691,19 @@ impl PlayerState {
         if self.inherit != 0 {
             c.add(self.inherit, 1);
         }
+        if self.hounds != 0 {
+            c.add(id::FAITHFUL_HOUND, self.hounds);
+        }
         c
     }
     pub fn vp(&self) -> i32 {
         // Distant Lands is worth 4 VP on the Tavern mat at the end of the game and 0 anywhere else.
-        vp_of_cards(&self.all_cards()) + self.vp_tokens as i32 + 4 * self.tavern.get(id::DISTANT_LANDS) as i32
+        let mut vp = vp_of_cards(&self.all_cards()) + self.vp_tokens as i32 + 4 * self.tavern.get(id::DISTANT_LANDS) as i32;
+        // Nocturne: Miserable is -2 VP, Twice Miserable -4 VP.
+        if self.noc & P_MISERABLE != 0 {
+            vp -= if self.noc & P_TWICE_MISERABLE != 0 { 4 } else { 2 };
+        }
+        vp
     }
 }
 
@@ -686,6 +730,8 @@ pub enum Phase {
     Setup,
     Action,
     Buy,
+    /// Nocturne: after the Buy phase, a player holding a Night card may play any number of them.
+    Night,
     /// Cleanup happened; the 5-card draw for next turn is on the stack.
     CleanupDraw,
     GameOver,
@@ -809,6 +855,52 @@ pub struct TurnState {
     pub adv: AdvTurn,
     /// Empires per-turn bookkeeping.
     pub emp: EmpTurn,
+    /// Nocturne per-turn bookkeeping.
+    pub noc: NocTurn,
+}
+
+/// The per-turn bookkeeping of Nocturne.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct NocTurn {
+    /// Cards the turn's player has gained this turn (Monastery, Devil's Workshop; only counted while `N_GAIN_HOOK`). An exchange is not a gain.
+    pub gains: u8,
+    /// Envious was returned at the start of this Buy phase: Silver and Gold make $1 this turn.
+    pub envy: bool,
+    /// Deluded was returned at the start of this Buy phase: no Action can be bought this turn.
+    pub deluded: bool,
+    /// Tracker was played this turn: the cards the player gains may be put onto their deck.
+    pub tracker: bool,
+    /// The Night phase: 0 = playing Night cards (or not reached), 1 = over (the Clean-up offers were made).
+    pub night_over: bool,
+    /// River's Gift: the cards each player draws at the end of this turn, by seat.
+    pub river: [u8; MAX_PLAYERS],
+    /// The Action cards Necromancer has turned face down this turn (each can be used once per turn).
+    pub necro: SmallMultiset<4>,
+}
+
+/// The per-game state of Nocturne: the Boons and Hexes decks (which cards are where; the order is not stored, the next one is drawn at
+/// random from the cards of the deck: nobody knows the order, and the cards in the deck are known to all), Lost in the Woods, and the piles
+/// outside the Supply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct NocState {
+    /// `N_*` flags.
+    pub flags: u8,
+    /// Bit `i` = Boon `FIRST_BOON + i` is in the (face-down) Boons deck, in the discard pile, set aside face up for Druid, or in front of a player
+    /// (taken, or kept until Clean-up). A Boon being resolved is in none of them until it is placed.
+    pub boon_deck: u16,
+    pub boon_discard: u16,
+    pub boon_druid: u16,
+    pub boon_held: u16,
+    /// The same for the Hexes (they are never held).
+    pub hex_deck: u16,
+    pub hex_discard: u16,
+    /// Chance mode: the Boon / Hex a chance outcome has fixed for the next draw (index + 1), 0 = none yet.
+    pub boon_top: u8,
+    pub hex_top: u8,
+    /// The seat (+ 1) of the player with Lost in the Woods, 0 = nobody.
+    pub lost: u8,
+    /// Will-o'-Wisp, Wish, Bat, Imp and Ghost left in their piles (`NOC_*`).
+    pub piles: [u8; 5],
 }
 
 /// The per-turn bookkeeping of Empires.
@@ -888,6 +980,7 @@ impl TurnState {
             gained_in_buy: 0,
             adv: AdvTurn::default(),
             emp: EmpTurn::default(),
+            noc: NocTurn::default(),
         }
     }
 }
@@ -942,6 +1035,10 @@ pub enum Act {
     Exchange,
     /// Take it into the hand from where it is (Settlers' Copper from the discard pile): not a draw, not a gain.
     ToHand,
+    /// Return it to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling): neither a trash nor a discard.
+    Return,
+    /// Set it aside face down under the player's Archives / Crypts (`PlayerState::archive`).
+    Archive,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -1006,6 +1103,14 @@ pub enum Filter {
     NonVictory,
     /// A non-Duration, non-Command Action costing up to `n` coins, no Potion and no Debt (Overlord: the top card of a Supply pile).
     CommandCostUpTo(u8),
+    /// A Treasure other than the named card (Pooka: "other than Cursed Gold").
+    TreasureNot(CardId),
+    /// A card of which the Attack's player (the turn's player) has a copy in play (Raider). Decided against the live play area (`filter_ok`).
+    CopyInAttackersPlay,
+    /// A non-Duration Action in the trash that is not turned face down: Necromancer's pick. Decided against the trash and the turn (`filter_ok`).
+    NecroTarget,
+    /// A card that shares a type with the named card (Locusts: "a cheaper card that shares a type with it").
+    SharesTypeWith(CardId),
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -1027,7 +1132,7 @@ pub enum TypeSet {
 
 impl TypeSet {
     /// `(types of which a card needs at least one, types it may have none of)`.
-    pub const fn masks(self) -> (u16, u16) {
+    pub const fn masks(self) -> (u32, u32) {
         match self {
             TypeSet::Attack => (cards::ATTACK, 0),
             TypeSet::Ruins => (cards::RUINS, 0),
@@ -1087,6 +1192,10 @@ impl Filter {
                     && !cards::potion_cost(c)
                     && cards::debt_cost(c) == 0
             }
+            Filter::TreasureNot(x) => c != x && cards::is(c, cards::TREASURE),
+            Filter::CopyInAttackersPlay => true,
+            Filter::NecroTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION),
+            Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0,
         }
     }
 }
@@ -1374,6 +1483,53 @@ pub enum Then {
     ChariotRace,
     /// Bid (Mountain Pass, after the last bid): the high bidder takes 8 VP tokens and the Debt they bid.
     MountainPass,
+    /// Select (Shepherd, Victory cards discarded): `n` cards drawn per pick.
+    DrawNPerPick(u8),
+    /// Select (Zombie Apprentice, an Action trashed from the hand): +`draw` Cards and +`actions` Actions if one was.
+    DrawActionsIfPicked { draw: u8, actions: u8 },
+    /// ReceiveBoon (Pixie): once the top Boon is discarded, the player may trash the Pixie to receive it twice (`Then::PixieTrash` on the YesNo).
+    PixieDraw,
+    PixieTrash,
+    /// ReceiveBoon (Blessed Village, gained): once the Boon is taken, the player may receive it now; otherwise it waits for the start of their next turn.
+    VillageDraw,
+    /// Select (Haunted Mirror, trashed; an Action discarded from the hand): gain a Ghost.
+    MirrorGhost,
+    /// Select (Exorcist, trash from the hand): gain a Spirit costing less than the card trashed.
+    ExorcistGain,
+    /// Select (Monastery, cards trashed from the hand): the allowance not used (the cards gained this turn, less the picks) may trash Coppers in play.
+    MonasteryCopper,
+    /// Select (a zero-pick frame under Tragic Hero's draw): with 8 or more cards in hand, trash the Tragic Hero and gain a Treasure.
+    TragicHero,
+    /// Select (Secret Cave, 3 cards discarded): the Duration is kept for +$3 next turn.
+    SecretCave,
+    /// RevealTop (Will-o'-Wisp): a revealed card costing $2 or less goes to the hand, any other stays on the deck.
+    WispCheck,
+    /// Select (Bat, up to 2 cards trashed from the hand): if any were, exchange the Bat for a Vampire.
+    BatExchange,
+    /// Select (a zero-pick frame under Vampire's gain): exchange the Vampire for a Bat.
+    VampireBat,
+    /// YesNo (Changeling, a card gained that costs $3 or more): return it to its pile and take a Changeling into the discard pile.
+    ChangelingSwap,
+    /// YesNo (Faithful Hound, discarded): set it aside until the end of the turn.
+    HoundAside,
+    /// Select (Lost in the Woods, a card discarded at the start of the turn): receive a Boon.
+    LostBoon,
+    /// TopCard (the Locusts Hex): trash the top card; a Copper or Estate gives a Curse, any other card a cheaper card that shares a type.
+    LocustsHit,
+    /// TopCard (Zombie Mason): trash the top card, then gain a card costing up to $1 more.
+    MasonTrash,
+    /// RevealTop (the Famine Hex): discard the Actions among the revealed cards and shuffle the rest into the deck.
+    FamineSort,
+    /// Select (Crypt, Treasures set aside): if any, the Crypt stays in play and puts one of them into the hand at the start of each turn.
+    CryptSet,
+    /// ReceiveBoon (Sacred Grove): the Boon is received, and unless it gives +$1 each other player may receive it.
+    GroveBoon,
+    /// Select (Conclave, an Action played from the hand): +1 Action if one was played.
+    ConclavePlay,
+    /// RevealUntil (Ghost): the Action revealed is set aside to be played twice next turn, the rest discarded.
+    GhostSet,
+    /// Select (a zero-pick frame under the Clean-up draw): the Faithful Hounds set aside go into the hand.
+    HoundsToHand,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1464,6 +1620,8 @@ pub struct Frame {
 pub const GF_BANE_BLOCKS: u8 = 1;
 /// `Frame::gf`: the choices are the Rewards (non-Supply, Joust) instead of the Supply piles.
 pub const GF_FROM_SIDE: u8 = 2;
+/// `Frame::gf`: the choices are the Spirit piles (Will-o'-Wisp, Imp, Ghost) costing less than `max` (Exorcist).
+pub const GF_SPIRITS: u8 = 4;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -1591,6 +1749,19 @@ pub enum FrameKind {
     Token,
     /// Empires: `player` bids Debt (Mountain Pass, `DecisionKind::Bid`). With `then: Then::MountainPass` it is the resolution after the last bid.
     Bid,
+    /// Nocturne: `player` receives a Boon. `subject` is the Boon once it is known (0 = the next Boon of the deck is drawn when the frame runs, which
+    /// can need a chance outcome); `count` how many times it is received (Pixie: 2). `optional` first asks `player` whether to receive it (Sacred
+    /// Grove's other players, Blessed Village's "now or at the start of your next turn"); `then` says what else happens (`Then::PixieDraw`,
+    /// `Then::VillageDraw`).
+    ReceiveBoon,
+    /// Nocturne: Hexes. With `subject` 0 this draws the next Hex (chance-aware) and then receives it for every player in the bit mask `min`, in turn
+    /// order from the left of `player` (the Doom card's player; `player` themselves when the mask holds them: "receive a Hex"); with `subject`
+    /// set, `player` receives that Hex now.
+    ReceiveHex,
+    /// Nocturne: pick a Boon from a pool (`cost_sum` is the bit mask of the Boons) to receive: Druid's three set-aside Boons (`exact`: the pool is
+    /// unchanged), or the Boons a Fool took (`max` of them are drawn into the pool first; each is received and leaves the pool, until it is empty).
+    /// `DecisionKind::PickBoon`.
+    PickBoon,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1827,6 +1998,8 @@ pub struct GameState {
     pub events: u64,
     /// Empires: Landmarks, tokens on piles, Mountain Pass's bids, `E_*` flags.
     pub emp: EmpState,
+    /// Nocturne: the Boons and Hexes decks, Lost in the Woods, the piles outside the Supply, `N_*` flags.
+    pub noc: NocState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -1949,6 +2122,7 @@ impl GameState {
             mercenary: da.mercenary,
             events,
             emp: EmpState::default(),
+            noc: NocState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -1983,6 +2157,8 @@ impl GameState {
         }
         // Empires: the Landmarks, the split piles' bottom halves, the Castles, Tax's Debt and the Obelisk's pile.
         crate::sets::empires::setup(&mut s, cfg, n);
+        // Nocturne: the Boons and Hexes, the Heirlooms in the starting decks, the piles outside the Supply, the Zombies in the trash.
+        crate::sets::nocturne::setup(&mut s, cfg, bane, n);
         s.push_opening_deal();
         s
     }
@@ -2080,6 +2256,7 @@ impl GameState {
             + self.madman as u32
             + self.mercenary as u32
             + self.trav.iter().map(|&n| n as u32).sum::<u32>()
+            + self.noc.piles.iter().map(|&n| n as u32).sum::<u32>()
     }
 
     pub fn empty_piles(&self) -> u32 {

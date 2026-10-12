@@ -199,7 +199,13 @@
   function chipClass(t) {
     // Duration cards are orange and Reactions blue, whatever else they are (Astrolabe,
     // Pirate, Moat, Diplomat...).
-    const primary = t.includes("ruins")
+    const primary = t.includes("boon")
+      ? "boon"
+      : t.includes("hex")
+      ? "hex"
+      : t.includes("state")
+      ? "state"
+      : t.includes("ruins")
       ? "ruins"
       : t.includes("curse")
       ? "curse"
@@ -226,7 +232,10 @@
       : has("duration") && has("reaction")
       ? " dual-duration-reaction"
       : "";
-    return "card " + primary + dual + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "");
+    // Nocturne: a card that is only a Night card is dark; a Night-Duration card is split orange/dark.
+    const nightOnly = has("night") && !has("action") && !has("duration") && !has("treasure");
+    const dualNight = has("night") && has("duration") ? " dual-duration-night" : "";
+    return "card " + (nightOnly ? "night" : primary + dual + dualNight) + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "") + (has("heirloom") ? " heirloom" : "");
   }
   // </chip-class>
 
@@ -502,6 +511,9 @@
         if (flags.length) panel.appendChild(el("div", "zone", flags.join("; ")));
       }
       if (p.boughtEvents && p.boughtEvents.length) panel.appendChild(el("div", "zone", "Events bought: " + p.boughtEvents.join(", ")));
+      // Nocturne: the States in front of the player, and Faithful Hounds set aside until the end of the turn.
+      if (p.states && p.states.length) panel.appendChild(el("div", "zone", "States: " + p.states.join(", ")));
+      if (p.hounds) panel.appendChild(el("div", "zone", `Faithful Hounds set aside until the end of the turn: ${p.hounds}`));
       if (p.farmCards.length) panel.appendChild(zoneRow("Set aside by Farmhands", p.farmCards));
       if (p.cleanupAside.length) panel.appendChild(zoneRow("Set aside until Clean-up", p.cleanupAside));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
@@ -571,6 +583,38 @@
       if (lm.vp) row.appendChild(el("span", "cost", ` ${lm.vp} VP`));
       list.appendChild(row);
     }
+  }
+
+  // Nocturne: the Boons and Hexes decks (which are still to come, which are in the discard piles, which are set aside for Druid or kept in front of a
+  // player), and Lost in the Woods. The States of each player are in the player's panel.
+  function renderNocturne(view) {
+    const panel = $("nocturne-panel");
+    const list = $("nocturne-list");
+    list.innerHTML = "";
+    const n = view.nocturne;
+    panel.hidden = !n || !(n.boons || n.hexes);
+    if (panel.hidden) return;
+    const row = (label, names) => {
+      if (!names.length) return;
+      const r = el("div", "event-row");
+      r.appendChild(el("span", "cost", label + ": "));
+      names.forEach((nm, i) => {
+        if (i) r.appendChild(document.createTextNode(" "));
+        r.appendChild(cardChip(nm));
+      });
+      list.appendChild(r);
+    };
+    if (n.boons) {
+      row("Boons to come", n.boonDeck);
+      row("Boons discarded", n.boonDiscard);
+      row("Set aside for Druid", n.druid);
+      row("Boons kept until Clean-up", n.boonsHeld);
+    }
+    if (n.hexes) {
+      row("Hexes to come", n.hexDeck);
+      row("Hexes discarded", n.hexDiscard);
+    }
+    if (n.lost !== null && n.lost !== undefined) list.appendChild(el("div", "event-row", `Lost in the Woods: Player ${n.lost + 1}`));
   }
 
   function renderTrash(view) {
@@ -840,8 +884,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));
@@ -1637,6 +1681,7 @@
     renderSupply(view);
     renderEvents(view);
     renderLandmarks(view);
+    renderNocturne(view);
     renderTrash(view);
     renderDecision(view);
     renderLog(view);

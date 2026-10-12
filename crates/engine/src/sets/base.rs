@@ -210,6 +210,9 @@ impl GameState {
             Some(c) => {
                 self.players[pi].discard.add(c, 1);
                 sink.event(Event::Discard { player: p, card: c });
+                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                    self.hounds_discarded(p, 1);
+                }
                 if cards::is(c, ACTION) {
                     self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source) });
                 } else {
@@ -281,6 +284,9 @@ impl GameState {
         }
         ps.discard.add_all(&aside);
         ps.set_aside.clear();
+        if self.noc.flags & crate::state::N_HOUND != 0 {
+            self.hounds_discarded(p, aside.get(id::FAITHFUL_HOUND));
+        }
     }}
 
 #[cfg(test)]

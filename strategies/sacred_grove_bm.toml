@@ -1,0 +1,28 @@
+# Sacred Grove Big Money: Sacred Grove is a $5 terminal Gold with +1 Buy that also receives a Boon, which the opponents may receive too unless it gives
+# $1 (a Boon strategy that does not depend on any one Boon). One Grove is a Gold with a bonus, a second only if there is room for another terminal.
+# Needs Sacred Grove in the kingdom (a Fate card: the Boons are in the game).
+
+name = "Sacred Grove BM"
+description = "Two Sacred Groves (a Gold and a Boon), then Big Money."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+if = "count(Sacred Grove) >= 1"
+[[gain]]
+card = "Sacred Grove"
+if = "count(Sacred Grove) < 2"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Sacred Grove"

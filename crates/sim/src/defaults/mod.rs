@@ -22,6 +22,7 @@ mod cornucopia_guilds;
 mod dark_ages;
 mod empires;
 mod intrigue;
+mod nocturne;
 mod promo;
 mod prosperity;
 mod seaside;
@@ -68,6 +69,10 @@ macro_rules! with_set {
             }
             CardSet::Empires | CardSet::RisingSun => {
                 type $S = empires::Empires;
+                $body
+            }
+            CardSet::Nocturne => {
+                type $S = nocturne::Nocturne;
                 $body
             }
         }
@@ -206,6 +211,14 @@ pub(super) fn stated_exchange(s: &Strategy, view: &PlayerView, card: CardId) -> 
     adventures::stated_exchange(s, view, card)
 }
 
+pub(super) fn rule_night(s: &Strategy, view: &PlayerView, choices: &[Choice]) -> Choice {
+    nocturne::rule_night(s, view, choices)
+}
+
+pub(super) fn pick_boon(s: &Strategy, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+    nocturne::pick_boon(s, view, decision, choices)
+}
+
 pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
     base::Base::default_side_gain(choices)
         .or_else(|| intrigue::Intrigue::default_side_gain(choices))
@@ -216,4 +229,5 @@ pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
         .or_else(|| cornucopia_guilds::CornucopiaGuilds::default_side_gain(choices))
         .or_else(|| dark_ages::DarkAges::default_side_gain(choices))
         .or_else(|| empires::Empires::default_side_gain(choices))
+        .or_else(|| nocturne::Nocturne::default_side_gain(choices))
 }

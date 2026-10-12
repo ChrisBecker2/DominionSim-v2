@@ -68,7 +68,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, EmpTurn, FrameStack, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -256,6 +256,7 @@ fn phase_str(p: Phase) -> &'static str {
         Phase::Setup => "setup",
         Phase::Action => "action",
         Phase::Buy => "buy",
+        Phase::Night => "night",
         Phase::CleanupDraw => "cleanup",
         Phase::GameOver => "gameover",
     }
@@ -266,8 +267,9 @@ fn parse_phase(s: &str) -> Result<Phase, String> {
         "setup" => Ok(Phase::Setup),
         "action" => Ok(Phase::Action),
         "buy" => Ok(Phase::Buy),
+        "night" => Ok(Phase::Night),
         "gameover" | "game_over" | "game-over" => Ok(Phase::GameOver),
-        other => Err(format!("unknown phase '{other}' (expected setup, action, buy, or gameover)")),
+        other => Err(format!("unknown phase '{other}' (expected setup, action, buy, night, or gameover)")),
     }
 }
 
@@ -299,6 +301,8 @@ struct TurnFields {
     adv: AdvTurn,
     /// Empires per-turn state.
     emp: EmpTurn,
+    /// Nocturne per-turn state (the Boons' and Hexes' effects of this turn; the rest is reset on load).
+    noc: NocTurn,
 }
 
 impl Default for TurnFields {
@@ -306,6 +310,7 @@ impl Default for TurnFields {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
             extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(), emp: EmpTurn::default(),
+            noc: NocTurn::default(),
         }
     }
 }
@@ -363,6 +368,10 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "charms" => f.emp.charms = val.parse().map_err(|_| format!("line {lineno}: invalid charms '{val}'"))?,
             "acted" => f.emp.acted = val.parse().map_err(|_| format!("line {lineno}: invalid acted '{val}'"))?,
             "doubled" => f.emp.doubled = val.parse().map_err(|_| format!("line {lineno}: invalid doubled '{val}'"))?,
+            "noc_gains" => f.noc.gains = val.parse().map_err(|_| format!("line {lineno}: invalid noc_gains '{val}'"))?,
+            "envy" => f.noc.envy = val.parse().map_err(|_| format!("line {lineno}: invalid envy '{val}'"))?,
+            "deluded" => f.noc.deluded = val.parse().map_err(|_| format!("line {lineno}: invalid deluded '{val}'"))?,
+            "tracker" => f.noc.tracker = val.parse().map_err(|_| format!("line {lineno}: invalid tracker '{val}'"))?,
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -378,7 +387,9 @@ pub fn format_state(state: &GameState) -> String {
     out.push_str(&format!("players: {n}\n"));
 
     // The members of the Knights and Ruins piles are not listed (the Knights pile is one kingdom card; the Ruins come with a Looter).
-    let mut kingdom: Vec<CardId> = (cards::FIRST_KINGDOM..=cards::LAST_KINGDOM).filter(|&c| state.in_supply(c)).collect();
+    let mut kingdom: Vec<CardId> = (cards::FIRST_KINGDOM..=cards::LAST_KINGDOM)
+        .filter(|&c| (cards::is_kingdom(c) || cards::is_optional_basic(c)) && state.in_supply(c))
+        .collect();
     if state.has_pile(&crate::sets::dark_ages::KNIGHTS_PILE) {
         kingdom.push(cards::id::KNIGHTS);
     }
@@ -398,6 +409,8 @@ pub fn format_state(state: &GameState) -> String {
     }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
+    // Nocturne: the Boons and Hexes decks, Lost in the Woods.
+    format_nocturne(state, &mut out);
     // Cornucopia & Guilds set-up piles (see the module docs).
     if state.bane != 0 {
         out.push_str(&format!("bane: {}\n", cards::name(state.bane)));
@@ -428,6 +441,12 @@ pub fn format_state(state: &GameState) -> String {
         let line = if i < 4 { cards::id::PAGE } else { cards::id::PEASANT };
         if state.in_supply(line) {
             side.push(format!("{}={}", cards::name(cards::FIRST_TRAV + i as CardId), state.trav[i]));
+        }
+    }
+    // Nocturne: the piles outside the Supply that the cards of the game bring.
+    for (i, c) in [cards::id::WILL_O_WISP, cards::id::WISH, cards::id::BAT, cards::id::IMP, cards::id::GHOST].into_iter().enumerate() {
+        if state.noc.piles[i] > 0 || nocturne_pile_wanted(state, c) {
+            side.push(format!("{}={}", cards::name(c), state.noc.piles[i]));
         }
     }
     if !side.is_empty() {
@@ -508,6 +527,16 @@ pub fn format_state(state: &GameState) -> String {
     }
     if e.doubled {
         out.push_str("  doubled: true");
+    }
+    // Nocturne: only while nonzero.
+    let nt = &state.turn.noc;
+    if nt.gains > 0 {
+        out.push_str(&format!("  noc_gains: {}", nt.gains));
+    }
+    for (name, v) in [("envy", nt.envy), ("deluded", nt.deluded), ("tracker", nt.tracker)] {
+        if v {
+            out.push_str(&format!("  {name}: true"));
+        }
     }
     out.push('\n');
 
@@ -635,6 +664,33 @@ pub fn format_state(state: &GameState) -> String {
         if ps.emp & crate::state::P_DONATE != 0 {
             out.push_str("donate: true\n");
         }
+        // Nocturne: the States, Guardian's protection, the Hounds set aside, the Boons Blessed Villages took.
+        if ps.noc != 0 {
+            let mut st: Vec<&str> = Vec::new();
+            if ps.noc & crate::state::P_DELUDED != 0 {
+                st.push("Deluded");
+            }
+            if ps.noc & crate::state::P_ENVIOUS != 0 {
+                st.push("Envious");
+            }
+            if ps.noc & crate::state::P_TWICE_MISERABLE != 0 {
+                st.push("Twice Miserable");
+            } else if ps.noc & crate::state::P_MISERABLE != 0 {
+                st.push("Miserable");
+            }
+            if !st.is_empty() {
+                out.push_str(&format!("states: {}\n", st.join(", ")));
+            }
+            if ps.noc & crate::state::P_GUARDED != 0 {
+                out.push_str("guarded: true\n");
+            }
+        }
+        if ps.hounds > 0 {
+            out.push_str(&format!("hounds: {}\n", ps.hounds));
+        }
+        if ps.boons_later != 0 {
+            out.push_str(&format!("boons later: {}\n", boon_names(ps.boons_later, cards::FIRST_BOON)));
+        }
         if ps.events_bought != 0 {
             let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
                 .filter(|i| ps.events_bought & (1u64 << i) != 0)
@@ -645,6 +701,58 @@ pub fn format_state(state: &GameState) -> String {
     }
 
     out
+}
+
+/// The names of the Boons (or Hexes, with `first` the first of them) in the bit mask `mask`.
+fn boon_names(mask: u16, first: CardId) -> String {
+    (0..12u16).filter(|i| mask & (1 << i) != 0).map(|i| cards::name(first + i)).collect::<Vec<_>>().join(", ")
+}
+
+/// Parse a list of Boons (or Hexes) into a bit mask.
+fn parse_boon_mask(s: &str, first: CardId, ln: usize) -> Result<u16, String> {
+    let mut mask = 0u16;
+    for name in split_parts(s) {
+        let c = cards::by_name(name).filter(|&c| c >= first && c < first + 12).ok_or_else(|| format!("line {ln}: '{name}' is not one of the expected cards"))?;
+        mask |= 1 << (c - first);
+    }
+    Ok(mask)
+}
+
+/// Whether a pile outside the Supply is listed even when empty: the game has a card that brings it.
+fn nocturne_pile_wanted(state: &GameState, pile: CardId) -> bool {
+    use cards::id;
+    let has = |c: CardId| state.in_supply(c);
+    let fate = state.noc.flags & crate::state::N_BOONS != 0;
+    match pile {
+        id::WILL_O_WISP => fate || has(id::EXORCIST),
+        id::WISH => has(id::LEPRECHAUN) || has(id::SECRET_CAVE),
+        id::BAT => has(id::VAMPIRE),
+        id::IMP => has(id::DEVILS_WORKSHOP) || has(id::TORMENTOR) || has(id::EXORCIST),
+        id::GHOST => has(id::CEMETERY) || has(id::EXORCIST),
+        _ => false,
+    }
+}
+
+/// Nocturne: the Boons and Hexes decks and Lost in the Woods (see the module docs).
+fn format_nocturne(state: &GameState, out: &mut String) {
+    let n = &state.noc;
+    if n.flags & crate::state::N_BOONS != 0 {
+        out.push_str(&format!("boon deck: {}\n", boon_names(n.boon_deck, cards::FIRST_BOON)));
+        out.push_str(&format!("boon discard: {}\n", boon_names(n.boon_discard, cards::FIRST_BOON)));
+        if n.boon_druid != 0 {
+            out.push_str(&format!("druid boons: {}\n", boon_names(n.boon_druid, cards::FIRST_BOON)));
+        }
+        if n.boon_held != 0 {
+            out.push_str(&format!("boons held: {}\n", boon_names(n.boon_held, cards::FIRST_BOON)));
+        }
+    }
+    if n.flags & crate::state::N_HEXES != 0 {
+        out.push_str(&format!("hex deck: {}\n", boon_names(n.hex_deck, cards::FIRST_HEX)));
+        out.push_str(&format!("hex discard: {}\n", boon_names(n.hex_discard, cards::FIRST_HEX)));
+    }
+    if n.lost != 0 {
+        out.push_str(&format!("lost in the woods: {}\n", n.lost));
+    }
 }
 
 /// Empires: the Landmarks and the tokens (see the module docs).
@@ -762,6 +870,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut ferryman_val: Option<(usize, String)> = None;
     let mut side_val: Option<(usize, String)> = None;
     let mut seed_val: Option<(usize, String)> = None;
+    let mut noc_vals: Vec<(usize, String, String)> = Vec::new();
     let mut max_turns_val: Option<(usize, String)> = None;
     let mut turn_fields: Option<(usize, TurnFields)> = None;
 
@@ -803,6 +912,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "seed" => seed_val = Some((lineno, rest.to_string())),
             "max_turns" | "max turns" => max_turns_val = Some((lineno, rest.to_string())),
             "turn" => turn_fields = Some((lineno, parse_turn_line(line, lineno)?)),
+            "boon deck" | "boon discard" | "druid boons" | "boons held" | "hex deck" | "hex discard" | "lost in the woods" => {
+                noc_vals.push((lineno, key.clone(), rest.to_string()))
+            }
             other => return Err(format!("line {lineno}: unknown field '{other}'")),
         }
         i += 1;
@@ -940,8 +1052,31 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 state.madman = count;
             } else if id == cards::id::MERCENARY {
                 state.mercenary = count;
+            } else if let Some(i) =
+                [cards::id::WILL_O_WISP, cards::id::WISH, cards::id::BAT, cards::id::IMP, cards::id::GHOST].iter().position(|&c| c == id)
+            {
+                state.noc.piles[i] = count;
             } else {
                 return Err(format!("line {ln}: '{}' is not a pile outside the Supply in this game", name_part.trim()));
+            }
+        }
+    }
+
+    // Nocturne: the decks as the text says them (a line that is present replaces what a new game starts with).
+    for (ln, key, val) in &noc_vals {
+        match key.as_str() {
+            "boon deck" => state.noc.boon_deck = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
+            "boon discard" => state.noc.boon_discard = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
+            "druid boons" => state.noc.boon_druid = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
+            "boons held" => state.noc.boon_held = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
+            "hex deck" => state.noc.hex_deck = parse_boon_mask(val, cards::FIRST_HEX, *ln)?,
+            "hex discard" => state.noc.hex_discard = parse_boon_mask(val, cards::FIRST_HEX, *ln)?,
+            _ => {
+                let q: u8 = val.trim().parse().map_err(|_| format!("line {ln}: invalid player '{val}'"))?;
+                if q as usize > num_players {
+                    return Err(format!("line {ln}: player {q} out of range"));
+                }
+                state.noc.lost = q;
             }
         }
     }
@@ -1015,6 +1150,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         gained_in_buy: tf.gained_in_buy,
         adv: tf.adv,
         emp: tf.emp,
+        noc: tf.noc,
     };
 
     // Player blocks.
@@ -1139,6 +1275,24 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                     }
                 }
                 "debt" => ps.debt = val.parse().map_err(|_| format!("line {ln2}: invalid debt '{val}'"))?,
+                "states" => {
+                    for name in split_parts(val) {
+                        ps.noc |= match name.to_lowercase().as_str() {
+                            "deluded" => crate::state::P_DELUDED,
+                            "envious" => crate::state::P_ENVIOUS,
+                            "miserable" => crate::state::P_MISERABLE,
+                            "twice miserable" => crate::state::P_MISERABLE | crate::state::P_TWICE_MISERABLE,
+                            other => return Err(format!("line {ln2}: unknown state '{other}'")),
+                        };
+                    }
+                }
+                "guarded" => {
+                    if val.eq_ignore_ascii_case("true") {
+                        ps.noc |= crate::state::P_GUARDED;
+                    }
+                }
+                "hounds" => ps.hounds = val.parse().map_err(|_| format!("line {ln2}: invalid hounds '{val}'"))?,
+                "boons later" => ps.boons_later = parse_boon_mask(val, cards::FIRST_BOON, ln2)?,
                 "archive" => ps.archive = parse_small_multiset(val, "archive").map_err(|e| format!("line {ln2}: {e}"))?,
                 "enchanted by" => {
                     for w in val.split_whitespace() {

@@ -515,6 +515,9 @@ impl GameState {
                 for _ in 1..n {
                     sink.event(Event::Discard { player: f.player, card: c });
                 }
+                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                    self.hounds_discarded(f.player, n - 1);
+                }
             }
         }
     }
@@ -543,6 +546,9 @@ impl GameState {
                 self.players[p].discard.add(c, n - kept);
                 for _ in kept..n {
                     sink.event(Event::Discard { player: f.player, card: c });
+                }
+                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
+                    self.hounds_discarded(f.player, n - kept);
                 }
             }
         }

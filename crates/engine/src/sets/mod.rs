@@ -35,6 +35,7 @@ pub mod cornucopia_guilds;
 pub mod dark_ages;
 pub mod empires;
 pub mod intrigue;
+pub mod nocturne;
 pub mod promo;
 pub mod prosperity;
 pub mod rising_sun;
@@ -47,6 +48,7 @@ use cornucopia_guilds::CornucopiaGuilds;
 use dark_ages::DarkAges;
 use empires::Empires;
 use intrigue::Intrigue;
+use nocturne::Nocturne;
 use promo::Promo;
 use prosperity::Prosperity;
 use rising_sun::RisingSun;
@@ -114,6 +116,10 @@ macro_rules! with_set {
             }
             $crate::cards::CardSet::RisingSun => {
                 type $S = $crate::sets::rising_sun::RisingSun;
+                $body
+            }
+            $crate::cards::CardSet::Nocturne => {
+                type $S = $crate::sets::nocturne::Nocturne;
                 $body
             }
         }
@@ -249,10 +255,10 @@ pub(crate) trait SetRules {
 /// Number of cards of every set (ids are dense: `0..NUM_CARDS`).
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
-        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len();
+        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 11] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 12] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -264,6 +270,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Adventures, Adventures::CARDS),
         (CardSet::Empires, Empires::CARDS),
         (CardSet::RisingSun, RisingSun::CARDS),
+        (CardSet::Nocturne, Nocturne::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -323,11 +330,12 @@ macro_rules! concat_sets {
             + DarkAges::$name.len()
             + Adventures::$name.len()
             + Empires::$name.len()
-            + RisingSun::$name.len();
+            + RisingSun::$name.len()
+            + Nocturne::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
-                DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name,
+                DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name,
             ],
             $zero,
         );
@@ -350,7 +358,7 @@ pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO |
     | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
     | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI | Empires::GAIN_HI | RisingSun::GAIN_HI;
-pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP;
+pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -465,6 +473,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     CornucopiaGuilds::turn_start_entries(g);
     Prosperity::turn_start_entries(g);
     Adventures::turn_start_entries(g);
+    Nocturne::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
@@ -475,6 +484,7 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
         || DarkAges::gain_live_extra(g)
         || Adventures::gain_live_extra(g)
         || Empires::gain_live_extra(g)
+        || Nocturne::gain_live_extra(g)
 }
 
 /// Every "when you gain" trigger for `p` gaining `c` (moved to `to`). The order is the order the
@@ -499,6 +509,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     }
     if g.in_supply.lo & Prosperity::GAIN_LO != 0 {
         Prosperity::gain_triggers(g, p, c, to, on_buy, sink);
+    }
+    // Last, so that its offers are asked first: a card may be exchanged for a Changeling before the rest of its gain happens.
+    if g.in_supply.top & Nocturne::GAIN_TOP != 0 || Nocturne::gain_live_extra(g) {
+        Nocturne::gain_triggers(g, p, c, to, on_buy, sink);
     }
 }
 

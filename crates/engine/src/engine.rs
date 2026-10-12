@@ -73,6 +73,11 @@ pub enum DecisionKind {
     Token { token: u8 },
     /// Empires, Mountain Pass: bid Debt (`Choice::Bid(n)`, 0 = pass). Only bids above `min - 1` are legal: `min` is one more than the highest bid so far.
     Bid { min: u8 },
+    /// Nocturne, the Night phase (after the Buy phase, while the player holds a Night card): play one of them or `Pass` (done; no more can be played
+    /// this turn). Choices: `Card(night card in hand)` or `Pass`.
+    PlayNight,
+    /// Nocturne: pick a Boon to receive from a pool (Druid's three, the Fool's). Choices: `Card(boon)` (a pseudo-card id).
+    PickBoon,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -260,6 +265,12 @@ pub enum Event {
     TakeDebt { player: u8, source: CardId, n: u16 },
     /// `player` pays off `n` Debt with $.
     PayDebt { player: u8, n: u16 },
+    /// `player` receives the Boon `boon`, caused by `source` (the Doom, Fate or other card, or a Boon's own id for the Boons it hands on).
+    Boon { player: u8, boon: CardId, source: CardId },
+    /// `player` receives the Hex `hex`.
+    Hex { player: u8, hex: CardId, source: CardId },
+    /// `player` takes (`taken`) or returns the State `state` (Lost in the Woods, Deluded, Envious, Miserable, Twice Miserable).
+    State { player: u8, state: CardId, taken: bool },
     /// `player` takes `n` VP tokens from a pile, a Landmark or the supply of tokens (`source`: the card, Event or Landmark that gave them).
     VpTokens { player: u8, source: CardId, n: u16 },
     /// `n` VP tokens are put on the pile or Landmark `pile` (a Gathering card, Defiled Shrine, Aqueduct).
@@ -448,6 +459,16 @@ impl GameState {
     /// Chance-mode answer: the top card of `player`'s deck is `card` (must be in `deck_unknown`).
     pub fn resolve_chance(&mut self, player: u8, card: CardId) {
         assert_eq!(self.pending(), Pending::Chance(player), "no chance event pending for player");
+        if player >= crate::state::BOON_CHANCE {
+            // A Boon or Hex draw: the outcome (lane `card` = the Boon or Hex's index) is the next one drawn.
+            if player == crate::state::BOON_CHANCE {
+                self.noc.boon_top = card as u8 + 1;
+            } else {
+                self.noc.hex_top = card as u8 + 1;
+            }
+            self.set_pending(Pending::None);
+            return;
+        }
         let ps = &mut self.players[player as usize];
         assert!(ps.deck_unknown.remove(card), "chance outcome not in deck");
         ps.deck_known.push_top(card);
@@ -456,6 +477,17 @@ impl GameState {
 
     /// Distribution for a pending chance event: card counts in the unknown part of the deck.
     pub fn chance_outcomes(&self, player: u8) -> Counts {
+        if player >= crate::state::BOON_CHANCE {
+            // The Boons (or Hexes) of the deck: lane `i` is the card `i` of the 12, each equally likely.
+            let mask = if player == crate::state::BOON_CHANCE { self.noc.boon_deck } else { self.noc.hex_deck };
+            let mut out = Counts::EMPTY;
+            for i in 0..12 {
+                if mask & (1 << i) != 0 {
+                    out.set(i, 1);
+                }
+            }
+            return out;
+        }
         self.players[player as usize].deck_unknown
     }
 
@@ -535,6 +567,18 @@ impl GameState {
                     Run::Continue
                 }
             }
+            Phase::Night => {
+                if self.turn.noc.night_over {
+                    self.cleanup(sink);
+                    return Run::Continue;
+                }
+                if self.players[p].hand.any_type(cards::NIGHT) {
+                    Run::Decide(DecisionKind::PlayNight, 0)
+                } else {
+                    self.end_night();
+                    Run::Continue
+                }
+            }
             Phase::CleanupDraw => {
                 // Extra turns (Outpost) don't count towards the tie-break "fewer turns wins".
                 if !self.turn.is_extra_turn {
@@ -595,11 +639,14 @@ impl GameState {
                         && !self.in_supply(id::QUARRY)
                         && !self.in_supply(id::PEDDLER)
                         && self.adv & crate::state::G_COST_TOKEN == 0;
+                    // Nocturne: Deluded, no Action can be bought this turn.
+                    let no_actions = self.turn.noc.deluded;
                     for c in self.supply_cards() {
                         if self.supply.get(c) > 0
                             && (if plain { cards::cost(c) } else { self.cost(c) }) as u16 <= self.turn.coins
                             && (self.turn.potions > 0 || !cards::potion_cost(c))
                             && self.may_buy(c)
+                            && !(no_actions && cards::is(c, ACTION))
                         {
                             out.push(Choice::Card(c));
                         }
@@ -615,6 +662,14 @@ impl GameState {
                 }
                 if self.players[p].coffers > 0 {
                     out.push(Choice::Coffers);
+                }
+                out.push(Choice::Pass);
+            }
+            DecisionKind::PlayNight => {
+                for (c, _) in self.players[p].hand.iter() {
+                    if cards::is(c, cards::NIGHT) {
+                        out.push(Choice::Card(c));
+                    }
                 }
                 out.push(Choice::Pass);
             }
@@ -685,6 +740,16 @@ impl GameState {
                 self.resolve_effects(c, p, 0, sink);
             }
             (Phase::Action, _) => self.enter_buy(sink),
+            // Nocturne: a Night card played in the Night phase costs no Action.
+            (Phase::Night, Choice::Card(c)) => {
+                let ps = &mut self.players[p as usize];
+                ps.hand.remove(c);
+                ps.in_play.add(c, 1);
+                sink.depth(0);
+                sink.event(Event::Play { player: p, card: c });
+                self.resolve_effects(c, p, 0, sink);
+            }
+            (Phase::Night, _) => self.end_night(),
             (Phase::Buy, Choice::Coffers) => {
                 self.players[p as usize].coffers -= 1;
                 self.turn.coins += 1;
@@ -745,6 +810,10 @@ impl GameState {
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
         sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
+        // Nocturne: Deluded and Envious are returned now and apply for the rest of the turn.
+        if self.players[self.turn.player as usize].noc & (crate::state::P_DELUDED | crate::state::P_ENVIOUS) != 0 {
+            self.states_at_buy(sink);
+        }
         // Arena (Empires): at the start of each Buy phase an Action may be discarded for VP tokens.
         if self.emp.landmarks != 0 {
             self.start_of_buy_landmarks();
@@ -843,6 +912,10 @@ impl GameState {
             self.gain_vp_tokens(p, c, n as u16, sink);
         }
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
+        // Nocturne: Envious, Silver and Gold make $1.
+        if self.turn.noc.envy && (c == id::SILVER || c == id::GOLD) {
+            self.turn.coins -= (cards::def(c).coins as u16 - 1) * n as u16;
+        }
         self.turn.buys += cards::def(c).buys * n;
         self.turn.potions += cards::def(c).potions * n;
         // Philosopher's Stone's value is dynamic, so it is shown like Bank's; so is Huge Turnip's ($1 per
@@ -917,12 +990,40 @@ impl GameState {
         if !self.turn.treasury_offered {
             self.turn.treasury_offered = true;
             crate::sets::end_of_buy(self, sink);
-            self.push_end_of_turn_offers();
+            // Nocturne: the Night phase comes before Clean-up, so the offers wait for it.
+            if !self.night_follows() {
+                self.turn.noc.night_over = true;
+                self.push_end_of_turn_offers();
+            }
+            if !self.stack.is_empty() {
+                return;
+            }
+        }
+        if !self.turn.noc.night_over {
+            if self.night_follows() {
+                self.turn.phase = Phase::Night;
+                sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Night });
+                return;
+            }
+            self.end_night();
             if !self.stack.is_empty() {
                 return;
             }
         }
         self.cleanup(sink);
+    }
+
+    /// Whether a Night phase follows this Buy phase: the game has Night cards and the player holds one. One byte test in games without.
+    #[inline(always)]
+    fn night_follows(&self) -> bool {
+        self.noc.flags & crate::state::N_NIGHT != 0 && self.players[self.turn.player as usize].hand.any_type(cards::NIGHT)
+    }
+
+    /// The end of the Night phase (or of a Buy phase that no Night phase follows): the end-of-turn offers, once.
+    #[inline(never)]
+    fn end_night(&mut self) {
+        self.turn.noc.night_over = true;
+        self.push_end_of_turn_offers();
     }
 
     /// Cleanup, Prince: a Prince holding a card (and a Throne Room / King's Court that played it)
@@ -1032,6 +1133,10 @@ impl GameState {
             aside.add_into(&mut ps.discard);
         }
         self.turn.phase = Phase::CleanupDraw;
+        // Nocturne: Boons kept until now are discarded; River's Gift cards and set-aside Faithful Hounds come after the new hand is drawn.
+        if self.noc.flags != 0 {
+            self.nocturne_cleanup();
+        }
         // Save (Adventures): the card set aside goes to the hand once the new hand is drawn.
         if self.players[p].saved != 0 {
             self.stack.push(crate::effects::select(p as u8, id::SAVE, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::SavedToHand));
@@ -1126,6 +1231,14 @@ impl GameState {
         } else if c == self.ferryman && c != 0 && self.ferryman_left > 0 {
             self.ferryman_left -= 1;
             true
+        } else if (id::WILL_O_WISP..=id::GHOST).contains(&c) {
+            // Nocturne: Will-o'-Wisp, Wish, Bat, Imp, Ghost (ids and `NocState::piles` indices line up).
+            let n = &mut self.noc.piles[(c - id::WILL_O_WISP) as usize];
+            if *n == 0 {
+                return false;
+            }
+            *n -= 1;
+            true
         } else {
             false
         }
@@ -1134,6 +1247,8 @@ impl GameState {
     /// What follows a card leaving its pile: it arrives, is logged, and its gain triggers run.
     #[inline(always)]
     pub(crate) fn finish_gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, from_supply: bool, sink: &mut S) {
+        // Nocturne: the cards gained this turn are counted (Monastery, Devil's Workshop); some are gained to the hand.
+        let to = if self.noc.flags & crate::state::N_GAIN_HOOK != 0 { self.gain_hook(p, c, to) } else { to };
         let ps = &mut self.players[p as usize];
         match to {
             Dest::Hand => ps.hand.add(c, 1),
@@ -1205,7 +1320,7 @@ impl GameState {
     /// in play ("other players' Attacks don't affect you"), so it's just an `in_play` check, no
     /// reaction event (nothing is revealed).
     pub(crate) fn immune(&self, victim: u8) -> bool {
-        self.turn.moated & (1 << victim) != 0 || self.protected_while_in_play(victim)
+        self.turn.moated & (1 << victim) != 0 || self.protected_while_in_play(victim) || self.players[victim as usize].noc & crate::state::P_GUARDED != 0
     }
 
     /// Whether `victim` has a card in play that protects its owner from other players' Attacks (`cards::IMMUNE_IN_PLAY`).
@@ -1251,6 +1366,8 @@ impl GameState {
     fn decision_target(&self) -> CardId {
         match self.stack.frames[..self.stack.len as usize].last() {
             Some(Frame { kind: FrameKind::YesNo, act: Act::Call, last, .. }) => *last,
+            // Pixie: the Boon the Pixie may be trashed to receive twice.
+            Some(Frame { kind: FrameKind::YesNo, then: Then::PixieTrash, last, .. }) => *last,
             _ => 0,
         }
     }

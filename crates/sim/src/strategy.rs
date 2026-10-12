@@ -294,8 +294,8 @@ impl Strategy {
         let play = compile_rules(&raw.play.into_rules(), "play")?;
         let mut play_rank = [-1i16; NUM_CARDS];
         for (i, (card, _)) in play.iter().enumerate() {
-            if !cards::is(*card, ACTION) {
-                return Err(format!("{:?} in play list is not an Action card", cards::name(*card)));
+            if !cards::is(*card, ACTION | cards::NIGHT) {
+                return Err(format!("{:?} in play list is not an Action or Night card", cards::name(*card)));
             }
             if play_rank[*card as usize] < 0 {
                 play_rank[*card as usize] = i as i16;
@@ -364,8 +364,9 @@ impl Strategy {
         }
         let exchange = compile_rules(&raw.exchange, "exchange")?;
         for (c, _) in &exchange {
-            if cards::traveller_upgrade(*c).is_none() {
-                return Err(format!("{:?} in the exchange list is not a Traveller", cards::name(*c)));
+            // A Traveller discarded from play, or (Nocturne) a card costing $3 or more that may be exchanged for a Changeling when gained.
+            if cards::traveller_upgrade(*c).is_none() && (cards::is_pseudo(*c) || cards::cost(*c) < 3) {
+                return Err(format!("{:?} in the exchange list is not a Traveller or a card costing $3 or more", cards::name(*c)));
             }
         }
 
@@ -551,7 +552,9 @@ impl Strategy {
                     Act::Reveal => self.choose_reveal(choices),
                     Act::Pass => self.choose_pass(view, choices),
                     // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
-                    Act::Tavern | Act::Call | Act::Exchange => iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass),
+                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive => {
+                        iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)
+                    }
                     // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
                     Act::ToHand => iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(Choice::Pass),
                 }
@@ -560,7 +563,7 @@ impl Strategy {
             DecisionKind::Bid { min } => defaults::choose_bid(view, min, choices),
             DecisionKind::Token { token } => defaults::choose_token(self, view, token as usize, choices),
             // A stated rule for a call or an exchange decides; the defaults are the set's (`defaults::adventures`).
-            DecisionKind::YesNo { act: Act::Call | Act::Exchange } | DecisionKind::YesNo { act: Act::Discard }
+            DecisionKind::YesNo { act: Act::Call | Act::Exchange | Act::Return } | DecisionKind::YesNo { act: Act::Discard }
                 if self.stated_call_or_exchange(view, decision).is_some() =>
             {
                 if self.stated_call_or_exchange(view, decision).unwrap() { Choice::Yes } else { Choice::No }
@@ -600,6 +603,8 @@ impl Strategy {
             DecisionKind::Name => self.choose_name(view, decision, choices),
             DecisionKind::DeckPosition { .. } => self.choose_deck_position(view, decision, choices),
             DecisionKind::PlayTreasure => self.play_treasure_decision(view, decision, choices),
+            DecisionKind::PlayNight => self.night_decision(view, decision, choices),
+            DecisionKind::PickBoon => defaults::pick_boon(self, view, decision, choices),
             DecisionKind::StartOrder => self.choose_start_order(choices),
         }
     }
@@ -1226,6 +1231,36 @@ impl Strategy {
         money.checked_sub(debt).and_then(|m| self.first_reachable_with(view, m, potions)) == Some(e)
     }
 
+    /// `PlayNight`: the Night cards are played by the same machinery as the Actions: when every Night card in hand is choice-free the order does
+    /// not matter and they are all played (no search); otherwise the turn is searched with the strategy's own scoring, and a stated `[[play]]`
+    /// rule for a Night card (with its condition) decides how they rank.
+    fn night_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if self.search_play && decision.player == view.me() {
+            if let Some(c) = night_obvious(view, choices) {
+                return Choice::Card(c);
+            }
+            if iter_cards(choices).count() >= 2 || iter_cards(choices).all(|c| !cards::is_choice_free(c)) {
+                if let Some(c) = crate::eval::search_play_choice(self, view) {
+                    if choices.contains(&c) {
+                        return c;
+                    }
+                }
+            }
+        }
+        self.rule_night(view, choices)
+    }
+
+    /// The Night play by rule order alone (stated `[[play]]` rules, then the cards that cost nothing to play, then the rest by id), without
+    /// searching. Used in search playouts.
+    pub fn rule_night(&self, view: &PlayerView, choices: &[Choice]) -> Choice {
+        for (card, cond) in &self.play {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+                return Choice::Card(*card);
+            }
+        }
+        defaults::rule_night(self, view, choices)
+    }
+
     /// The `PlayTreasure` choice by rule order alone, without searching:
     /// 1. Treasures with a choice, except Bank (Investment, Anvil, Tiara, Crystal Ball, War
     ///    Chest), while the plain Treasures are still in hand for them to count, trash, discard or
@@ -1329,7 +1364,7 @@ impl Strategy {
     pub fn stated_effect_choice(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         match decision.kind {
             DecisionKind::Mode { .. } => self.stated_mode_rule(view, decision.source?, choices),
-            DecisionKind::YesNo { act: Act::Call | Act::Exchange | Act::Discard } => {
+            DecisionKind::YesNo { act: Act::Call | Act::Exchange | Act::Discard | Act::Return } => {
                 self.stated_call_or_exchange(view, decision).map(|yes| if yes { Choice::Yes } else { Choice::No })
             }
             DecisionKind::Select { from: Zone::Hand, act: Act::Trash, filter, min, max, ordered }
@@ -1348,6 +1383,8 @@ impl Strategy {
             DecisionKind::YesNo { act: Act::Call } => defaults::stated_call(self, view, decision.subject),
             DecisionKind::YesNo { act: Act::Discard } if decision.subject == id::WINE_MERCHANT => defaults::stated_call(self, view, id::WINE_MERCHANT),
             DecisionKind::YesNo { act: Act::Exchange } => defaults::stated_exchange(self, view, decision.subject),
+            // A card gained that may be exchanged for a Changeling (Nocturne): the rule names the gained card.
+            DecisionKind::YesNo { act: Act::Return } if decision.source == Some(id::CHANGELING) => defaults::stated_exchange(self, view, decision.subject),
             _ => None,
         }
     }
@@ -1443,7 +1480,7 @@ impl Strategy {
 /// for whatever gets drawn. `None` when there is a real choice (a card with a decision, or more
 /// terminals than actions), which the bot searches instead.
 pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) || call_order_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) {
         return None;
     }
     let mut terminals: i32 = 0;
@@ -1472,6 +1509,15 @@ pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
     })
 }
 
+/// The Night card to play when the order is not a real choice: every Night card in hand is choice-free, so all of them are played in
+/// any order (the lowest id first). `None` when one has a decision or reads what the others did (Monastery, Devil's Workshop, Vampire...).
+pub fn night_obvious(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    if !view.hand().iter().all(|(c, _)| !cards::is(c, cards::NIGHT) || cards::is_choice_free(c)) {
+        return None;
+    }
+    iter_cards(choices).filter(|&c| cards::is_choice_free(c)).min()
+}
+
 /// The choice-free +Actions card (Village, Laboratory, Market, Bazaar...) to play before
 /// anything else, when the order is otherwise a real choice. Playing it first never hurts unless
 /// a card in hand is [`OnPlay::OrderSensitive`](dominion_engine::cards::OnPlay) (Throne Room,
@@ -1483,7 +1529,7 @@ pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
 /// less before the next choice); `None` if there is no such card or something in hand is
 /// order-sensitive. Callers skip it when the strategy states [[play]] rules for the hand.
 pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) || call_order_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) {
         return None;
     }
     let mut could_draw: u32 = 0;
@@ -1507,6 +1553,15 @@ pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
             let d = cards::def(c);
             (d.actions, std::cmp::Reverse(d.cards), d.coins, d.buys, std::cmp::Reverse(c))
         })
+}
+
+/// Whether an Urchin (Dark Ages) is in hand, in play or in the deck (it may be drawn) while an Attack is in the hand or could be drawn: the Urchin is trashed for a Mercenary when
+/// another Attack is played with it in play, so the order of the plays (the Urchin first) is a real choice.
+pub fn urchin_risk(view: &PlayerView) -> bool {
+    if !view.in_supply(id::URCHIN) || !(view.hand().has(id::URCHIN) || view.in_play().has(id::URCHIN) || view.deck().has(id::URCHIN)) {
+        return false;
+    }
+    view.hand().any_type(cards::ATTACK) || view.deck().any_type(cards::ATTACK)
 }
 
 /// Whether the player owns a Royal Carriage (Adventures): which Action it replays depends on the order the Actions are played in (the

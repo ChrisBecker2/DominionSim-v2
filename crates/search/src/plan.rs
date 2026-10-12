@@ -107,7 +107,7 @@ impl Plan {
                             }
                             kids.push((p, idx));
                         }
-                        Node::Chance(describe_chance(&outcomes, total), kids, best)
+                        Node::Chance(describe_chance(player, &outcomes, total), kids, best)
                     }
                     Step::Decision(d) => {
                         let mut buf = ChoiceBuf::default();

@@ -191,7 +191,7 @@ struct CardInfo {
     #[serde(rename = "costLabel")]
     cost_label: String,
     types: Vec<&'static str>,
-    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires" or "Rising Sun".
+    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun" or "Nocturne".
     set: &'static str,
 }
 

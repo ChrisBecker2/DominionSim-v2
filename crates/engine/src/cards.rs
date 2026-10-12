@@ -19,33 +19,45 @@ pub use crate::sets::alchemy::add_potion_if_needed;
 pub use crate::sets::cornucopia_guilds::{default_bane, default_ferryman};
 
 // Type flags.
-pub const ACTION: u16 = 1;
-pub const TREASURE: u16 = 2;
-pub const VICTORY: u16 = 4;
-pub const CURSE_T: u16 = 8;
-pub const ATTACK: u16 = 16;
-pub const REACTION: u16 = 32;
+pub const ACTION: u32 = 1;
+pub const TREASURE: u32 = 2;
+pub const VICTORY: u32 = 4;
+pub const CURSE_T: u32 = 8;
+pub const ATTACK: u32 = 16;
+pub const REACTION: u32 = 32;
 /// Stays in play with effects on a later turn (Seaside).
-pub const DURATION: u16 = 64;
+pub const DURATION: u32 = 64;
 /// The six non-Supply cards Joust gains (Cornucopia & Guilds).
-pub const REWARD: u16 = 128;
+pub const REWARD: u32 = 128;
 /// Prince's other type: it only stops Command cards from playing each other, and no Command card
 /// exists here besides Prince itself, so it is a flag with no rules of its own.
-pub const COMMAND: u16 = 256;
+pub const COMMAND: u32 = 256;
 /// The five Ruins (Dark Ages): Actions in the Ruins pile.
-pub const RUINS: u16 = 512;
+pub const RUINS: u32 = 512;
 /// The ten Knights (Dark Ages).
-pub const KNIGHT: u16 = 1024;
+pub const KNIGHT: u32 = 1024;
 /// Cultist, Death Cart and Marauder (Dark Ages): any in the kingdom brings the Ruins pile.
-pub const LOOTER: u16 = 2048;
+pub const LOOTER: u32 = 2048;
 /// Hovel, Necropolis and Overgrown Estate (Dark Ages): the starting-deck cards that replace the Estates.
-pub const SHELTER: u16 = 4096;
+pub const SHELTER: u32 = 4096;
 /// Page, Peasant and the Traveller upgrades that can be exchanged for the next card of their line (Adventures).
-pub const TRAVELLER: u16 = 8192;
-/// Cards that go onto the Tavern mat when played (Adventures). (The type bits are all used now: the next set widens `types` to `u32`.)
-pub const RESERVE: u16 = 16384;
+pub const TRAVELLER: u32 = 8192;
+/// Cards that go onto the Tavern mat when played (Adventures). (`types` is a `u32` since Nocturne.)
+pub const RESERVE: u32 = 16384;
 /// The eight Castles (Empires): Victory cards in the Castles pile (a fixed order, only the top one can be gained).
-pub const CASTLE: u16 = 1 << 15;
+pub const CASTLE: u32 = 1 << 15;
+/// Night cards (Nocturne): played in the Night phase, after the Buy phase.
+pub const NIGHT: u32 = 1 << 16;
+/// Fate cards (Nocturne): in a game with one, the Boons are shuffled.
+pub const FATE: u32 = 1 << 17;
+/// Doom cards (Nocturne): in a game with one, the Hexes are shuffled.
+pub const DOOM: u32 = 1 << 18;
+/// Spirits (Nocturne): Will-o'-Wisp, Imp and Ghost, the cards Exorcist gains.
+pub const SPIRIT: u32 = 1 << 19;
+/// The three Zombies (Nocturne): they start in the trash when Necromancer is in the game.
+pub const ZOMBIE: u32 = 1 << 20;
+/// Heirlooms (Nocturne): they replace a starting Copper when their kingdom card is in the game.
+pub const HEIRLOOM: u32 = 1 << 21;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
@@ -56,6 +68,7 @@ pub mod id {
     pub use crate::sets::dark_ages::ids::*;
     pub use crate::sets::empires::ids::*;
     pub use crate::sets::intrigue::ids::*;
+    pub use crate::sets::nocturne::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
     pub use crate::sets::rising_sun::ids::*;
@@ -99,6 +112,46 @@ pub fn traveller_upgrade(card: CardId) -> Option<CardId> {
 #[inline(always)]
 pub fn is_event(card: CardId) -> bool {
     card.wrapping_sub(FIRST_EVENT) < NUM_EVENTS as CardId
+}
+
+/// The first of the 12 Boons (pseudo-cards: ids for the cards of the Boons deck, never in a zone), then the 12 Hexes and the 5 States.
+pub const FIRST_BOON: CardId = id::THE_EARTHS_GIFT;
+pub const NUM_BOONS: usize = 12;
+pub const FIRST_HEX: CardId = id::BAD_OMENS;
+pub const NUM_HEXES: usize = 12;
+pub const FIRST_STATE: CardId = id::LOST_IN_THE_WOODS;
+pub const NUM_STATES: usize = 5;
+
+/// Whether `card` is one of the 12 Boons.
+#[inline(always)]
+pub fn is_boon(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_BOON) < NUM_BOONS as CardId
+}
+
+/// Whether `card` is one of the 12 Hexes.
+#[inline(always)]
+pub fn is_hex(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_HEX) < NUM_HEXES as CardId
+}
+
+/// Whether `card` is one of the States (Lost in the Woods, Deluded, Envious, Miserable, Twice Miserable).
+#[inline(always)]
+pub fn is_state(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_STATE) < NUM_STATES as CardId
+}
+
+/// The Heirloom a Nocturne kingdom card comes with (it replaces a starting Copper), 0 for any other card.
+pub fn heirloom_of(card: CardId) -> CardId {
+    match card {
+        id::CEMETERY => id::HAUNTED_MIRROR,
+        id::SECRET_CAVE => id::MAGIC_LAMP,
+        id::PIXIE => id::GOAT,
+        id::SHEPHERD => id::PASTURE,
+        id::TRACKER => id::POUCH,
+        id::POOKA => id::CURSED_GOLD,
+        id::FOOL => id::LUCKY_COIN,
+        _ => 0,
+    }
 }
 
 /// The Gathering cards (Empires): Farmers' Market, Temple and Wild Hunt collect VP tokens on their piles. (Not a type bit: the type flags
@@ -215,12 +268,14 @@ pub enum CardSet {
     Empires,
     /// Rising Sun: only Change, the card that needs Debt (see `sets::rising_sun`).
     RisingSun,
+    /// Nocturne (the Night phase, Boons, Hexes and States, Heirlooms, the Spirits and the Zombies).
+    Nocturne,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 11] = [
+    pub const ALL: [CardSet; 12] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
-        CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun,
+        CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
     ];
 
     pub fn name(self) -> &'static str {
@@ -236,6 +291,7 @@ impl CardSet {
             CardSet::Adventures => "Adventures",
             CardSet::Empires => "Empires",
             CardSet::RisingSun => "Rising Sun",
+            CardSet::Nocturne => "Nocturne",
         }
     }
 }
@@ -250,7 +306,7 @@ pub struct CardDef {
     pub potion: bool,
     /// Potions produced when played as a Treasure (Potion: 1).
     pub potions: u8,
-    pub types: u16,
+    pub types: u32,
     /// Treasure value when played as a treasure, or +$ when played as an action.
     pub coins: u8,
     pub vp: i8,
@@ -307,7 +363,7 @@ pub enum OnPlay {
     OrderSensitive,
 }
 
-pub(crate) const fn c(name: &'static str, cost: u8, types: u16, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
+pub(crate) const fn c(name: &'static str, cost: u8, types: u32, coins: u8, vp: i8, cards: u8, actions: u8, buys: u8) -> CardDef {
     CardDef { name, cost, potion: false, potions: 0, types, coins, vp, cards, actions, buys, plays: 0, on_play: OnPlay::NotAction, set: CardSet::Base, ready: true, on_trash: false, debt: 0 }
 }
 
@@ -359,6 +415,11 @@ pub(crate) const fn on_trash(d: CardDef) -> CardDef {
 /// An Empires card.
 pub(crate) const fn emp(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Empires, ..d }
+}
+
+/// A Nocturne card.
+pub(crate) const fn noc(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Nocturne, ..d }
 }
 
 /// A Rising Sun card.
@@ -457,7 +518,7 @@ pub fn cost_string(card: CardId) -> String {
     )
 }
 #[inline(always)]
-pub fn is(card: CardId, flag: u16) -> bool {
+pub fn is(card: CardId, flag: u32) -> bool {
     CARDS[card as usize].types & flag != 0
 }
 /// The Debt in the card's cost (Empires), 0 for a card without one.
@@ -630,6 +691,10 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::InheritCard => ("an", "Action"),
         Filter::NonVictory => ("a", "non-Victory card"),
         Filter::CommandCostUpTo(_) => ("an", "Action"),
+        Filter::TreasureNot(_) => ("a", "Treasure"),
+        Filter::CopyInAttackersPlay => ("a", "card"),
+        Filter::NecroTarget => ("an", "Action"),
+        Filter::SharesTypeWith(_) => ("a", "card"),
     }
 }
 
@@ -743,7 +808,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::CHANGE;
+pub const LAST_KINGDOM: CardId = id::RAIDER;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -768,6 +833,8 @@ pub fn is_kingdom(card: CardId) -> bool {
         && !is_optional_basic(card)
         && !is_reward(card)
         && !(card > crate::sets::dark_ages::LAST_KINGDOM_DA && card < id::COIN_OF_THE_REALM)
+        // The split pile halves, the Castles and the Traveller upgrades sit between Change and the Nocturne cards.
+        && !(card > id::CHANGE && card < id::DRUID)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -808,6 +875,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "adventures" | "adv" => Some(CardSet::Adventures),
         "empires" | "emp" => Some(CardSet::Empires),
         "rising sun" | "risingsun" | "rising_sun" | "rs" => Some(CardSet::RisingSun),
+        "nocturne" | "noc" => Some(CardSet::Nocturne),
         _ => None,
     }
 }
@@ -908,14 +976,14 @@ pub fn pile_eligible(c: CardId, lo: u8, hi: u8) -> bool {
 mod tests {
     use super::*;
 
-    /// Every Action or Treasure card (plus Curse, which is a Treasure when Charlatan is in the
+    /// Every Action, Treasure or Night card (plus Curse, which is a Treasure when Charlatan is in the
     /// game) must say whether playing it is choice-free (`choice_free(..)`, `has_choice(..)` or
     /// `order_sensitive(..)`); bots skip the play-order search only for choice-free hands. The exact
     /// lists are asserted by each set's own test (`sets/*.rs`).
     #[test]
     fn every_action_is_marked_choice_free_or_not() {
         for (i, d) in CARDS.iter().enumerate() {
-            let marked = d.types & (ACTION | TREASURE) != 0 || i as CardId == id::CURSE;
+            let marked = d.types & (ACTION | TREASURE | NIGHT) != 0 || i as CardId == id::CURSE;
             assert_eq!(d.on_play != OnPlay::NotAction, marked, "{} (card {i}) must be marked with choice_free/has_choice/order_sensitive iff it is an Action or Treasure", d.name);
         }
     }

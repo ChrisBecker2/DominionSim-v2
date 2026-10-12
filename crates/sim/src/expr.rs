@@ -72,6 +72,18 @@ pub enum Var {
     VpTokens,
     /// The most Debt any opponent has.
     OpponentDebt,
+    /// 1 during my Night phase (Nocturne): a `[[play]]` rule for a Night card (Werewolf is both an Action and a Night card) can ask.
+    Night,
+    /// Boons in the deck / in the discard pile (Nocturne): how many are left to come, and how many have been seen since the last shuffle.
+    BoonsInDeck,
+    BoonsInDiscard,
+    /// The same for the Hexes.
+    HexesInDeck,
+    HexesInDiscard,
+    /// 1 while I have Lost in the Woods.
+    LostInTheWoods,
+    /// Cards I have gained so far this turn (counted in games with Monastery, Devil's Workshop or a card gained to the hand).
+    GainsThisTurn,
 }
 
 impl Var {
@@ -103,6 +115,13 @@ impl Var {
             Var::Debt => view.debt_of(view.me()) as i64,
             Var::VpTokens => view.vp_tokens_of(view.me()) as i64,
             Var::OpponentDebt => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.debt_of(p)).max().unwrap_or(0) as i64,
+            Var::Night => (view.phase() == dominion_engine::Phase::Night) as i64,
+            Var::BoonsInDeck => view.boon_deck_mask().count_ones() as i64,
+            Var::BoonsInDiscard => view.boon_discard_mask().count_ones() as i64,
+            Var::HexesInDeck => view.hex_deck_mask().count_ones() as i64,
+            Var::HexesInDiscard => view.hex_discard_mask().count_ones() as i64,
+            Var::LostInTheWoods => (view.lost_in_the_woods() == Some(view.me())) as i64,
+            Var::GainsThisTurn => view.gains_this_turn() as i64,
         }
     }
 
@@ -130,6 +149,13 @@ impl Var {
             "debt" => Var::Debt,
             "vp_tokens" | "vptokens" => Var::VpTokens,
             "opponent_debt" | "opponentdebt" => Var::OpponentDebt,
+            "night" => Var::Night,
+            "boons_in_deck" => Var::BoonsInDeck,
+            "boons_in_discard" => Var::BoonsInDiscard,
+            "hexes_in_deck" => Var::HexesInDeck,
+            "hexes_in_discard" => Var::HexesInDiscard,
+            "lost_in_the_woods" => Var::LostInTheWoods,
+            "gains_this_turn" => Var::GainsThisTurn,
             _ => return None,
         })
     }
@@ -148,7 +174,7 @@ pub enum Expr {
     /// `count(Card)`: copies of `Card` this player owns anywhere (deck+hand+discard+in play).
     Count(CardId),
     /// `count_type(action|treasure|victory|curse|attack|reaction)`.
-    CountType(u16),
+    CountType(u32),
     /// `count(Settlers/Bustling Village)`: copies of either half of a split pile.
     CountPair(CardId, CardId),
     /// `pile_vp(Card)`: VP tokens on the card's Supply pile (Farmers' Market, Temple, Wild Hunt, Aqueduct and Defiled Shrine's piles).
@@ -167,6 +193,11 @@ pub enum Expr {
     BoughtTurn(CardId),
     /// `token_on(+1 Card, Smithy)`: 1 if my token is on that pile (the Knights pile by "Knights", the split pile by either half).
     TokenOn(usize, CardId),
+    /// `has_state(Deluded)` / `opp_has_state(Envious)`: 1 if I (any opponent) have the State (Nocturne).
+    HasState(CardId),
+    OppHasState(CardId),
+    /// `boon_in_discard(The Sea's Gift)`, `boon_in_deck(..)`, `hex_in_discard(..)`, `hex_in_deck(..)`: 1 if the Boon or Hex is there (public information).
+    InPile(CardId, bool),
     /// `wins_game`: gaining this entry's card ends the game this turn with me winning outright.
     WinsGame,
     /// `loses_game`: gaining this entry's card ends the game this turn with me not winning
@@ -228,6 +259,14 @@ impl Expr {
                 let on = if *tok < t.len() { t[*tok] } else if *tok == 6 { view.inherit_of(view.me()) } else { 0 };
                 (on != 0 && (on == *pile || (*tok == 6 && on == *pile))) as i64
             }
+            HasState(s) => view.has_state(view.me(), *s) as i64,
+            OppHasState(s) => (0..view.num_players()).any(|p| p != view.me() && view.has_state(p, *s)) as i64,
+            InPile(c, discard) => match (cards::is_boon(*c), *discard) {
+                (true, true) => view.boon_in_discard(*c) as i64,
+                (true, false) => view.boon_in_deck(*c) as i64,
+                (false, true) => view.hex_in_discard(*c) as i64,
+                (false, false) => view.hex_in_deck(*c) as i64,
+            },
             WinsGame => card.is_some_and(|c| view.result_if_gained(c) == Some(1 << view.me())) as i64,
             LosesGame => card.is_some_and(|c| matches!(view.result_if_gained(c), Some(w) if w != 1 << view.me())) as i64,
             Neg(a) => -a.eval_in(view, card),
@@ -265,7 +304,7 @@ impl Expr {
     pub fn for_each_card_ref(&self, f: &mut impl FnMut(CardId)) {
         use Expr::*;
         match self {
-            Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost => {}
+            Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost | HasState(_) | OppHasState(_) | InPile(..) => {}
             CountPair(a, _) => f(*a),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
@@ -365,6 +404,7 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 let is_function = matches!(
                     word.to_ascii_lowercase().as_str(),
                     "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp"
+                        | "has_state" | "opp_has_state" | "boon_in_discard" | "boon_in_deck" | "hex_in_discard" | "hex_in_deck"
                 );
                 let mut j = i;
                 while j < b.len() && (b[j] as char).is_ascii_whitespace() {
@@ -536,6 +576,18 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
             let l = cards::by_name(arg).filter(|&l| cards::is_landmark(l)).ok_or_else(|| format!("{arg:?} is not a Landmark, in condition {src:?}"))?;
             Ok(if func.eq_ignore_ascii_case("landmark") { Expr::Landmark(l) } else { Expr::LandmarkVp(l) })
         }
+        "has_state" | "opp_has_state" => {
+            let s = cards::by_name(arg).filter(|&s| cards::is_state(s)).ok_or_else(|| format!("{arg:?} is not a State, in condition {src:?}"))?;
+            Ok(if func.eq_ignore_ascii_case("has_state") { Expr::HasState(s) } else { Expr::OppHasState(s) })
+        }
+        "boon_in_discard" | "boon_in_deck" => {
+            let b = cards::by_name(arg).filter(|&b| cards::is_boon(b)).ok_or_else(|| format!("{arg:?} is not a Boon, in condition {src:?}"))?;
+            Ok(Expr::InPile(b, func.eq_ignore_ascii_case("boon_in_discard")))
+        }
+        "hex_in_discard" | "hex_in_deck" => {
+            let h = cards::by_name(arg).filter(|&h| cards::is_hex(h)).ok_or_else(|| format!("{arg:?} is not a Hex, in condition {src:?}"))?;
+            Ok(Expr::InPile(h, func.eq_ignore_ascii_case("hex_in_discard")))
+        }
         "supply" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
             Ok(Expr::Supply(c))
@@ -566,6 +618,12 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 "traveller" => cards::TRAVELLER,
                 "reserve" => cards::RESERVE,
                 "castle" => cards::CASTLE,
+                "night" => cards::NIGHT,
+                "fate" => cards::FATE,
+                "doom" => cards::DOOM,
+                "spirit" => cards::SPIRIT,
+                "heirloom" => cards::HEIRLOOM,
+                "duration" => cards::DURATION,
                 _ => return Err(format!("unknown card type {arg:?} in condition {src:?}")),
             };
             Ok(Expr::CountType(flag))

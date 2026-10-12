@@ -159,7 +159,7 @@ impl Searcher {
                     for (card, n) in outcomes.iter() {
                         let mut child = t;
                         child.resolve_chance(player, card);
-                        let label = format!("draw {}", dominion_engine::cards::name(card));
+                        let label = format!("draw {}", crate::search::chance_name(player, card));
                         let prob = Some(n as f64 / total);
                         self.link(&root, me, cfg, eval, id, child, label, prob, depth, max_nodes, &mut nodes, &mut edges, &mut index, &mut queue, &mut truncated);
                     }

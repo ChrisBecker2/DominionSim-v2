@@ -1736,6 +1736,10 @@
 
   let stopRunGame = null; // set while Run Game is playing; stops it after the current turn
 
+  // Run Game plays the whole game without redrawing the page after every turn: it runs turns in
+  // ~100 ms slices, yielding between slices so the page stays responsive (and Stop works), and only
+  // updates the button with the turn reached ("Stop · turn 14"). The page is drawn once at the end
+  // (or when stopped). Fast bots finish in one slice; searching bots show progress.
   async function runGame() {
     const btn = $("btn-run-bots");
     let stopped = false;
@@ -1743,18 +1747,34 @@
       stopped = true;
     };
     btn.textContent = "Stop";
+    if ($("analysis-progress") && !$("analysis-progress").hidden) cancelAnalysis();
+    renderAnalysis(null);
+    let failed = false;
     try {
-      while (!stopped && !crashed && lastView && !lastView.gameOver) {
-        const before = api.stateId();
-        doAction(() => api.runToEndOfTurn(), "Run Game");
-        if (api.stateId() === before) break; // nothing moved (error shown by doAction)
+      let view = api.getView();
+      while (!stopped && !crashed && !view.gameOver) {
+        const sliceEnd = performance.now() + 100;
+        let moved = true;
+        do {
+          const before = api.stateId();
+          api.runToEndOfTurn();
+          moved = api.stateId() !== before;
+          // (Once the game is over a turn no longer moves the state, which ends the slice.)
+        } while (moved && performance.now() < sliceEnd);
+        view = api.getView();
+        if (!moved) break; // game over, or nothing moved: the render below shows where it is
+        btn.textContent = `Stop · turn ${view.turn.number}`;
         await new Promise((r) => setTimeout(r, 0));
       }
+    } catch (e) {
+      failed = true;
+      if (!reportCrash(e, "Run Game")) showToast(String(e.message || e));
     } finally {
       stopRunGame = null;
+      render();
       btn.textContent = lastView && lastView.gameOver ? "New Game" : "Run Game";
     }
-    if (!crashed && !stopped) showGameChart();
+    if (!crashed && !stopped && !failed) showGameChart();
   }
 
   function doAction(fn, action) {
@@ -2584,6 +2604,8 @@
     if (location.hash === "#selftest-analyze") $("btn-analyze").click();
     // Test hook: open index.html#selftest-sim to run a simulation on load.
     if (location.hash === "#selftest-sim") simulate();
+    // Test hook: play the whole game with Run Game (screenshots show the finished game and its chart).
+    if (location.hash === "#selftest-rungame") $("btn-run-bots").click();
     // Test hook for the README screenshot: a base-game position, analyzed, plus a simulation chart.
     if (location.hash === "#selftest-readme") {
       $("state-text").value = [

@@ -427,5 +427,21 @@ deck: 5 Estate
   check("no Nocturne data in other games", K.view().nocturne === null);
 }
 
+// The "Piles" section's data: pile orders for Castles and split piles (fixed), Knights and Ruins (top + unseen).
+{
+  const { w, view } = await instance();
+  const k = enc.encode("Knights, Marauder, Castles, Settlers, Village, Smithy, Market, Cellar, Moat, Festival");
+  const p = w.alloc(k.length);
+  new Uint8Array(w.memory.buffer, p, k.length).set(k);
+  w.new_game(2, p, k.length, 4n, 0);
+  const po = view().pileOrder || [];
+  const by = (nm) => po.find((x) => x.name === nm);
+  check("pile order lists the Castles top first", by("Castles") && by("Castles").order === "fixed" && by("Castles").cards[0][0] === "Humble Castle", JSON.stringify(po));
+  check("pile order lists the split pile halves", by("Settlers/Bustling Village") && by("Settlers/Bustling Village").cards.length === 2);
+  const kn = by("Knights");
+  check("Knights: top card and 9 unseen others, order hidden", kn && kn.order === "hidden" && kn.left === 10 && kn.unseen.reduce((s, [, n]) => s + n, 0) === 9, JSON.stringify(kn));
+  check("Ruins (Marauder): 10 left, drawn from the 49 unseen", by("Ruins") && by("Ruins").left === 10 && by("Ruins").unseen.reduce((s, [, n]) => s + n, 0) === 49);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

@@ -566,3 +566,8 @@ section, .panel {
 .card.dual-duration-treasure { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-treasure) 50%); }
 .card.dual-duration-night { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-night) 50%); }
 .card.dual-duration-reaction { background: linear-gradient(135deg, var(--c-duration) 50%, var(--c-reaction) 50%); }
+
+/* The collapsed "Piles" section under the supply: pile orders, Boons and Hexes. */
+#piles-panel { margin-top: 10px; }
+#piles-panel > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-dim); padding: 2px 0; }
+#piles-panel[open] > summary { margin-bottom: 4px; }

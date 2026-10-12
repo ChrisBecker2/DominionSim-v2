@@ -587,13 +587,43 @@
 
   // Nocturne: the Boons and Hexes decks (which are still to come, which are in the discard piles, which are set aside for Druid or kept in front of a
   // player), and Lost in the Woods. The States of each player are in the player's panel.
+  // The collapsed "Piles" section: the order of the piles whose cards differ (Castles and split
+  // piles in their fixed order; Knights and Ruins top card plus the unseen cards, order hidden),
+  // then Nocturne's Boons and Hexes. Shown only when the game has any of them; collapsed by default.
   function renderNocturne(view) {
-    const panel = $("nocturne-panel");
+    const panel = $("piles-panel");
     const list = $("nocturne-list");
+    const orderList = $("pile-order-list");
     list.innerHTML = "";
+    orderList.innerHTML = "";
     const n = view.nocturne;
-    panel.hidden = !n || !(n.boons || n.hexes);
+    const piles = view.pileOrder || [];
+    const hasNocturne = !!n && !!(n.boons || n.hexes);
+    panel.hidden = !hasNocturne && !piles.length;
     if (panel.hidden) return;
+    for (const p of piles) {
+      const r = el("div", "event-row");
+      if (p.order === "fixed") {
+        r.appendChild(el("span", "cost", `${p.name} (top first): `));
+        if (!p.cards.some(([, k]) => k > 0)) r.appendChild(document.createTextNode("empty"));
+        p.cards.filter(([, k]) => k > 0).forEach(([nm, k], i) => {
+          if (i) r.appendChild(document.createTextNode(" › "));
+          r.appendChild(cardChip(nm, k > 1 ? `${k} ${nm}` : nm));
+        });
+      } else {
+        r.appendChild(el("span", "cost", `${p.name}: ${p.left} left, top `));
+        r.appendChild(p.top ? cardChip(p.top) : document.createTextNode("none"));
+        if (p.left > 1 && p.unseen.length) {
+          r.appendChild(el("span", "cost", "; the rest (order hidden) come from: "));
+          p.unseen.forEach(([nm, k], i) => {
+            if (i) r.appendChild(document.createTextNode(" "));
+            r.appendChild(cardChip(nm, k > 1 ? `${k} ${nm}` : nm));
+          });
+        }
+      }
+      orderList.appendChild(r);
+    }
+    if (!hasNocturne) return;
     const row = (label, names) => {
       if (!names.length) return;
       const r = el("div", "event-row");

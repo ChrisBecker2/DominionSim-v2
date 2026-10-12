@@ -26,7 +26,8 @@ for s in SETS:
             continue
         extras = [named[k] for k in ("event1", "event2", "landmark1", "landmark2") if k in named]
         result.append({
-            "name": named.get("title", "?"),
+            # Titles may be wiki links ("[[First Game]]"): keep the shown text.
+            "name": re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", named.get("title", "?")),
             "set": "Base" if s == "Dominion" else s,
             "cards": cards,
             "extras": extras,

@@ -152,6 +152,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
       <section id="config-panel">
         <h2>Configuration</h2>
 
+        <div id="config-opponent-parts">
         <h3>Card sets</h3>
         <div class="row">
           <label class="checkbox-row"><input type="checkbox" id="set-base" checked> Base</label>
@@ -210,6 +211,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
           <button id="seeds-none" type="button">Select none</button>
         </div>
         <div class="list" id="seeds-list"></div>
+        </div>
 
         <h3>Numbers</h3>
         <div class="grid2">
@@ -978,7 +980,8 @@ var recommended = [];
 function leagueFormShow() {
   var on = $("league-on").checked;
   $("league-form").style.display = on ? "" : "none";
-  $("config-panel").style.display = on ? "none" : "";
+  // Kingdom mode has its own kingdom and no opponents: hide those settings, keep the search numbers.
+  $("config-opponent-parts").style.display = on ? "none" : "";
   $("assess-panel").style.display = on ? "none" : "";
   $("hof-panel").style.display = on ? "none" : "";
 }
@@ -1000,6 +1003,18 @@ function wireLeague() {
       o.textContent = k.name + " (" + k.set + ")";
       sel.appendChild(o);
     });
+    // "#kingdom" opens Kingdom mode; "#kingdom=<recommended kingdom name>" also picks that kingdom.
+    var h = decodeURIComponent(location.hash || "");
+    if (h.indexOf("#kingdom") === 0) {
+      $("league-on").checked = true;
+      leagueFormShow();
+      var want = h.slice("#kingdom=".length);
+      var i = list.findIndex(function (k) { return k.name === want; });
+      if (i >= 0) {
+        sel.value = String(i);
+        sel.dispatchEvent(new Event("change"));
+      }
+    }
   }).catch(function () {});
 }
 

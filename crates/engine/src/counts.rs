@@ -4,7 +4,7 @@ use crate::cards::{CardId, NUM_ZONE_IDS};
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
 /// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
 /// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
-pub const LANES: usize = 352;
+pub const LANES: usize = 384;
 const _: () = assert!(crate::cards::NUM_ZONE_IDS <= LANES, "more card ids that can sit in a zone than Counts lanes: widen LANES");
 
 /// A multiset of cards stored as per-card counts. `Copy`, `LANES` bytes, never allocates. Big (288 bytes): a zone that is empty in nearly every game belongs in a

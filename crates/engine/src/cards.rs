@@ -67,6 +67,7 @@ pub mod id {
     pub use crate::sets::cornucopia_guilds::ids::*;
     pub use crate::sets::dark_ages::ids::*;
     pub use crate::sets::empires::ids::*;
+    pub use crate::sets::hinterlands::ids::*;
     pub use crate::sets::intrigue::ids::*;
     pub use crate::sets::nocturne::ids::*;
     pub use crate::sets::promo::ids::*;
@@ -270,12 +271,15 @@ pub enum CardSet {
     RisingSun,
     /// Nocturne (the Night phase, Boons, Hexes and States, Heirlooms, the Spirits and the Zombies).
     Nocturne,
+    /// Hinterlands 2nd edition ("when you gain / buy / discard" triggers: Reactions to gains and discards, Haggler, Trader, Inn, ...).
+    Hinterlands,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 12] = [
+    pub const ALL: [CardSet; 13] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
         CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
+        CardSet::Hinterlands,
     ];
 
     pub fn name(self) -> &'static str {
@@ -292,6 +296,7 @@ impl CardSet {
             CardSet::Empires => "Empires",
             CardSet::RisingSun => "Rising Sun",
             CardSet::Nocturne => "Nocturne",
+            CardSet::Hinterlands => "Hinterlands",
         }
     }
 }
@@ -420,6 +425,11 @@ pub(crate) const fn emp(d: CardDef) -> CardDef {
 /// A Nocturne card.
 pub(crate) const fn noc(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Nocturne, ..d }
+}
+
+/// A Hinterlands card.
+pub(crate) const fn hl(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Hinterlands, ..d }
 }
 
 /// A Rising Sun card.
@@ -632,6 +642,10 @@ pub enum ModeOpt {
     BuysCoins(u8, u8),
     /// Charm: the next time a card is gained this turn, a differently named card costing the same may be gained too.
     NextGainDouble,
+    /// Spice Merchant: `+n Cards` and `+a Actions`.
+    CardsActions(u8, u8),
+    /// Weaver: gain a card costing up to $n.
+    GainUpToCost(u8),
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -695,6 +709,7 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::CopyInAttackersPlay => ("a", "card"),
         Filter::NecroTarget => ("an", "Action"),
         Filter::SharesTypeWith(_) => ("a", "card"),
+        Filter::ActionToDiscard => ("an", "Action"),
     }
 }
 
@@ -771,6 +786,8 @@ impl ModeOpt {
             }
             ModeOpt::BuysCoins(b, c) => format!("+{b} Buy and +${c}"),
             ModeOpt::NextGainDouble => "Next gain brings another card".to_string(),
+            ModeOpt::CardsActions(n, a) => format!("+{n} Cards and +{a} Action{}", if a == 1 { "" } else { "s" }),
+            ModeOpt::GainUpToCost(n) => format!("Gain a card costing up to ${n}"),
         }
     }
 }
@@ -808,7 +825,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::RAIDER;
+pub const LAST_KINGDOM: CardId = id::FARMLAND;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -835,6 +852,8 @@ pub fn is_kingdom(card: CardId) -> bool {
         && !(card > crate::sets::dark_ages::LAST_KINGDOM_DA && card < id::COIN_OF_THE_REALM)
         // The split pile halves, the Castles and the Traveller upgrades sit between Change and the Nocturne cards.
         && !(card > id::CHANGE && card < id::DRUID)
+        // Nocturne's Heirlooms, Spirits and Zombies sit between its last kingdom card and Hinterlands.
+        && !(card > id::RAIDER && card < id::CROSSROADS)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -876,6 +895,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "empires" | "emp" => Some(CardSet::Empires),
         "rising sun" | "risingsun" | "rising_sun" | "rs" => Some(CardSet::RisingSun),
         "nocturne" | "noc" => Some(CardSet::Nocturne),
+        "hinterlands" | "hint" | "hl" => Some(CardSet::Hinterlands),
         _ => None,
     }
 }

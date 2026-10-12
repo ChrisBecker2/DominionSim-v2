@@ -5,7 +5,7 @@ usage: python tools/gen_recommended.py <wiki pages dir> <output json>"""
 import json, os, re, sys
 
 pages, out = sys.argv[1], sys.argv[2]
-SETS = ["Dominion", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Nocturne", "Rising Sun"]
+SETS = ["Dominion", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Nocturne", "Rising Sun", "Hinterlands"]
 skip_keys = {"ally", "way1", "prophecy", "trait1", "traitfor1", "traitfor", "riverboat", "ferryman", "mouse", "appr_army", "bane", "project1", "project2"}
 result = []
 for s in SETS:

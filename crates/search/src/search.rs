@@ -615,6 +615,7 @@ fn verb(act: Act) -> &'static str {
         Act::ToHand => "Take",
         Act::Return => "Return",
         Act::Archive => "Set aside",
+        Act::ShuffleIn => "Shuffle into the deck",
     }
 }
 

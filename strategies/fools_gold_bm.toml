@@ -1,0 +1,22 @@
+# Fool's Gold Big Money: Fool's Gold is a $2 Treasure worth $1 the first time it is played in a turn and $4 every time after, so a deck of
+# them is Silver-ish with one and Gold-plus with two or three in a hand. Buy one whenever nothing better is affordable (the pile of 10 is the
+# only cap): each one past the first in a hand is worth $4, each lone one only $1. It trashes itself for a Gold when an opponent gains a
+# Province (the reaction is always taken).
+
+name = "Fool's Gold BM"
+description = "Big Money with Fool's Gold (worth $4 after the first in a turn) as a cheap Treasure."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+[[gain]]
+card = "Fool's Gold"
+[[gain]]
+card = "Silver"

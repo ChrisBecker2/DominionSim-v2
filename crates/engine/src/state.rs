@@ -110,6 +110,8 @@ pub const G_COST_TOKEN: u8 = 2;
 pub const G_TRASH_TOKEN: u8 = 4;
 /// A Champion has been played: Action plays get +1 Action per Champion their player has in play.
 pub const G_CHAMPION: u8 = 8;
+/// Some card in the game does something when it is discarded other than in Clean-up (Faithful Hound, Tunnel, Trail, Weaver): discards are watched.
+pub const G_DISCARD_HOOK: u8 = 16;
 
 /// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255 and a third for ids 256 and up
 /// (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256).
@@ -857,6 +859,20 @@ pub struct TurnState {
     pub emp: EmpTurn,
     /// Nocturne per-turn bookkeeping.
     pub noc: NocTurn,
+    /// Hinterlands per-turn bookkeeping.
+    pub hint: HintTurn,
+}
+
+/// The per-turn bookkeeping of Hinterlands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct HintTurn {
+    /// Actions the turn's player has gained this turn (counted only while Cauldron is in the game; stops at 3): the third makes the other
+    /// players gain a Curse for each Cauldron played before it.
+    pub acts_gained: u8,
+    /// Cauldrons played this turn.
+    pub cauldrons: u8,
+    /// Players (bit per seat) that were unaffected by a Cauldron played this turn (a Moat revealed, a Lighthouse in play): its Curses skip them.
+    pub caul_shield: u8,
 }
 
 /// The per-turn bookkeeping of Nocturne.
@@ -981,6 +997,7 @@ impl TurnState {
             adv: AdvTurn::default(),
             emp: EmpTurn::default(),
             noc: NocTurn::default(),
+            hint: HintTurn::default(),
         }
     }
 }
@@ -1026,6 +1043,8 @@ pub enum Act {
     /// Move it to the player's `passed` holding zone (Masquerade's simultaneous pass), to be
     /// delivered to the next passing player once everyone has chosen.
     Pass,
+    /// Shuffle it into the deck (Inn): it joins the unknown part of the deck, and the whole deck is shuffled when the selection finishes (`Then::InnShuffle`).
+    ShuffleIn,
     /// Put it onto the player's Tavern mat (Miser's Copper, a Reserve card played).
     Tavern,
     /// Call it: from the Tavern mat into play (a `YesNo` on a Reserve card; what the call does is the frame's `then`, `Then::Called`).
@@ -1111,6 +1130,9 @@ pub enum Filter {
     NecroTarget,
     /// A card that shares a type with the named card (Locusts: "a cheaper card that shares a type with it").
     SharesTypeWith(CardId),
+    /// An Action in play that this Clean-up discards (Scheme): not one that stays in play (a Duration held for the next turn, a Prince's).
+    /// Decided against the live game (`filter_ok`); `matches` can only say "an Action".
+    ActionToDiscard,
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -1196,6 +1218,7 @@ impl Filter {
             Filter::CopyInAttackersPlay => true,
             Filter::NecroTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION),
             Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0,
+            Filter::ActionToDiscard => cards::is(c, cards::ACTION),
         }
     }
 }
@@ -1530,6 +1553,28 @@ pub enum Then {
     GhostSet,
     /// Select (a zero-pick frame under the Clean-up draw): the Faithful Hounds set aside go into the hand.
     HoundsToHand,
+    /// YesNo (Tunnel, revealed from the discard pile when discarded): gain a Gold.
+    TunnelGold,
+    /// YesNo (Fool's Gold, trashed from the hand when another player gains a Province): gain a Gold onto the deck.
+    FoolsGoldGain,
+    /// YesNo (Trader, revealed when a card is gained): the card gained (`subject`) goes back to its pile and a Silver comes to the discard pile instead.
+    TraderSwap,
+    /// YesNo (Berserker, gained): when there is an Action in play it is played, with no question asked.
+    BerserkerPlay,
+    /// Select (Inn, Actions from the discard pile shuffled into the deck): the whole deck is shuffled, whatever was picked, even nothing.
+    InnShuffle,
+    /// Select (a zero-pick frame): draw until there are `n` cards in the hand.
+    DrawUpTo(u8),
+    /// Select (a zero-pick frame): draw `draw` cards if the hand then holds at most `max_hand` cards (Guard Dog).
+    DrawIfHandAtMost { max_hand: u8, draw: u8 },
+    /// Select: if a card was picked, choose one option of the card's table (Spice Merchant).
+    ModeIfPicked,
+    /// Select (Witch's Hut, discard 2): if both were Actions each other player gains a Curse (`subject` counts the Actions picked).
+    WitchsHut,
+    /// Select (Develop, trash from the hand): gain a card costing exactly $1 more and one costing exactly $1 less, onto the deck, in either order.
+    DevelopGain,
+    /// Select (Trader, trash from the hand): gain a `card` per $1 the card trashed cost.
+    GainPerCost { card: CardId },
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1622,6 +1667,9 @@ pub const GF_BANE_BLOCKS: u8 = 1;
 pub const GF_FROM_SIDE: u8 = 2;
 /// `Frame::gf`: the choices are the Spirit piles (Will-o'-Wisp, Imp, Ghost) costing less than `max` (Exorcist).
 pub const GF_SPIRITS: u8 = 4;
+/// `Frame::gf`: an exact gain that may cost `max` or `max + 2` (Develop: the card $1 less or $1 more than the card trashed, in either order); once one
+/// is gained, a gain of exactly the other cost follows.
+pub const GF_BOTH: u8 = 8;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -1953,18 +2001,25 @@ pub struct EmpState {
 /// How many trashed cards wait for their "when you trash this" effects (`GameState::trash_queue`).
 pub const TRASH_QUEUE_CAP: usize = 12;
 
-/// Cards trashed whose effects have not been put on the stack yet: `(player told to trash, card, whether it was the player's own)`.
-/// A selection that trashes several cards trashes them all first and then resolves what they do (`Dark Ages`, "Count"); the queue
-/// is flushed into frames when the selection finishes (`GameState::flush_trash_triggers`). Empty between effects.
+/// `TrashQueue` entry kinds: a card trashed that was not the player's own (taken from the Supply), one that was, and a card discarded whose
+/// owner may react to it (Tunnel, Trail, Weaver: `SetRules` of Hinterlands).
+pub const Q_TRASHED: u8 = 0;
+pub const Q_TRASHED_OWN: u8 = 1;
+pub const Q_DISCARDED: u8 = 2;
+
+/// Cards trashed (or discarded) whose effects have not been put on the stack yet: `(player told to trash or discard, card, kind `Q_*`)`.
+/// A selection that trashes several cards trashes them all first and then resolves what they do (`Dark Ages`, "Count"); the same goes for
+/// the discards that cards react to, which happen all at once (Hinterlands). The queue is flushed into frames when the selection
+/// finishes (`GameState::flush_trash_triggers`). Empty between effects.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TrashQueue {
-    pub items: [(u8, CardId, bool); TRASH_QUEUE_CAP],
+    pub items: [(u8, CardId, u8); TRASH_QUEUE_CAP],
     pub len: u8,
 }
 
 impl Default for TrashQueue {
     fn default() -> Self {
-        TrashQueue { items: [(0, 0, false); TRASH_QUEUE_CAP], len: 0 }
+        TrashQueue { items: [(0, 0, 0); TRASH_QUEUE_CAP], len: 0 }
     }
 }
 
@@ -2164,6 +2219,8 @@ impl GameState {
         crate::sets::empires::setup(&mut s, cfg, n);
         // Nocturne: the Boons and Hexes, the Heirlooms in the starting decks, the piles outside the Supply, the Zombies in the trash.
         crate::sets::nocturne::setup(&mut s, cfg, bane, n);
+        // Hinterlands: discards are watched when a card reacts to them.
+        crate::sets::hinterlands::setup(&mut s);
         s.push_opening_deal();
         s
     }

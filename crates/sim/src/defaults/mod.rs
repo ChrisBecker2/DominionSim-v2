@@ -21,6 +21,7 @@ mod base;
 mod cornucopia_guilds;
 mod dark_ages;
 mod empires;
+mod hinterlands;
 mod intrigue;
 mod nocturne;
 mod promo;
@@ -73,6 +74,10 @@ macro_rules! with_set {
             }
             CardSet::Nocturne => {
                 type $S = nocturne::Nocturne;
+                $body
+            }
+            CardSet::Hinterlands => {
+                type $S = hinterlands::Hinterlands;
                 $body
             }
         }
@@ -230,4 +235,5 @@ pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
         .or_else(|| dark_ages::DarkAges::default_side_gain(choices))
         .or_else(|| empires::Empires::default_side_gain(choices))
         .or_else(|| nocturne::Nocturne::default_side_gain(choices))
+        .or_else(|| hinterlands::Hinterlands::default_side_gain(choices))
 }

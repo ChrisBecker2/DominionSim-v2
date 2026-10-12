@@ -912,6 +912,11 @@ impl GameState {
             self.gain_vp_tokens(p, c, n as u16, sink);
         }
         self.turn.coins += cards::def(c).coins as u16 * n as u16;
+        // Fool's Gold: $1 the first time one is played this turn, $4 after (the plays of this turn so far, this one included, are counted).
+        if c == id::FOOLS_GOLD {
+            let before = self.turn.played.get(c).saturating_sub(n);
+            self.turn.coins += if before == 0 { 3 * (n as u16 - 1) } else { 3 * n as u16 };
+        }
         // Nocturne: Envious, Silver and Gold make $1.
         if self.turn.noc.envy && (c == id::SILVER || c == id::GOLD) {
             self.turn.coins -= (cards::def(c).coins as u16 - 1) * n as u16;

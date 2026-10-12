@@ -34,6 +34,7 @@ pub mod base;
 pub mod cornucopia_guilds;
 pub mod dark_ages;
 pub mod empires;
+pub mod hinterlands;
 pub mod intrigue;
 pub mod nocturne;
 pub mod promo;
@@ -47,6 +48,7 @@ use base::Base;
 use cornucopia_guilds::CornucopiaGuilds;
 use dark_ages::DarkAges;
 use empires::Empires;
+use hinterlands::Hinterlands;
 use intrigue::Intrigue;
 use nocturne::Nocturne;
 use promo::Promo;
@@ -120,6 +122,10 @@ macro_rules! with_set {
             }
             $crate::cards::CardSet::Nocturne => {
                 type $S = $crate::sets::nocturne::Nocturne;
+                $body
+            }
+            $crate::cards::CardSet::Hinterlands => {
+                type $S = $crate::sets::hinterlands::Hinterlands;
                 $body
             }
         }
@@ -255,10 +261,11 @@ pub(crate) trait SetRules {
 /// Number of cards of every set (ids are dense: `0..NUM_CARDS`).
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
-        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len();
+        + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len()
+        + Hinterlands::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 12] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 13] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -271,6 +278,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Empires, Empires::CARDS),
         (CardSet::RisingSun, RisingSun::CARDS),
         (CardSet::Nocturne, Nocturne::CARDS),
+        (CardSet::Hinterlands, Hinterlands::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -331,11 +339,12 @@ macro_rules! concat_sets {
             + Adventures::$name.len()
             + Empires::$name.len()
             + RisingSun::$name.len()
-            + Nocturne::$name.len();
+            + Nocturne::$name.len()
+            + Hinterlands::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
-                DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name,
+                DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name, Hinterlands::$name,
             ],
             $zero,
         );
@@ -358,7 +367,7 @@ pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO |
     | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
     | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI | Empires::GAIN_HI | RisingSun::GAIN_HI;
-pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP;
+pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP | Hinterlands::GAIN_TOP;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -510,6 +519,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     if g.in_supply.lo & Prosperity::GAIN_LO != 0 {
         Prosperity::gain_triggers(g, p, c, to, on_buy, sink);
     }
+    // Hinterlands: the card's own effect, the plays when gained, and the Trader's exchange (asked before the card's own effect, after Changeling's).
+    if g.in_supply.top & Hinterlands::GAIN_TOP != 0 {
+        Hinterlands::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     // Last, so that its offers are asked first: a card may be exchanged for a Changeling before the rest of its gain happens.
     if g.in_supply.top & Nocturne::GAIN_TOP != 0 || Nocturne::gain_live_extra(g) {
         Nocturne::gain_triggers(g, p, c, to, on_buy, sink);
@@ -530,6 +543,7 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Alchemy::offers_on_discard(g);
     Seaside::offers_on_discard(g);
     Adventures::offers_on_discard(g);
+    Hinterlands::offers_on_discard(g);
     Promo::offers_at_cleanup(g);
     Alchemy::offers_at_cleanup(g);
 }

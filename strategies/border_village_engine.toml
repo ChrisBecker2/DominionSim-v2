@@ -1,0 +1,37 @@
+# Border Village engine: two Golds for money, then Border Villages (a village that gains a card costing up to $5 when gained: a Smithy or a Market
+# by the gain list), Smithies and Markets, then Big Money's endgame. Border Village is played first (+2 Actions), Smithy last (terminal).
+
+name = "Border Village engine"
+description = "Two Golds, then up to three Border Villages gaining Smithy and Market, then Province/Duchy."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+if = "count(Gold) < 2"
+[[gain]]
+card = "Border Village"
+if = "count(Border Village) < 3"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+[[gain]]
+card = "Smithy"
+if = "count(Smithy) < 2"
+[[gain]]
+card = "Market"
+if = "count(Market) < 3"
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Border Village"
+[[play]]
+card = "Market"
+[[play]]
+card = "Smithy"

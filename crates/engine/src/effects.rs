@@ -182,9 +182,9 @@ impl GameState {
             self.turn.moated = 0;
             // Urchin (in play): the player may first trash it for a Mercenary, before the reactions.
             let urchin = self.in_supply(id::URCHIN) && self.urchin_offer_possible(card, p);
-            if urchin || self.reaction_window_open() {
+            if urchin || self.reaction_window_open(p) {
                 self.stack.push(Frame { subject: card, ..Frame::new(K::AttackBody, p, card) });
-                self.push_reaction_window(card);
+                self.push_reaction_window(p, card);
                 if urchin {
                     self.stack.push(Frame {
                         zone: Zone::InPlay, act: Act::Trash, subject: id::URCHIN, then: Then::UrchinMercenary,
@@ -218,7 +218,7 @@ impl GameState {
     /// Whether any other player has a Reaction to offer against an Attack now: a Moat to reveal (no
     /// Lighthouse already protecting them), or a card that draws (Diplomat, with enough cards in
     /// hand) and so may bring a Moat into the hand.
-    fn reaction_window_open(&self) -> bool {
+    fn reaction_window_open(&self, attacker: u8) -> bool {
         // Cheap exit for the many games with no such Reaction in the kingdom.
         if !cards::BLOCK_REACTIONS.iter().any(|&c| self.in_supply(c))
             && !cards::REACTION_EFFECTS.iter().any(|&(c, ..)| self.in_supply(c))
@@ -226,7 +226,7 @@ impl GameState {
         {
             return false;
         }
-        self.others(self.turn.player).any(|v| {
+        self.others(attacker).any(|v| {
             let ps = &self.players[v as usize];
             cards::ATTACK_REACTIONS.iter().any(|&(c, ..)| ps.hand.has(c))
                 || (!self.protected_while_in_play(v) && cards::BLOCK_REACTIONS.iter().any(|&c| ps.hand.has(c)))
@@ -241,13 +241,14 @@ impl GameState {
     /// revealed; then each blocking Reaction (Moat: `Then::BlockAttack`, naming the Attack as the
     /// source), skipped when the player is already protected by a Lighthouse in play or holds none
     /// by then. Pushed in reverse so the first reaction resolves first.
-    fn push_reaction_window(&mut self, attack: CardId) {
+    fn push_reaction_window(&mut self, attacker: u8, attack: CardId) {
         let n = self.num_players;
-        let attacker = self.turn.player;
         for i in (1..n).rev() {
             let v = (attacker + i) % n;
             let ps = &self.players[v as usize];
-            let draws = cards::REACTION_EFFECTS.iter().any(|&(c, min_hand, _, _)| ps.hand.has(c) && ps.hand.total() >= min_hand as u32);
+            // A card that draws may bring a Moat into the hand (Diplomat, Guard Dog played in response).
+            let draws = cards::REACTION_EFFECTS.iter().any(|&(c, min_hand, _, _)| ps.hand.has(c) && ps.hand.total() >= min_hand as u32)
+                || cards::ATTACK_REACTIONS.iter().any(|&(c, act, _)| act == Act::Play && ps.hand.has(c));
             if !self.protected_while_in_play(v) && (draws || cards::BLOCK_REACTIONS.iter().any(|&c| ps.hand.has(c))) {
                 for &block in cards::BLOCK_REACTIONS {
                     self.stack.push(Frame {
@@ -420,6 +421,10 @@ impl GameState {
                 cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.trash.get(c) > self.turn.noc.necro.get(c)
             }
             Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
+            Filter::ActionToDiscard => {
+                let ps = &self.players[p as usize];
+                cards::is(c, ACTION) && ps.in_play.get(c) > self.turn.duration_held.get(c).saturating_add(ps.stays.get(c))
+            }
             filter => filter.matches(c),
         }
     }
@@ -604,9 +609,15 @@ impl GameState {
                     || (matches!(f.then, Then::ReactDrawDiscard { .. }) && self.players[pi].hand.total() < f.min as u32)
                     || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
                     || (f.act == Act::Exchange && !self.exchange_possible(f.subject))
+                    || (matches!(f.then, Then::TraderSwap | Then::BerserkerPlay) && !self.hint_yesno_possible(&f))
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
+                    return Run::Continue;
+                }
+                // A Berserker gained with an Action in play is played, whatever its player thinks.
+                if f.then == Then::BerserkerPlay {
+                    self.apply_frame(f, Choice::Yes, sink);
                     return Run::Continue;
                 }
                 Run::Decide(DecisionKind::YesNo { act: f.act }, f.subject)
@@ -794,7 +805,7 @@ impl GameState {
                     let cost_ok = if f.more {
                         cost > f.max
                     } else if f.exact {
-                        cost == f.max && pc == f.potion && dc == f.min
+                        (cost == f.max || (f.gf & crate::state::GF_BOTH != 0 && cost == f.max + 2)) && pc == f.potion && dc == f.min
                     } else if f.less {
                         cost <= f.max && (f.potion || !pc) && dc == 0 && !(cost == f.max && pc == f.potion)
                     } else {
@@ -890,6 +901,11 @@ impl GameState {
                         self.players[pi].coffers -= spend;
                         sink.event(Event::SpendCoffers { player: p, n: spend });
                     }
+                }
+                // Develop: once one of the two costs is gained, a gain of exactly the other follows (under the triggers of the first).
+                if f.gf & crate::state::GF_BOTH != 0 {
+                    let other = if self.cost(c) == f.max { f.max + 2 } else { f.max };
+                    self.stack.push(Frame { gf: 0, max: other, ..f });
                 }
                 // Soothsayer: a player who gains the Curse draws a card; the draw goes below the gain's own
                 // reactions (Watchtower) so they resolve first.
@@ -988,6 +1004,9 @@ impl GameState {
                 // Record the pick before the card moves: a gain from the trash can push frames (gain reactions) above this one.
                 f.count += 1;
                 f.last = c;
+                if f.then == Then::WitchsHut && cards::is(c, ACTION) {
+                    f.subject += 1;
+                }
                 self.stack.set_top(f);
                 // A card played from the Supply stays there (Captain); it is neither moved nor logged
                 // as played until its `PlayEffects` frame runs.
@@ -1054,7 +1073,7 @@ impl GameState {
                     }
                     self.put(p, f.subject, f.act, f.dest, f.source, sink);
                 }
-                if f.act == Act::Trash {
+                if f.act == Act::Trash || (f.act == Act::Discard && self.adv & crate::state::G_DISCARD_HOOK != 0) {
                     self.flush_trash_triggers(f.depth, sink);
                 }
                 if f.act == Act::Trash && f.zone == Zone::InPlay && f.subject == f.source {
@@ -1086,6 +1105,7 @@ impl GameState {
                     }
                     Then::Called => self.call_effect(&f, sink),
                     Then::HoundAside | Then::PixieTrash | Then::ChangelingSwap => self.noc_yes(&f, sink),
+                    Then::TunnelGold | Then::FoolsGoldGain | Then::TraderSwap => self.hint_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
                     Then::RazeSelf => {
@@ -1153,9 +1173,9 @@ impl GameState {
             Act::Discard => {
                 ps.discard.add(c, 1);
                 sink.event(Event::Discard { player: p, card: c });
-                // Nocturne: a discarded Faithful Hound may be set aside.
-                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                    self.hounds_discarded(p, 1);
+                // A card that reacts to being discarded (Faithful Hound, Tunnel, Trail, Weaver) is in the game.
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.discard_hook(p, c, 1);
                 }
             }
             // Nocturne: back to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling).
@@ -1185,6 +1205,10 @@ impl GameState {
             // Held secretly until `deliver_left_passes` moves it; no event here, since what's
             // passed isn't revealed until it's received (see `Event::Pass`).
             Act::Pass => ps.passed.add(c, 1),
+            Act::ShuffleIn => {
+                ps.deck_unknown.add(c, 1);
+                sink.event(Event::Reveal { player: p, card: c });
+            }
             Act::Tavern => {
                 ps.tavern.add(c, 1);
                 sink.event(Event::ToTavern { player: p, card: c });
@@ -1257,8 +1281,8 @@ impl GameState {
                 }
                 ps.discard.add_all(&rest);
                 ps.set_aside.clear();
-                if self.noc.flags & crate::state::N_HOUND != 0 {
-                    self.hounds_discarded(p, rest.get(id::FAITHFUL_HOUND));
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.discard_hook_counts(p, &rest, f.depth, sink);
                 }
             }
             Then::CoinsIfCount { count, coins } => {
@@ -1513,6 +1537,13 @@ impl GameState {
             }
             Then::PlayTwiceCopy => self.push_play_twice_copy(&f),
             Then::Inherit => self.finish_inherit(&f),
+            Then::InnShuffle
+            | Then::DrawUpTo(_)
+            | Then::DrawIfHandAtMost { .. }
+            | Then::ModeIfPicked
+            | Then::WitchsHut
+            | Then::DevelopGain
+            | Then::GainPerCost { .. } => self.finish_hint_select(&f, sink),
             Then::DrawNPerPick(_)
             | Then::DrawActionsIfPicked { .. }
             | Then::ConclavePlay
@@ -1593,7 +1624,11 @@ impl GameState {
             | Then::LocustsHit
             | Then::MasonTrash
             | Then::FamineSort
-            | Then::GhostSet => {}
+            | Then::GhostSet
+            | Then::TunnelGold
+            | Then::FoolsGoldGain
+            | Then::TraderSwap
+            | Then::BerserkerPlay => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
         self.flush_trash_triggers(f.depth, sink);
@@ -1652,6 +1687,8 @@ impl GameState {
                 ModeOpt::GainTakeVp(c) => {
                     self.stack.push(Frame { then: Then::TakePileVp, ..gain_frame(p, f.source, u8::MAX, Filter::Card(c), Dest::Discard) })
                 }
+                ModeOpt::GainUpToCost(n) => self.stack.push(gain_frame(p, f.source, n, Filter::Any, Dest::Discard)),
+                ModeOpt::CardsActions(n, _) => self.stack.push(draw_frame(p, f.source, n)),
                 ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
                 | ModeOpt::BuysCoins(..)
@@ -1681,6 +1718,10 @@ impl GameState {
                 ModeOpt::Actions(n) => {
                     self.turn.actions += n;
                     b_actions += n;
+                }
+                ModeOpt::CardsActions(_, a) => {
+                    self.turn.actions += a;
+                    b_actions += a;
                 }
                 ModeOpt::Buys(n) => {
                     self.turn.buys += n;
@@ -1738,7 +1779,7 @@ impl GameState {
                     b_coins += k as u16;
                 }
                 ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
-                ModeOpt::GainTakeVp(_) => {}
+                ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
                 ModeOpt::Cards(_)
                 | ModeOpt::GainMany(..)
                 | ModeOpt::TopdeckFromHand(_)
@@ -1797,8 +1838,8 @@ impl GameState {
                 sink.event(Event::Discard { player: p, card: c });
             }
         }
-        if self.noc.flags & crate::state::N_HOUND != 0 {
-            self.hounds_discarded(p, hand.get(id::FAITHFUL_HOUND));
+        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+            self.discard_hook_counts(p, &hand, 0, sink);
         }
     }
 
@@ -2033,10 +2074,13 @@ impl GameState {
                         for _ in 0..n {
                             sink.event(Event::Discard { player: f.player, card: c });
                         }
-                        if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                            self.hounds_discarded(f.player, n);
+                        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                            self.discard_hook(f.player, c, n);
                         }
                     }
+                }
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.flush_trash_triggers(f.depth, sink);
                 }
             }
             Then::MoveMatchingToDiscard(filter) => {
@@ -2052,10 +2096,13 @@ impl GameState {
                         for _ in 0..n {
                             sink.event(Event::Discard { player: f.player, card: c });
                         }
-                        if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                            self.hounds_discarded(f.player, n);
+                        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                            self.discard_hook(f.player, c, n);
                         }
                     }
+                }
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.flush_trash_triggers(f.depth, sink);
                 }
             }
             _ => {}

@@ -94,3 +94,21 @@ fn werewolf_bm_beats_big_money_ultimate() {
     // Two Werewolves (Nocturne): a Smithy by day, a Hex at Night, ~69%.
     beats_big_money_ultimate("werewolf_bm.toml", "Werewolf,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.6);
 }
+
+#[test]
+fn jack_of_all_trades_bm_beats_big_money_ultimate() {
+    // Up to two Jacks of All Trades (a Silver per play, draw to five), ~78%.
+    beats_big_money_ultimate("jack_of_all_trades_bm.toml", "Jack of All Trades,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.7);
+}
+
+#[test]
+fn fools_gold_bm_beats_big_money_ultimate() {
+    // Fool's Gold bought on every hand with nothing better (worth $4 after the first), ~63%.
+    beats_big_money_ultimate("fools_gold_bm.toml", "Fool's Gold,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.57);
+}
+
+#[test]
+fn border_village_engine_beats_big_money_ultimate() {
+    // Border Villages gaining Smithies and Markets, ~65%.
+    beats_big_money_ultimate("border_village_engine.toml", "Border Village,Inn,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.58);
+}

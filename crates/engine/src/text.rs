@@ -1170,6 +1170,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         adv: tf.adv,
         emp: tf.emp,
         noc: tf.noc,
+        // Per-turn bookkeeping, reset on load (the Cauldrons in play are counted below).
+        hint: Default::default(),
     };
 
     // Player blocks.
@@ -1423,6 +1425,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).
     state.turn.played = state.players[state.turn.player as usize].in_play;
+    state.turn.hint.cauldrons = state.turn.played.get(cards::id::CAULDRON);
     // "phase: setup" is a new game before the deal: the opening hands are drawn on advancing.
     if state.turn.phase == Phase::Setup {
         if (0..num_players).any(|p| !state.players[p].hand.is_empty()) {

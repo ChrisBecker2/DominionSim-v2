@@ -210,13 +210,15 @@ impl GameState {
             Some(c) => {
                 self.players[pi].discard.add(c, 1);
                 sink.event(Event::Discard { player: p, card: c });
-                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                    self.hounds_discarded(p, 1);
-                }
                 if cards::is(c, ACTION) {
                     self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source) });
                 } else {
                     self.stack.pop();
+                }
+                // Reactions to the discard (a Hound set aside, a Tunnel revealed) are asked before the offer to play it.
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.discard_hook(p, c, 1);
+                    self.flush_trash_triggers(f.depth, sink);
                 }
             }
         }
@@ -284,8 +286,8 @@ impl GameState {
         }
         ps.discard.add_all(&aside);
         ps.set_aside.clear();
-        if self.noc.flags & crate::state::N_HOUND != 0 {
-            self.hounds_discarded(p, aside.get(id::FAITHFUL_HOUND));
+        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+            self.discard_hook_counts(p, &aside, 0, sink);
         }
     }}
 

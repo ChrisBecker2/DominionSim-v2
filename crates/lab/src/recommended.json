@@ -8828,5 +8828,996 @@
   "extras": [],
   "colony": false,
   "shelters": false
+ },
+ {
+  "name": "Introduction",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Develop",
+   "Jack of All Trades",
+   "Margrave",
+   "Nomads",
+   "Oasis",
+   "Spice Merchant",
+   "Stables",
+   "Weaver"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bargains",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Cauldron",
+   "Fool's Gold",
+   "Haggler",
+   "Highway",
+   "Scheme",
+   "Souk",
+   "Trader",
+   "Trail",
+   "Wheelwright"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Happy Trails",
+  "set": "Hinterlands",
+  "cards": [
+   "Berserker",
+   "Highway",
+   "Nomads",
+   "Oasis",
+   "Trail",
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Fool's Gold",
+   "Guard Dog",
+   "Souk",
+   "Witch's Hut",
+   "Festival",
+   "Laboratory",
+   "Remodel",
+   "Sentry",
+   "Vassal"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Jack of All Trades",
+   "Tunnel",
+   "Weaver",
+   "Wheelwright",
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Hinterlands",
+  "cards": [
+   "Guard Dog",
+   "Inn",
+   "Scheme",
+   "Trail",
+   "Wheelwright",
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Travelers",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Farmland",
+   "Souk",
+   "Stables",
+   "Cutpurse",
+   "Island",
+   "Lookout",
+   "Merchant Ship",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Runners",
+  "set": "Hinterlands",
+  "cards": [
+   "Berserker",
+   "Cauldron",
+   "Guard Dog",
+   "Nomads",
+   "Wheelwright",
+   "Bazaar",
+   "Blockade",
+   "Caravan",
+   "Smugglers",
+   "Sailor"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Wine Country",
+  "set": "Hinterlands",
+  "cards": [
+   "Farmland",
+   "Guard Dog",
+   "Highway",
+   "Margrave",
+   "Nomads",
+   "Apprentice",
+   "Familiar",
+   "Golem",
+   "University",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Instant Gratification",
+  "set": "Hinterlands",
+  "cards": [
+   "Berserker",
+   "Cauldron",
+   "Haggler",
+   "Oasis",
+   "Trail",
+   "Bishop",
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Treasure Trove",
+  "set": "Hinterlands",
+  "cards": [
+   "Cauldron",
+   "Develop",
+   "Fool's Gold",
+   "Guard Dog",
+   "Inn",
+   "Bank",
+   "Clerk",
+   "Crystal Ball",
+   "Monument",
+   "Tiara"
+  ],
+  "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Far From Home",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Develop",
+   "Fool's Gold",
+   "Weaver",
+   "Witch's Hut",
+   "Catacombs",
+   "Count",
+   "Feodum",
+   "Fortress",
+   "Wandering Minstrel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Expeditions",
+  "set": "Hinterlands",
+  "cards": [
+   "Highway",
+   "Nomads",
+   "Oasis",
+   "Scheme",
+   "Spice Merchant",
+   "Altar",
+   "Catacombs",
+   "Ironmonger",
+   "Poor House",
+   "Storeroom"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Traders and Raiders",
+  "set": "Hinterlands",
+  "cards": [
+   "Berserker",
+   "Guard Dog",
+   "Haggler",
+   "Spice Merchant",
+   "Trader",
+   "Haunted Woods",
+   "Lost City",
+   "Page",
+   "Port",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Journeys",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Highway",
+   "Inn",
+   "Trail",
+   "Bridge Troll",
+   "Distant Lands",
+   "Giant",
+   "Guide",
+   "Ranger"
+  ],
+  "extras": [
+   "Expedition",
+   "Inheritance"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Simple Plans",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Cauldron",
+   "Haggler",
+   "Stables",
+   "Wheelwright",
+   "Catapult/Rocks",
+   "Enchantress",
+   "Forum",
+   "Patrician/Emporium",
+   "Villa"
+  ],
+  "extras": [
+   "Donate",
+   "Labyrinth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Expansion",
+  "set": "Hinterlands",
+  "cards": [
+   "Farmland",
+   "Oasis",
+   "Spice Merchant",
+   "Stables",
+   "Tunnel",
+   "Castles",
+   "Charm",
+   "Encampment/Plunder",
+   "Engineer",
+   "Legionary"
+  ],
+  "extras": [
+   "Battlefield",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Search Party",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Inn",
+   "Oasis",
+   "Scheme",
+   "Souk",
+   "Cobbler",
+   "Conclave",
+   "Druid",
+   "Faithful Hound",
+   "Werewolf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Counting Sheep",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Oasis",
+   "Tunnel",
+   "Weaver",
+   "Crypt",
+   "Leprechaun",
+   "Pooka",
+   "Secret Cave",
+   "Shepherd"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Introduction",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Crossroads",
+   "Develop",
+   "Haggler",
+   "Jack of all Trades",
+   "Margrave",
+   "Nomad Camp",
+   "Oasis",
+   "Spice Merchant",
+   "Stables"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Fair Trades",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Cartographer",
+   "Develop",
+   "Duchess",
+   "Farmland",
+   "Ill-Gotten Gains",
+   "Noble Brigand",
+   "Silk Road",
+   "Stables",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Bargains",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Cache",
+   "Duchess",
+   "Fool's Gold",
+   "Haggler",
+   "Highway",
+   "Nomad Camp",
+   "Scheme",
+   "Spice Merchant",
+   "Trader"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Gambits",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Embassy",
+   "Inn",
+   "Jack of all Trades",
+   "Mandarin",
+   "Nomad Camp",
+   "Oasis",
+   "Oracle",
+   "Tunnel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Highway Robbery",
+  "set": "Hinterlands",
+  "cards": [
+   "Highway",
+   "Inn",
+   "Margrave",
+   "Noble Brigand",
+   "Oasis",
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Fool's Gold",
+   "Oracle",
+   "Spice Merchant",
+   "Adventurer",
+   "Chancellor",
+   "Festival",
+   "Laboratory",
+   "Remodel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Highway Robbery",
+  "set": "Hinterlands",
+  "cards": [
+   "Highway",
+   "Inn",
+   "Margrave",
+   "Noble Brigand",
+   "Oasis",
+   "Cellar",
+   "Library",
+   "Moneylender",
+   "Throne Room",
+   "Workshop"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Adventures Abroad",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Fool's Gold",
+   "Oracle",
+   "Spice Merchant",
+   "Festival",
+   "Laboratory",
+   "Remodel",
+   "Sentry",
+   "Vassal"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Cartographer",
+   "Jack of all Trades",
+   "Silk Road",
+   "Tunnel",
+   "Coppersmith",
+   "Great Hall",
+   "Pawn",
+   "Shanty Town",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Hinterlands",
+  "cards": [
+   "Duchess",
+   "Haggler",
+   "Inn",
+   "Noble Brigand",
+   "Scheme",
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money for Nothing",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Cartographer",
+   "Jack of All Trades",
+   "Silk Road",
+   "Tunnel",
+   "Patrol",
+   "Pawn",
+   "Replace",
+   "Shanty Town",
+   "Torturer"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "The Duke's Ball",
+  "set": "Hinterlands",
+  "cards": [
+   "Duchess",
+   "Haggler",
+   "Inn",
+   "Noble Brigand",
+   "Scheme",
+   "Conspirator",
+   "Duke",
+   "Harem",
+   "Masquerade",
+   "Upgrade"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Travelers",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Farmland",
+   "Silk Road",
+   "Stables",
+   "Cutpurse",
+   "Island",
+   "Lookout",
+   "Merchant Ship",
+   "Warehouse"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Diplomacy",
+  "set": "Hinterlands",
+  "cards": [
+   "Embassy",
+   "Farmland",
+   "Ill-Gotten Gains",
+   "Noble Brigand",
+   "Trader",
+   "Ambassador",
+   "Bazaar",
+   "Caravan",
+   "Embargo",
+   "Smugglers"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Wine Country",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Haggler",
+   "Highway",
+   "Nomad Camp",
+   "Apprentice",
+   "Familiar",
+   "Golem",
+   "University",
+   "Vineyard"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Schemes and Dreams",
+  "set": "Hinterlands",
+  "cards": [
+   "Duchess",
+   "Fool's Gold",
+   "Ill-Gotten Gains",
+   "Jack of all Trades",
+   "Scheme",
+   "Apothecary",
+   "Apprentice",
+   "Herbalist",
+   "Philosopher's Stone",
+   "Transmute"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Instant Gratification",
+  "set": "Hinterlands",
+  "cards": [
+   "Farmland",
+   "Haggler",
+   "Ill-Gotten Gains",
+   "Noble Brigand",
+   "Trader",
+   "Bishop",
+   "Expand",
+   "Hoard",
+   "Mint",
+   "Watchtower"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Treasure Trove",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Develop",
+   "Fool's Gold",
+   "Ill-Gotten Gains",
+   "Mandarin",
+   "Bank",
+   "Monument",
+   "Royal Seal",
+   "Trade Route",
+   "Venture"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Blue Harvest",
+  "set": "Hinterlands",
+  "cards": [
+   "Fool's Gold",
+   "Mandarin",
+   "Noble Brigand",
+   "Trader",
+   "Tunnel",
+   "Hamlet",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Traveling Circus",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Embassy",
+   "Fool's Gold",
+   "Nomad Camp",
+   "Oasis",
+   "Fairgrounds",
+   "Farming Village",
+   "Hunting Party",
+   "Jester",
+   "Menagerie"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exchanges",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Develop",
+   "Ill-Gotten Gains",
+   "Stables",
+   "Trader",
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Road to Riches",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel",
+   "Advisor",
+   "Baker",
+   "Candlestick Maker",
+   "Journeyman",
+   "Merchant Guild"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Blue Harvest",
+  "set": "Hinterlands",
+  "cards": [
+   "Fool's Gold",
+   "Trail",
+   "Tunnel",
+   "Weaver",
+   "Witch's Hut",
+   "Hamlet",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Tournament"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exchanges",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Cauldron",
+   "Develop",
+   "Stables",
+   "Trader",
+   "Butcher",
+   "Herald",
+   "Masterpiece",
+   "Soothsayer",
+   "Stonemason"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Far From Home",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Develop",
+   "Embassy",
+   "Fool's Gold",
+   "Haggler",
+   "Beggar",
+   "Count",
+   "Feodum",
+   "Marauder",
+   "Wandering Minstrel"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Expeditions",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel",
+   "Altar",
+   "Catacombs",
+   "Ironmonger",
+   "Poor House",
+   "Storeroom"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Traders and Raiders",
+  "set": "Hinterlands",
+  "cards": [
+   "Develop",
+   "Farmland",
+   "Haggler",
+   "Spice Merchant",
+   "Trader",
+   "Haunted Woods",
+   "Lost City",
+   "Page",
+   "Port",
+   "Wine Merchant"
+  ],
+  "extras": [
+   "Raid"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Journeys",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Crossroads",
+   "Highway",
+   "Inn",
+   "Silk Road",
+   "Bridge Troll",
+   "Distant Lands",
+   "Giant",
+   "Guide",
+   "Ranger"
+  ],
+  "extras": [
+   "Expedition",
+   "Inheritance"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Simple Plans",
+  "set": "Hinterlands",
+  "cards": [
+   "Border Village",
+   "Develop",
+   "Haggler",
+   "Ill-Gotten Gains",
+   "Stables",
+   "Catapult/Rocks",
+   "Forum",
+   "Patrician/Emporium",
+   "Temple",
+   "Villa"
+  ],
+  "extras": [
+   "Donate",
+   "Labyrinth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Expansion",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Farmland",
+   "Highway",
+   "Spice Merchant",
+   "Tunnel",
+   "Castles",
+   "Charm",
+   "Encampment/Plunder",
+   "Engineer",
+   "Legionary"
+  ],
+  "extras": [
+   "Battlefield",
+   "Fountain"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Search Party",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Highway",
+   "Inn",
+   "Oasis",
+   "Scheme",
+   "Cobbler",
+   "Conclave",
+   "Druid",
+   "Faithful Hound",
+   "Werewolf"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Counting Sheep",
+  "set": "Hinterlands",
+  "cards": [
+   "Crossroads",
+   "Farmland",
+   "Haggler",
+   "Noble Brigand",
+   "Tunnel",
+   "Bard",
+   "Crypt",
+   "Leprechaun",
+   "Pooka",
+   "Shepherd"
+  ],
+  "extras": [],
+  "colony": false,
+  "shelters": false
  }
 ]

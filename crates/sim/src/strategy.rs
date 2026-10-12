@@ -552,7 +552,7 @@ impl Strategy {
                     Act::Reveal => self.choose_reveal(choices),
                     Act::Pass => self.choose_pass(view, choices),
                     // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
-                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive => {
+                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn => {
                         iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)
                     }
                     // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
@@ -1384,7 +1384,9 @@ impl Strategy {
             DecisionKind::YesNo { act: Act::Discard } if decision.subject == id::WINE_MERCHANT => defaults::stated_call(self, view, id::WINE_MERCHANT),
             DecisionKind::YesNo { act: Act::Exchange } => defaults::stated_exchange(self, view, decision.subject),
             // A card gained that may be exchanged for a Changeling (Nocturne): the rule names the gained card.
-            DecisionKind::YesNo { act: Act::Return } if decision.source == Some(id::CHANGELING) => defaults::stated_exchange(self, view, decision.subject),
+            DecisionKind::YesNo { act: Act::Return } if matches!(decision.source, Some(id::CHANGELING | id::TRADER)) => {
+                defaults::stated_exchange(self, view, decision.subject)
+            }
             _ => None,
         }
     }

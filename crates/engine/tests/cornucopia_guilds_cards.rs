@@ -49,8 +49,8 @@ fn buy_phase(g: &mut GameState, coins: u16) {
 
 #[test]
 fn the_set_has_26_kingdom_cards_and_6_rewards() {
-    assert_eq!(cards::NUM_CARDS, 427);
-    assert_eq!(CardSet::ALL.len(), 12);
+    assert_eq!(cards::NUM_CARDS, 453);
+    assert_eq!(CardSet::ALL.len(), 13);
     assert_eq!(cards::set_by_name("Cornucopia & Guilds"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(cards::set_by_name("cornucopia"), Some(CardSet::CornucopiaGuilds));
     assert_eq!(CardSet::CornucopiaGuilds.name(), "Cornucopia & Guilds");

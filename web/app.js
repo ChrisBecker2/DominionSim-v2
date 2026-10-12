@@ -924,8 +924,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

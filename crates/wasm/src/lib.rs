@@ -1600,12 +1600,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 2048 != 0 {
         v.push(cards::CardSet::Nocturne);
     }
+    if sets_mask & 4096 != 0 {
+        v.push(cards::CardSet::Hinterlands);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -1974,6 +1977,7 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::GainableCopy => ("a card you can gain a copy of".into(), "cards you can gain a copy of".into()),
         Filter::InheritCard => ("a non-Duration, non-Command Action card costing up to $4".into(), "such Action cards".into()),
         Filter::NonVictory => ("a non-Victory card".into(), "non-Victory cards".into()),
+        Filter::ActionToDiscard => ("an Action card".into(), "Action cards".into()),
         Filter::CommandCostUpTo(n) => (
             format!("a non-Duration, non-Command Action card costing up to ${n}"),
             format!("non-Duration, non-Command Action cards costing up to ${n}"),
@@ -2054,10 +2058,14 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
         DecisionKind::PickBoon => "Choose a Boon to receive.".to_string(),
         DecisionKind::Gain { max_cost, filter, dest, exact, potion, optional } => {
             let (one, _) = filter_noun(filter);
-            let cost = if exact { "exactly" } else { "up to" };
+            let top = state.stack.top().filter(|f| f.kind == dominion_engine::state::FrameKind::Gain);
+            let less = top.is_some_and(|f| f.less);
+            let both = top.is_some_and(|f| f.gf & dominion_engine::state::GF_BOTH != 0);
+            let cost = if both { "exactly" } else if exact { "exactly" } else if less { "less than" } else { "up to" };
             let p = if potion { "P" } else { "" };
             let may = if optional { "You may gain" } else { "Gain" };
-            format!("{may} {one} costing {cost} ${max_cost}{p}{}.", dest_phrase(dest))
+            let or = if both { format!(" or ${}{p}", max_cost + 2) } else { String::new() };
+            format!("{may} {one} costing {cost} ${max_cost}{p}{or}{}.", dest_phrase(dest))
         }
         DecisionKind::Select { from, act, filter, min, max, ordered } => {
             let (one, many) = filter_noun(filter);
@@ -2085,6 +2093,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::ToHand => ("take", " into your hand".to_string()),
                 Act::Return => ("return", " to its pile".to_string()),
                 Act::Archive => ("set aside", " face down under this".to_string()),
+                Act::ShuffleIn => ("shuffle", " into your deck".to_string()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -2121,8 +2130,10 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Exchange => format!("Exchange {card} for the next card of its line?"),
                 Act::ToHand => format!("Take {card} into your hand?"),
                 Act::Return if d.source == Some(id::CHANGELING) => format!("Exchange {card} for a Changeling?"),
+                Act::Return if d.source == Some(id::TRADER) => format!("Reveal a Trader to exchange {card} for a Silver?"),
                 Act::Return => format!("Return {card} to its pile?"),
                 Act::Archive => format!("Set aside {card}?"),
+                Act::ShuffleIn => format!("Shuffle {card} into your deck?"),
             }
         }
         DecisionKind::Token { token } if token as usize == dominion_engine::sets::empires::TOK_TAX => "Put 2 Debt on a Supply pile.".to_string(),
@@ -2252,6 +2263,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                     Act::ToHand => format!("Take {name} into your hand"),
                     Act::Return => format!("Return {name}"),
                     Act::Archive => format!("Set aside {name}"),
+                    Act::ShuffleIn => format!("Shuffle {name} into the deck"),
                 },
                 DecisionKind::PlayNight => format!("Play {name} (Night)"),
                 DecisionKind::PickBoon => format!("Receive {name}"),

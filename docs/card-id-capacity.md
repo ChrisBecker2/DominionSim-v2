@@ -82,3 +82,10 @@ ids above `NUM_ZONE_IDS` so that no loop over zone ids ever visits them.
 * Cost: LANES 320 -> 352 alone cost 2.5% speed (1.77M -> 1.725M games/s); the Nocturne code another 0.5% (final 1.70-1.72M). `GameState` 18.4 KB -> 19.55 KB (`PlayerState` 2560 B, `TurnState` 768 B,
   `Counts` 352 B, `Frame` 48 B, `CardDef` 40 B); `tests/state_size.rs` bounds: 19,700 / 2,600 / 800 / 48 / 352.
 * Boons, Hexes and States are pseudo-cards kept in masks (`NocState`), not in `Counts` lanes, so they cost nothing in the zone width.
+
+## 6. After Hinterlands (actual numbers)
+
+* Hinterlands' 26 kingdom cards took ids 328-353; the Ruins/Knights (354-369) stay the highest zone ids, Events start at 370. `NUM_ZONE_IDS` 370, `NUM_CARDS` 453,
+  `Counts::LANES` 352 -> 384 (the next multiple of 32), `SupplyMask` still 384 bits (370 fit; 14 ids remain).
+* Cost: whole games 1.69M -> about 1.57M/s right after the widening, 1.59-1.63M with the full set. `GameState` about 20.7 KB (`PlayerState` 2720, `Counts` 384).
+  The next set needs per-game compaction or a cached total in `Counts` first (sections 3-4).

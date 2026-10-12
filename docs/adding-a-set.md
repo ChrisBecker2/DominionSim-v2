@@ -168,3 +168,14 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
   of it (an inlined handler grows `run_frame` and costs the hot path registers). Measure after every new frame, not at the end.
 * **Test with a conservation fuzz.** `nocturne_cards.rs` plays thousands of random games over random kingdoms, checking the card count and the piles after each step and asserting
   coverage (every card played, every Boon and Hex received). It found real bugs (Guardian's protection never ending; Urchin versus an Attack in the obvious-play rule).
+
+## 7. Learned with Hinterlands
+
+* **Renumbering is cheap when ids are used by name**: inserting 26 kingdom cards below the Ruins/Knights shifted every later id (Events, Landmarks, Boons...)
+  with a byte-safe script; only tests pinning `NUM_CARDS` changed. Kingdom ids are no longer one range (`is_kingdom` excludes Nocturne's extras).
+* **A discard is a trigger**: `G_DISCARD_HOOK` + `discard_hook` at every site that moves cards to the discard pile; reactions wait in `trash_queue`
+  (`Q_DISCARDED`) until the selection finishes, so cards discarded together react after all are discarded.
+* **Out-of-turn plays** (Guard Dog, a gained Berserker, Trail / Weaver on another player's turn): the reaction window and victims take the attacker as a
+  parameter, and the played card is added to `discard_next_cleanup` so it leaves play at that turn's Clean-up.
+* **Auto-single decisions hide tests**: a Select with one candidate is applied at once; tests should assert state, not expect the decision.
+* Gains "less than this" are Gain frames with `less`; the decision shows `max_cost` = the card's cost (the page text reads the frame).

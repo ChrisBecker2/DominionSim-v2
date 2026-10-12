@@ -1,0 +1,24 @@
+# Jack of All Trades Big Money: Jack gains a Silver every play, trashes an Estate or Curse, and draws the hand back up to five, so one or two
+# Jacks make a Big Money deck steadier at the cost of $4 apiece. Jack is terminal, so it is played before anything else is.
+
+name = "Jack of All Trades BM"
+description = "One or two Jacks of All Trades (a Silver per play, a look at the top card, draw to five), then Big Money."
+
+[[gain]]
+card = "Province"
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+[[gain]]
+card = "Gold"
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+[[gain]]
+card = "Jack of All Trades"
+if = "count(Jack of All Trades) < 2"
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Jack of All Trades"

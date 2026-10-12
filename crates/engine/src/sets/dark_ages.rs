@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 328;
+    pub const RUINS: CardId = 354;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 329;
-    pub const RUINED_LIBRARY: CardId = 330;
-    pub const RUINED_MARKET: CardId = 331;
-    pub const RUINED_VILLAGE: CardId = 332;
-    pub const SURVIVORS: CardId = 333;
-    pub const DAME_ANNA: CardId = 334;
-    pub const DAME_JOSEPHINE: CardId = 335;
-    pub const DAME_MOLLY: CardId = 336;
-    pub const DAME_NATALIE: CardId = 337;
-    pub const DAME_SYLVIA: CardId = 338;
-    pub const SIR_BAILEY: CardId = 339;
-    pub const SIR_DESTRY: CardId = 340;
-    pub const SIR_MARTIN: CardId = 341;
-    pub const SIR_MICHAEL: CardId = 342;
-    pub const SIR_VANDER: CardId = 343;
+    pub const ABANDONED_MINE: CardId = 355;
+    pub const RUINED_LIBRARY: CardId = 356;
+    pub const RUINED_MARKET: CardId = 357;
+    pub const RUINED_VILLAGE: CardId = 358;
+    pub const SURVIVORS: CardId = 359;
+    pub const DAME_ANNA: CardId = 360;
+    pub const DAME_JOSEPHINE: CardId = 361;
+    pub const DAME_MOLLY: CardId = 362;
+    pub const DAME_NATALIE: CardId = 363;
+    pub const DAME_SYLVIA: CardId = 364;
+    pub const SIR_BAILEY: CardId = 365;
+    pub const SIR_DESTRY: CardId = 366;
+    pub const SIR_MARTIN: CardId = 367;
+    pub const SIR_MICHAEL: CardId = 368;
+    pub const SIR_VANDER: CardId = 369;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -618,7 +618,7 @@ impl GameState {
                 self.flush_trash_triggers(0, sink);
             }
             let q = &mut self.trash_queue;
-            q.items[q.len as usize] = (p, c, owned);
+            q.items[q.len as usize] = (p, c, if owned { crate::state::Q_TRASHED_OWN } else { crate::state::Q_TRASHED });
             q.len += 1;
         }
     }
@@ -632,10 +632,16 @@ impl GameState {
         let q = std::mem::take(&mut self.trash_queue);
         let base = self.stack.len as usize;
         for i in (0..q.len as usize).rev() {
-            let (p, c, owned) = q.items[i];
+            let (p, c, kind) = q.items[i];
+            // A discard that a card reacts to: the reaction is asked now that everything discarded together is in the discard pile.
+            if kind == crate::state::Q_DISCARDED {
+                self.discard_reaction(p, c);
+                continue;
+            }
+            let owned = kind == crate::state::Q_TRASHED_OWN;
             if owned && self.market_square_live() {
                 // Offered when the player holds one, or some trigger of theirs could draw one.
-                let could_draw = q.items[..q.len as usize].iter().any(|&(q2, c2, _)| q2 == p && cards::def(c2).on_trash);
+                let could_draw = q.items[..q.len as usize].iter().any(|&(q2, c2, k2)| k2 != crate::state::Q_DISCARDED && q2 == p && cards::def(c2).on_trash);
                 if self.players[p as usize].hand.has(id::MARKET_SQUARE) || could_draw {
                     self.stack.push(Frame {
                         zone: Zone::Hand, act: Act::Discard, subject: id::MARKET_SQUARE, then: Then::MarketSquareGold,
@@ -670,8 +676,8 @@ impl GameState {
                 sink.event(Event::Discard { player: p, card: c });
             }
         }
-        if self.noc.flags & crate::state::N_HOUND != 0 {
-            self.hounds_discarded(p, rest.get(id::FAITHFUL_HOUND));
+        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+            self.discard_hook_counts(p, &rest, 0, sink);
         }
     }
 

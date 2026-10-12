@@ -515,10 +515,13 @@ impl GameState {
                 for _ in 1..n {
                     sink.event(Event::Discard { player: f.player, card: c });
                 }
-                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                    self.hounds_discarded(f.player, n - 1);
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.discard_hook(f.player, c, n - 1);
                 }
             }
+        }
+        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+            self.flush_trash_triggers(f.depth, sink);
         }
     }
 
@@ -547,10 +550,13 @@ impl GameState {
                 for _ in kept..n {
                     sink.event(Event::Discard { player: f.player, card: c });
                 }
-                if c == id::FAITHFUL_HOUND && self.noc.flags & crate::state::N_HOUND != 0 {
-                    self.hounds_discarded(f.player, n - kept);
+                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                    self.discard_hook(f.player, c, n - kept);
                 }
             }
+        }
+        if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+            self.flush_trash_triggers(f.depth, sink);
         }
     }
 

@@ -3,3 +3,6 @@ node_modules/
 web/dist/
 *.wasm
 
+
+# Local open-items list (not shared)
+docs/TODO.md

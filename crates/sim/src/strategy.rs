@@ -245,9 +245,9 @@ pub struct Strategy {
     pub name: String,
     pub description: String,
     buy: Vec<(CardId, Option<Expr>)>,
-    /// Whether the gain list skips a card whose gain would end the game with this player not
-    /// winning (the last Province while behind, the card that empties the third pile). On unless a
-    /// rule's condition uses `wins_game` / `loses_game` itself.
+    /// Whether the gain list skips the last Province or Colony when taking it would end the game
+    /// with this player not winning. On unless a rule's condition uses `wins_game` / `loses_game`
+    /// itself.
     guard_game_end: bool,
     /// `[[play]]` rules in priority order.
     play: Vec<(CardId, Option<Expr>)>,
@@ -826,10 +826,13 @@ impl Strategy {
     }
 
     /// Gaining `card` would end the game this turn with me not among the winners (a shared win is
-    /// fine). Cheap: only the last card of a pile can end the game (`result_if_gained`).
+    /// fine). Only the last Province or Colony is checked (emptying a third pile is not, for now):
+    /// any other gain costs one comparison.
     #[inline]
     fn gain_loses(view: &PlayerView, card: CardId) -> bool {
-        matches!(view.result_if_gained(card), Some(w) if w & (1 << view.me()) == 0)
+        (card == id::PROVINCE || card == id::COLONY)
+            && view.supply(card) == 1
+            && matches!(view.result_if_gained(card), Some(w) if w & (1 << view.me()) == 0)
     }
 
     /// Whether the strategy's rules would ever buy `card` here: it's in the gain list with its

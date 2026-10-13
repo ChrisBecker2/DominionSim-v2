@@ -88,7 +88,15 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         75..=81 => (Var::VpLead, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
         82..=87 => (Var::CountActions, Op::Lt),
         88..=92 => (Var::TotalCards, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
-        _ => (Var::Count(pick(rng, &space.gainable)), if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
+        _ => {
+            let other = pick(rng, &space.gainable);
+            // An Event is never owned: "have I bought it" instead.
+            if cards::is_event(other) {
+                (Var::Bought(other), Op::Lt)
+            } else {
+                (Var::Count(other), if rng.chance(0.5) { Op::Lt } else { Op::Ge })
+            }
+        }
     };
     let (lo, hi) = var.range();
     // Small thresholds are far more common for counts and provinces.
@@ -218,10 +226,16 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
                 let old = rule.card;
                 rule.card = r.card;
                 rule.opt = r.opt;
-                // Conditions on the rule's own count follow the card.
+                // Conditions on the rule's own count follow the card (an Event's: whether it was
+                // bought, since an Event is never owned).
+                let own = |c: CardId| if cards::is_event(c) { Var::Bought(c) } else { Var::Count(c) };
                 for a in rule.conds.iter_mut() {
-                    if a.var == Var::Count(old) {
-                        a.var = Var::Count(r.card);
+                    if a.var == own(old) {
+                        a.var = own(r.card);
+                        if cards::is_event(r.card) {
+                            a.op = Op::Lt;
+                            a.n = 1;
+                        }
                     }
                 }
                 return "change card";
@@ -328,6 +342,36 @@ pub fn crossover(a: &Genome, b: &Genome, space: &SearchSpace, rng: &mut Rng) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn events_in_the_pool_never_get_an_owned_count() {
+        // An Event is never owned: `count(Event)` would read past the zone ids (it crashed the
+        // league on a Rising Sun kingdom). Mutants with Events in the pool must stay loadable.
+        let mut pool: Vec<CardId> = cards::kingdom_cards().take(40).collect();
+        pool.extend((0..cards::NUM_CARDS as CardId).filter(|&c| cards::is_event(c)));
+        let space = SearchSpace::new(&pool, &[]);
+        let mut rng = Rng::new(11);
+        let mut pop = templates(&space);
+        for step in 0..4000 {
+            let a = pop[rng.below(pop.len() as u32) as usize].clone();
+            let child = if step % 5 == 0 {
+                let b = &pop[rng.below(pop.len() as u32) as usize];
+                crossover(&a, b, &space, &mut rng)
+            } else {
+                let mut c = a;
+                mutate(&mut c, &space, &mut rng);
+                c
+            };
+            for r in child.gain.iter().chain(&child.play).chain(&child.trash) {
+                for at in &r.conds {
+                    assert!(!matches!(at.var, Var::Count(c) if cards::is_pseudo(c)), "{:?}", at);
+                }
+            }
+            let text = child.to_toml(&Default::default());
+            dominion_sim::Strategy::parse(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+            pop.push(child);
+        }
+    }
 
     #[test]
     fn mutants_are_always_valid_strategies_and_respect_the_space() {

@@ -421,12 +421,22 @@ fn start_run(state: &AppState, req: LabRequest) -> Result<(), (u16, String)> {
     }
     let run_state = state.run.clone();
     thread::spawn(move || {
-        let result = dominion_evolve::run(&cfg, &control, &mut |p: &Progress| {
-            if let Ok(mut g) = run_state.lock() {
-                g.progress = Some(p.clone());
-            }
+        // A panic inside the run (a bug) must end it with an error the page shows, not leave it
+        // "running" forever.
+        let progress_state = run_state.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dominion_evolve::run(&cfg, &control, &mut |p: &Progress| {
+                if let Ok(mut g) = progress_state.lock() {
+                    g.progress = Some(p.clone());
+                }
+            })
+        }))
+        .unwrap_or_else(|e| {
+            let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+            Err(format!("the run crashed (a bug): {msg}"))
         });
-        if let Ok(mut g) = run_state.lock() {
+        let mut g = run_state.lock().unwrap_or_else(|e| e.into_inner());
+        {
             match result {
                 Ok(p) => {
                     g.progress = Some(p);

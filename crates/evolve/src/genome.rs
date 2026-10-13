@@ -162,7 +162,7 @@ impl Var {
         let lower = s.to_ascii_lowercase();
         if let Some(inner) = lower.strip_prefix("count(").and_then(|r| r.strip_suffix(')')) {
             let inner_orig = &s[6..s.len() - 1];
-            return cards::by_name(inner_orig).map(Var::Count).or_else(|| (inner.trim() == "action").then_some(Var::CountActions));
+            return cards::by_name(inner_orig).filter(|&c| !cards::is_pseudo(c)).map(Var::Count).or_else(|| (inner.trim() == "action").then_some(Var::CountActions));
         }
         if let Some(inner) = lower.strip_prefix("bought(").and_then(|r| r.strip_suffix(')')) {
             let _ = inner;

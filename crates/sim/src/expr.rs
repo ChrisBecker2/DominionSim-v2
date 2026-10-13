@@ -581,9 +581,19 @@ impl<'a> Parser<'a> {
 }
 
 fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
+    // Events, Landmarks and Prophecies are never in a zone or a pile: they have no count, supply
+    // or mat lane (reading one would index past the zone ids).
+    let zone_card = |c: CardId, what: &str| {
+        if cards::is_pseudo(c) {
+            Err(format!("{arg:?} is not a card that can be {what} (an Event, Landmark or Prophecy), in condition {src:?}; for an Event use bought({arg})"))
+        } else {
+            Ok(c)
+        }
+    };
     match func.to_ascii_lowercase().as_str() {
         "count" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            let c = zone_card(c, "owned")?;
             // A split pile named as `Top/Bottom` counts both halves.
             if arg.contains('/') {
                 if let Some(b) = cards::split_bottom(c) {
@@ -618,11 +628,11 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
         }
         "supply" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
-            Ok(Expr::Supply(c))
+            Ok(Expr::Supply(zone_card(c, "in a pile")?))
         }
         "mat" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
-            Ok(Expr::Mat(c))
+            Ok(Expr::Mat(zone_card(c, "on a mat")?))
         }
         "bought" | "bought_turn" => {
             let e = cards::by_name(arg).filter(|&e| cards::is_event(e)).ok_or_else(|| format!("{arg:?} is not an Event, in condition {src:?}"))?;
@@ -664,6 +674,17 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
 mod tests {
     use super::*;
     use dominion_engine::{GameConfig, GameState};
+
+    #[test]
+    fn events_have_no_count_supply_or_mat() {
+        // They are never in a zone; reading their lane would index past the zone ids.
+        for src in ["count(Kintsugi) < 1", "supply(Ball) > 0", "mat(Biding Time) > 0"] {
+            let e = Expr::parse(src).unwrap_err();
+            assert!(e.contains("not a card"), "{src}: {e}");
+        }
+        assert!(Expr::parse("count(Kintsugi) < 1").unwrap_err().contains("bought(Kintsugi)"), "the error suggests bought()");
+        assert!(Expr::parse("bought(Kintsugi) < 1").is_ok());
+    }
 
     #[test]
     fn parses_and_evaluates() {

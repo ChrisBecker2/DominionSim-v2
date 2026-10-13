@@ -515,6 +515,8 @@
       if (p.states && p.states.length) panel.appendChild(el("div", "zone", "States: " + p.states.join(", ")));
       if (p.hounds) panel.appendChild(el("div", "zone", `Faithful Hounds set aside until the end of the turn: ${p.hounds}`));
       if (p.farmCards.length) panel.appendChild(zoneRow("Set aside by Farmhands", p.farmCards));
+      if (p.summonCards && p.summonCards.length) panel.appendChild(zoneRow("Set aside by Summon (played next turn)", p.summonCards));
+      if (p.churchCards && p.churchCards.length) panel.appendChild(zoneRow("Set aside by Church (face down)", p.churchCards));
       if (p.cleanupAside.length) panel.appendChild(zoneRow("Set aside until Clean-up", p.cleanupAside));
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 

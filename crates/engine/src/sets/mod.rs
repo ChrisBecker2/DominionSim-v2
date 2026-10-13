@@ -367,7 +367,8 @@ pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO |
     | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
     | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI | Empires::GAIN_HI | RisingSun::GAIN_HI;
-pub const GAIN_TOP: u128 = Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP | Hinterlands::GAIN_TOP;
+pub const GAIN_TOP: u128 =
+    Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP | Hinterlands::GAIN_TOP | Promo::GAIN_TOP;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -518,6 +519,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     }
     if g.in_supply.lo & Prosperity::GAIN_LO != 0 {
         Prosperity::gain_triggers(g, p, c, to, on_buy, sink);
+    }
+    // Promo: Marchland's +1 Buy and discard for $.
+    if g.in_supply.top & Promo::GAIN_TOP != 0 {
+        Promo::gain_triggers(g, p, c, to, on_buy, sink);
     }
     // Hinterlands: the card's own effect, the plays when gained, and the Trader's exchange (asked before the card's own effect, after Changeling's).
     if g.in_supply.top & Hinterlands::GAIN_TOP != 0 {

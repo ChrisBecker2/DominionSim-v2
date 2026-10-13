@@ -1,0 +1,33 @@
+# Summon + Big Money: one early Summon gains a Smithy (or the best Action costing up to $4 on the gain list) and plays it at the start
+# of the next turn without using an Action; the Smithy then keeps its place in the deck. Needs Summon (an Event, Promo) and Smithy.
+
+name = "Summon-BM"
+description = "Big Money with one Summon, which gains a Smithy."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Summon"
+if = "bought(Summon) < 1"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Smithy"
+if = "count(Smithy) < 2"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Smithy"

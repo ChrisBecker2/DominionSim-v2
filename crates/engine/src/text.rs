@@ -50,6 +50,10 @@
 //! `archive:` (the cards set aside under Archives) and `enchanted by:` (the seats whose Enchantress affects them) while nonzero, `donate: true`; the
 //! turn line adds `gains`, `silvers`, `groundskeepers`, `charms`, `acted` and `doubled` while nonzero.
 //!
+//! Promo (Governor, Dismantle, Church, Marchland, Summon): per player `summoned:` lists the Action cards set aside by Summon (played at the start of the
+//! next turn) and `church:` the cards each Church play set aside face down, one batch per play separated by `;` (`-` is an empty batch), oldest first
+//! (`church: Copper, 2 Gold; -`); each batch has a `Church (Church)` entry in `durations:`.
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -70,7 +74,7 @@ use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
     AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
-    ADV_MINUS_COIN, FARM_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
+    ADV_MINUS_COIN, FARM_CAP, SUMMON_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
 use crate::state::Phase;
@@ -206,6 +210,35 @@ fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
 /// Smugglers' gain record), erroring instead of overflowing if the file names more distinct
 /// cards than the cap allows: `SmallMultiset::add` would otherwise abort the whole process
 /// (`panic = "abort"` in the release profile) on a malformed or hand-edited file.
+fn counts_of(cards: &[CardId]) -> Counts {
+    let mut c = Counts::EMPTY;
+    for &card in cards {
+        c.add(card, 1);
+    }
+    c
+}
+
+/// Parse the `church:` line: batches separated by `;`, each a list of cards (or `-` for none), oldest first.
+fn parse_church(s: &str) -> Result<crate::state::ChurchBatches, String> {
+    let mut out = crate::state::ChurchBatches::EMPTY;
+    for part in s.split(';') {
+        let part = part.trim();
+        let counts = if part == "-" || part.is_empty() { Counts::EMPTY } else { parse_counts(part)? };
+        if counts.total() > 3 {
+            return Err("a Church batch holds at most 3 cards".to_string());
+        }
+        if !out.begin() {
+            return Err(format!("too many Church batches (max {})", crate::state::CHURCH_CAP));
+        }
+        for (c, n) in counts.iter() {
+            for _ in 0..n {
+                out.add(c);
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn parse_small_multiset<const N: usize>(s: &str, field: &str) -> Result<SmallMultiset<N>, String> {
     let counts = parse_counts(s)?;
     if counts.iter().count() > N {
@@ -590,6 +623,18 @@ pub fn format_state(state: &GameState) -> String {
         }
         if !ps.farm_cards.is_empty() {
             out.push_str(&format!("farmhands: {}\n", format_counts(&ps.farm_cards.counts())));
+        }
+        if !ps.summon_cards.is_empty() {
+            out.push_str(&format!("summoned: {}\n", format_counts(&ps.summon_cards.counts())));
+        }
+        if !ps.church.is_empty() {
+            let batches: Vec<String> = (0..ps.church.len())
+                .map(|i| {
+                    let (cards, n) = ps.church.batch(i);
+                    if n == 0 { "-".to_string() } else { format_counts(&counts_of(&cards[..n])) }
+                })
+                .collect();
+            out.push_str(&format!("church: {}\n", batches.join("; ")));
         }
         if !ps.cleanup_aside.is_empty() {
             out.push_str(&format!("cleanup aside: {}\n", format_counts(&ps.cleanup_aside.counts())));
@@ -1254,6 +1299,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 }
                 "coffers" => ps.coffers = val.parse().map_err(|_| format!("line {ln2}: invalid coffers '{val}'"))?,
                 "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
+                "summoned" => ps.summon_cards = parse_small_multiset::<SUMMON_CAP>(val, "summoned").map_err(|e| format!("line {ln2}: {e}"))?,
+                "church" => ps.church = parse_church(val).map_err(|e| format!("line {ln2}: {e}"))?,
                 "cleanup aside" => ps.cleanup_aside = parse_small_multiset::<2>(val, "cleanup aside").map_err(|e| format!("line {ln2}: {e}"))?,
                 "durations" => {
                     let list = parse_pending_durations(val).map_err(|e| format!("line {ln2}: {e}"))?;

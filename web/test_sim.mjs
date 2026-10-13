@@ -95,7 +95,8 @@ const cards = SS.deckSeries(r, 0.5, 12);
 check("some cards are shown, most-owned first", cards.length > 3 && cards.every((c, i) => i === 0 || cards[i - 1].peak >= c.peak));
 check("Copper is shown", cards.some((c) => c.name === "Copper"));
 const total = r.players.map((q) => q.count.map((c, i) => Object.values(q.owned).reduce((s, a) => s + (a[i] || 0), 0) / c));
-check("a seat owns at least its 10 starting cards, more every turn", total.every((t) => t[0] >= 10 && t.every((x, i) => i === 0 || x >= t[i - 1] - 1e-9)));
+// Late turns average only the few games still running, so their mean can dip: compare turns most games reach.
+check("a seat owns at least its 10 starting cards, more every turn", total.every((t, s) => t[0] >= 10 && t.every((x, i) => i === 0 || r.players[s].count[i] < 30 || x >= t[i - 1] - 1e-9)));
 check("Provinces owned equal Provinces bought (no gainers in this kingdom)", r.players.every((q) => q.owned.Province.every((x, i) => near(x, q.provCum[i]))));
 check("run with deck tracking has the same results otherwise", (() => {
   const a = SS.mergeSims([sim(100, 9, 2, 0)], 2), b = SS.mergeSims([sim(100, 9, 3, 0)], 2);

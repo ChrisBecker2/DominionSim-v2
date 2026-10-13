@@ -90,6 +90,12 @@ ids above `NUM_ZONE_IDS` so that no loop over zone ids ever visits them.
 * Cost: whole games 1.69M -> about 1.57M/s right after the widening, 1.59-1.63M with the full set. `GameState` about 20.7 KB (`PlayerState` 2720, `Counts` 384).
   The next set needs per-game compaction or a cached total in `Counts` first (sections 3-4).
 
+## 8. After the Promo cards (Governor, Dismantle, Church, Marchland, Summon)
+
+* Four kingdom cards took ids 354-357 (after Hinterlands; the Ruins and Knights are 358-373), so `NUM_ZONE_IDS` is 374 and **6 ids are spare** below the 380 bookkeeping limit. The Event Summon
+  is 407, after Windfall (the Landmarks follow it): `NUM_EVENTS` 34 (the `events` masks are `u64`, so 30 spare), `NUM_CARDS` 458. A set of ~6 more zone ids needs `LANES` 416 (see section 7).
+* Cost: BMU vs Double Witch 1.978M to 1.951M games/s (-1.4%, best of 12 interleaved); `GameState` 20 704 to 20 896 bytes (two per-player fields, `church` and `summon_cards`).
+
 ## 7. After the second speed pass (`Counts` bookkeeping, seats)
 
 * `Counts` keeps 4 bookkeeping lanes at the end (a bitmap of the 32-lane blocks that may hold a card, and the cached total), so card ids must be below `LANES - 4` = 380: 370 are used,

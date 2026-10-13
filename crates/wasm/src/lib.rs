@@ -2509,7 +2509,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
-            "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"cleanupAside\":{cleanup_aside},",
+            "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"summonCards\":{summon_cards},\"churchCards\":{church_cards},\"cleanupAside\":{cleanup_aside},",
             "\"tavern\":{tavern},\"tokens\":{tokens},\"journeyDown\":{journey},\"minusCard\":{mcard},\"minusCoin\":{mcoin},\"inherit\":{inherit},",
             "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
             "\"states\":{states},\"hounds\":{hounds},",
@@ -2555,6 +2555,12 @@ fn player_json(state: &GameState, p: usize) -> String {
         prince_cards = counts_json(&ps.prince_cards.counts()),
         coffers = ps.coffers,
         farm_cards = counts_json(&ps.farm_cards.counts()),
+        summon_cards = counts_json(&ps.summon_cards.counts()),
+        church_cards = {
+            let mut c = Counts::EMPTY;
+            ps.church.add_into(&mut c);
+            counts_json(&c)
+        },
         cleanup_aside = counts_json(&ps.cleanup_aside.counts()),
         debt = ps.debt,
         archive = counts_json(&ps.archive.counts()),

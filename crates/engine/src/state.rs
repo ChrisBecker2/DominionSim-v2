@@ -23,6 +23,10 @@ pub const PENDING_DURATIONS_CAP: usize = 12;
 pub const PRINCE_CAP: usize = 8;
 /// Max distinct cards a player's Farmhands hold set aside at once (`PlayerState::farm_cards`).
 pub const FARM_CAP: usize = 8;
+/// Max distinct cards a player's Summons hold set aside at once (`PlayerState::summon_cards`).
+pub const SUMMON_CAP: usize = 3;
+/// Max batches of cards Churches hold at once (`PlayerState::church`): one per Church play still waiting for the next turn.
+pub const CHURCH_CAP: usize = 4;
 /// Max start-of-turn effects pending at once (`TurnState::start_pending`): every pending
 /// Duration entry, one per Prince'd card, one per Farmhands-held card, and Clerk (one merged entry).
 pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_CAP + 1;
@@ -507,6 +511,109 @@ pub struct PendingDuration {
     pub used: u8,
 }
 
+/// The cards Church plays have set aside (`PlayerState::church`): one batch of up to three cards per play, oldest first. A batch is three
+/// 10-bit fields (card id + 1, 0 = empty) in a `u32`, kept sorted so that equal batches are equal values. Each live batch has a Church entry in
+/// the owner's pending Durations (or in the turn's start-of-turn list); the entries are resolved oldest first, taking the oldest batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct ChurchBatches {
+    batches: [u32; CHURCH_CAP],
+    len: u8,
+}
+
+impl ChurchBatches {
+    pub const EMPTY: ChurchBatches = ChurchBatches { batches: [0; CHURCH_CAP], len: 0 };
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    /// The number of batches (Church plays waiting).
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+    fn decode(b: u32) -> ([CardId; 3], usize) {
+        let mut out = [0; 3];
+        let mut n = 0;
+        for i in 0..3 {
+            let v = (b >> (10 * i)) & 1023;
+            if v != 0 {
+                out[n] = (v - 1) as CardId;
+                n += 1;
+            }
+        }
+        (out, n)
+    }
+    fn encode(cards: &[CardId]) -> u32 {
+        let mut v = [0u32; 3];
+        for (i, &c) in cards.iter().enumerate() {
+            v[i] = c as u32 + 1;
+        }
+        v.sort_unstable_by(|a, b| b.cmp(a));
+        v[0] | (v[1] << 10) | (v[2] << 20)
+    }
+    /// Start a new, empty batch; false (nothing done) when all the slots are in use.
+    pub fn begin(&mut self) -> bool {
+        if (self.len as usize) < CHURCH_CAP {
+            self.batches[self.len as usize] = 0;
+            self.len += 1;
+            true
+        } else {
+            false
+        }
+    }
+    /// Add `card` to the newest batch (at most three cards fit; a fourth is refused).
+    pub fn add(&mut self, card: CardId) -> bool {
+        if self.len == 0 {
+            return false;
+        }
+        let i = self.len as usize - 1;
+        let (mut cards, n) = Self::decode(self.batches[i]);
+        if n >= 3 {
+            return false;
+        }
+        cards[n] = card;
+        self.batches[i] = Self::encode(&cards[..n + 1]);
+        true
+    }
+    /// Remove the oldest batch and return its cards.
+    pub fn take_oldest(&mut self) -> ([CardId; 3], usize) {
+        if self.len == 0 {
+            return ([0; 3], 0);
+        }
+        let out = Self::decode(self.batches[0]);
+        for i in 1..self.len as usize {
+            self.batches[i - 1] = self.batches[i];
+        }
+        self.len -= 1;
+        self.batches[self.len as usize] = 0;
+        out
+    }
+    /// The cards of batch `i` (0 = oldest).
+    pub fn batch(&self, i: usize) -> ([CardId; 3], usize) {
+        Self::decode(self.batches[i])
+    }
+    /// Every card in every batch.
+    pub fn add_into(&self, c: &mut Counts) {
+        for i in 0..self.len as usize {
+            let (cards, n) = Self::decode(self.batches[i]);
+            for &card in &cards[..n] {
+                c.add(card, 1);
+            }
+        }
+    }
+    /// The number of cards in all the batches.
+    pub fn total(&self) -> usize {
+        (0..self.len as usize).map(|i| Self::decode(self.batches[i]).1).sum()
+    }
+    /// The number of cards in each batch (oldest first, the unused slots 0): `determinize` deals fresh hidden cards of these sizes.
+    pub fn sizes(&self) -> [u8; CHURCH_CAP] {
+        let mut out = [0; CHURCH_CAP];
+        for i in 0..self.len as usize {
+            out[i] = Self::decode(self.batches[i]).1 as u8;
+        }
+        out
+    }
+}
+
 /// The start-of-turn effects not yet resolved (`TurnState::start_pending`): a short fixed list.
 /// `PartialEq`/`Hash` look only at the live prefix, so stale slots never matter and the search's
 /// state hash (which walks `TurnState`) stays cheap.
@@ -632,6 +739,12 @@ pub struct PlayerState {
     /// a Farmhands, each played at the start of their next turn (`GameState::run_start_order`). Face
     /// up (public); they count as owned.
     pub farm_cards: SmallMultiset<FARM_CAP>,
+    /// Summon (Promo): the Action cards gained and set aside by this player's Summons, each played at the start of their next turn
+    /// (`GameState::run_start_order`). Face up (public); they count as owned.
+    pub summon_cards: SmallMultiset<SUMMON_CAP>,
+    /// Church (Promo): the cards each Church play set aside face down, one batch per play still waiting for the start of the next turn
+    /// (private to the owner; `determinize` pools them for the others). They count as owned.
+    pub church: ChurchBatches,
     /// Cards set aside until Clean-up, when they are discarded (Joust's Province: not in the hand,
     /// not in play, and not in `set_aside`, which other effects empty). Counts as owned.
     pub cleanup_aside: SmallMultiset<2>,
@@ -691,6 +804,8 @@ impl PlayerState {
         self.island_mat.add_into(&mut c);
         self.prince_cards.add_into(&mut c);
         self.farm_cards.add_into(&mut c);
+        self.summon_cards.add_into(&mut c);
+        self.church.add_into(&mut c);
         self.cleanup_aside.add_into(&mut c);
         self.tavern.add_into(&mut c);
         if self.saved != 0 {
@@ -1583,6 +1698,12 @@ pub enum Then {
     DevelopGain,
     /// Select (Trader, trash from the hand): gain a `card` per $1 the card trashed cost.
     GainPerCost { card: CardId },
+    /// Select (Church, `Act::SetAside`, up to 3 cards from the hand): each card as it is picked goes into the newest Church batch (`PlayerState::church`).
+    ChurchAside,
+    /// Select (Dismantle, trash a card from the hand): if it cost $1 or more, gain a cheaper card, then a Gold.
+    DismantleGain,
+    /// Select (a 0-pick frame under Summon's gain and its reactions): the card gained (`subject`) is set aside for the next turn if it is still where it was gained.
+    SummonAside,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span

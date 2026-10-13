@@ -849,6 +849,10 @@ impl Strategy {
         if choices.contains(&Choice::Pass) {
             return Choice::Pass;
         }
+        // Summon's Action is played free at the start of the next turn, like a Prince's: the most useful card.
+        if _decision.source == Some(id::SUMMON) {
+            return defaults::promo_summon_pick(choices);
+        }
         // Joust's Reward (a gain from outside the Supply) when the list names none of them.
         if let Some(r) = defaults::default_side_gain(choices) {
             return Choice::Card(r);

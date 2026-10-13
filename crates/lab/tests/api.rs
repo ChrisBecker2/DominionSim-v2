@@ -52,9 +52,9 @@ fn cards_lists_every_playable_kingdom_card_and_7_basic() {
     let (status, resp) = call(&state, "GET", "/api/cards", b"");
     assert_eq!(status, 200);
     let kingdom = resp["kingdom"].as_array().unwrap();
-    // The kingdom cards, then the 33 Events (Adventures, Empires) and the 21 Landmarks.
+    // The kingdom cards, then the 34 Events (Adventures, Empires, Summon) and the 21 Landmarks.
     assert_eq!(kingdom.len(), dominion_engine::cards::kingdom_cards().count() + dominion_engine::cards::NUM_EVENTS + dominion_engine::cards::NUM_LANDMARKS);
-    assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Event")).count(), 33);
+    assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Event")).count(), 34);
     assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Landmark")).count(), 21);
     assert_eq!(kingdom.iter().filter(|c| c["set"] == "Base").count(), 26);
     assert!(kingdom.iter().any(|c| c["name"] == "Bridge" && c["set"] == "Intrigue"));

@@ -224,6 +224,11 @@ pub(super) fn pick_boon(s: &Strategy, view: &PlayerView, decision: &Decision, ch
     nocturne::pick_boon(s, view, decision, choices)
 }
 
+/// The Action Summon gains when the gain list names none of the choices.
+pub(super) fn promo_summon_pick(choices: &[Choice]) -> Choice {
+    promo::captain_default_pick(choices)
+}
+
 pub(super) fn default_side_gain(choices: &[Choice]) -> Option<CardId> {
     base::Base::default_side_gain(choices)
         .or_else(|| intrigue::Intrigue::default_side_gain(choices))

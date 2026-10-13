@@ -103,6 +103,20 @@ impl<'a> PlayerView<'a> {
     pub fn farm_cards_of(&self, p: u8) -> Counts {
         self.state.players[p as usize].farm_cards.counts()
     }
+    /// The Action cards `p`'s Summons have set aside (public, face up): played at the start of their next turn.
+    pub fn summon_cards_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].summon_cards.counts()
+    }
+    /// The cards my Churches set aside face down (private to me).
+    pub fn church(&self) -> Counts {
+        let mut c = Counts::EMPTY;
+        self.state.players[self.me as usize].church.add_into(&mut c);
+        c
+    }
+    /// How many cards `p`'s Churches have set aside face down (public; only their owner sees which).
+    pub fn church_count_of(&self, p: u8) -> usize {
+        self.state.players[p as usize].church.total()
+    }
     /// Whether the rules let the current player buy `c` right now beyond cost and pile (Grand
     /// Market with a Copper in play).
     pub fn may_buy(&self, c: CardId) -> bool {
@@ -530,6 +544,10 @@ impl<'a> PlayerView<'a> {
             pool.add_all(&ps.native_village_mat.counts());
             let archive_size = ps.archive.total();
             ps.archive.add_into(&mut pool);
+            // Church (Promo): the cards set aside face down are as hidden as the hand they came from; only the sizes of the batches are public.
+            let church_sizes = ps.church.sizes();
+            let church_batches = ps.church.len();
+            ps.church.add_into(&mut pool);
             if ps.saved != 0 {
                 pool.add(ps.saved, 1);
             }
@@ -548,6 +566,16 @@ impl<'a> PlayerView<'a> {
                     ps.pending_durations[i].arg = c;
                 }
             }
+            let mut church = crate::state::ChurchBatches::EMPTY;
+            for i in 0..church_batches {
+                church.begin();
+                for _ in 0..church_sizes[i] {
+                    let c = pool.nth(rng.below(pool.total()));
+                    pool.remove(c);
+                    church.add(c);
+                }
+            }
+            ps.church = church;
             for i in 0..start_haven_slots.len() {
                 if start_haven_slots[i] {
                     let c = pool.nth(rng.below(pool.total()));

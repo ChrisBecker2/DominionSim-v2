@@ -28,7 +28,7 @@ fn gain0(g: &mut GameState, card: CardId) -> bool {
 
 #[test]
 fn the_set_has_35_kingdom_piles_and_the_other_cards() {
-    assert_eq!(cards::NUM_CARDS, 453);
+    assert_eq!(cards::NUM_CARDS, 458);
     assert_eq!(CardSet::ALL.len(), 13);
     assert_eq!(cards::set_by_name("Dark Ages"), Some(CardSet::DarkAges));
     assert_eq!(CardSet::DarkAges.name(), "Dark Ages");

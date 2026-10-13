@@ -128,7 +128,7 @@ fn the_ids_line_up() {
     assert!(cards::is_event(id::ADVANCE) && cards::is_event(id::WINDFALL) && cards::is_event(id::ALMS) && !cards::is_event(id::AQUEDUCT));
     assert!(cards::is_landmark(id::AQUEDUCT) && cards::is_landmark(id::WOLF_DEN) && !cards::is_landmark(id::WINDFALL));
     assert_eq!(id::TWICE_MISERABLE as usize + 1, cards::NUM_CARDS);
-    assert_eq!(cards::NUM_EVENTS, 33);
+    assert_eq!(cards::NUM_EVENTS, 34, "20 Adventures, 13 Empires and Summon");
     assert_eq!(cards::kingdom_cards_in(CardSet::Empires).count(), 24);
     assert_eq!(cards::kingdom_cards_in(CardSet::RisingSun).count(), 1);
     // Events and Landmarks are above every id that can sit in a zone.

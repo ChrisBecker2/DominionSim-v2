@@ -204,13 +204,12 @@ impl SetRules for Seaside {
         let times = e.times;
         match e.card {
             id::HAVEN | id::BLOCKADE => {
-                // Put the set-aside/gained card (arg) back into hand, if there was one.
-                if e.arg != 0 {
-                    let ps = &mut g.players[p as usize];
-                    if ps.set_aside.remove(e.arg) {
-                        ps.hand.add(e.arg, 1);
-                        sink.event(Event::Draw { player: p, card: e.arg });
-                    }
+                // Put the set-aside/gained card (arg) back into hand. Only scheduled when a card was
+                // set aside, so `arg` is always that card (Copper is id 0: no "0 = none" check).
+                let ps = &mut g.players[p as usize];
+                if ps.set_aside.remove(e.arg) {
+                    ps.hand.add(e.arg, 1);
+                    sink.event(Event::Draw { player: p, card: e.arg });
                 }
             }
             // Once per play: a Throne Room'd (or King's Court'd) card does it `times` times.

@@ -61,37 +61,37 @@ pub mod ids {
     pub const ZOMBIE_MASON: CardId = 326;
     pub const ZOMBIE_SPY: CardId = 327;
     // The Boons (pseudo-cards).
-    pub const THE_EARTHS_GIFT: CardId = 424;
-    pub const THE_FIELDS_GIFT: CardId = 425;
-    pub const THE_FLAMES_GIFT: CardId = 426;
-    pub const THE_FORESTS_GIFT: CardId = 427;
-    pub const THE_MOONS_GIFT: CardId = 428;
-    pub const THE_MOUNTAINS_GIFT: CardId = 429;
-    pub const THE_RIVERS_GIFT: CardId = 430;
-    pub const THE_SEAS_GIFT: CardId = 431;
-    pub const THE_SKYS_GIFT: CardId = 432;
-    pub const THE_SUNS_GIFT: CardId = 433;
-    pub const THE_SWAMPS_GIFT: CardId = 434;
-    pub const THE_WINDS_GIFT: CardId = 435;
+    pub const THE_EARTHS_GIFT: CardId = 429;
+    pub const THE_FIELDS_GIFT: CardId = 430;
+    pub const THE_FLAMES_GIFT: CardId = 431;
+    pub const THE_FORESTS_GIFT: CardId = 432;
+    pub const THE_MOONS_GIFT: CardId = 433;
+    pub const THE_MOUNTAINS_GIFT: CardId = 434;
+    pub const THE_RIVERS_GIFT: CardId = 435;
+    pub const THE_SEAS_GIFT: CardId = 436;
+    pub const THE_SKYS_GIFT: CardId = 437;
+    pub const THE_SUNS_GIFT: CardId = 438;
+    pub const THE_SWAMPS_GIFT: CardId = 439;
+    pub const THE_WINDS_GIFT: CardId = 440;
     // The Hexes.
-    pub const BAD_OMENS: CardId = 436;
-    pub const DELUSION: CardId = 437;
-    pub const ENVY: CardId = 438;
-    pub const FAMINE: CardId = 439;
-    pub const FEAR: CardId = 440;
-    pub const GREED: CardId = 441;
-    pub const HAUNTING: CardId = 442;
-    pub const LOCUSTS: CardId = 443;
-    pub const MISERY: CardId = 444;
-    pub const PLAGUE: CardId = 445;
-    pub const POVERTY: CardId = 446;
-    pub const WAR: CardId = 447;
+    pub const BAD_OMENS: CardId = 441;
+    pub const DELUSION: CardId = 442;
+    pub const ENVY: CardId = 443;
+    pub const FAMINE: CardId = 444;
+    pub const FEAR: CardId = 445;
+    pub const GREED: CardId = 446;
+    pub const HAUNTING: CardId = 447;
+    pub const LOCUSTS: CardId = 448;
+    pub const MISERY: CardId = 449;
+    pub const PLAGUE: CardId = 450;
+    pub const POVERTY: CardId = 451;
+    pub const WAR: CardId = 452;
     // The States.
-    pub const LOST_IN_THE_WOODS: CardId = 448;
-    pub const DELUDED: CardId = 449;
-    pub const ENVIOUS: CardId = 450;
-    pub const MISERABLE: CardId = 451;
-    pub const TWICE_MISERABLE: CardId = 452;
+    pub const LOST_IN_THE_WOODS: CardId = 453;
+    pub const DELUDED: CardId = 454;
+    pub const ENVIOUS: CardId = 455;
+    pub const MISERABLE: CardId = 456;
+    pub const TWICE_MISERABLE: CardId = 457;
 }
 
 /// A Boon, Hex or State: no types, no bonuses (what it does is `boon_effect` / `hex_effect` / the state flags); a pseudo-card that is never in a zone.

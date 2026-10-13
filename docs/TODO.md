@@ -11,6 +11,10 @@ Questions and known gaps to look at later. Not being worked on.
   resolve at a fixed point. Same question for any other "at the start of your turn" effect added since
   (Nocturne, Hinterlands). Wiki: "Start of turn" and the Farmhands FAQ.
 
+- **Church: which batch first.** Several Church plays make several batches; the wiki lets the player choose which batch
+  is put into the hand first. The batches come in the order they were set aside (the start-of-turn question names an
+  effect by its card, and all Churches are "Church"). See `docs/promo-plan.md` section 5.
+
 ## Bots
 
 - **The last Province with several buys.** The don't-lose guard checks each buy alone: "Duchy, then the

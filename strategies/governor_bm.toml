@@ -1,0 +1,30 @@
+# Governor + Big Money: the first Governors draw (+3 Cards, the others +1) or gain Gold (the others a Silver);
+# a Gold in hand is turned into a Province with the third option (the other players may trash a card and gain one
+# costing exactly $1 more). The mode rules say what each play does; without them the default is Gold, cards late.
+
+name = "Governor-BM"
+description = "Big Money with up to three Governors."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Governor"
+if = "count(Governor) < 3"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Governor"

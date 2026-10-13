@@ -364,6 +364,18 @@ fn haven_next_turn_returns_the_set_aside_card_to_hand() {
 }
 
 #[test]
+fn haven_returns_a_set_aside_copper() {
+    // Copper is card id 0: it must not be read as "nothing set aside".
+    let mut g = new_state(&[id::HAVEN], 2);
+    g.players[0].set_aside = counts_of(&[id::COPPER]);
+    inject_pending(&mut g, 0, id::HAVEN, 1, id::COPPER);
+    expect_decision(&mut g);
+    assert!(g.players[0].set_aside.is_empty(), "the Copper came back");
+    let ps = &g.players[0];
+    assert_eq!(ps.hand.get(id::COPPER) + ps.in_play.get(id::COPPER), 1, "in hand (or already played as a Treasure)");
+}
+
+#[test]
 fn haven_via_throne_room_sets_aside_two_different_cards() {
     // "2 cards" case: both resolutions have a card to set aside, so
     // Haven and Throne Room both stay in play, and two *different* cards end up set aside.

@@ -83,7 +83,7 @@ pub const FIRST_EVENT: CardId = id::ALMS;
 /// The number of Adventures Events.
 pub const NUM_ADV_EVENTS: usize = 20;
 /// The number of Events (Adventures, then Empires): `events` masks are indexed by `event - FIRST_EVENT`.
-pub const NUM_EVENTS: usize = 33;
+pub const NUM_EVENTS: usize = 34;
 /// The first of the 21 Landmarks (Empires), after the Events.
 pub const FIRST_LANDMARK: CardId = id::AQUEDUCT;
 pub const NUM_LANDMARKS: usize = 21;
@@ -675,6 +675,13 @@ pub enum ModeOpt {
     CardsActions(u8, u8),
     /// Weaver: gain a card costing up to $n.
     GainUpToCost(u8),
+    /// Governor: the chooser draws `.0` cards and every other player `.1`, in turn order starting with the chooser.
+    EachCards(u8, u8),
+    /// Governor: the chooser gains `.0` and every other player `.1` (from the Supply, in turn order starting with the chooser).
+    EachGain(CardId, CardId),
+    /// Governor: each player in turn order, starting with the chooser, may trash a card from the hand and gain one costing exactly
+    /// `.0` more (the chooser) or `.1` more (the others).
+    EachTrashGain(u8, u8),
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -817,6 +824,9 @@ impl ModeOpt {
             ModeOpt::NextGainDouble => "Next gain brings another card".to_string(),
             ModeOpt::CardsActions(n, a) => format!("+{n} Cards and +{a} Action{}", if a == 1 { "" } else { "s" }),
             ModeOpt::GainUpToCost(n) => format!("Gain a card costing up to ${n}"),
+            ModeOpt::EachCards(a, b) => format!("+{a} Cards (others +{b} Card{})", if b == 1 { "" } else { "s" }),
+            ModeOpt::EachGain(a, b) => format!("Gain a {} (others a {})", name(a), name(b)),
+            ModeOpt::EachTrashGain(a, b) => format!("Trash a card, gain one costing exactly ${a} more (others ${b} more)"),
         }
     }
 }
@@ -854,7 +864,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::FARMLAND;
+pub const LAST_KINGDOM: CardId = id::MARCHLAND;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -1053,7 +1063,7 @@ mod set_tests {
         assert_eq!(in_set(CardSet::Seaside), 27);
         assert_eq!(in_set(CardSet::Prosperity), 25);
         assert_eq!(in_set(CardSet::Alchemy), 11);
-        assert_eq!(in_set(CardSet::Promo), 5); // Prince, Walled Village, Envoy, Captain and the split pile Sauna/Avanto (Sauna stands for it)
+        assert_eq!(in_set(CardSet::Promo), 9); // Prince, Walled Village, Envoy, Captain, the split pile Sauna/Avanto (Sauna stands for it), Governor, Dismantle, Church and Marchland
         assert!(!is_kingdom(id::POTION) && is_optional_basic(id::POTION) && potion_cost(id::GOLEM) && !potion_cost(id::APPRENTICE));
         assert_eq!(cost_string(id::APOTHECARY), "$2P");
         assert!(!is_kingdom(id::PLATINUM) && !is_kingdom(id::COLONY) && is_optional_basic(id::COLONY));
@@ -1072,7 +1082,7 @@ mod set_tests {
         assert_eq!(kingdom_cards_in(CardSet::Seaside).count(), 27);
         assert_eq!(kingdom_cards_in(CardSet::Prosperity).count(), 25);
         assert_eq!(kingdom_cards_in(CardSet::Alchemy).count(), 11);
-        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 5);
+        assert_eq!(kingdom_cards_in(CardSet::Promo).count(), 9);
         assert_eq!(kingdom_cards_in(CardSet::Adventures).count(), 30);
         assert_eq!(in_set(CardSet::Adventures), 30);
     }

@@ -221,6 +221,8 @@ const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
     ("Triumph", At::End, &[Cond::ProvincesLeft(4)], None),
     ("Wedding", At::Silver, &[], None),
     ("Windfall", At::Gold, &[], None),
+    // Promo. Summon gains an Action costing up to $4 and plays it at the start of the next turn: like Lost Arts, one buy early, with a cheap Action to gain.
+    ("Summon", At::Gold, &[Cond::Bought(1)], None),
 ];
 
 fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {
@@ -249,9 +251,9 @@ pub fn big_money_plus_event(e: CardId, colonies: bool, actions: &[CardId]) -> Op
     let &(_, at, conds, token) = EVENT_HINTS.iter().find(|h| h.0 == name)?;
     let mut g = big_money_ultimate(colonies);
     let mut partner = None;
-    if token.is_some() || name == "Inheritance" {
-        // Seaway gains an Action costing up to $4 and Inheritance sets one aside: both need one that cheap.
-        let cap = if matches!(name, "Seaway" | "Inheritance") { 4 } else { 8 };
+    if token.is_some() || matches!(name, "Inheritance" | "Summon") {
+        // Seaway gains an Action costing up to $4, Inheritance sets one aside and Summon gains one: all need one that cheap.
+        let cap = if matches!(name, "Seaway" | "Inheritance" | "Summon") { 4 } else { 8 };
         let p = token_pile(actions, cap)?;
         insert_rules(&mut g, p, partner_rules(p));
         add_play(&mut g, p);
@@ -384,7 +386,7 @@ mod tests {
         use dominion_sim::{batch, Strategy};
         let adv = ["Alms", "Borrow", "Quest", "Save", "Scouting Party", "Travelling Fair", "Bonfire", "Expedition", "Ferry", "Plan", "Mission", "Pilgrimage",
             "Ball", "Raid", "Seaway", "Trade", "Lost Arts", "Training", "Inheritance", "Pathfinding"];
-        let emp = ["Advance", "Annex", "Banquet", "Conquest", "Delve", "Dominate", "Donate", "Ritual", "Salt the Earth", "Tax", "Triumph", "Wedding", "Windfall"];
+        let emp = ["Advance", "Annex", "Banquet", "Conquest", "Delve", "Dominate", "Donate", "Ritual", "Salt the Earth", "Tax", "Triumph", "Wedding", "Windfall", "Summon"];
         let base = baselines(&kingdom(&["Village", "Smithy", "Market", "Port", "Magpie"]), false, &[]);
         let bmu = Strategy::parse(&base[0].genome.to_toml(&Default::default())).unwrap();
         for e in adv.iter().chain(emp.iter()) {

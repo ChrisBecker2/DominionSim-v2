@@ -1,0 +1,29 @@
+# Dismantle + Big Money: Dismantle turns a Gold or a Silver into a cheaper card plus a Gold (an Estate
+# into a Copper and a Gold), so one early Dismantle pays for itself (a second is worse: it is a terminal that trashes whatever is in hand). Needs Dismantle (Promo).
+
+name = "Dismantle-BM"
+description = "Big Money with a single Dismantle."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Dismantle"
+if = "count(Dismantle) < 1"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Dismantle"

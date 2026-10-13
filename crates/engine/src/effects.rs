@@ -824,13 +824,13 @@ impl GameState {
                     let dc = cards::debt_cost(c);
                     let cost = self.cost(c);
                     // A card with Debt in its cost is never "up to" or "less than" an amount of $; an exact gain needs the same Debt (`min`, 0 for
-                    // an ordinary gain); Change (`more`) only compares the $.
+                    // an ordinary gain); a "less than" gain may have up to the Debt in `min` (Dismantle: the Debt of the card trashed, 0 otherwise); Change (`more`) only compares the $.
                     let cost_ok = if f.more {
                         cost > f.max
                     } else if f.exact {
                         (cost == f.max || (f.gf & crate::state::GF_BOTH != 0 && cost == f.max + 2)) && pc == f.potion && dc == f.min
                     } else if f.less {
-                        cost <= f.max && (f.potion || !pc) && dc == 0 && !(cost == f.max && pc == f.potion)
+                        cost <= f.max && (f.potion || !pc) && dc <= f.min && !(cost == f.max && pc == f.potion && dc == f.min)
                     } else {
                         cost <= f.max && (f.potion || !pc) && dc == 0
                     };
@@ -944,6 +944,10 @@ impl GameState {
                         depth: f.depth, subject: c, min: self.players[pi].discard.get(c) + 1,
                         ..select(p, f.source, Zone::Discard, Act::Topdeck, Filter::Any, 0, 0, Then::MoveSubjectIfPresent)
                     });
+                }
+                // Summon: the card is set aside for the next turn if it is still in the discard pile once the gain's reactions have run.
+                if f.then == Then::SummonAside {
+                    self.push_summon_guard(&f, c);
                 }
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
@@ -1063,6 +1067,8 @@ impl GameState {
                 match f.then {
                     // Gear: each card set aside returns at the start of the next turn.
                     Then::GearAside => self.push_duration_pending(p, f.source, 1, c),
+                    // Church: each card set aside goes into the newest batch, face down.
+                    Then::ChurchAside => self.church_add(p, c),
                     // Pilgrimage: a copy of each card picked.
                     Then::GainCopyEachPick => {
                         self.gain(p, c, Dest::Discard, false, f.source, sink);
@@ -1567,6 +1573,7 @@ impl GameState {
             | Then::WitchsHut
             | Then::DevelopGain
             | Then::GainPerCost { .. } => self.finish_hint_select(&f, sink),
+            Then::DismantleGain | Then::SummonAside => self.finish_promo_select(&f, sink),
             Then::DrawNPerPick(_)
             | Then::DrawActionsIfPicked { .. }
             | Then::ConclavePlay
@@ -1619,6 +1626,7 @@ impl GameState {
             | Then::GainCopyEachPick
             | Then::TokenOnGained { .. }
             | Then::GearAside
+            | Then::ChurchAside
             | Then::YesCoinsElseGainSubject(_)
             | Then::MoveMatchingToHand(_)
             | Then::MoveMatchingToDiscard(_)
@@ -1712,6 +1720,7 @@ impl GameState {
                 }
                 ModeOpt::GainUpToCost(n) => self.stack.push(gain_frame(p, f.source, n, Filter::Any, Dest::Discard)),
                 ModeOpt::CardsActions(n, _) => self.stack.push(draw_frame(p, f.source, n)),
+                ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => self.governor_frames(&f, table[i as usize]),
                 ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
                 | ModeOpt::BuysCoins(..)
@@ -1803,6 +1812,7 @@ impl GameState {
                 }
                 ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
                 ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
+                ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => {}
                 ModeOpt::Cards(_)
                 | ModeOpt::GainMany(..)
                 | ModeOpt::TopdeckFromHand(_)

@@ -56,26 +56,26 @@ pub mod ids {
     pub const DISCIPLE: CardId = 278;
     pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 370;
-    pub const BALL: CardId = 371;
-    pub const BONFIRE: CardId = 372;
-    pub const BORROW: CardId = 373;
-    pub const EXPEDITION: CardId = 374;
-    pub const FERRY: CardId = 375;
-    pub const INHERITANCE: CardId = 376;
-    pub const LOST_ARTS: CardId = 377;
-    pub const MISSION: CardId = 378;
-    pub const PATHFINDING: CardId = 379;
-    pub const PILGRIMAGE: CardId = 380;
-    pub const PLAN: CardId = 381;
-    pub const QUEST: CardId = 382;
-    pub const RAID: CardId = 383;
-    pub const SAVE: CardId = 384;
-    pub const SCOUTING_PARTY: CardId = 385;
-    pub const SEAWAY: CardId = 386;
-    pub const TRADE: CardId = 387;
-    pub const TRAINING: CardId = 388;
-    pub const TRAVELLING_FAIR: CardId = 389;
+    pub const ALMS: CardId = 374;
+    pub const BALL: CardId = 375;
+    pub const BONFIRE: CardId = 376;
+    pub const BORROW: CardId = 377;
+    pub const EXPEDITION: CardId = 378;
+    pub const FERRY: CardId = 379;
+    pub const INHERITANCE: CardId = 380;
+    pub const LOST_ARTS: CardId = 381;
+    pub const MISSION: CardId = 382;
+    pub const PATHFINDING: CardId = 383;
+    pub const PILGRIMAGE: CardId = 384;
+    pub const PLAN: CardId = 385;
+    pub const QUEST: CardId = 386;
+    pub const RAID: CardId = 387;
+    pub const SAVE: CardId = 388;
+    pub const SCOUTING_PARTY: CardId = 389;
+    pub const SEAWAY: CardId = 390;
+    pub const TRADE: CardId = 391;
+    pub const TRAINING: CardId = 392;
+    pub const TRAVELLING_FAIR: CardId = 393;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -560,6 +560,9 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
     if once_per_turn(e) && g.turn.adv.bought & bit != 0 {
         return false;
     }
+    if e == crate::sets::promo::ids::SUMMON {
+        return crate::sets::promo::event_available(g, e);
+    }
     if e >= crate::sets::empires::ids::ADVANCE {
         return crate::sets::empires::event_available(g, e);
     }
@@ -591,6 +594,9 @@ pub(crate) fn alms_window(g: &GameState) -> bool {
 /// What buying the Event `e` does, after its cost and Buy are paid.
 pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, sink: &mut S) {
     use Act::*;
+    if e == crate::sets::promo::ids::SUMMON {
+        return crate::sets::promo::event_effect(g, e, p, sink);
+    }
     if e >= crate::sets::empires::ids::ADVANCE {
         return crate::sets::empires::event_effect(g, e, p, sink);
     }

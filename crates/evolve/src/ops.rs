@@ -18,7 +18,8 @@ fn cond(var: Var, op: Op, n: i16) -> Atom {
 pub fn big_money() -> Genome {
     Genome {
         gain: vec![
-            Rule::new(id::PROVINCE),
+            // Not the last Province while behind: that would end the game in a loss.
+            Rule { card: id::PROVINCE, opt: 0, conds: vec![cond(Var::LosesGame, Op::Lt, 1)] },
             Rule { card: id::DUCHY, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 5)] },
             Rule::new(id::GOLD),
             Rule { card: id::ESTATE, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 3)] },
@@ -79,6 +80,8 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     let r = rng.below(100);
     let (var, op) = match r {
         0..=39 if cards::is_event(card) => (Var::Bought(card), Op::Lt),
+        // Province and Colony can end the game: "unless it loses the game".
+        0..=24 if card == id::PROVINCE || card == id::COLONY => (Var::LosesGame, Op::Lt),
         0..=39 if card >= cards::FIRST_KINGDOM || card == id::GOLD || card == id::SILVER => (Var::Count(card), Op::Lt),
         0..=39 | 40..=59 => (Var::ProvincesLeft, if rng.chance(0.7) { Op::Lt } else { Op::Ge }),
         60..=67 => (Var::Money, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
@@ -92,7 +95,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     // Small thresholds are far more common for counts and provinces.
     let n = match var {
         Var::Count(_) => 1 + rng.below(3) as i16,
-        Var::Bought(_) => 1 + rng.below(2) as i16,
+        Var::Bought(_) | Var::LosesGame => 1,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,
         _ => lo + rng.below((hi - lo + 1) as u32) as i16,
     };

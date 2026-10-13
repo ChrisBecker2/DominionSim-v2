@@ -30,6 +30,9 @@ pub enum Var {
     Bought(CardId),
     /// Debt tokens I have (Empires).
     Debt,
+    /// 1 if gaining this rule's card would end the game with me not winning (the last Province
+    /// while behind), else 0. `loses_game < 1` reads "unless it loses the game".
+    LosesGame,
 }
 
 /// `Lt` prints as `<` (`<=` for `provinces_left`/`empty_piles`, which read better that way);
@@ -125,6 +128,7 @@ impl Var {
             // 0 or 1 ("bought it this game"): the only threshold that changes anything is 1.
             Var::Bought(_) => (1, 1),
             Var::Debt => (1, 8),
+            Var::LosesGame => (1, 1),
         }
     }
 
@@ -149,6 +153,7 @@ impl Var {
             Var::EmptyPiles => "empty_piles".into(),
             Var::Bought(c) => format!("bought({})", cards::name(c)),
             Var::Debt => "debt".into(),
+            Var::LosesGame => "loses_game".into(),
         }
     }
 
@@ -175,6 +180,7 @@ impl Var {
             "total_cards" | "totalcards" => Var::TotalCards,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
             "debt" => Var::Debt,
+            "loses_game" | "losesgame" => Var::LosesGame,
             _ => return None,
         })
     }
@@ -553,6 +559,16 @@ mod tests {
         assert!(text.contains("[[token]]\ntoken = \"+$1\"\npile = \"Smithy\"\nif = \"my_turn >= 4\""), "{text}");
         assert!(text.contains("[[call]]\ncard = \"Wine Merchant\"\n"), "{text}");
         assert!(text.contains("[[debt]]\npay = \"keep1\"\nif = \"debt >= 3\""), "{text}");
+    }
+
+    #[test]
+    fn loses_game_round_trips_and_loads() {
+        let a = Atom::parse("loses_game < 1").unwrap();
+        assert_eq!(a, Atom { var: Var::LosesGame, op: Op::Lt, n: 1 });
+        assert_eq!(a.text(), "loses_game < 1");
+        let g = crate::ops::big_money();
+        assert!(g.gain[0].card == id::PROVINCE && g.gain[0].conds == vec![a], "the Big Money template guards the last Province");
+        dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
     }
 
     #[test]

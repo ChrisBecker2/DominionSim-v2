@@ -50,3 +50,28 @@ fn snake_witch_and_gold_mine_decisions() {
     g.legal_choices(&mut buf);
     assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Yes, "a Gold for 4 Debt early in the game");
 }
+
+#[test]
+fn the_searching_bot_curses_with_kitsune() {
+    // Kitsune's "choose two": the turn search used to value only its own deck, so a Silver beat
+    // handing out a Curse. A Curse given is worth more than a Silver gained.
+    let strat = load("kitsune_bm.toml");
+    assert!(strat.search_play, "the full (searching) bot");
+    let text = "players: 2\nkingdom: Kitsune, Smithy, Village, Market, Militia, Moat, Cellar, Workshop, Remodel, Mine\n\
+                turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: Kitsune, Copper, Copper, Estate, Estate\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    let mut buf = ChoiceBuf::default();
+    while g.turn.player == 0 && g.turn.number == 3 {
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            _ => break,
+        };
+        if d.player != 0 || matches!(d.kind, dominion_engine::DecisionKind::Buy) {
+            break;
+        }
+        g.legal_choices(&mut buf);
+        let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+    assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "player 2 got a Curse");
+}

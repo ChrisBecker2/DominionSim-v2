@@ -221,6 +221,20 @@ impl Evaluator for GainListEvaluator<'_> {
                 };
             }
         }
+        // Curses handed to the other players this turn (Kitsune's option, a chosen attack): each is
+        // worth one and a half Silvers in the gain list, more than a Silver for me and less than
+        // the next listed card. Witch-style attacks give theirs anyway; this decides the optional ones.
+        if leaf.turn.player == me {
+            let mut given = 0i32;
+            for o in 0..leaf.num_players {
+                if o != me {
+                    given += leaf.players[o as usize].all_cards().get(id::CURSE) as i32 - root.players[o as usize].all_cards().get(id::CURSE) as i32;
+                }
+            }
+            if given > 0 {
+                v += given as f64 * 1.5 * self.weight(&view, id::SILVER).max(1000.0);
+            }
+        }
         // Events bought this turn: each is worth its place in the gain list, like a card gained (its effects are counted above as gains and
         // trashes, or are later turns' and have no other value here).
         if leaf.turn.number == root.turn.number {

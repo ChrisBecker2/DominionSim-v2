@@ -210,8 +210,8 @@ fn the_set_has_all_its_cards() {
     assert_eq!(CardSet::ALL.len(), 13);
     assert_eq!(cards::set_by_name("Nocturne"), Some(CardSet::Nocturne));
     assert_eq!(cards::kingdom_cards_in(CardSet::Nocturne).count(), 33);
-    assert_eq!(cards::NUM_CARDS, 458);
-    assert_eq!(cards::NUM_ZONE_IDS, 374);
+    assert_eq!(cards::NUM_CARDS, 507);
+    assert_eq!(cards::NUM_ZONE_IDS, 398);
     assert!(cards::is_boon(id::THE_EARTHS_GIFT) && cards::is_boon(id::THE_WINDS_GIFT) && !cards::is_boon(id::BAD_OMENS));
     assert!(cards::is_hex(id::BAD_OMENS) && cards::is_hex(id::WAR) && !cards::is_hex(id::LOST_IN_THE_WOODS));
     assert!(cards::is_state(id::LOST_IN_THE_WOODS) && cards::is_state(id::TWICE_MISERABLE));

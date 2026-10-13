@@ -234,6 +234,77 @@ impl<'a> PlayerView<'a> {
         crate::cards::is_event(e) && crate::sets::adventures::event_available(self.state, e)
     }
 
+    // --- Rising Sun ---
+    /// The Buys the turn's player can use: the Buys, and under Flourishing Trade the Actions too.
+    pub fn buys_left(&self) -> u16 {
+        self.state.buys_left()
+    }
+    /// The Prophecy of the game (a pseudo-card id), 0 when there is none.
+    pub fn prophecy(&self) -> CardId {
+        self.state.rs.prophecy
+    }
+    /// Whether the Prophecy has happened (the last Sun token is gone): its rule applies to everyone for the rest of the game.
+    pub fn prophecy_active(&self) -> bool {
+        self.state.rs.active != 0
+    }
+    /// Whether the Prophecy `p` is in effect now.
+    pub fn prophecy_in_effect(&self, p: CardId) -> bool {
+        self.state.rs.active == p && p != 0
+    }
+    /// The Sun tokens left on the Prophecy (0 once it has happened, or with none).
+    pub fn sun_tokens(&self) -> u8 {
+        self.state.rs.suns
+    }
+    /// The card Riverboat sets aside (0 with no Riverboat in the game): public.
+    pub fn riverboat_card(&self) -> CardId {
+        self.state.rs.riverboat
+    }
+    /// What `p`'s Prophecy has set aside (Rapid Expansion's cards, face up: public) or, with Biding Time, `p`'s set-aside hand (face down: only my own
+    /// is known, for the others an empty set; see `aside_count_of`).
+    pub fn aside_of(&self, p: u8) -> Counts {
+        if self.state.rs.active == crate::cards::id::BIDING_TIME && p != self.me {
+            Counts::EMPTY
+        } else {
+            self.state.players[p as usize].aside.counts()
+        }
+    }
+    /// How many cards `p`'s Prophecy has set aside (public).
+    pub fn aside_count_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].aside.total()
+    }
+    /// The cards Foresight has set aside for `p` until the end of the turn (face up, public).
+    pub fn foresight_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].foresight.counts()
+    }
+    /// The Shadow cards in my deck, which I can play from there (whether or not a copy is in my hand too).
+    pub fn shadows_in_deck(&self) -> Counts {
+        let mut out = Counts::EMPTY;
+        if self.state.rs.flags & crate::state::R_SHADOW != 0 {
+            for &s in &crate::sets::rising_sun::SHADOWS {
+                if self.state.players[self.me as usize].deck_has(s) {
+                    out.add(s, 1);
+                }
+            }
+        }
+        out
+    }
+    /// Whether I have gained a Gold this game (Kintsugi; only recorded in a game with Kintsugi).
+    pub fn gained_a_gold(&self) -> bool {
+        self.state.players[self.me as usize].rs & crate::state::P_RS_GOLD != 0
+    }
+    /// The cards the turn's player has gained this turn (only counted in a game with Receive Tribute).
+    pub fn rs_gains_this_turn(&self) -> u8 {
+        self.state.turn.rs.gains
+    }
+    /// Whether `c` is an Action right now (a Treasure too, under Enlightenment).
+    pub fn is_action(&self, c: CardId) -> bool {
+        self.state.is_action(c)
+    }
+    /// How many Action cards `p` has in play (Treasures too, under Enlightenment).
+    pub fn actions_in_play_of(&self, p: u8) -> u8 {
+        self.state.actions_in_play(p)
+    }
+
     // --- Nocturne ---
     /// Whether this game has Boons (a Fate card is in the kingdom) / Hexes (a Doom card is).
     pub fn has_boons(&self) -> bool {
@@ -542,6 +613,11 @@ impl<'a> PlayerView<'a> {
             // none of the three poolings sample from each other's cards.
             let nv_mat_size = ps.native_village_mat.total();
             pool.add_all(&ps.native_village_mat.counts());
+            // Biding Time (Rising Sun): the hand set aside face down is as hidden as the hand it came from.
+            let biding_size = if s.rs.active == crate::cards::id::BIDING_TIME { ps.aside.total() } else { 0 };
+            if biding_size > 0 {
+                ps.aside.add_into(&mut pool);
+            }
             let archive_size = ps.archive.total();
             ps.archive.add_into(&mut pool);
             // Church (Promo): the cards set aside face down are as hidden as the hand they came from; only the sizes of the batches are public.
@@ -589,6 +665,14 @@ impl<'a> PlayerView<'a> {
                 let c = pool.nth(rng.below(pool.total()));
                 pool.remove(c);
                 ps.saved = c;
+            }
+            if biding_size > 0 {
+                ps.aside.clear();
+                for _ in 0..biding_size {
+                    let c = pool.nth(rng.below(pool.total()));
+                    pool.remove(c);
+                    ps.aside.add(c, 1);
+                }
             }
             ps.native_village_mat.clear();
             for _ in 0..nv_mat_size {

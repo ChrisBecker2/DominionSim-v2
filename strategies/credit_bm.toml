@@ -1,0 +1,25 @@
+# Credit Big Money: Credit (an Event for $2) gains a Gold for 6 Debt early on, then Big Money Ultimate.
+
+name = "Credit BM"
+description = "Big Money Ultimate that takes out one Credit early."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Credit"
+if = "bought(Credit) < 1 and my_turn <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

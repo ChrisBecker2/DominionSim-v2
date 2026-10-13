@@ -58,6 +58,10 @@ pub const SPIRIT: u32 = 1 << 19;
 pub const ZOMBIE: u32 = 1 << 20;
 /// Heirlooms (Nocturne): they replace a starting Copper when their kingdom card is in the game.
 pub const HEIRLOOM: u32 = 1 << 21;
+/// Omens (Rising Sun): playing one removes a Sun token from the Prophecy of the game.
+pub const OMEN: u32 = 1 << 22;
+/// Shadows (Rising Sun): put on the bottom of the deck when shuffled, and playable from the deck as if in the hand.
+pub const SHADOW: u32 = 1 << 23;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
@@ -77,16 +81,19 @@ pub mod id {
 }
 
 /// The first of the Events (pseudo-cards: ids for things that are bought but never gained, see `sets::adventures`). The Events are the 20
-/// of Adventures, then the 13 of Empires, and every id from here up (Events, then the Landmarks) is a pseudo-card: never in a zone, a pile
-/// or a supply mask, so `Counts` needs no lane for it.
+/// of Adventures, then the 13 of Empires, Summon and the 10 of Rising Sun, and every id from here up (Events, then the Landmarks) is a
+/// pseudo-card: never in a zone, a pile or a supply mask, so `Counts` needs no lane for it.
 pub const FIRST_EVENT: CardId = id::ALMS;
 /// The number of Adventures Events.
 pub const NUM_ADV_EVENTS: usize = 20;
 /// The number of Events (Adventures, then Empires): `events` masks are indexed by `event - FIRST_EVENT`.
-pub const NUM_EVENTS: usize = 34;
+pub const NUM_EVENTS: usize = 44;
 /// The first of the 21 Landmarks (Empires), after the Events.
 pub const FIRST_LANDMARK: CardId = id::AQUEDUCT;
 pub const NUM_LANDMARKS: usize = 21;
+/// The first of the 15 Prophecies (Rising Sun), the highest ids: pseudo-cards like the Landmarks, one of which is in a game with an Omen.
+pub const FIRST_PROPHECY: CardId = id::APPROACHING_ARMY;
+pub const NUM_PROPHECIES: usize = 15;
 /// Ids below this can be in a zone (a hand, a pile, the trash); the pseudo-cards (Events, Landmarks) are above it. `counts::LANES` covers them.
 pub const NUM_ZONE_IDS: usize = FIRST_EVENT as usize;
 /// The first of the eight Traveller upgrade cards (Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive, Disciple, Teacher): non-Supply
@@ -168,7 +175,13 @@ pub fn is_landmark(card: CardId) -> bool {
     card.wrapping_sub(FIRST_LANDMARK) < NUM_LANDMARKS as CardId
 }
 
-/// Whether `card` is a pseudo-card (an Event or a Landmark): it has an id, a name and a cost but never sits in a zone.
+/// Whether `card` is one of the 15 Prophecies (Rising Sun): not a card at all, a rule that takes effect once the Sun tokens on it are gone.
+#[inline(always)]
+pub fn is_prophecy(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_PROPHECY) < NUM_PROPHECIES as CardId
+}
+
+/// Whether `card` is a pseudo-card (an Event, a Landmark, a Boon, Hex, State or Prophecy): it has an id, a name and a cost but never sits in a zone.
 #[inline(always)]
 pub fn is_pseudo(card: CardId) -> bool {
     card >= FIRST_EVENT
@@ -267,7 +280,7 @@ pub enum CardSet {
     Adventures,
     /// Empires (Debt, split piles and the Castles, Gathering cards, Events, Landmarks).
     Empires,
-    /// Rising Sun: only Change, the card that needs Debt (see `sets::rising_sun`).
+    /// Rising Sun (Omens and Prophecies, Shadows, Sun tokens, on-play Debt; see `sets::rising_sun`).
     RisingSun,
     /// Nocturne (the Night phase, Boons, Hexes and States, Heirlooms, the Spirits and the Zombies).
     Nocturne,
@@ -512,9 +525,9 @@ pub fn cost(card: CardId) -> u8 {
 /// purchases are the bits of `in_supply & masks.le[coins]` that have a pile left, not a walk over every pile.
 pub struct BuyMasks {
     /// `le[k]`: the cards whose printed cost is at most `k` coins (`k` capped at the last entry: no card costs more).
-    pub le: Vec<[u128; 3]>,
+    pub le: Vec<[u128; 4]>,
     /// The cards whose cost has no Potion.
-    pub no_potion: [u128; 3],
+    pub no_potion: [u128; 4],
 }
 
 /// `BuyMasks`, built on first use.
@@ -522,8 +535,8 @@ pub fn buy_masks() -> &'static BuyMasks {
     static MASKS: std::sync::OnceLock<BuyMasks> = std::sync::OnceLock::new();
     MASKS.get_or_init(|| {
         let max_cost = (0..NUM_ZONE_IDS as CardId).map(cost).max().unwrap_or(0) as usize;
-        let mut le = vec![[0u128; 3]; max_cost + 1];
-        let mut no_potion = [0u128; 3];
+        let mut le = vec![[0u128; 4]; max_cost + 1];
+        let mut no_potion = [0u128; 4];
         for c in 0..NUM_ZONE_IDS as CardId {
             let (w, b) = (c as usize / 128, c as usize % 128);
             for m in &mut le[cost(c) as usize..] {
@@ -679,6 +692,8 @@ pub enum ModeOpt {
     EachCards(u8, u8),
     /// Governor: the chooser gains `.0` and every other player `.1` (from the Supply, in turn order starting with the chooser).
     EachGain(CardId, CardId),
+    /// Kitsune: each other player (not protected from the Attack) gains a Curse.
+    CurseOthers,
     /// Governor: each player in turn order, starting with the chooser, may trash a card from the hand and gain one costing exactly
     /// `.0` more (the chooser) or `.1` more (the others).
     EachTrashGain(u8, u8),
@@ -827,6 +842,7 @@ impl ModeOpt {
             ModeOpt::EachCards(a, b) => format!("+{a} Cards (others +{b} Card{})", if b == 1 { "" } else { "s" }),
             ModeOpt::EachGain(a, b) => format!("Gain a {} (others a {})", name(a), name(b)),
             ModeOpt::EachTrashGain(a, b) => format!("Trash a card, gain one costing exactly ${a} more (others ${b} more)"),
+            ModeOpt::CurseOthers => "Each other player gains a Curse".to_string(),
         }
     }
 }
@@ -864,7 +880,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::MARCHLAND;
+pub const LAST_KINGDOM: CardId = id::RICE;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -984,7 +1000,25 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
     if sets.iter().any(|&s| pseudo_cards_of(s).next().is_some()) {
         add_random_events(&mut out, sets, rng);
     }
+    add_random_prophecy(&mut out, sets, rng);
     out
+}
+
+/// Rising Sun's set-up rule: a game with an Omen among its kingdom cards gets one Prophecy, dealt at random (appended to `kingdom` with the
+/// Events). When it is Approaching Army, an Attack kingdom card pile is added to the Supply as well (a card of `sets` that is not in the
+/// kingdom yet; the rule adds it even if the kingdom already has an Attack). A kingdom that already names a Prophecy is left alone.
+pub fn add_random_prophecy(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mut Rng) {
+    if !kingdom.iter().any(|&c| is(c, OMEN)) || kingdom.iter().any(|&c| is_prophecy(c)) {
+        return;
+    }
+    let prophecy = FIRST_PROPHECY + rng.below(NUM_PROPHECIES as u32) as CardId;
+    kingdom.push(prophecy);
+    if prophecy == id::APPROACHING_ARMY {
+        let pool: Vec<CardId> = kingdom_cards().filter(|c| sets.contains(&set_of(*c)) && is(*c, ATTACK) && !kingdom.contains(c)).collect();
+        if !pool.is_empty() {
+            kingdom.push(pool[rng.below(pool.len() as u32) as usize]);
+        }
+    }
 }
 
 /// The Events and Landmarks of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks).

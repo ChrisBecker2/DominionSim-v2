@@ -484,6 +484,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     Prosperity::turn_start_entries(g);
     Adventures::turn_start_entries(g);
     Nocturne::turn_start_entries(g);
+    RisingSun::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
@@ -550,5 +551,6 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Adventures::offers_on_discard(g);
     Hinterlands::offers_on_discard(g);
     Promo::offers_at_cleanup(g);
+    RisingSun::offers_at_cleanup(g);
     Alchemy::offers_at_cleanup(g);
 }

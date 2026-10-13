@@ -1,0 +1,28 @@
+# Imperial Envoy Big Money: up to two Imperial Envoys (+5 Cards, +1 Buy, 2 Debt) on top of Big Money Ultimate. The Debt is paid off with the $ of the next hand.
+
+name = "Imperial Envoy BM"
+description = "Big Money Ultimate with up to two Imperial Envoys (terminal +5 Cards +1 Buy for 2 Debt)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Imperial Envoy"
+if = "count(Imperial Envoy) < 2"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Imperial Envoy"

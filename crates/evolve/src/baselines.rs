@@ -223,6 +223,18 @@ const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
     ("Windfall", At::Gold, &[], None),
     // Promo. Summon gains an Action costing up to $4 and plays it at the start of the next turn: like Lost Arts, one buy early, with a cheap Action to gain.
     ("Summon", At::Gold, &[Cond::Bought(1)], None),
+    // Rising Sun. Credit is a Gold (or a Market...) for the Debt of its cost, Continue ($0 and 8 Debt) a play of a cheap Action after the buys: both once.
+    // Gather is three gains for $7, the rest are small effects that need something in hand or in play and are bought with the $ left over.
+    ("Amass", At::End, &[], None),
+    ("Asceticism", At::End, &[Cond::Bought(1)], None),
+    ("Continue", At::End, &[Cond::Bought(1)], None),
+    ("Credit", At::End, &[Cond::Bought(1)], None),
+    ("Foresight", At::End, &[], None),
+    ("Gather", At::Gold, &[], None),
+    ("Kintsugi", At::End, &[], None),
+    ("Practice", At::End, &[], None),
+    ("Receive Tribute", At::End, &[], None),
+    ("Sea Trade", At::End, &[], None),
 ];
 
 fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {

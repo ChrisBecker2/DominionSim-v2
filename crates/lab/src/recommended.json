@@ -505,6 +505,28 @@
   "shelters": false
  },
  {
+  "name": "Money to Burn",
+  "set": "Base",
+  "cards": [
+   "Bureaucrat",
+   "Cellar",
+   "Festival",
+   "Merchant",
+   "Poacher",
+   "Change",
+   "Craftsman",
+   "Poet",
+   "Ronin",
+   "Snake Witch"
+  ],
+  "extras": [
+   "Gather",
+   "Panic"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "First Game",
   "set": "Base",
   "cards": [
@@ -1737,6 +1759,28 @@
   "shelters": false
  },
  {
+  "name": "Cold Calculation",
+  "set": "Intrigue",
+  "cards": [
+   "Baron",
+   "Diplomat",
+   "Duke",
+   "Secret Passage",
+   "Shanty Town",
+   "Craftsman",
+   "Ninja",
+   "Snake Witch",
+   "Tanuki",
+   "Tea House"
+  ],
+  "extras": [
+   "Amass",
+   "Harsh Winter"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Victory Dance",
   "set": "Intrigue",
   "cards": [
@@ -2760,6 +2804,28 @@
   "shelters": false
  },
  {
+  "name": "Island People",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Haven",
+   "Pirate",
+   "Sea Witch",
+   "Tide Pools",
+   "Craftsman",
+   "Imperial Envoy",
+   "Rice",
+   "River Shrine",
+   "Snake Witch"
+  ],
+  "extras": [
+   "Kintsugi",
+   "Great Leader"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "High Seas",
   "set": "Seaside",
   "cards": [
@@ -3770,6 +3836,28 @@
   "shelters": false
  },
  {
+  "name": "Autumn Harvest",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "Investment",
+   "Magnate",
+   "Quarry",
+   "Watchtower",
+   "Aristocrat",
+   "Change",
+   "Imperial Envoy",
+   "Ninja",
+   "Rustic Village"
+  ],
+  "extras": [
+   "Continue",
+   "Good Harvest"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
   "name": "Beginners",
   "set": "Prosperity",
   "cards": [
@@ -4739,6 +4827,28 @@
   "shelters": false
  },
  {
+  "name": "Lazy Mischief",
+  "set": "Alchemy",
+  "cards": [
+   "Apothecary",
+   "Familiar",
+   "Herbalist",
+   "Transmute",
+   "Alley",
+   "Aristocrat",
+   "Change",
+   "Kitsune",
+   "Litter",
+   "Ninja"
+  ],
+  "extras": [
+   "Receive Tribute",
+   "Biding Time"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Forbidden Arts",
   "set": "Alchemy",
   "cards": [
@@ -5234,6 +5344,49 @@
    "Shepherd"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Winter Solstice",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Advisor",
+   "Baker",
+   "Farrier",
+   "Hunting Party",
+   "Jester",
+   "Change",
+   "Daimyo",
+   "Gold Mine",
+   "Snake Witch",
+   "Tea House"
+  ],
+  "extras": [
+   "Harsh Winter"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "From the Shadows",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Carnival",
+   "Farmhands",
+   "Horn of Plenty",
+   "Infirmary",
+   "Shop",
+   "Alley",
+   "Artist",
+   "Fishmonger",
+   "Poet",
+   "Tanuki"
+  ],
+  "extras": [
+   "Gather",
+   "Rapid Expansion"
+  ],
   "colony": false,
   "shelters": false
  },
@@ -6652,6 +6805,27 @@
   "shelters": true
  },
  {
+  "name": "Pandemic",
+  "set": "Dark Ages",
+  "cards": [
+   "Catacombs",
+   "Procession",
+   "Rogue",
+   "Scavenger",
+   "Vagrant",
+   "Aristocrat",
+   "Fishmonger",
+   "Litter",
+   "Mountain Shrine",
+   "Rice Broker"
+  ],
+  "extras": [
+   "Sickness"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
   "name": "High and Low",
   "set": "Dark Ages",
   "cards": [
@@ -7348,6 +7522,50 @@
   "extras": [
    "Mission",
    "Toil"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Wanderers",
+  "set": "Adventures",
+  "cards": [
+   "Amulet",
+   "Caravan Guard",
+   "Guide",
+   "Hireling",
+   "Miser",
+   "Imperial Envoy",
+   "Litter",
+   "Poet",
+   "Ronin",
+   "Tanuki"
+  ],
+  "extras": [
+   "Ball",
+   "Flourishing Trade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Hero's Journey",
+  "set": "Adventures",
+  "cards": [
+   "Artificer",
+   "Distant Lands",
+   "Dungeon",
+   "Duplicate",
+   "Page",
+   "Aristocrat",
+   "Artist",
+   "Kitsune",
+   "Root Cellar",
+   "Samurai"
+  ],
+  "extras": [
+   "Kintsugi",
+   "Biding Time"
   ],
   "colony": false,
   "shelters": false
@@ -8114,6 +8332,50 @@
   "shelters": false
  },
  {
+  "name": "Summer Castles",
+  "set": "Empires",
+  "cards": [
+   "Capital",
+   "Castles",
+   "City Quarter",
+   "Forum",
+   "Patrician/Emporium",
+   "Aristocrat",
+   "Change",
+   "Rice",
+   "River Shrine",
+   "Snake Witch"
+  ],
+  "extras": [
+   "Museum",
+   "Kind Emperor"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Swept Clean",
+  "set": "Empires",
+  "cards": [
+   "Chariot Race",
+   "Charm",
+   "Crown",
+   "Overlord",
+   "Temple",
+   "Artist",
+   "Kitsune",
+   "Mountain Shrine",
+   "Rice Broker",
+   "Root Cellar"
+  ],
+  "extras": [
+   "Sea Trade",
+   "Divine Wind"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Boxed In",
   "set": "Empires",
   "cards": [
@@ -8678,6 +8940,49 @@
   "shelters": false
  },
  {
+  "name": "Priceless Rice",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Cursed Village",
+   "Devil's Workshop",
+   "Faithful Hound",
+   "Shepherd",
+   "Alley",
+   "Daimyo",
+   "Rice",
+   "Samurai",
+   "Tea House"
+  ],
+  "extras": [
+   "Growth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dark Corners",
+  "set": "Nocturne",
+  "cards": [
+   "Changeling",
+   "Conclave",
+   "Sacred Grove",
+   "Skulk",
+   "Werewolf",
+   "Artist",
+   "Gold Mine",
+   "Litter",
+   "River Shrine",
+   "Tanuki"
+  ],
+  "extras": [
+   "Amass",
+   "Sickness"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "The New Black",
   "set": "Nocturne",
   "cards": [
@@ -8826,6 +9131,485 @@
    "Tunnel"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Heading East",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Artist",
+   "Craftsman",
+   "Fishmonger",
+   "Litter",
+   "Rice",
+   "River Shrine",
+   "Rustic Village",
+   "Samurai",
+   "Tea House"
+  ],
+  "extras": [
+   "Progress"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dawn of an Era",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Change",
+   "Daimyo",
+   "Gold Mine",
+   "Imperial Envoy",
+   "Kitsune",
+   "Mountain Shrine",
+   "Ninja",
+   "Rice Broker",
+   "Ronin"
+  ],
+  "extras": [
+   "Practice",
+   "Kind Emperor"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Money to Burn",
+  "set": "Rising Sun",
+  "cards": [
+   "Change",
+   "Craftsman",
+   "Poet",
+   "Ronin",
+   "Snake Witch",
+   "Bureaucrat",
+   "Cellar",
+   "Festival",
+   "Merchant",
+   "Poacher"
+  ],
+  "extras": [
+   "Gather",
+   "Panic"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Cold Calculation",
+  "set": "Rising Sun",
+  "cards": [
+   "Craftsman",
+   "Ninja",
+   "Snake Witch",
+   "Tanuki",
+   "Tea House",
+   "Baron",
+   "Diplomat",
+   "Duke",
+   "Secret Passage",
+   "Shanty Town"
+  ],
+  "extras": [
+   "Amass",
+   "Harsh Winter"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Island People",
+  "set": "Rising Sun",
+  "cards": [
+   "Craftsman",
+   "Imperial Envoy",
+   "Rice",
+   "River Shrine",
+   "Snake Witch",
+   "Caravan",
+   "Haven",
+   "Pirate",
+   "Sea Witch",
+   "Tide Pools"
+  ],
+  "extras": [
+   "Kintsugi",
+   "Great Leader"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Lazy Mischief",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Aristocrat",
+   "Change",
+   "Kitsune",
+   "Litter",
+   "Ninja",
+   "Apothecary",
+   "Familiar",
+   "Herbalist",
+   "Transmute"
+  ],
+  "extras": [
+   "Receive Tribute",
+   "Biding Time"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Autumn Harvest",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Change",
+   "Imperial Envoy",
+   "Ninja",
+   "Rustic Village",
+   "Bank",
+   "Investment",
+   "Magnate",
+   "Quarry",
+   "Watchtower"
+  ],
+  "extras": [
+   "Continue",
+   "Good Harvest"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Winter Solstice",
+  "set": "Rising Sun",
+  "cards": [
+   "Change",
+   "Daimyo",
+   "Gold Mine",
+   "Snake Witch",
+   "Tea House",
+   "Advisor",
+   "Baker",
+   "Farrier",
+   "Hunting Party",
+   "Jester"
+  ],
+  "extras": [
+   "Harsh Winter"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "From the Shadows",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Artist",
+   "Fishmonger",
+   "Poet",
+   "Tanuki",
+   "Carnival",
+   "Farmhands",
+   "Horn of Plenty",
+   "Infirmary",
+   "Shop"
+  ],
+  "extras": [
+   "Gather",
+   "Rapid Expansion"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Swift Hands",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Ronin",
+   "Rustic Village",
+   "Samurai",
+   "Snake Witch",
+   "Cauldron",
+   "Haggler",
+   "Oasis",
+   "Scheme",
+   "Weaver"
+  ],
+  "extras": [
+   "Progress"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Pandemic",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Fishmonger",
+   "Litter",
+   "Mountain Shrine",
+   "Rice Broker",
+   "Catacombs",
+   "Procession",
+   "Rogue",
+   "Scavenger",
+   "Vagrant"
+  ],
+  "extras": [
+   "Sickness"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Wanderers",
+  "set": "Rising Sun",
+  "cards": [
+   "Imperial Envoy",
+   "Litter",
+   "Poet",
+   "Ronin",
+   "Tanuki",
+   "Amulet",
+   "Caravan Guard",
+   "Guide",
+   "Hireling",
+   "Miser"
+  ],
+  "extras": [
+   "Ball",
+   "Flourishing Trade"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Hero's Journey",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Artist",
+   "Kitsune",
+   "Root Cellar",
+   "Samurai",
+   "Artificer",
+   "Distant Lands",
+   "Dungeon",
+   "Duplicate",
+   "Page"
+  ],
+  "extras": [
+   "Kintsugi",
+   "Biding Time"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Summer Castles",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Change",
+   "Rice",
+   "River Shrine",
+   "Snake Witch",
+   "Capital",
+   "Castles",
+   "City Quarter",
+   "Forum",
+   "Patrician/Emporium"
+  ],
+  "extras": [
+   "Museum",
+   "Kind Emperor"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Swept Clean",
+  "set": "Rising Sun",
+  "cards": [
+   "Artist",
+   "Kitsune",
+   "Mountain Shrine",
+   "Rice Broker",
+   "Root Cellar",
+   "Chariot Race",
+   "Charm",
+   "Crown",
+   "Overlord",
+   "Temple"
+  ],
+  "extras": [
+   "Sea Trade",
+   "Divine Wind"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Priceless Rice",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Daimyo",
+   "Rice",
+   "Samurai",
+   "Tea House",
+   "Blessed Village",
+   "Cursed Village",
+   "Devil's Workshop",
+   "Faithful Hound",
+   "Shepherd"
+  ],
+  "extras": [
+   "Growth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dark Corners",
+  "set": "Rising Sun",
+  "cards": [
+   "Artist",
+   "Gold Mine",
+   "Litter",
+   "River Shrine",
+   "Tanuki",
+   "Changeling",
+   "Conclave",
+   "Sacred Grove",
+   "Skulk",
+   "Werewolf"
+  ],
+  "extras": [
+   "Amass",
+   "Sickness"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Fresh Start",
+  "set": "Rising Sun",
+  "cards": [
+   "Change",
+   "Daimyo",
+   "Ninja",
+   "Poet",
+   "Tea House",
+   "Border Guard",
+   "Cargo Ship",
+   "Inventor",
+   "Patron",
+   "Sculptor"
+  ],
+  "extras": [
+   "Receive Tribute",
+   "Divine Wind"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Alternatives",
+  "set": "Rising Sun",
+  "cards": [
+   "Alley",
+   "Craftsman",
+   "Daimyo",
+   "Ronin",
+   "Rustic Village",
+   "Bounty Hunter",
+   "Coven",
+   "Paddock",
+   "Sleigh",
+   "Supplies"
+  ],
+  "extras": [
+   "Sea Trade",
+   "Panic"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Feverish Crafting",
+  "set": "Rising Sun",
+  "cards": [
+   "Aristocrat",
+   "Craftsman",
+   "Fishmonger",
+   "Snake Witch",
+   "Tea House",
+   "Capital City",
+   "Clashes",
+   "Innkeeper",
+   "Marquis",
+   "Skirmisher"
+  ],
+  "extras": [
+   "Credit",
+   "Rapid Expansion"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Buried in Booty",
+  "set": "Rising Sun",
+  "cards": [
+   "Gold Mine",
+   "Ninja",
+   "Poet",
+   "Rice Broker",
+   "Tanuki",
+   "First Mate",
+   "Flagship",
+   "King's Cache",
+   "Pendant",
+   "Taskmaster"
+  ],
+  "extras": [
+   "Prosper",
+   "Growth"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Shiny Things",
+  "set": "Rising Sun",
+  "cards": [
+   "Daimyo",
+   "Litter",
+   "Rice",
+   "River Shrine",
+   "Root Cellar",
+   "Cabin Boy",
+   "Cutthroat",
+   "Jewelled Egg",
+   "Pilgrim",
+   "Tools"
+  ],
+  "extras": [
+   "Credit",
+   "Good Harvest"
+  ],
   "colony": false,
   "shelters": false
  },
@@ -9198,6 +9982,27 @@
    "Shepherd"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Swift Hands",
+  "set": "Hinterlands",
+  "cards": [
+   "Cauldron",
+   "Haggler",
+   "Oasis",
+   "Scheme",
+   "Weaver",
+   "Alley",
+   "Ronin",
+   "Rustic Village",
+   "Samurai",
+   "Snake Witch"
+  ],
+  "extras": [
+   "Progress"
+  ],
   "colony": false,
   "shelters": false
  },

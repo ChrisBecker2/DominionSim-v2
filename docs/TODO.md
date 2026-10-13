@@ -17,6 +17,8 @@ Questions and known gaps to look at later. Not being worked on.
 
 ## Bots
 
+- **Rising Sun valuation.** Sun tokens and Prophecies are not valued by the search evaluator (see `docs/rising-sun-plan.md`, section 5); no strategy has been evolved for a Prophecy kingdom.
+
 - **The last Province with several buys.** The don't-lose guard checks each buy alone: "Duchy, then the
   last Province" could win where "Province first" loses.
 - **The second-to-last Province.** Buying it while behind lets the opponent take the last one and win;

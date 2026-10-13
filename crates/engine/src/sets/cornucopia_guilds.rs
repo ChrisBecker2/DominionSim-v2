@@ -470,7 +470,11 @@ impl GameState {
     }
 
     pub(crate) fn run_overpay(&self, f: Frame) -> Run {
-        let max_coins = self.turn.coins.min(OVERPAY_CAP) as u8;
+        let mut max_coins = self.turn.coins.min(OVERPAY_CAP) as u8;
+        // Asceticism (Rising Sun): at most a $ for each card in the hand.
+        if f.source == crate::sets::rising_sun::ids::ASCETICISM {
+            max_coins = max_coins.min(self.players[f.player as usize].hand.total().min(u8::MAX as u32) as u8);
+        }
         let potion = crate::sets::overpay_with_potion(self, f.source);
         Run::Decide(DecisionKind::Overpay { card: f.source, max_coins, potion }, 0)
     }
@@ -561,7 +565,10 @@ impl GameState {
     }
 
     pub(crate) fn overpay_choices(&self, f: Frame, out: &mut ChoiceBuf) {
-        let max = self.turn.coins.min(OVERPAY_CAP) as u8;
+        let mut max = self.turn.coins.min(OVERPAY_CAP) as u8;
+        if f.source == crate::sets::rising_sun::ids::ASCETICISM {
+            max = max.min(self.players[f.player as usize].hand.total().min(u8::MAX as u32) as u8);
+        }
         for coins in 0..=max {
             out.push(Choice::Overpay(coins));
         }

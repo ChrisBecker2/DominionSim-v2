@@ -112,3 +112,27 @@ fn border_village_engine_beats_big_money_ultimate() {
     // Border Villages gaining Smithies and Markets, ~65%.
     beats_big_money_ultimate("border_village_engine.toml", "Border Village,Inn,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit", 2000, 0.58);
 }
+
+#[test]
+fn imperial_envoy_bm_beats_big_money_ultimate() {
+    // Rising Sun: terminal +5 Cards +1 Buy for 2 Debt (~73%).
+    beats_big_money_ultimate("imperial_envoy_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Imperial Envoy", 2000, 0.6);
+}
+
+#[test]
+fn samurai_bm_beats_big_money_ultimate() {
+    // Rising Sun: a Duration that is +$1 every turn (~69%).
+    beats_big_money_ultimate("samurai_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Samurai", 2000, 0.6);
+}
+
+#[test]
+fn kitsune_bm_beats_big_money_ultimate() {
+    // Rising Sun: an Omen that curses (~68%); the Prophecy it brings closer is dealt with the kingdom.
+    beats_big_money_ultimate("kitsune_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Kitsune", 2000, 0.58);
+}
+
+#[test]
+fn credit_bm_beats_big_money_ultimate() {
+    // The Credit Event: a Gold for 6 Debt early (~53%).
+    beats_big_money_ultimate("credit_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Credit", 3000, 0.5);
+}

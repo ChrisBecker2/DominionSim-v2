@@ -84,6 +84,9 @@ pub enum Var {
     LostInTheWoods,
     /// Cards I have gained so far this turn (counted in games with Monastery, Devil's Workshop or a card gained to the hand).
     GainsThisTurn,
+    /// Sun tokens left on the Prophecy (Rising Sun; 0 once it has happened or with no Prophecy), and 1 once the Prophecy has happened.
+    SunTokens,
+    ProphecyActive,
 }
 
 impl Var {
@@ -95,7 +98,7 @@ impl Var {
             Var::Potions => view.turn().potions as i64,
             Var::PotionCards => view.my_cards().iter().filter(|&(c, _)| cards::potion_cost(c)).map(|(_, n)| n as i64).sum(),
             Var::Coffers => view.coffers() as i64,
-            Var::Buys => view.turn().buys as i64,
+            Var::Buys => view.buys_left() as i64,
             Var::Actions => view.turn().actions as i64,
             Var::Money => money_value(&view.my_cards()),
             Var::TotalCards => view.my_cards().total() as i64,
@@ -122,6 +125,8 @@ impl Var {
             Var::HexesInDiscard => view.hex_discard_mask().count_ones() as i64,
             Var::LostInTheWoods => (view.lost_in_the_woods() == Some(view.me())) as i64,
             Var::GainsThisTurn => view.gains_this_turn() as i64,
+            Var::SunTokens => view.sun_tokens() as i64,
+            Var::ProphecyActive => view.prophecy_active() as i64,
         }
     }
 
@@ -156,6 +161,8 @@ impl Var {
             "hexes_in_discard" => Var::HexesInDiscard,
             "lost_in_the_woods" => Var::LostInTheWoods,
             "gains_this_turn" => Var::GainsThisTurn,
+            "sun_tokens" | "suns" => Var::SunTokens,
+            "prophecy_active" => Var::ProphecyActive,
             _ => return None,
         })
     }
@@ -184,6 +191,8 @@ pub enum Expr {
     /// `landmark(Name)`: 1 if the Landmark is in this game; `landmark_vp(Name)`: the VP tokens left on it.
     Landmark(CardId),
     LandmarkVp(CardId),
+    /// `prophecy(Name)`: 1 if the Prophecy is in this game (Rising Sun; it may not have happened yet: see `prophecy_active`).
+    Prophecy(CardId),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
     /// `mat(Card)`: copies of `Card` on my Tavern mat (Adventures).
@@ -249,6 +258,7 @@ impl Expr {
             DebtCost => card.map_or(0, |c| cards::debt_cost(c) as i64),
             Landmark(l) => view.has_landmark(*l) as i64,
             LandmarkVp(l) => view.landmark_vp(*l) as i64,
+            Prophecy(p) => (view.prophecy() == *p) as i64,
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
             Mat(c) => view.tavern_of(view.me()).get(*c) as i64,
@@ -320,7 +330,7 @@ impl Expr {
         match self {
             Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost | HasState(_) | OppHasState(_) | InPile(..) => {}
             CountPair(a, _) => f(*a),
-            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) => f(*c),
+            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
                 a.for_each_card_ref(f);
@@ -417,7 +427,7 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 // names with spaces or apostrophes work: `count(Throne Room)`, `count(King's Court)`.
                 let is_function = matches!(
                     word.to_ascii_lowercase().as_str(),
-                    "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp"
+                    "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp" | "prophecy"
                         | "has_state" | "opp_has_state" | "boon_in_discard" | "boon_in_deck" | "hex_in_discard" | "hex_in_deck"
                 );
                 let mut j = i;
@@ -589,6 +599,10 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
         "landmark" | "landmark_vp" => {
             let l = cards::by_name(arg).filter(|&l| cards::is_landmark(l)).ok_or_else(|| format!("{arg:?} is not a Landmark, in condition {src:?}"))?;
             Ok(if func.eq_ignore_ascii_case("landmark") { Expr::Landmark(l) } else { Expr::LandmarkVp(l) })
+        }
+        "prophecy" => {
+            let p = cards::by_name(arg).filter(|&p| cards::is_prophecy(p)).ok_or_else(|| format!("{arg:?} is not a Prophecy, in condition {src:?}"))?;
+            Ok(Expr::Prophecy(p))
         }
         "has_state" | "opp_has_state" => {
             let s = cards::by_name(arg).filter(|&s| cards::is_state(s)).ok_or_else(|| format!("{arg:?} is not a State, in condition {src:?}"))?;

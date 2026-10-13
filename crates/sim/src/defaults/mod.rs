@@ -26,6 +26,7 @@ mod intrigue;
 mod nocturne;
 mod promo;
 mod prosperity;
+mod rising_sun;
 mod seaside;
 
 /// Expands `$body` once per set with `$S` naming that set's [`SetDefaults`] type, as a `match` on `$set`.
@@ -68,8 +69,12 @@ macro_rules! with_set {
                 type $S = adventures::Adventures;
                 $body
             }
-            CardSet::Empires | CardSet::RisingSun => {
+            CardSet::Empires => {
                 type $S = empires::Empires;
+                $body
+            }
+            CardSet::RisingSun => {
+                type $S = rising_sun::RisingSun;
                 $body
             }
             CardSet::Nocturne => {

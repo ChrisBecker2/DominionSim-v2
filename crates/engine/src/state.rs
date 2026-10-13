@@ -29,7 +29,7 @@ pub const SUMMON_CAP: usize = 3;
 pub const CHURCH_CAP: usize = 4;
 /// Max start-of-turn effects pending at once (`TurnState::start_pending`): every pending
 /// Duration entry, one per Prince'd card, one per Farmhands-held card, and Clerk (one merged entry).
-pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_CAP + 1;
+pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_CAP + 1 + ASIDE_CAP;
 /// Max distinct cards `DurationHeld` tracks in one turn (see its doc comment): generous for a
 /// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
 /// multiplied one).
@@ -89,6 +89,21 @@ pub const NOC_GHOST: usize = 4;
 pub const BOON_CHANCE: u8 = 254;
 pub const HEX_CHANCE: u8 = 255;
 
+/// `RsState::flags`: which Rising Sun effects are live in this game, so that other games skip each check with one byte test.
+/// A Shadow card is in the kingdom: the Shadows in a deck can be played from it, and are put at the bottom when shuffled.
+pub const R_SHADOW: u8 = 1;
+/// Kintsugi is in the game: gaining a Gold is recorded (`P_RS_GOLD`).
+pub const R_KINTSUGI: u8 = 2;
+/// Receive Tribute is in the game: the cards gained are counted per turn (`RsTurn::gains`).
+pub const R_TRIBUTE: u8 = 4;
+/// `PlayerState::rs` flags. The player has gained a Gold this game (Kintsugi).
+pub const P_RS_GOLD: u8 = 1;
+/// Max distinct cards a player's Prophecy holds set aside (`PlayerState::aside`): the hand Biding Time sets aside (any card beyond this stays in the
+/// hand and is discarded as usual), or the cards Rapid Expansion holds for the next turn (a card gained beyond this is not set aside).
+pub const ASIDE_CAP: usize = 16;
+/// Max distinct cards Foresight sets aside in one turn (`PlayerState::foresight`).
+pub const FORESIGHT_CAP: usize = 4;
+
 /// `PlayerState::tok` indices: the pile each of a player's pile tokens is on (Adventures).
 pub const TOK_CARD: usize = 0;
 pub const TOK_ACTION: usize = 1;
@@ -117,14 +132,16 @@ pub const G_CHAMPION: u8 = 8;
 /// Some card in the game does something when it is discarded other than in Clean-up (Faithful Hound, Tunnel, Trail, Weaver): discards are watched.
 pub const G_DISCARD_HOOK: u8 = 16;
 
-/// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255 and a third for ids 256 and up
-/// (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256).
+/// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255, a third for ids 256-383 and a fourth for ids
+/// 384 and up (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256, Hinterlands past 352, Rising Sun past 384).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct SupplyMask {
     pub lo: u128,
     pub hi: u128,
-    /// Ids 256 and up (Wild Hunt, the split pile bottoms, the Castles and the members of the mixed piles are in the Supply there).
+    /// Ids 256-383 (Wild Hunt, the split pile bottoms, the Castles and most of the Nocturne, Hinterlands and Rising Sun cards are in the Supply there).
     pub top: u128,
+    /// Ids 384 and up (the end of the Rising Sun cards' range, the members of the mixed piles).
+    pub ext: u128,
 }
 
 /// Iterator over the card ids of a `SupplyMask`, in id order.
@@ -132,13 +149,14 @@ pub struct SupplyCards {
     lo: u128,
     hi: u128,
     top: u128,
+    ext: u128,
 }
 
 impl SupplyCards {
-    /// The cards of a mask given as its three words (see `SupplyMask`).
+    /// The cards of a mask given as its four words (see `SupplyMask`).
     #[inline(always)]
-    pub fn from_words(lo: u128, hi: u128, top: u128) -> SupplyCards {
-        SupplyCards { lo, hi, top }
+    pub fn from_words(lo: u128, hi: u128, top: u128, ext: u128) -> SupplyCards {
+        SupplyCards { lo, hi, top, ext }
     }
 }
 
@@ -158,6 +176,10 @@ impl Iterator for SupplyCards {
             let c = 256 + self.top.trailing_zeros() as CardId;
             self.top &= self.top - 1;
             Some(c)
+        } else if self.ext != 0 {
+            let c = 384 + self.ext.trailing_zeros() as CardId;
+            self.ext &= self.ext - 1;
+            Some(c)
         } else {
             None
         }
@@ -171,8 +193,10 @@ impl SupplyMask {
             self.lo & (1u128 << c) != 0
         } else if c < 256 {
             self.hi & (1u128 << (c - 128)) != 0
-        } else {
+        } else if c < 384 {
             self.top & (1u128 << (c - 256)) != 0
+        } else {
+            self.ext & (1u128 << (c - 384)) != 0
         }
     }
     #[inline]
@@ -181,11 +205,26 @@ impl SupplyMask {
             self.lo |= 1u128 << c;
         } else if c < 256 {
             self.hi |= 1u128 << (c - 128);
-        } else {
+        } else if c < 384 {
             self.top |= 1u128 << (c - 256);
+        } else {
+            self.ext |= 1u128 << (c - 384);
         }
     }
-    /// Whether any card of the mask words is in the Supply (the gain-trigger gates).
+    /// Takes the pile of `c` out of the mask.
+    #[inline]
+    pub fn remove(&mut self, c: CardId) {
+        if c < 128 {
+            self.lo &= !(1u128 << c);
+        } else if c < 256 {
+            self.hi &= !(1u128 << (c - 128));
+        } else if c < 384 {
+            self.top &= !(1u128 << (c - 256));
+        } else {
+            self.ext &= !(1u128 << (c - 384));
+        }
+    }
+    /// Whether any card of the mask words is in the Supply (the gain-trigger gates). No card with a gain trigger has an id from 384.
     #[inline(always)]
     pub fn any(&self, lo: u128, hi: u128, top: u128) -> bool {
         (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0
@@ -777,6 +816,14 @@ pub struct PlayerState {
     pub hounds: u8,
     /// Nocturne: the Boons (bit per Boon) Blessed Villages took, to be received at the start of this player's next turn. Not in the Boons deck meanwhile.
     pub boons_later: u16,
+    /// Rising Sun, what the Prophecy in effect has set aside for this player (only one Prophecy is in a game, so one field serves): with Rapid Expansion
+    /// the Actions and Treasures gained, each played at the start of the next turn (face up, public); with Biding Time the hand set aside at the start of
+    /// Clean-up, face down (private to the owner; `determinize` pools it for the others), put into the hand at the start of the next turn. Counts as owned.
+    pub aside: SmallMultiset<ASIDE_CAP>,
+    /// Rising Sun, Foresight: the Actions set aside this turn, put into the hand after the Clean-up draw. Face up; counts as owned.
+    pub foresight: SmallMultiset<FORESIGHT_CAP>,
+    /// Rising Sun: `P_RS_*` flags.
+    pub rs: u8,
 }
 
 impl PlayerState {
@@ -812,6 +859,8 @@ impl PlayerState {
             c.add(self.saved, 1);
         }
         self.archive.add_into(&mut c);
+        self.aside.add_into(&mut c);
+        self.foresight.add_into(&mut c);
         // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
         if self.inherit != 0 {
             c.add(self.inherit, 1);
@@ -984,6 +1033,47 @@ pub struct TurnState {
     pub noc: NocTurn,
     /// Hinterlands per-turn bookkeeping.
     pub hint: HintTurn,
+    /// Rising Sun per-turn bookkeeping.
+    pub rs: RsTurn,
+}
+
+/// The per-turn bookkeeping of Rising Sun.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct RsTurn {
+    /// Daimyos played this turn whose replay is still to come: the next non-Command Action played is replayed this many times.
+    pub daimyo: u8,
+    /// Cards the turn's player has gained this turn (only counted while `R_TRIBUTE`: Receive Tribute).
+    pub gains: u8,
+}
+
+/// The per-game state of Rising Sun: the Prophecy, the Sun tokens on it, and Riverboat's card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct RsState {
+    /// `R_*` flags.
+    pub flags: u8,
+    /// The Sun tokens left on the Prophecy (0 once it has happened, or when there is none).
+    pub suns: u8,
+    /// The Prophecy of the game (a pseudo-card id), 0 = none.
+    pub prophecy: CardId,
+    /// The Prophecy once the last Sun token has left it, 0 before (or when there is none): the rule that applies to every player for the rest of the
+    /// game. Equal to `prophecy` once active.
+    pub active: CardId,
+    /// The card set aside in set-up for Riverboat (an Action costing $5 that is not in the kingdom), 0 = no Riverboat in the game.
+    pub riverboat: CardId,
+    /// Nonzero while a gain has something to do: a Prophecy that changes or answers gains is in effect, or Kintsugi / Receive Tribute watch them
+    /// (`GameState::rs_update_hooks`). One byte test in every gain.
+    pub hook: u8,
+}
+
+/// Sun tokens put on the Prophecy for a game of `n` players.
+pub fn sun_tokens_for(n: usize) -> u8 {
+    match n {
+        0..=2 => 5,
+        3 => 8,
+        4 => 10,
+        5 => 12,
+        _ => 13,
+    }
 }
 
 /// The per-turn bookkeeping of Hinterlands.
@@ -1121,6 +1211,7 @@ impl TurnState {
             emp: EmpTurn::default(),
             noc: NocTurn::default(),
             hint: HintTurn::default(),
+            rs: RsTurn::default(),
         }
     }
 }
@@ -1273,6 +1364,8 @@ pub enum TypeSet {
     CurseRuinsShelterVictory,
     /// A Castle (Small Castle's trash and gain).
     Castle,
+    /// Action cards that are not Attacks (Continue).
+    ActionNotAttack,
 }
 
 impl TypeSet {
@@ -1285,6 +1378,7 @@ impl TypeSet {
             TypeSet::ActionNotDuration => (cards::ACTION, cards::DURATION),
             TypeSet::CurseRuinsShelterVictory => (cards::CURSE_T | cards::RUINS | cards::SHELTER | cards::VICTORY, 0),
             TypeSet::Castle => (cards::CASTLE, 0),
+            TypeSet::ActionNotAttack => (cards::ACTION, cards::ATTACK),
         }
     }
 }
@@ -1704,6 +1798,32 @@ pub enum Then {
     DismantleGain,
     /// Select (a 0-pick frame under Summon's gain and its reactions): the card gained (`subject`) is set aside for the next turn if it is still where it was gained.
     SummonAside,
+    /// Select (a zero-pick frame under Mountain Shrine's trash): +2 Cards if there is an Action in the trash.
+    MountainShrine,
+    /// Ask (Snake Witch, after its +1 Card): reveal the hand (no duplicates) and return the Snake Witch to its pile for a Curse for each other player.
+    SnakeWitch,
+    /// Ask (Gold Mine): gain a Gold and take 4 Debt.
+    GoldMine,
+    /// Select (Rice Broker, the card trashed from the hand): +2 Cards for a Treasure, +5 Cards for an Action.
+    RiceBroker,
+    /// RevealTop (Poet, the top card): a card costing $3 or less goes to the hand, any other stays on top.
+    PoetCheck,
+    /// Select (Kintsugi, trash from the hand): with a Gold gained this game, gain a card costing up to $2 more.
+    KintsugiGain,
+    /// Gain (Credit): take Debt equal to the $ the card gained costs.
+    CreditDebt,
+    /// Gain (Continue): the card gained is played, from the discard pile, in the Action phase the player returns to.
+    ContinueGain,
+    /// Select (a zero-pick frame under Continue's gain): return to the Action phase (+1 Action, +1 Buy) and play the card gained if it is still in the discard pile.
+    ContinueReturn,
+    /// RevealUntil (Foresight): the Action revealed is set aside until the end of the turn, the rest discarded.
+    ForesightSet,
+    /// Select (a zero-pick frame under the Clean-up draw): the cards Foresight set aside go into the hand.
+    ForesightToHand,
+    /// Gain (Receive Tribute): up to `count - 1` more Actions follow, each with a name no gain before it had (`Frame::subject` and `last`).
+    TributeGain,
+    /// Select (a zero-pick frame under a gain's reactions, Rapid Expansion): the card gained is set aside if it is still where it was gained.
+    RapidAside,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -1799,6 +1919,10 @@ pub const GF_SPIRITS: u8 = 4;
 /// `Frame::gf`: an exact gain that may cost `max` or `max + 2` (Develop: the card $1 less or $1 more than the card trashed, in either order); once one
 /// is gained, a gain of exactly the other cost follows.
 pub const GF_BOTH: u8 = 8;
+/// `Frame::gf`: any cost will do (no comparison with `max`; Debt and Potion cards allowed): Receive Tribute's Actions.
+pub const GF_ANY_COST: u8 = 16;
+/// `Frame::gf`: the cards `Frame::subject` and `Frame::last` (when not 0) are not on offer: Receive Tribute's differently named Actions.
+pub const GF_EXCL: u8 = 32;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -2015,11 +2139,13 @@ pub struct GameConfig {
     pub shelters: Option<bool>,
     /// The Obelisk's pile (an Action Supply pile, named by its top card or marker). `None` = chosen from the game's seed.
     pub obelisk: Option<CardId>,
+    /// Riverboat's card (an Action costing $5 that is not in the kingdom and not a Duration). `None` = chosen from the game's seed when a Riverboat needs one.
+    pub riverboat: Option<CardId>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None, riverboat: None }
     }
 }
 
@@ -2096,6 +2222,13 @@ impl PileTokens {
     }
     pub fn clear_vp(&mut self) {
         self.vp = [0; PILE_TOKEN_CAP];
+    }
+    /// Takes every token off `pile` (the pile left the game).
+    pub fn clear_pile(&mut self, pile: CardId) {
+        if let Some(i) = self.slot(pile) {
+            self.vp[i] = 0;
+            self.debt[i] = 0;
+        }
     }
     pub fn clear_debt(&mut self) {
         self.debt = [0; PILE_TOKEN_CAP];
@@ -2265,6 +2398,8 @@ pub struct GameState {
     pub emp: EmpState,
     /// Nocturne: the Boons and Hexes decks, Lost in the Woods, the piles outside the Supply, `N_*` flags.
     pub noc: NocState,
+    /// Rising Sun: the Prophecy and its Sun tokens, Riverboat's card, `R_*` flags.
+    pub rs: RsState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -2414,6 +2549,7 @@ impl GameState {
             events,
             emp: EmpState::default(),
             noc: NocState::default(),
+            rs: RsState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -2453,6 +2589,8 @@ impl GameState {
         crate::sets::nocturne::setup(&mut s, cfg, bane, n);
         // Hinterlands: discards are watched when a card reacts to them.
         crate::sets::hinterlands::setup(&mut s);
+        // Rising Sun: the Prophecy and its Sun tokens, Riverboat's card.
+        crate::sets::rising_sun::setup(&mut s, cfg, n);
         s.push_opening_deal();
         // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
         s.dup()
@@ -2540,7 +2678,7 @@ impl GameState {
     /// it costs one step per pile rather than one per card id).
     #[inline]
     pub fn supply_cards(&self) -> SupplyCards {
-        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi, top: self.in_supply.top }
+        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi, top: self.in_supply.top, ext: self.in_supply.ext }
     }
 
     /// The cards left in the piles outside the Supply (Ferryman's, the Rewards, Spoils, Madman and Mercenary).
@@ -2559,7 +2697,7 @@ impl GameState {
         // Not piles of their own: the members of the Knights and Ruins piles (ids from `FIRST_PILE_CARD`, counted below as
         // one pile each) and Avanto (the split pile Sauna/Avanto counts once, as Sauna, when Avanto is gone too).
         let mut n = 0u32;
-        let words = [self.in_supply.lo, self.in_supply.hi, self.in_supply.top];
+        let words = [self.in_supply.lo, self.in_supply.hi, self.in_supply.top, self.in_supply.ext];
         for (w, bits) in words.into_iter().enumerate() {
             for k in 0..4 {
                 let block = w * 4 + k;

@@ -1,0 +1,28 @@
+# Samurai Big Money: one Samurai (the others discard down to 3 once; +$1 at the start of every turn for the rest of the game), bought at $6 in place of the first Gold.
+
+name = "Samurai BM"
+description = "Big Money Ultimate with a single Samurai: a one-time attack and +$1 every turn."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Samurai"
+if = "count(Samurai) < 1"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Samurai"

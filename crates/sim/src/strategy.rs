@@ -430,7 +430,7 @@ impl Strategy {
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -707,7 +707,7 @@ impl Strategy {
             return c;
         }
         let mut spare = max_coins as u32;
-        if view.turn().buys > 0 {
+        if view.buys_left() > 0 {
             // Keep what the best listed card the bot could still buy costs.
             if let Some(c) = self.best_affordable(view, max_coins) {
                 spare = spare.saturating_sub(view.cost(c) as u32);
@@ -938,6 +938,10 @@ impl Strategy {
     /// Default (unstated) check for Actions that can cost more than they give (Tactician, Treasure Map: the card's set
     /// says, `SetDefaults::worth_playing`). Everything else is worth playing.
     fn default_worth_playing(&self, view: &PlayerView, card: CardId) -> bool {
+        // Enlightenment: a Treasure played in the Action phase is a card and an Action instead of its $; only a Copper is worth that.
+        if !cards::is(card, ACTION) && view.is_treasure(card) {
+            return card == id::COPPER && view.phase() == dominion_engine::Phase::Action;
+        }
         defaults::worth_playing(self, view, card)
     }
 
@@ -1493,7 +1497,7 @@ impl Strategy {
 /// for whatever gets drawn. `None` when there is a real choice (a card with a decision, or more
 /// terminals than actions), which the bot searches instead.
 pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) || rising_sun_risk(view) {
         return None;
     }
     let mut terminals: i32 = 0;
@@ -1518,8 +1522,13 @@ pub fn obvious_play(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
     }
     iter_cards(choices).filter(|&c| cards::is_choice_free(c)).max_by_key(|&c| {
         let d = cards::def(c);
-        (d.actions > 0, d.actions, d.cards, d.coins, d.buys, std::cmp::Reverse(c))
+        (d.actions > 0, d.actions, d.cards.max(day_draw(c)), d.coins, d.buys, std::cmp::Reverse(c))
     })
+}
+
+/// The cards a choice-free Action draws that its definition does not say (the Werewolf draws 3 by day): terminals that draw go first.
+fn day_draw(c: CardId) -> u8 {
+    if c == id::WEREWOLF { 3 } else { 0 }
 }
 
 /// The Night card to play when the order is not a real choice: every Night card in hand is choice-free, so all of them are played in
@@ -1542,7 +1551,7 @@ pub fn night_obvious(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
 /// less before the next choice); `None` if there is no such card or something in hand is
 /// order-sensitive. Callers skip it when the strategy states [[play]] rules for the hand.
 pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
-    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) {
+    if empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) || rising_sun_risk(view) {
         return None;
     }
     let mut could_draw: u32 = 0;
@@ -1575,6 +1584,14 @@ pub fn urchin_risk(view: &PlayerView) -> bool {
         return false;
     }
     view.hand().any_type(cards::ATTACK) || view.deck().any_type(cards::ATTACK)
+}
+
+/// Whether a Rising Sun rule makes the play order a real choice: a Shadow card in the deck can be played as well as the Actions of the hand,
+/// Enlightenment lets Treasures be played as Actions, and under Flourishing Trade an Action play left over is worth a Buy.
+pub fn rising_sun_risk(view: &PlayerView) -> bool {
+    !view.shadows_in_deck().is_empty()
+        || view.prophecy_in_effect(id::ENLIGHTENMENT)
+        || view.prophecy_in_effect(id::FLOURISHING_TRADE)
 }
 
 /// Whether the player owns a Royal Carriage (Adventures): which Action it replays depends on the order the Actions are played in (the

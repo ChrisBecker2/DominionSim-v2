@@ -1,0 +1,28 @@
+# Kitsune Big Money: Kitsune curses the other players (and gives +2 Actions or $2) while the Curses last; two copies. It is an Omen too.
+
+name = "Kitsune BM"
+description = "Big Money Ultimate with two Kitsunes that hand out Curses."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Kitsune"
+if = "count(Kitsune) < 2"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Kitsune"

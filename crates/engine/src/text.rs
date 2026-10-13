@@ -54,6 +54,12 @@
 //! next turn) and `church:` the cards each Church play set aside face down, one batch per play separated by `;` (`-` is an empty batch), oldest first
 //! (`church: Copper, 2 Gold; -`); each batch has a `Church (Church)` entry in `durations:`.
 //!
+//! Rising Sun: `prophecy:` names the Prophecy of the game and `suns:` the Sun tokens left on it (none left: it is in effect), `riverboat:` the card
+//! Riverboat sets aside. Per player `biding:` (the hand Biding Time set aside), `rapid:` (the cards Rapid Expansion set aside), `foresight:` (the cards
+//! Foresight set aside) and `rs gold: true` (Kintsugi: a Gold gained this game) while nonzero; the turn line adds `daimyo` and `rs_gains` while nonzero.
+//! Gap: Kind Emperor's and Sickness's start-of-turn effects are rebuilt from the Prophecy when a state is loaded at the start of a turn, so a state saved after
+//! they resolved and loaded again resolves them once more.
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -73,7 +79,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, SUMMON_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -267,7 +273,7 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         // Either half of a split pile names the pile.
         let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
         // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) {
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -337,6 +343,8 @@ struct TurnFields {
     emp: EmpTurn,
     /// Nocturne per-turn state (the Boons' and Hexes' effects of this turn; the rest is reset on load).
     noc: NocTurn,
+    /// Rising Sun per-turn state.
+    rs: RsTurn,
 }
 
 impl Default for TurnFields {
@@ -344,7 +352,7 @@ impl Default for TurnFields {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
             extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(), emp: EmpTurn::default(),
-            noc: NocTurn::default(),
+            noc: NocTurn::default(), rs: RsTurn::default(),
         }
     }
 }
@@ -406,6 +414,8 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "envy" => f.noc.envy = val.parse().map_err(|_| format!("line {lineno}: invalid envy '{val}'"))?,
             "deluded" => f.noc.deluded = val.parse().map_err(|_| format!("line {lineno}: invalid deluded '{val}'"))?,
             "tracker" => f.noc.tracker = val.parse().map_err(|_| format!("line {lineno}: invalid tracker '{val}'"))?,
+            "daimyo" => f.rs.daimyo = val.parse().map_err(|_| format!("line {lineno}: invalid daimyo '{val}'"))?,
+            "rs_gains" => f.rs.gains = val.parse().map_err(|_| format!("line {lineno}: invalid rs_gains '{val}'"))?,
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -440,6 +450,14 @@ pub fn format_state(state: &GameState) -> String {
             .map(|i| cards::name(cards::FIRST_EVENT + i))
             .collect();
         out.push_str(&format!("events: {}\n", events.join(", ")));
+    }
+    // Rising Sun: the Prophecy, the Sun tokens on it, Riverboat's card.
+    if state.rs.prophecy != 0 {
+        out.push_str(&format!("prophecy: {}\n", cards::name(state.rs.prophecy)));
+        out.push_str(&format!("suns: {}\n", state.rs.suns));
+    }
+    if state.rs.riverboat != 0 {
+        out.push_str(&format!("riverboat: {}\n", cards::name(state.rs.riverboat)));
     }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
@@ -584,6 +602,12 @@ pub fn format_state(state: &GameState) -> String {
     for (name, v) in [("envy", nt.envy), ("deluded", nt.deluded), ("tracker", nt.tracker)] {
         if v {
             out.push_str(&format!("  {name}: true"));
+        }
+    }
+    // Rising Sun: only while nonzero.
+    for (name, v) in [("daimyo", state.turn.rs.daimyo), ("rs_gains", state.turn.rs.gains)] {
+        if v > 0 {
+            out.push_str(&format!("  {name}: {v}"));
         }
     }
     out.push('\n');
@@ -751,6 +775,17 @@ pub fn format_state(state: &GameState) -> String {
         if ps.boons_later != 0 {
             out.push_str(&format!("boons later: {}\n", boon_names(ps.boons_later, cards::FIRST_BOON)));
         }
+        // Rising Sun: the hand Biding Time set aside, Rapid Expansion's and Foresight's cards, a Gold gained (Kintsugi).
+        if !ps.aside.is_empty() {
+            let key = if state.rs.prophecy == cards::id::BIDING_TIME { "biding" } else { "rapid" };
+            out.push_str(&format!("{key}: {}\n", format_counts(&ps.aside.counts())));
+        }
+        if !ps.foresight.is_empty() {
+            out.push_str(&format!("foresight: {}\n", format_counts(&ps.foresight.counts())));
+        }
+        if ps.rs & crate::state::P_RS_GOLD != 0 {
+            out.push_str("rs gold: true\n");
+        }
         if ps.events_bought != 0 {
             let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
                 .filter(|i| ps.events_bought & (1u64 << i) != 0)
@@ -838,9 +873,12 @@ fn format_empires(state: &GameState, out: &mut String) {
     }
     let on_piles = e.landmarks != 0 || e.flags & crate::state::E_TAX != 0 || e.piles.iter().next().is_some();
     if on_piles {
-        let vp: Vec<String> = e.piles.iter().filter(|&(_, v, _)| v > 0).map(|(c, v, _)| format!("{}={}", cards::name(c), v)).collect();
+        // In card order (the order the tokens were put on the piles is no part of the state).
+        let mut piles: Vec<(CardId, u8, u8)> = e.piles.iter().collect();
+        piles.sort_by_key(|&(c, _, _)| c);
+        let vp: Vec<String> = piles.iter().filter(|&&(_, v, _)| v > 0).map(|&(c, v, _)| format!("{}={}", cards::name(c), v)).collect();
         out.push_str(&format!("pile vp: {}\n", vp.join(", ")));
-        let debt: Vec<String> = e.piles.iter().filter(|&(_, _, d)| d > 0).map(|(c, _, d)| format!("{}={}", cards::name(c), d)).collect();
+        let debt: Vec<String> = piles.iter().filter(|&&(_, _, d)| d > 0).map(|&(c, _, d)| format!("{}={}", cards::name(c), d)).collect();
         out.push_str(&format!("pile debt: {}\n", debt.join(", ")));
     }
 }
@@ -922,6 +960,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut pile_vp_val: Option<(usize, String)> = None;
     let mut pile_debt_val: Option<(usize, String)> = None;
     let mut obelisk_val: Option<(usize, String)> = None;
+    let mut prophecy_val: Option<(usize, String)> = None;
+    let mut suns_val: Option<(usize, String)> = None;
+    let mut riverboat_val: Option<(usize, String)> = None;
     let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
     let mut ruins_val: Option<(usize, String)> = None;
@@ -964,6 +1005,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "pile vp" => pile_vp_val = Some((lineno, rest.to_string())),
             "pile debt" => pile_debt_val = Some((lineno, rest.to_string())),
             "obelisk" => obelisk_val = Some((lineno, rest.to_string())),
+            "prophecy" => prophecy_val = Some((lineno, rest.to_string())),
+            "suns" => suns_val = Some((lineno, rest.to_string())),
+            "riverboat" => riverboat_val = Some((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "ruins pile" => ruins_val = Some((lineno, rest.to_string())),
@@ -1016,6 +1060,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             kingdom.push(l);
         }
     }
+    if let Some((ln, s)) = &prophecy_val {
+        for p in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_prophecy(p) {
+                return Err(format!("line {ln}: '{}' is not a Prophecy", cards::name(p)));
+            }
+            kingdom.push(p);
+        }
+    }
 
     let seed: u64 = match &seed_val {
         Some((ln, s)) => s.trim().parse().map_err(|_| format!("line {ln}: invalid seed '{s}'"))?,
@@ -1040,10 +1092,22 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         bane: named(&bane_val, "bane")?,
         ferryman: named(&ferryman_val, "ferryman")?,
         obelisk: named(&obelisk_val, "obelisk")?,
+        riverboat: named(&riverboat_val, "riverboat")?,
         // The decks are read from the text; `shelters` is derived from them below.
         shelters: Some(false),
     };
+    let (riverboat, bane, ferryman) = (cfg.riverboat, cfg.bane, cfg.ferryman);
     let mut state = GameState::new(&cfg);
+    // Riverboat's card, the Bane and Ferryman's pile are read as they are (the cards that brought them may be gone: Divine Wind).
+    if let Some(c) = riverboat {
+        state.rs.riverboat = c;
+    }
+    if let Some(b) = bane {
+        state.bane = b;
+    }
+    if let Some(f) = ferryman {
+        state.ferryman = f;
+    }
     state.stack = FrameStack::default();
     state.pending = Pending::None;
     for p in 0..num_players {
@@ -1097,6 +1161,16 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         }
     }
     state.emp.pass_done = pass_done;
+    // Rising Sun: the Sun tokens left (none: the Prophecy has happened).
+    if let Some((ln, s)) = &suns_val {
+        let n: u8 = s.trim().parse().map_err(|_| format!("line {ln}: invalid suns '{s}'"))?;
+        if state.rs.prophecy == 0 {
+            return Err(format!("line {ln}: suns without a prophecy"));
+        }
+        state.rs.suns = n;
+        state.rs.active = if n == 0 { state.rs.prophecy } else { 0 };
+        state.rs_update_hooks();
+    }
 
     if let Some((ln, s)) = &side_val {
         for pair in split_parts(s) {
@@ -1129,11 +1203,18 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     // Nocturne: the decks as the text says them (a line that is present replaces what a new game starts with).
     for (ln, key, val) in &noc_vals {
         match key.as_str() {
-            "boon deck" => state.noc.boon_deck = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
+            // (The decks are in the game even if the Fate or Doom card that brought them is not any more: Divine Wind.)
+            "boon deck" => {
+                state.noc.flags |= crate::state::N_BOONS;
+                state.noc.boon_deck = parse_boon_mask(val, cards::FIRST_BOON, *ln)?
+            }
             "boon discard" => state.noc.boon_discard = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
             "druid boons" => state.noc.boon_druid = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
             "boons held" => state.noc.boon_held = parse_boon_mask(val, cards::FIRST_BOON, *ln)?,
-            "hex deck" => state.noc.hex_deck = parse_boon_mask(val, cards::FIRST_HEX, *ln)?,
+            "hex deck" => {
+                state.noc.flags |= crate::state::N_HEXES;
+                state.noc.hex_deck = parse_boon_mask(val, cards::FIRST_HEX, *ln)?
+            }
             "hex discard" => state.noc.hex_discard = parse_boon_mask(val, cards::FIRST_HEX, *ln)?,
             _ => {
                 let q: u8 = val.trim().parse().map_err(|_| format!("line {ln}: invalid player '{val}'"))?;
@@ -1217,6 +1298,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         noc: tf.noc,
         // Per-turn bookkeeping, reset on load (the Cauldrons in play are counted below).
         hint: Default::default(),
+        rs: tf.rs,
     };
 
     // Player blocks.
@@ -1334,6 +1416,13 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 }
                 "inherit" => ps.inherit = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
                 "saved" => ps.saved = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
+                "biding" | "rapid" => ps.aside = parse_small_multiset(val, "biding").map_err(|e| format!("line {ln2}: {e}"))?,
+                "foresight" => ps.foresight = parse_small_multiset(val, "foresight").map_err(|e| format!("line {ln2}: {e}"))?,
+                "rs gold" => {
+                    if val.eq_ignore_ascii_case("true") {
+                        ps.rs |= crate::state::P_RS_GOLD;
+                    }
+                }
                 "events bought" => {
                     for e in parse_kingdom_list(val).map_err(|e| format!("line {ln2}: {e}"))? {
                         if !cards::is_event(e) {
@@ -1407,6 +1496,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         if ps.stays.is_empty() && !ps.prince_cards.is_empty() && ps.in_play.has(cards::id::PRINCE) {
             ps.stays.add(cards::id::PRINCE, 1);
         }
+    }
+    // Nocturne: a Night phase can follow a Buy phase if anyone owns a Night card (even when its pile is not in the Supply: Divine Wind).
+    if state.players.iter().any(|ps| ps.all_cards().any_type(cards::NIGHT)) {
+        state.noc.flags |= crate::state::N_NIGHT;
     }
     // Adventures: which token effects are live, and the -$1 token of the turn's player.
     for ps in state.players.iter() {

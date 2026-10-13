@@ -6,7 +6,7 @@ import json, os, re, sys
 
 pages, out = sys.argv[1], sys.argv[2]
 SETS = ["Dominion", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Nocturne", "Rising Sun", "Hinterlands"]
-skip_keys = {"ally", "way1", "prophecy", "trait1", "traitfor1", "traitfor", "riverboat", "ferryman", "mouse", "appr_army", "bane", "project1", "project2"}
+skip_keys = {"ally", "way1", "trait1", "traitfor1", "traitfor", "riverboat", "ferryman", "mouse", "appr_army", "bane", "project1", "project2"}
 result = []
 for s in SETS:
     f = os.path.join(pages, "Recommended Kingdoms_%s.json" % s)
@@ -24,7 +24,7 @@ for s in SETS:
                 cards.append(p)
         if len(cards) != 10 or skip_keys & set(named):
             continue
-        extras = [named[k] for k in ("event1", "event2", "landmark1", "landmark2") if k in named]
+        extras = [named[k] for k in ("event1", "event2", "landmark1", "landmark2", "prophecy") if k in named]
         result.append({
             # Titles may be wiki links ("[[First Game]]"): keep the shown text.
             "name": re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", named.get("title", "?")),

@@ -29,13 +29,17 @@ wiki's card gallery; the Omen and Shadow types and the Sun tokens are card-level
 
 ## 2. What the id space costs today
 
-* `Counts` is one byte per zone id: `LANES` is now 320 (was 288), exactly what Rising Sun needs. Hands, decks, discards, play areas and the trash are `Counts`
+* `Counts` is one byte per zone id: `LANES` is now 416 (was 320 for Rising Sun's 320 zone ids; 416 gives Nocturne and Hinterlands room). Hands, decks, discards, play areas and the trash are `Counts`
   (four per player plus two per game); `SmallMultiset` is used for the rare zones (mats, Archive).
-* `SupplyMask` is three `u128` words (384 bits): enough for 320 zone ids; the pseudo ids are not in it.
+* `SupplyMask` is four `u128` words (512 bits), widened with Rising Sun; the pseudo ids are not in it.
 * `GameState` grew 16.8 KB to 18.4 KB with Empires (the 32 extra lanes are about 1 KB, since there are about 28 `Counts` in a state;
   the rest is the Empires state: pile tokens, Archive, Debt, the Landmark record). `tests/state_size.rs` pins it.
 * Speed (`dominion-sim match big_money_ultimate double_witch --games 200000`, best of three): 1.82M games/s before, 1.76M after (-3%), widening and Empires
   together. The widening to 320 lanes alone is inside the noise of that figure. The wasm build runs on its 8 MiB stack.
+
+Rising Sun update: widening to 416 lanes and four mask words, measured alone, costs about 0% on `dominion-sim match` Big Money Ultimate vs Double Witch (200000 games,
+interleaved best of 5, about 1.9M games/s); the whole Rising Sun work measured about -3%, inside the +-4% run-to-run layout noise (a bisect showed code layout, not
+the sizes). `GameState` is about 22.5 KB, a 2-player copy about 10.6 KB.
 
 ## 3. What compaction would be
 

@@ -297,6 +297,10 @@ pub enum Event {
     PileVp { pile: CardId, n: u8 },
     /// `n` Debt tokens are put on the Supply pile `pile` (Tax).
     PileDebt { pile: CardId, n: u8 },
+    /// `player` removes a Sun token from the Prophecy (`source`: the Omen); `left` are left on it.
+    Sun { player: u8, source: CardId, left: u8 },
+    /// The last Sun token left the Prophecy (removed by `player`): its rule is in effect from now on.
+    Prophecy { prophecy: CardId, player: u8 },
 
     /// `card` goes back to its pile (a played Spoils or Madman, a Hermit exchanged for a Madman).
     Return { player: u8, card: CardId },
@@ -556,7 +560,9 @@ impl GameState {
                     }
                 }
                 if self.turn.actions > 0
-                    && (self.players[p].hand.any_type(ACTION) || (self.players[p].inherit != 0 && self.players[p].hand.has(id::ESTATE)))
+                    && (self.players[p].hand.any_type(ACTION)
+                        || (self.players[p].inherit != 0 && self.players[p].hand.has(id::ESTATE))
+                        || self.rs_can_play_extra(p as u8))
                 {
                     Run::Decide(DecisionKind::PlayAction, 0)
                 } else {
@@ -574,7 +580,7 @@ impl GameState {
                 let has_choice_treasure = if self.turn.treasures_done { false } else { self.play_choice_free_treasures(sink) };
                 if has_choice_treasure {
                     Run::Decide(DecisionKind::PlayTreasure, 0)
-                } else if (self.turn.buys > 0 || self.debt_payment_open()) && !self.turn.treasury_offered {
+                } else if (self.can_buy() || self.debt_payment_open()) && !self.turn.treasury_offered {
                     // `!treasury_offered`: once the Buy phase has started ending (Treasury's
                     // offer already begun, win or lose — see `end_buy_phase`), stay committed to
                     // ending it even if buys remain unspent (a voluntary Pass while buys>0 is
@@ -616,6 +622,10 @@ impl GameState {
                     let next = if extra { p as u8 } else { ((p + 1) % self.num_players as usize) as u8 };
                     self.turn = TurnState::start(next, self.turn.number + 1);
                     self.turn.is_extra_turn = extra;
+                    // Flourishing Trade: cards cost $1 less (a reduction that every turn starts with).
+                    if self.rs.active == id::FLOURISHING_TRADE {
+                        self.turn.cost_reduction = 1;
+                    }
                     // Adventures: a Mission turn buys no cards; the -$1 token takes $1 from the first $ of the turn.
                     self.turn.adv.no_buy = no_buy;
                     if self.players[next as usize].adv & crate::state::ADV_MINUS_COIN != 0 {
@@ -641,6 +651,17 @@ impl GameState {
                         out.push(Choice::Card(c));
                     }
                 }
+                // Rising Sun: the Shadow cards of the deck, and Treasures in the Action phase under Enlightenment.
+                if self.rs.flags & crate::state::R_SHADOW != 0 {
+                    self.push_shadow_choices(p as u8, out);
+                }
+                if self.rs.active == id::ENLIGHTENMENT {
+                    for (c, _) in self.players[p].hand.iter() {
+                        if !cards::is(c, ACTION) && self.is_treasure(c) {
+                            out.push(Choice::Card(c));
+                        }
+                    }
+                }
                 // Change plays differently with Debt: paying it off first (with $ from earlier plays) lets Change remodel.
                 if self.players[p].debt > 0 && self.turn.coins > 0 && self.players[p].hand.has(id::CHANGE) {
                     out.push(Choice::PayDebt);
@@ -653,7 +674,7 @@ impl GameState {
                     return;
                 }
                 // A Mission turn buys no cards (Events still).
-                if !self.turn.adv.no_buy && self.turn.buys > 0 {
+                if !self.turn.adv.no_buy && self.can_buy() {
                     // No cost modifier in play (the usual case): the printed cost, without `cost`'s per-card checks.
                     let plain = self.turn.cost_reduction == 0
                         && !self.in_supply(id::QUARRY)
@@ -665,13 +686,13 @@ impl GameState {
                         // The piles whose printed cost is within the $ (and has no Potion unless there is one), by mask; those with cards left.
                         let masks = cards::buy_masks();
                         let afford = &masks.le[(self.turn.coins as usize).min(masks.le.len() - 1)];
-                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2]];
+                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2], self.in_supply.ext & afford[3]];
                         if self.turn.potions == 0 {
                             for (w, np) in m.iter_mut().zip(masks.no_potion) {
                                 *w &= np;
                             }
                         }
-                        for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2]) {
+                        for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2], m[3]) {
                             if self.supply.get(c) > 0 && self.may_buy(c) && !(no_actions && cards::is(c, ACTION)) {
                                 out.push(Choice::Card(c));
                             }
@@ -690,7 +711,7 @@ impl GameState {
                     }
                 }
                 // Events (Adventures, Empires): bought like cards, for their cost and a Buy.
-                if self.events != 0 && self.turn.buys > 0 {
+                if self.events != 0 && self.can_buy() {
                     for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
                         if crate::sets::adventures::event_buyable(self, e) {
                             out.push(Choice::Card(e));
@@ -768,8 +789,14 @@ impl GameState {
             (_, Choice::PayDebtKeep(n)) => self.pay_debt_keeping(p, n as u16, sink),
             (Phase::Action, Choice::Card(c)) => {
                 self.turn.actions -= 1;
+                // A Shadow card with a copy in the deck is played from there.
+                let from_deck = self.plays_from_deck(p, c);
                 let ps = &mut self.players[p as usize];
-                ps.hand.remove(c);
+                if from_deck {
+                    ps.take_from_deck(c);
+                } else {
+                    ps.hand.remove(c);
+                }
                 ps.in_play.add(c, 1);
                 // Not marked held-for-cleanup here: see `push_duration_pending`.
                 sink.depth(0);
@@ -817,7 +844,7 @@ impl GameState {
                 if cards::potion_cost(c) {
                     self.turn.potions -= 1;
                 }
-                self.turn.buys -= 1;
+                self.spend_buy();
                 self.turn.treasures_done = true;
                 sink.depth(0);
                 sink.event(Event::Buy { player: p, card: c });
@@ -913,6 +940,10 @@ impl GameState {
     fn play_plain_treasure<S: EventSink>(&mut self, c: CardId, n: u8, sink: &mut S) {
         debug_assert!(c <= id::GOLD);
         let p = self.turn.player;
+        // Rising Sun: Panic's Buys, Good Harvest's Buy and $.
+        if self.rs.active != 0 {
+            self.rs_treasure_plays(c, n, sink);
+        }
         let ps = &mut self.players[p as usize];
         ps.hand.set(c, ps.hand.get(c) - n);
         ps.in_play.add(c, n);
@@ -936,7 +967,7 @@ impl GameState {
     #[inline(never)]
     fn buy_event<S: EventSink>(&mut self, e: CardId, p: u8, sink: &mut S) {
         self.turn.coins -= cards::cost(e) as u16;
-        self.turn.buys -= 1;
+        self.spend_buy();
         // Alms bought before the Treasures leaves them to be played; every other purchase ends the Treasure plays.
         if !(e == id::ALMS && self.treasures_in_play(p) == 0) {
             self.turn.treasures_done = true;
@@ -965,6 +996,10 @@ impl GameState {
     /// `play_free_treasure`; with `fresh` false the card is already in play and is played again (Crown plays a Treasure twice).
     pub(crate) fn play_free_treasure_from<S: EventSink>(&mut self, c: CardId, n: u8, fresh: bool, sink: &mut S) {
         let p = self.turn.player;
+        // Rising Sun: Panic's Buys, Good Harvest's Buy and $.
+        if self.rs.active != 0 {
+            self.rs_treasure_plays(c, n, sink);
+        }
         let ps = &mut self.players[p as usize];
         if fresh {
             ps.hand.set(c, ps.hand.get(c) - n);
@@ -992,7 +1027,13 @@ impl GameState {
         self.turn.potions += cards::def(c).potions * n;
         // Philosopher's Stone's value is dynamic, so it is shown like Bank's; so is Huge Turnip's ($1 per
         // Coffers, the two it gives each time included).
-        let mut stone = if c == id::PHILOSOPHERS_STONE { self.philosophers_stone_coins(p) * n as u16 } else { 0 };
+        let mut stone = if c == id::PHILOSOPHERS_STONE {
+            self.philosophers_stone_coins(p) * n as u16
+        } else if c == id::RICE {
+            self.rice_coins(p) * n as u16
+        } else {
+            0
+        };
         if c == id::HUGE_TURNIP {
             for _ in 0..n {
                 self.give_coffers(p, c, 2, sink);
@@ -1168,6 +1209,10 @@ impl GameState {
             ps.pending_durations_len = kept as u8;
         }
 
+        // Rising Sun: Panic returns the Treasures discarded from play to their piles, Biding Time sets the hand aside.
+        if self.rs.active != 0 {
+            self.rs_cleanup(sink);
+        }
         if self.turn.duration_held.is_empty() && self.players[p].stays.is_empty() {
             // The common turn: nothing stays in play, so the hand and play area both discard.
             let ps = &mut self.players[p];
@@ -1210,6 +1255,10 @@ impl GameState {
         if self.noc.flags != 0 {
             self.nocturne_cleanup();
         }
+        // Foresight (Rising Sun): the Actions set aside go to the hand once the new hand is drawn.
+        if !self.players[p].foresight.is_empty() {
+            self.stack.push(crate::effects::select(p as u8, id::FORESIGHT, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::ForesightToHand));
+        }
         // Save (Adventures): the card set aside goes to the hand once the new hand is drawn.
         if self.players[p].saved != 0 {
             self.stack.push(crate::effects::select(p as u8, id::SAVE, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::SavedToHand));
@@ -1232,14 +1281,25 @@ impl GameState {
         // pile is shuffled in (an idempotent change, so a chance step can redo this).
         let mut total = ps.deck_unknown.total();
         if total == 0 {
+            // The known cards at the very bottom (Secret Passage's, the Shadow cards put there by a shuffle) are drawn once the middle is gone.
+            if ps.deck_known_bottom.len > 0 {
+                return Ok(ps.deck_known_bottom.pop_front());
+            }
             if ps.discard.is_empty() {
                 return Ok(None);
             }
             let d = ps.discard;
             ps.deck_unknown.add_all(&d);
             ps.discard.clear();
+            // Rising Sun: the Shadow cards go to the bottom of the shuffled deck.
+            if self.rs.flags & crate::state::R_SHADOW != 0 {
+                ps.sink_shadows();
+            }
             sink.event(Event::Shuffle { player: p });
             total = ps.deck_unknown.total();
+            if total == 0 {
+                return Ok(ps.deck_known_bottom.pop_front());
+            }
         }
         if self.chance_mode {
             return Err(NeedChance(p));
@@ -1322,6 +1382,8 @@ impl GameState {
     pub(crate) fn finish_gain<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, source: CardId, from_supply: bool, sink: &mut S) {
         // Nocturne: the cards gained this turn are counted (Monastery, Devil's Workshop); some are gained to the hand.
         let to = if self.noc.flags & crate::state::N_GAIN_HOOK != 0 { self.gain_hook(p, c, to) } else { to };
+        // Rising Sun: Progress puts every gained card onto the deck.
+        let to = if self.rs.hook != 0 { self.rs_gain_dest(to) } else { to };
         let ps = &mut self.players[p as usize];
         match to {
             Dest::Hand => ps.hand.add(c, 1),
@@ -1351,7 +1413,15 @@ impl GameState {
                 self.turn.gained_in_buy = self.turn.gained_in_buy.saturating_add(1);
             }
         }
+        // Rising Sun: Kintsugi's and Receive Tribute's records, Growth's cheaper card, Rapid Expansion's set-aside (answered after the triggers below).
+        if self.rs.hook != 0 {
+            self.rs_gain_pre(p, c, to);
+        }
         self.run_gain_triggers(p, c, to, on_buy, sink);
+        // Bureaucracy's Copper, Harsh Winter's Debt.
+        if self.rs.hook != 0 {
+            self.rs_gain_post(p, c, from_supply, sink);
+        }
     }
 
     /// The zone a gain destination corresponds to, for triggers that need to find the gained

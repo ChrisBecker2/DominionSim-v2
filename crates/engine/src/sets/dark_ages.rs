@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 358;
+    pub const RUINS: CardId = 382;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 359;
-    pub const RUINED_LIBRARY: CardId = 360;
-    pub const RUINED_MARKET: CardId = 361;
-    pub const RUINED_VILLAGE: CardId = 362;
-    pub const SURVIVORS: CardId = 363;
-    pub const DAME_ANNA: CardId = 364;
-    pub const DAME_JOSEPHINE: CardId = 365;
-    pub const DAME_MOLLY: CardId = 366;
-    pub const DAME_NATALIE: CardId = 367;
-    pub const DAME_SYLVIA: CardId = 368;
-    pub const SIR_BAILEY: CardId = 369;
-    pub const SIR_DESTRY: CardId = 370;
-    pub const SIR_MARTIN: CardId = 371;
-    pub const SIR_MICHAEL: CardId = 372;
-    pub const SIR_VANDER: CardId = 373;
+    pub const ABANDONED_MINE: CardId = 383;
+    pub const RUINED_LIBRARY: CardId = 384;
+    pub const RUINED_MARKET: CardId = 385;
+    pub const RUINED_VILLAGE: CardId = 386;
+    pub const SURVIVORS: CardId = 387;
+    pub const DAME_ANNA: CardId = 388;
+    pub const DAME_JOSEPHINE: CardId = 389;
+    pub const DAME_MOLLY: CardId = 390;
+    pub const DAME_NATALIE: CardId = 391;
+    pub const DAME_SYLVIA: CardId = 392;
+    pub const SIR_BAILEY: CardId = 393;
+    pub const SIR_DESTRY: CardId = 394;
+    pub const SIR_MARTIN: CardId = 395;
+    pub const SIR_MICHAEL: CardId = 396;
+    pub const SIR_VANDER: CardId = 397;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -757,6 +757,7 @@ impl GameState {
                 sink.event(Event::DeckToDiscard { player: p, n: n as u16 });
             }
             Then::DiscardRevealedAsk => self.discard_revealed(p, sink),
+            Then::SnakeWitch | Then::GoldMine => self.rs_ask_yes(f, sink),
             _ => {}
         }
     }

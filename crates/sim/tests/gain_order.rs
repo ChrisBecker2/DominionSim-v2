@@ -378,6 +378,11 @@ fn second_copy_is_scored_with_its_condition_rechecked() {
 
 #[test]
 fn big_hand_game_plays_to_the_end_without_panicking() {
+    // The search recurses deeply and a `GameState` is 22 KB: a test thread's default 2 MiB stack is not enough (the bots run on bigger ones).
+    std::thread::Builder::new().stack_size(64 << 20).spawn(big_hand_game_inner).unwrap().join().unwrap();
+}
+
+fn big_hand_game_inner() {
     // Regression: playouts past the node budget asked the action-play rule for every decision and
     // answered "Pass" at a gain (no Pass there) -> "illegal choice" panic. Play the reported
     // position to the end with several strategy pairings.

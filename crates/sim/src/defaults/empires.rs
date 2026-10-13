@@ -133,7 +133,7 @@ fn twin_cost_wanted(s: &Strategy, view: &PlayerView) -> bool {
                 n += 1;
             }
         }
-        n >= 2 && view.turn().buys > 0
+        n >= 2 && view.buys_left() > 0
     })
 }
 

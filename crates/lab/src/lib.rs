@@ -203,7 +203,7 @@ fn card_info(c: CardId) -> CardInfo {
             types.push(label);
         }
     }
-    for (flag, label) in [(cards::TRAVELLER, "Traveller"), (cards::RESERVE, "Reserve")] {
+    for (flag, label) in [(cards::TRAVELLER, "Traveller"), (cards::RESERVE, "Reserve"), (cards::OMEN, "Omen"), (cards::SHADOW, "Shadow")] {
         if cards::is(c, flag) {
             types.push(label);
         }
@@ -214,6 +214,9 @@ fn card_info(c: CardId) -> CardInfo {
     if cards::is_landmark(c) {
         types.push("Landmark");
     }
+    if cards::is_prophecy(c) {
+        types.push("Prophecy");
+    }
     let set = cards::set_of(c).name();
     CardInfo { name: cards::name(c).to_string(), cost: cards::cost(c), cost_label: cards::cost_string(c), types, set }
 }
@@ -221,7 +224,11 @@ fn card_info(c: CardId) -> CardInfo {
 fn cards_response() -> serde_json::Value {
     // The Events (Adventures, Empires) and Landmarks (Empires) are listed with the kingdom cards (types "Event" and "Landmark"): a fixed kingdom may include them, and the evolving side may be barred from them.
     let kingdom: Vec<CardInfo> =
-        cards::kingdom_cards().chain(cards::FIRST_EVENT..cards::FIRST_EVENT + (cards::NUM_EVENTS + cards::NUM_LANDMARKS) as CardId).map(card_info).collect();
+        cards::kingdom_cards()
+            .chain(cards::FIRST_EVENT..cards::FIRST_EVENT + (cards::NUM_EVENTS + cards::NUM_LANDMARKS) as CardId)
+            .chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
+            .map(card_info)
+            .collect();
     let basic: Vec<CardInfo> = (0..cards::FIRST_KINGDOM).map(card_info).collect();
     json!({ "kingdom": kingdom, "basic": basic })
 }

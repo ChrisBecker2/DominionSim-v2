@@ -56,7 +56,7 @@
 use crate::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
 use crate::counts::Counts;
 use crate::engine::*;
-use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Then, Zone, ADV_MINUS_CARD, G_CHAMPION, G_PLAY_TOKENS, MAX_PLAYERS};
+use crate::state::{Act, Dest, Filter, Frame, FrameKind as K, GameState, Phase, Then, TypeSet, Zone, ADV_MINUS_CARD, G_CHAMPION, G_PLAY_TOKENS, MAX_PLAYERS};
 
 /// The most coins an overpay decision offers (and the most it can offer in one go).
 pub const OVERPAY_CAP: u16 = 60;
@@ -133,6 +133,10 @@ impl GameState {
     pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, player: u8, depth: u8, sink: &mut S) {
         sink.depth(depth + 1);
         let base = self.stack.len as usize;
+        // Daimyo: the next non-Command Action played this turn is replayed afterwards (once per Daimyo played); the replays wait under its effects.
+        if self.turn.rs.daimyo > 0 {
+            self.push_daimyo_replays(card, player);
+        }
         // Adventures: the calls that follow an Action's play (Coin of the Realm, Royal Carriage) wait under its effects.
         if self.after_play_possible(player) && cards::is(card, ACTION) {
             self.stack.push(Frame { subject: card, ..Frame::new(K::AfterPlay, player, card) });
@@ -150,6 +154,11 @@ impl GameState {
     fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
         let p = player;
         let def = cards::def(card);
+        // Enlightenment: a Treasure played in the Action phase is +1 Card +1 Action instead of what it says.
+        if self.rs.active == id::ENLIGHTENMENT && p == self.turn.player && self.turn.phase == Phase::Action && self.is_treasure(card) {
+            self.rs_enlightened_play(card, p, sink);
+            return;
+        }
         // Enchantress: the first Action the turn's player plays on their turn gives +1 Card +1 Action instead of what it says.
         if self.emp.flags & crate::state::E_ENCHANT != 0 && p == self.turn.player && cards::is(card, ACTION) {
             if self.enchanted_play(card, p, sink) {
@@ -160,6 +169,10 @@ impl GameState {
         // plays): not what another player plays from their hand on this turn (Pirate).
         // The bonuses are the turn's: a card another player plays on this turn (Pirate, Caravan Guard) gives them nothing.
         if p == self.turn.player {
+            // Panic and Good Harvest answer a Treasure played with a choice (the plain Treasures have their own paths).
+            if self.rs.active != 0 && self.is_treasure(card) {
+                self.rs_treasure_plays(card, 1, sink);
+            }
             self.turn.played.add(card, 1);
             self.turn.actions += def.actions;
             self.turn.buys += def.buys;
@@ -201,6 +214,10 @@ impl GameState {
     fn resolve_card_body<S: EventSink>(&mut self, card: CardId, p: u8, sink: &mut S) {
         let def = cards::def(card);
         crate::sets::play(self, def.set, card, p, sink);
+        // Rising Sun: Great Leader's +1 Action and Approaching Army's +$1 come after the card.
+        if self.rs.active != 0 && p == self.turn.player {
+            self.rs_after_play(card, p, sink);
+        }
 
         // Generic Duration scheduling: every Duration card gets a pending start-of-next-turn
         // entry, except those that schedule themselves once their own argument (the set-aside/gained card, or whether
@@ -338,6 +355,28 @@ impl GameState {
         }
     }
 
+    /// The zone a selection picks from: `zone`, and for a play from the hand the Shadow cards of the deck as well (a Shadow card can be played from
+    /// the deck whenever an Action can be played from the hand).
+    #[inline(always)]
+    fn select_zone(&self, f: &Frame) -> ZoneRef<'_> {
+        if f.act == Act::Play && f.zone == Zone::Hand && self.rs.flags & crate::state::R_SHADOW != 0 {
+            return self.zone_with_shadows(f.player);
+        }
+        self.zone(f.player, f.zone)
+    }
+
+    #[inline(never)]
+    fn zone_with_shadows(&self, p: u8) -> ZoneRef<'_> {
+        let ps = &self.players[p as usize];
+        let mut z = ps.hand;
+        for &s in &crate::sets::rising_sun::SHADOWS {
+            if !z.has(s) && ps.deck_has(s) {
+                z.add(s, 1);
+            }
+        }
+        ZoneRef::Top(z)
+    }
+
     /// Take one `c` out of `z` for `p`; whether there was one (the deck top: only if it is the top card).
     fn zone_take(&mut self, p: u8, z: Zone, c: CardId) -> bool {
         if z == Zone::DeckTop {
@@ -420,7 +459,13 @@ impl GameState {
             Filter::NecroTarget => {
                 cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.trash.get(c) > self.turn.noc.necro.get(c)
             }
-            Filter::NotInPlayAction => cards::is(c, ACTION) && !self.players[p as usize].in_play.has(c),
+            Filter::NotInPlayAction => self.is_action(c) && !self.players[p as usize].in_play.has(c),
+            // Enlightenment: the Treasures are Actions too.
+            Filter::Action => self.is_action(c),
+            Filter::ActionNot(x) => c != x && self.is_action(c),
+            Filter::Types(TypeSet::Action) => self.is_action(c),
+            Filter::Types(TypeSet::ActionNotDuration) => self.is_action(c) && !cards::is(c, cards::DURATION),
+            Filter::Types(TypeSet::ActionNotAttack) => self.is_action(c) && !cards::is(c, cards::ATTACK),
             Filter::ActionToDiscard => {
                 let ps = &self.players[p as usize];
                 cards::is(c, ACTION) && ps.in_play.get(c) > self.turn.duration_held.get(c).saturating_add(ps.stays.get(c))
@@ -431,7 +476,7 @@ impl GameState {
 
     #[inline(always)]
     fn select_bounds_by(&self, f: &Frame, ok: impl Fn(CardId) -> bool) -> (u8, u8, u32) {
-        let z = self.zone(f.player, f.zone);
+        let z = self.select_zone(f);
         let lo = if f.ordered || f.count == 0 { 0 } else { f.last + f.distinct as CardId };
         let mut avail_all = 0u32;
         let mut avail_from = 0u32;
@@ -659,6 +704,7 @@ impl GameState {
                 let pointless = match f.then {
                     Then::DeckToDiscard => self.players[pi].deck_size() == 0,
                     Then::DiscardRevealedAsk => self.players[pi].set_aside.is_empty(),
+                    Then::SnakeWitch | Then::GoldMine => self.rs_ask_pointless(&f),
                     _ => false,
                 };
                 if pointless {
@@ -825,7 +871,9 @@ impl GameState {
                     let cost = self.cost(c);
                     // A card with Debt in its cost is never "up to" or "less than" an amount of $; an exact gain needs the same Debt (`min`, 0 for
                     // an ordinary gain); a "less than" gain may have up to the Debt in `min` (Dismantle: the Debt of the card trashed, 0 otherwise); Change (`more`) only compares the $.
-                    let cost_ok = if f.more {
+                    let cost_ok = if f.gf & crate::state::GF_ANY_COST != 0 {
+                        true
+                    } else if f.more {
                         cost > f.max
                     } else if f.exact {
                         (cost == f.max || (f.gf & crate::state::GF_BOTH != 0 && cost == f.max + 2)) && pc == f.potion && dc == f.min
@@ -840,7 +888,9 @@ impl GameState {
                     let record_ok = !f.gain_from_record || self.players[self.right_of(f.player) as usize].last_turn_gains.has(c);
                     // Only the top card of a split pile or of the Castles can be gained.
                     let top_ok = self.pile_open(c);
-                    if self.supply.get(c) > 0 && top_ok && cost_ok && named_ok && record_ok && self.filter_ok(f.player, f.filter, c) {
+                    // Receive Tribute: differently named Actions (the two before this one are not on offer).
+                    let excl_ok = f.gf & crate::state::GF_EXCL == 0 || ((f.subject == 0 || c != f.subject) && (f.last == 0 || c != f.last));
+                    if self.supply.get(c) > 0 && top_ok && cost_ok && named_ok && record_ok && excl_ok && self.filter_ok(f.player, f.filter, c) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -850,7 +900,7 @@ impl GameState {
             }
             K::Select => {
                 let (rem_min, rem_max, avail) = self.select_bounds(&f);
-                let z = self.zone(f.player, f.zone);
+                let z = self.select_zone(&f);
                 // All-or-nothing: a first pick must leave enough cards (in canonical order) to
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
@@ -949,6 +999,10 @@ impl GameState {
                 if f.then == Then::SummonAside {
                     self.push_summon_guard(&f, c);
                 }
+                // Continue: the return to the Action phase and the play of the card wait under the gain's reactions.
+                if f.then == Then::ContinueGain && self.supply.get(c) > 0 {
+                    self.push_continue_guard(&f, c);
+                }
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
@@ -999,6 +1053,7 @@ impl GameState {
                         Then::ChangeDebt | Then::DominateVp | Then::TriumphVp | Then::RitualTrash | Then::TakePileVp => {
                             self.empires_gained(&f, c, sink)
                         }
+                        Then::CreditDebt | Then::TributeGain => self.rs_gained(&f, c, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1047,7 +1102,12 @@ impl GameState {
                     self.turn.noc.necro.add_or_drop(c, 1);
                 }
                 if !in_place {
-                    let removed = self.zone_take(p, f.zone, c);
+                    // A Shadow card played from the hand is taken from the deck when a copy is there.
+                    let removed = if f.act == Act::Play && f.zone == Zone::Hand && self.plays_from_deck(p, c) {
+                        self.players[pi].take_from_deck(c)
+                    } else {
+                        self.zone_take(p, f.zone, c)
+                    };
                     debug_assert!(removed);
                 }
                 if storyteller {
@@ -1189,6 +1249,10 @@ impl GameState {
             }
             sink.event(Event::Overpay { player: p, card, coins, potion });
             crate::sets::overpay(self, p, card, coins, potion, depth, sink);
+        }
+        // An Event (Asceticism) is not gained.
+        if cards::is_event(card) {
+            return;
         }
         self.gain(p, card, Dest::Discard, true, NO_SOURCE, sink);
         self.on_buy_effects(p, card, sink);
@@ -1574,6 +1638,12 @@ impl GameState {
             | Then::DevelopGain
             | Then::GainPerCost { .. } => self.finish_hint_select(&f, sink),
             Then::DismantleGain | Then::SummonAside => self.finish_promo_select(&f, sink),
+            Then::MountainShrine
+            | Then::RiceBroker
+            | Then::KintsugiGain
+            | Then::ContinueReturn
+            | Then::ForesightToHand
+            | Then::RapidAside => self.finish_rs_select(&f, sink),
             Then::DrawNPerPick(_)
             | Then::DrawActionsIfPicked { .. }
             | Then::ConclavePlay
@@ -1659,6 +1729,13 @@ impl GameState {
             | Then::TunnelGold
             | Then::FoolsGoldGain
             | Then::TraderSwap
+            | Then::SnakeWitch
+            | Then::GoldMine
+            | Then::PoetCheck
+            | Then::CreditDebt
+            | Then::ContinueGain
+            | Then::ForesightSet
+            | Then::TributeGain
             | Then::BerserkerPlay => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
@@ -1734,6 +1811,7 @@ impl GameState {
                 | ModeOpt::GainSubject { .. }
                 | ModeOpt::DiscardHandDraw { .. }
                 | ModeOpt::TrashSelfRevealVpPerTreasureType
+                | ModeOpt::CurseOthers
                 | ModeOpt::NativeVillageTake => {}
             }
         }
@@ -1811,6 +1889,7 @@ impl GameState {
                     b_coins += k as u16;
                 }
                 ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
+                ModeOpt::CurseOthers => self.curse_others(f.source, f.depth, sink),
                 ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => {}
                 ModeOpt::Cards(_)
@@ -1843,6 +1922,7 @@ impl GameState {
         let p = f.player;
         if times >= 2
             && (cards::is(f.last, cards::DURATION) || f.last == id::PRINCE)
+            && !cards::is_pseudo(f.source)
             && self.players[p as usize].in_play.has(f.source)
         {
             self.turn.multiplier_card = f.source;
@@ -2084,6 +2164,7 @@ impl GameState {
             Then::KeepMatchingDiscardRest => self.finish_keep_matching(&f, sink),
             Then::PatricianCheck | Then::ArchiveSet => self.empires_reveal_done(&f, sink),
             Then::WispCheck | Then::FamineSort | Then::GhostSet => self.finish_noc_reveal(&f, sink),
+            Then::PoetCheck | Then::ForesightSet => self.finish_rs_reveal(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

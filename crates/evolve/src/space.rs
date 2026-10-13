@@ -43,7 +43,7 @@ impl SearchSpace {
     pub fn new(kingdom_pool: &[CardId], forbidden: &[CardId]) -> SearchSpace {
         let basics = [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER];
         // Landmarks are never gained.
-        let mut gainable: Vec<CardId> = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c) && !cards::is_landmark(*c)).collect();
+        let mut gainable: Vec<CardId> = basics.iter().chain(kingdom_pool).copied().filter(|c| !forbidden.contains(c) && !cards::is_landmark(*c) && !cards::is_prophecy(*c)).collect();
         // Joust brings the Rewards, which are not in the Supply but can be gained from it: a rule may
         // name one (their order in the gain list is the strategy's preference when Joust offers them).
         if gainable.contains(&id::JOUST) {

@@ -233,9 +233,10 @@
       ? " dual-duration-reaction"
       : "";
     // Nocturne: a card that is only a Night card is dark; a Night-Duration card is split orange/dark.
+    const prophecyOnly = has("prophecy");
     const nightOnly = has("night") && !has("action") && !has("duration") && !has("treasure");
     const dualNight = has("night") && has("duration") ? " dual-duration-night" : "";
-    return "card " + (nightOnly ? "night" : primary + dual + dualNight) + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "") + (has("heirloom") ? " heirloom" : "");
+    return "card " + (prophecyOnly ? "prophecy" : nightOnly ? "night" : primary + dual + dualNight) + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "") + (has("heirloom") ? " heirloom" : "");
   }
   // </chip-class>
 
@@ -585,6 +586,20 @@
       if (lm.vp) row.appendChild(el("span", "cost", ` ${lm.vp} VP`));
       list.appendChild(row);
     }
+  }
+
+  // Rising Sun: the Prophecy of the game, with the Sun tokens left on it (it happens when the last one is removed).
+  function renderProphecy(view) {
+    const panel = $("prophecy-panel");
+    const list = $("prophecy-list");
+    list.innerHTML = "";
+    const p = view.prophecy;
+    panel.hidden = !p;
+    if (!p) return;
+    const row = el("div", "event-row");
+    row.appendChild(cardChip(p.name));
+    row.appendChild(el("span", "cost", p.active ? " in effect" : ` ${p.suns} Sun token${p.suns === 1 ? "" : "s"}`));
+    list.appendChild(row);
   }
 
   // Nocturne: the Boons and Hexes decks (which are still to come, which are in the discard piles, which are set aside for Druid or kept in front of a
@@ -1723,6 +1738,7 @@
     renderSupply(view);
     renderEvents(view);
     renderLandmarks(view);
+    renderProphecy(view);
     renderNocturne(view);
     renderTrash(view);
     renderDecision(view);

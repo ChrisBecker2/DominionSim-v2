@@ -190,3 +190,12 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
   parameter, and the played card is added to `discard_next_cleanup` so it leaves play at that turn's Clean-up.
 * **Auto-single decisions hide tests**: a Select with one candidate is applied at once; tests should assert state, not expect the decision.
 * Gains "less than this" are Gain frames with `less`; the decision shows `max_cost` = the card's cost (the page text reads the frame).
+
+## 8. Learned with Rising Sun
+
+* **A new pseudo-card kind (Prophecy)** needs: ids above `NUM_ZONE_IDS` guarded where a source id indexes a zone (`push_plays` skips `is_pseudo(source)`),
+  a state gate byte so games without it pay one test, text round-trip (parse restores derived state directly), the view accessors, the wasm JSON and a
+  panel in the web page, and exclusion from the evolved gainable pool.
+* **Widening `Counts` / `SupplyMask`** grows every state copy (about 1 KB per 32 lanes): measure with the interleaved benchmark, and expect +-4% code-layout noise.
+* **Test setup pitfalls**: after a terminal the engine enters Buy and auto-plays Treasures (use non-Treasure fillers); Debt without coins makes the Buy decision
+  auto-pass; a state from `new_state` has not resolved its start of turn.

@@ -48,7 +48,7 @@ pub(crate) fn is_leaf(state: &GameState) -> bool {
             // may still be discarded from the Tavern mat at the end of the Buy phase: that offer is part of the turn. Nor when a Night phase
             // follows (Nocturne): the Night cards are part of the turn too.
             || (state.turn.phase == Phase::Buy
-                && state.turn.buys == 0
+                && !state.can_buy()
                 && state.stack.is_empty()
                 && !(state.turn.coins >= 2 && state.players[state.turn.player as usize].tavern.has(cards::id::WINE_MERCHANT))
                 && !(state.noc.flags & dominion_engine::state::N_NIGHT != 0

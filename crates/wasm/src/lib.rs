@@ -1492,11 +1492,13 @@ pub extern "C" fn card_info() -> i32 {
         (cards::SPIRIT, "spirit"),
         (cards::ZOMBIE, "zombie"),
         (cards::HEIRLOOM, "heirloom"),
+        (cards::OMEN, "omen"),
+        (cards::SHADOW, "shadow"),
     ];
-    let items: Vec<String> = (0..cards::NUM_CARDS as CardId)
+    let items: Vec<String> = (0..cards::NUM_CARDS as CardId).chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
         .map(|c| {
             let mut types: Vec<String> = flags.iter().filter(|(f, _)| cards::is(c, *f)).map(|(_, n)| jstr(n)).collect();
-            for (yes, name) in [(cards::is_boon(c), "boon"), (cards::is_hex(c), "hex"), (cards::is_state(c), "state")] {
+            for (yes, name) in [(cards::is_boon(c), "boon"), (cards::is_hex(c), "hex"), (cards::is_state(c), "state"), (cards::is_prophecy(c), "prophecy")] {
                 if yes {
                     types.push(jstr(name));
                 }
@@ -1884,6 +1886,12 @@ fn render_event(e: &Event) -> String {
         Event::VpTokens { player, source, n } => format!("Player {} takes {n} VP token(s) ({})", player + 1, cards::name(source)),
         Event::PileVp { pile, n } => format!("{n} VP token(s) are put on {}", cards::name(pile)),
         Event::PileDebt { pile, n } => format!("{n} Debt is put on the {} pile", cards::name(pile)),
+        Event::Sun { player, source, left } => {
+            format!("Player {} removes a Sun token ({}): {left} left on {}", player + 1, cards::name(source), "the Prophecy")
+        }
+        Event::Prophecy { prophecy, player } => {
+            format!("*** The last Sun token is gone: {} is in effect (Player {}) ***", cards::name(prophecy), player + 1)
+        }
         Event::PlayAgain { player, card, source, nth } => {
             let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };
             format!("Player {} plays {} {again} ({})", player + 1, cards::name(card), cards::name(source))
@@ -1991,6 +1999,7 @@ fn filter_noun(f: Filter) -> (String, String) {
                 ("a Curse, Ruins, Shelter or Victory card".into(), "Curses, Ruins, Shelters and Victory cards".into())
             }
             dominion_engine::state::TypeSet::Castle => ("a Castle".into(), "Castles".into()),
+            dominion_engine::state::TypeSet::ActionNotAttack => ("a non-Attack Action card".into(), "non-Attack Action cards".into()),
         },
         Filter::NonTreasure => ("a non-Treasure card".into(), "non-Treasure cards".into()),
         Filter::TreasureNonDuration => ("a non-Duration Treasure".into(), "non-Duration Treasures".into()),
@@ -2346,6 +2355,15 @@ fn landmarks_json(state: &GameState) -> String {
         .map(|i| format!("{{\"name\":{},\"vp\":{}}}", jstr(cards::name(cards::FIRST_LANDMARK + i as CardId)), state.emp.lm_vp[i]))
         .collect();
     format!("[{}]", items.join(","))
+}
+
+/// `{"name":"Bureaucracy","suns":3,"active":false}` or `null`: the Prophecy of the game (Rising Sun), the Sun tokens left on it and whether it has happened.
+fn prophecy_json(state: &GameState) -> String {
+    let p = state.rs.prophecy;
+    if p == 0 {
+        return "null".to_string();
+    }
+    format!("{{\"name\":{},\"suns\":{},\"active\":{}}}", jstr(cards::name(p)), state.rs.suns, state.rs.active)
 }
 
 fn supply_json(state: &GameState) -> String {
@@ -2726,7 +2744,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"landmarks\":{landmarks},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -2742,6 +2760,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         supply = supply_json(state),
         events = events_json(state),
         landmarks = landmarks_json(state),
+        prophecy = prophecy_json(state),
         nocturne = nocturne_json(state),
         pile_order = pile_order_json(state),
         trash = counts_json(&state.trash),

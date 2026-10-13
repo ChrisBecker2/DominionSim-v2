@@ -607,18 +607,12 @@ function buildRequest() {
   return { config: config, opponents: opponents, seed_files: Array.from(form.seeds) };
 }
 
-function saveConfig() {
-  try {
-    var req = buildRequest();
-    localStorage.setItem(LS_KEY, JSON.stringify(req));
-  } catch (e) { /* ignore: localStorage unavailable */ }
-}
+// The form is not remembered between visits: every page load starts from the server's defaults
+// (a running search shows its own settings). Older versions stored it; that copy is removed.
+function saveConfig() {}
 
 function loadSavedConfig() {
-  try {
-    var raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem(LS_KEY); } catch (e) { /* ignore: localStorage unavailable */ }
   return null;
 }
 

@@ -167,7 +167,7 @@ impl Default for EvolveConfig {
             colonies: Colonies::default(),
             opponents: Vec::new(),
             league: None,
-            forbidden: vec!["Witch".into()],
+            forbidden: Vec::new(),
             seeds: Vec::new(),
             islands: 4,
             island_size: 32,

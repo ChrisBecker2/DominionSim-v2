@@ -17,6 +17,8 @@ fn cfg() -> EvolveConfig {
         race_games: vec![100, 200],
         validate_games: 400,
         polish_games: 200,
+        // The evolving side may not use Witch (the opponent's card stays in the kingdom).
+        forbidden: vec!["Witch".into()],
         ..EvolveConfig::default()
     }
 }

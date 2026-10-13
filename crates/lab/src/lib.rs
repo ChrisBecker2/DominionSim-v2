@@ -311,7 +311,7 @@ fn collect_strategy_dir(dir: &Path, prefix: &str, evolved: bool, out: &mut Vec<S
 // ---------------------------------------------------------------------------------------------
 
 pub fn default_request(dir: &Path) -> LabRequest {
-    let cfg = EvolveConfig::default(); // Fixed{kingdom: []} (all cards), forbidden = ["Witch"]
+    let cfg = EvolveConfig::default(); // Fixed{kingdom: []} (all cards), nothing forbidden
     let Ok(entries) = fs::read_dir(dir) else {
         return LabRequest { config: cfg, opponents: vec![OpponentFile { file: "double_witch.toml".into(), weight: 1.0 }], seed_files: Vec::new() };
     };

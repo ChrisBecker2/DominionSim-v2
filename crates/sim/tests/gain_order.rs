@@ -163,12 +163,15 @@ turns: 15
 }
 
 #[test]
-fn bots_follow_their_list_even_when_it_ends_the_game_on_a_loss() {
-    // Behind 0-18 with one Province left: Big Money's list says Province at $8, so it buys it
-    // (and loses). No hidden "don't lose" override.
+fn bots_never_end_the_game_on_a_loss_by_default() {
+    // Behind 0-18 with one Province left: buying it would end the game with Big Money losing, so
+    // by default it goes down its list instead (Big Money's next listed card it can afford).
     let (pick, offered) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", "3 Province"));
+    assert_ne!(pick, Choice::Card(id::PROVINCE));
+    assert!(offered.contains(&format!("{:?}", Choice::Card(id::PROVINCE))), "Province is legal, the bot just declines it");
+    // Ahead (no extra VP for the opponent): the last Province wins, so it is bought.
+    let (pick, _) = buy_decision("big_money.toml", &endgame(1, "Gold Gold Silver", ""));
     assert_eq!(pick, Choice::Card(id::PROVINCE));
-    assert!(offered.contains(&format!("{:?}", Choice::Card(id::PROVINCE))));
 }
 
 #[test]

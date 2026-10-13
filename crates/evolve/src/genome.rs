@@ -566,8 +566,9 @@ mod tests {
         let a = Atom::parse("loses_game < 1").unwrap();
         assert_eq!(a, Atom { var: Var::LosesGame, op: Op::Lt, n: 1 });
         assert_eq!(a.text(), "loses_game < 1");
-        let g = crate::ops::big_money();
-        assert!(g.gain[0].card == id::PROVINCE && g.gain[0].conds == vec![a], "the Big Money template guards the last Province");
+        let text = "name = \"E\"\n[[gain]]\ncard = \"Province\"\nif = \"loses_game < 1\"\n";
+        let g = Genome::from_toml(text).unwrap();
+        assert_eq!(g.gain[0].conds, vec![a]);
         dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
     }
 

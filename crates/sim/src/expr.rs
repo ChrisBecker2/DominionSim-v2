@@ -301,6 +301,20 @@ impl Expr {
 
     /// Visits every card id this condition names via `count(..)` / `supply(..)`. Used to build
     /// an "auto" kingdom (the union of cards strategies reference).
+    /// Whether the condition uses `wins_game` or `loses_game`: the strategy says itself when to end
+    /// the game, so the default guard against ending it in a loss stays out of its way.
+    pub fn mentions_game_end(&self) -> bool {
+        use Expr::*;
+        match self {
+            WinsGame | LosesGame => true,
+            Neg(a) | Not(a) => a.mentions_game_end(),
+            Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
+                a.mentions_game_end() || b.mentions_game_end()
+            }
+            _ => false,
+        }
+    }
+
     pub fn for_each_card_ref(&self, f: &mut impl FnMut(CardId)) {
         use Expr::*;
         match self {

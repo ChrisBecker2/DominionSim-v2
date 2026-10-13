@@ -72,12 +72,11 @@ pub fn is_money_partner(c: CardId) -> bool {
 /// Big Money Ultimate for a supply with or without Colony.
 pub fn big_money_ultimate(colonies: bool) -> Genome {
     let mut gain = Vec::new();
-    // Never take the last Colony or Province while behind: that ends the game in a loss.
-    let unless_losing = || vec![atom(Var::LosesGame, Op::Lt, 1)];
+    // (Bots never take a card that ends the game in a loss: that is the default, no rule needed.)
     if colonies {
-        gain.push(rule(id::COLONY, unless_losing()));
+        gain.push(Rule::new(id::COLONY));
     }
-    gain.push(rule(id::PROVINCE, unless_losing()));
+    gain.push(Rule::new(id::PROVINCE));
     gain.push(rule(id::DUCHY, vec![atom(Var::ProvincesLeft, Op::Lt, 5)]));
     gain.push(rule(id::ESTATE, vec![atom(Var::ProvincesLeft, Op::Lt, 3)]));
     if colonies {

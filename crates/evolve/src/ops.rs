@@ -18,8 +18,7 @@ fn cond(var: Var, op: Op, n: i16) -> Atom {
 pub fn big_money() -> Genome {
     Genome {
         gain: vec![
-            // Not the last Province while behind: that would end the game in a loss.
-            Rule { card: id::PROVINCE, opt: 0, conds: vec![cond(Var::LosesGame, Op::Lt, 1)] },
+            Rule::new(id::PROVINCE),
             Rule { card: id::DUCHY, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 5)] },
             Rule::new(id::GOLD),
             Rule { card: id::ESTATE, opt: 0, conds: vec![cond(Var::ProvincesLeft, Op::Lt, 3)] },

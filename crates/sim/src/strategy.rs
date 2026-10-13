@@ -245,6 +245,10 @@ pub struct Strategy {
     pub name: String,
     pub description: String,
     buy: Vec<(CardId, Option<Expr>)>,
+    /// Whether the gain list skips a card whose gain would end the game with this player not
+    /// winning (the last Province while behind, the card that empties the third pile). On unless a
+    /// rule's condition uses `wins_game` / `loses_game` itself.
+    guard_game_end: bool,
     /// `[[play]]` rules in priority order.
     play: Vec<(CardId, Option<Expr>)>,
     /// Rank of each card's first `[[play]]` rule (lower = earlier), or `-1` if unlisted.
@@ -370,9 +374,11 @@ impl Strategy {
             }
         }
 
+        let guard_game_end = !buy.iter().any(|(_, c): &(CardId, Option<Expr>)| c.as_ref().is_some_and(|e| e.mentions_game_end()));
         Ok(Strategy {
             name: raw.name,
             description: raw.description,
+            guard_game_end,
             buy,
             play,
             play_rank,
@@ -809,11 +815,21 @@ impl Strategy {
     /// First entry in the gain list that's a legal choice and whose condition holds.
     fn match_gain_list(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+            if has_card(choices, *card)
+                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
+                && !(self.guard_game_end && Self::gain_loses(view, *card))
+            {
                 return Some(*card);
             }
         }
         None
+    }
+
+    /// Gaining `card` would end the game this turn with me not among the winners (a shared win is
+    /// fine). Cheap: only the last card of a pile can end the game (`result_if_gained`).
+    #[inline]
+    fn gain_loses(view: &PlayerView, card: CardId) -> bool {
+        matches!(view.result_if_gained(card), Some(w) if w & (1 << view.me()) == 0)
     }
 
     /// Whether the strategy's rules would ever buy `card` here: it's in the gain list with its

@@ -87,3 +87,89 @@ fn stop_during_the_final_ranking_ends_the_run_promptly() {
     let waited = stopped_at.unwrap().elapsed();
     assert!(waited.as_secs_f64() < 30.0, "stopped {waited:?} after Stop");
 }
+
+fn exploit_cfg(rounds: usize, margin: f64) -> EvolveConfig {
+    let mut c = bm_cfg();
+    c.generations = 2;
+    if let Some(l) = c.league.as_mut() {
+        l.exploit_rounds = rounds;
+        l.exploit_generations = 2;
+        l.exploit_margin = margin;
+        l.exploit_games = 200;
+    }
+    c
+}
+
+#[test]
+fn exploiter_loop_stops_at_the_first_round_that_does_not_beat_the_margin() {
+    // A margin no win rate can exceed: one round is played, nothing is added, the loop settles.
+    let p = run(&exploit_cfg(3, 0.5), &Control::default(), &mut |_| {}).unwrap();
+    assert_eq!(p.status, "done");
+    let l = p.league.unwrap();
+    assert_eq!(l.exploit_rounds, 3);
+    assert_eq!(l.exploiters.len(), 1, "stopped after the first failure");
+    let r = &l.exploiters[0];
+    assert!(!r.added && r.name.is_none());
+    assert!(r.ci_lo <= r.rate_vs_mix && r.rate_vs_mix <= r.ci_hi);
+    assert!(!r.mix.is_empty() && (r.mix.iter().map(|m| m.1).sum::<f64>() - 1.0).abs() < 1e-9);
+    assert_eq!(r.vs.len(), r.mix.len());
+    assert!(l.kinds.iter().all(|k| k != "exploiter"));
+    assert_eq!(l.nash_exploitability, Some(r.rate_vs_mix - 0.5));
+    let t = l.crosstable.unwrap();
+    assert_eq!(l.exploitability.len(), t.names.len());
+    assert!(l.exploitability.iter().all(|&e| (0.0..=0.5).contains(&e)));
+    assert!(l.top.iter().all(|row| row.exploitability == l.exploitability[row.index]));
+}
+
+#[test]
+fn exploiters_that_beat_the_margin_join_and_the_nash_mix_is_recomputed() {
+    let off = run(&exploit_cfg(0, 0.03), &Control::default(), &mut |_| {}).unwrap().league.unwrap();
+    assert!(off.exploiters.is_empty() && off.nash_exploitability.is_none());
+    let before = off.crosstable.unwrap().names.len();
+    // A margin of -60 points: every exploiter is added.
+    let p = run(&exploit_cfg(2, -0.6), &Control::default(), &mut |_| {}).unwrap();
+    assert_eq!(p.status, "done");
+    let l = p.league.unwrap();
+    assert_eq!(l.exploiters.len(), 2);
+    assert!(l.exploiters.iter().all(|r| r.added));
+    let t = l.crosstable.unwrap();
+    assert_eq!(t.names.len(), before + 2);
+    assert_eq!(l.strategies.len(), before + 2);
+    assert_eq!(l.kinds.iter().filter(|k| *k == "exploiter").count(), 2);
+    assert!(t.names.iter().any(|n| n == "Exploiter 2"));
+    assert!((t.nash.iter().sum::<f64>() - 1.0).abs() < 1e-6);
+    for i in 0..t.names.len() {
+        for j in 0..t.names.len() {
+            assert!((t.rate[i][j] + t.rate[j][i] - 1.0).abs() < 1e-9);
+        }
+    }
+    // Round 2 faced the mix recomputed after round 1; the report's last Nash support is the final mix.
+    let last = l.exploiters.last().unwrap();
+    for (name, w) in &last.nash_after {
+        let i = t.names.iter().position(|n| n == name).unwrap();
+        assert!(t.nash[i] > 0.0 && *w > 0.0);
+    }
+    // Each ranked strategy's per-opponent split covers every other strategy.
+    for e in &l.strategies {
+        assert_eq!(e.vs.len(), t.names.len() - 1);
+        dominion_sim::Strategy::parse(&e.toml).unwrap();
+    }
+}
+
+#[test]
+fn stop_during_the_exploiter_rounds_ends_the_run_as_stopped() {
+    let control = Control::default();
+    let mut saw = false;
+    let p = run(&exploit_cfg(3, -0.6), &control, &mut |pr| {
+        if pr.status.starts_with("exploiter round") {
+            saw = true;
+            control.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    })
+    .unwrap();
+    assert!(saw);
+    assert_eq!(p.status, "stopped");
+    let l = p.league.unwrap();
+    assert!(l.exploiters.is_empty(), "the interrupted round is not reported");
+    assert!(l.crosstable.is_some(), "the round robin so far stays in the report");
+}

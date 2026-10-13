@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+pub use crate::arena::OppRate;
+
 /// A strategy found by the search, with its measured strength.
 #[derive(Clone, Debug, Serialize)]
 pub struct Entry {
@@ -19,6 +21,10 @@ pub struct Entry {
     pub generation: usize,
     /// Measured on held-out seeds (rather than the seeds it was selected on).
     pub validated: bool,
+    /// The win rate split by opponent, with 95% intervals (`win_rate` above is their weighted
+    /// average). Empty when the strategy played a single unnamed pool or the split is unknown.
+    #[serde(default)]
+    pub vs: Vec<OppRate>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -91,6 +97,31 @@ pub struct TopRow {
     pub baseline: bool,
     pub mean_vs_field: f64,
     pub nash: f64,
+    /// Largest win rate any challenger (ranked strategy or exploiter) reached against it, minus 50%
+    /// (at least 0). Near 0: nobody found a way to beat it.
+    pub exploitability: f64,
+}
+
+/// One round of exploiter search: a best response evolved against the current Nash mix.
+#[derive(Clone, Debug, Serialize)]
+pub struct ExploiterRound {
+    pub round: usize,
+    /// The mix it was evolved against: (strategy name, Nash weight) for the support.
+    pub mix: Vec<(String, f64)>,
+    /// The exploiter's win rate against that mix (full-bot games), with a 95% interval.
+    pub rate_vs_mix: f64,
+    pub ci_lo: f64,
+    pub ci_hi: f64,
+    pub games: u64,
+    /// Its win rate against each member of the mix.
+    pub vs: Vec<OppRate>,
+    /// It beat the mix by more than the margin and joined the population.
+    pub added: bool,
+    /// Its name in the crosstable (when added).
+    pub name: Option<String>,
+    pub summary: String,
+    /// The Nash support after the round (the same as before when it was not added).
+    pub nash_after: Vec<(String, f64)>,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -110,6 +141,15 @@ pub struct LeagueReport {
     pub kinds: Vec<String>,
     /// The best distinct strategies by mean against the field, with their Nash weight.
     pub top: Vec<TopRow>,
+    /// Exploiter rounds run after the round robin (empty when switched off).
+    pub exploiters: Vec<ExploiterRound>,
+    /// Rounds asked for (`exploit_rounds`).
+    pub exploit_rounds: usize,
+    /// Per crosstable row: the strongest challenger's win rate against it minus 50% (at least 0).
+    pub exploitability: Vec<f64>,
+    /// The last exploiter's win rate against the Nash mix of its round, minus 50%: how much the
+    /// mix could still be beaten (negative: the exploiter lost). `None` without exploiter rounds.
+    pub nash_exploitability: Option<f64>,
 }
 
 impl Progress {

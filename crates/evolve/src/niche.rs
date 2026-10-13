@@ -158,6 +158,8 @@ pub struct Elite {
     pub behaviour: Behaviour,
     pub generation: usize,
     pub island: usize,
+    /// The win rate split by league opponent (this generation's league).
+    pub vs: Vec<crate::arena::OppRate>,
 }
 
 /// Best-per-niche archive. Iteration order is the descriptor order, so runs are reproducible.
@@ -256,7 +258,7 @@ mod tests {
     }
 
     fn elite(g: Genome, fitness: f64) -> Elite {
-        Elite { genome: g, fitness, win_rate: fitness, games: 1, behaviour: Behaviour::default(), generation: 1, island: 0 }
+        Elite { genome: g, fitness, win_rate: fitness, games: 1, behaviour: Behaviour::default(), generation: 1, island: 0, vs: Vec::new() }
     }
 
     #[test]

@@ -78,6 +78,16 @@ pub struct LeagueConfig {
     pub final_full: bool,
     /// How many distinct top strategies the final report presents.
     pub top_n: usize,
+    /// Exploiter rounds after the final round robin (0 = none): each evolves a best response to
+    /// the current Nash mix and joins the population if it beats the mix by more than
+    /// `exploit_margin`; the loop stops at the first round that does not.
+    pub exploit_rounds: usize,
+    /// Generations of the GA run that evolves each exploiter.
+    pub exploit_generations: usize,
+    /// An exploiter must beat the mix by more than this (0.03: win rate above 53%) to be added.
+    pub exploit_margin: f64,
+    /// Games measuring an exploiter against the mix (full bots when `final_full`).
+    pub exploit_games: u64,
 }
 
 impl Default for LeagueConfig {
@@ -97,6 +107,10 @@ impl Default for LeagueConfig {
             final_games: 2_000,
             final_full: true,
             top_n: 5,
+            exploit_rounds: 3,
+            exploit_generations: 30,
+            exploit_margin: 0.03,
+            exploit_games: 4_000,
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Run a kingdom league from the command line and print the niche table and crosstable.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
-//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400)
+//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE)
 use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, Track};
 
 /// An environment override of a count (`ISLANDS=3`), for quicker runs.
@@ -15,14 +15,14 @@ fn main() {
     let final_games = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
     let cfg = EvolveConfig {
         track: Track::Fixed { kingdom },
-        league: Some(LeagueConfig { final_games, ..LeagueConfig::default() }),
+        league: Some(LeagueConfig { final_games, exploit_rounds: env("EXPLOIT_ROUNDS", 3), exploit_generations: env("EXPLOIT_GENS", 30), ..LeagueConfig::default() }),
         forbidden: vec![],
         islands: env("ISLANDS", 6),
         island_size: env("ISLAND_SIZE", 24),
         generations,
         race_games: if std::env::var("RACES").is_ok() { std::env::var("RACES").unwrap().split(',').filter_map(|x| x.parse().ok()).collect() } else { EvolveConfig::default().race_games },
-        polish_games: 4000,
-        validate_games: 10_000,
+        polish_games: env("POLISH", 4000) as u64,
+        validate_games: env("VALIDATE", 10_000) as u64,
         ..EvolveConfig::default()
     };
     let mut last = 0;
@@ -45,10 +45,27 @@ fn main() {
         println!("  {:.1}%  {} | {} | {}", r.entry.win_rate * 100.0, r.label, r.behaviour, r.entry.summary);
     }
     let t = l.crosstable.unwrap();
+    println!("\nExploiter rounds ({} planned):", l.exploit_rounds);
+    for r in &l.exploiters {
+        println!(
+            "  round {}: {:.1}% (CI {:.1}-{:.1}) vs mix [{}] -> {}",
+            r.round,
+            r.rate_vs_mix * 100.0,
+            r.ci_lo * 100.0,
+            r.ci_hi * 100.0,
+            r.mix.iter().map(|(n, w)| format!("{:.0}% {n}", w * 100.0)).collect::<Vec<_>>().join(", "),
+            if r.added { format!("ADDED as {}", r.name.clone().unwrap_or_default()) } else { "not added".to_string() }
+        );
+        println!("     per opponent: {}", r.vs.iter().map(|o| format!("{:.1}% vs {}", o.win_rate * 100.0, o.name)).collect::<Vec<_>>().join(", "));
+        println!("     {}", r.summary);
+        println!("     Nash after: {}", r.nash_after.iter().map(|(n, w)| format!("{:.0}% {n}", w * 100.0)).collect::<Vec<_>>().join(", "));
+    }
+    println!("  nash exploitability (last exploiter vs its mix, minus 50 points): {:?}", l.nash_exploitability);
+    let expl = l.exploitability.clone();
     println!("\nCrosstable (row beats column %):");
     for (i, n) in t.names.iter().enumerate() {
         let cells: Vec<String> = t.rate[i].iter().map(|x| format!("{:>3.0}", x * 100.0)).collect();
-        println!("{:>2} {:<34} {} | mean {:.1} nash {:.0}%", i, n, cells.join(" "), t.mean_vs_field[i] * 100.0, t.nash[i] * 100.0);
+        println!("{:>2} {:<34} {} | mean {:.1} nash {:.0}% expl {:.1}", i, n, cells.join(" "), t.mean_vs_field[i] * 100.0, t.nash[i] * 100.0, expl[i] * 100.0);
     }
     println!("\nTop:");
     for r in &l.top {

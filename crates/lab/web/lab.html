@@ -143,7 +143,11 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
             <label>Older champions weight <input type="number" id="league-old_weight" step="0.05" min="0" value="0.2"></label>
             <label>Novelty bonus (%) <input type="number" id="league-novelty" step="0.1" min="0" value="1"></label>
             <label>Island stagnation (gens) <input type="number" id="league-stagnation" min="0" value="8"></label>
+            <label>Exploiter rounds (0 = off) <input type="number" id="league-exploit_rounds" min="0" value="3"></label>
+            <label>Exploiter generations <input type="number" id="league-exploit_generations" min="1" value="30"></label>
+            <label>Exploiter margin (%) <input type="number" id="league-exploit_margin" step="0.5" min="-50" value="3"></label>
           </div>
+          <div class="hint">After the final round robin, each exploiter round evolves a best response to the current Nash mix. If it beats the mix by more than the margin (3 = above 53%) it joins the table and the mix is recomputed; the first round that fails ends the loop.</div>
           <label class="checkbox-row"><input type="checkbox" id="league-full" checked> Full bots in the final round robin</label>
           <div class="hint">Islands, island size, generations and the other search settings below apply too (try 6 islands, 24 each, 40 generations).</div>
         </div>
@@ -304,10 +308,16 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
         <div id="niche-body" class="muted">None yet.</div>
       </section>
 
+      <section id="exploit-panel" style="display:none">
+        <h2>Exploiter rounds</h2>
+        <div class="hint" id="exploit-hint"></div>
+        <div id="exploit-body" style="overflow:auto"></div>
+      </section>
+
       <section id="cross-panel" style="display:none">
         <h2>Final ranking</h2>
         <div id="top-body"></div>
-        <div class="hint">Crosstable: the row strategy beats the column strategy this often (ties count half; hover for the 95% interval). Mean = average over the other strategies. Nash = share of an approximate equilibrium mix of the strategies: only strategies in the mix are not beaten by a combination of the others.</div>
+        <div class="hint">Crosstable: the row strategy beats the column strategy this often (ties count half; hover for the 95% interval). Mean = average over the other strategies. Nash = share of an approximate equilibrium mix of the strategies: only strategies in the mix are not beaten by a combination of the others. Exploitability: how much the strongest challenger found beats this strategy (win rate minus 50%, at least 0). Near 0 = hard to beat. If several strategies share the Nash mix, they beat each other in a cycle.</div>
         <div id="cross-body" style="overflow:auto"></div>
       </section>
 
@@ -608,6 +618,9 @@ function buildRequest() {
       niches: Math.max(1, Math.round(num("league-niches", 10))), final_games: Math.max(2, Math.round(num("league-final_games", 2000))),
       final_full: $("league-full").checked, novelty_bonus: num("league-novelty", 1) / 100,
       stagnation_generations: Math.max(0, Math.round(num("league-stagnation", 8))),
+      exploit_rounds: Math.max(0, Math.round(num("league-exploit_rounds", 3))),
+      exploit_generations: Math.max(1, Math.round(num("league-exploit_generations", 30))),
+      exploit_margin: num("league-exploit_margin", 3) / 100,
     };
     return { config: config, opponents: [], seed_files: [] };
   }
@@ -836,6 +849,33 @@ function escapeHtml(s) {
 // Result card / hall of fame / log
 // ---------------------------------------------------------------------------------------------
 
+// A strategy's win rate against each opponent, with 95% intervals (the overall rate is their
+// weighted average, and can hide a weak matchup).
+function vsTable(vs) {
+  if (!vs || !vs.length) return null;
+  var t = document.createElement("table");
+  t.className = "hof";
+  t.innerHTML = "<thead><tr><th>opponent</th><th>win rate</th><th>95% CI</th><th>weight</th><th>games</th></tr></thead>";
+  var tb = document.createElement("tbody");
+  vs.forEach(function (o) {
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + escapeHtml(o.name) + "</td><td><b>" + fmtPct(o.win_rate) + "</b></td><td>" + fmtPct(o.ci_lo) + "-" + fmtPct(o.ci_hi) +
+      "</td><td>" + Math.round(o.weight * 100) + "%</td><td>" + o.games.toLocaleString() + "</td>";
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  return t;
+}
+
+// "78.9 BMU / 53.8 League: ..." for table rows (full names and intervals in the tooltip).
+function vsCompact(vs) {
+  if (!vs || vs.length < 2) return "";
+  return vs.map(function (o) {
+    var short = o.name.length > 16 ? o.name.slice(0, 15) + "\u2026" : o.name;
+    return "<span title=\"" + escapeHtml(o.name) + ": " + fmtPct(o.win_rate) + " (" + fmtPct(o.ci_lo) + "-" + fmtPct(o.ci_hi) + ")\">" + (o.win_rate * 100).toFixed(1) + " " + escapeHtml(short) + "</span>";
+  }).join(" \u00b7 ");
+}
+
 function entryHtml(entry, source, idx) {
   var div = document.createElement("div");
   var ciNote = document.createElement("div");
@@ -849,6 +889,17 @@ function entryHtml(entry, source, idx) {
     entry.games.toLocaleString() + " games; " + entry.size + " rule" + (entry.size === 1 ? "" : "s") +
     (entry.validated ? "; validated" : "");
   div.appendChild(stats);
+  var vt = vsTable(entry.vs);
+  if (vt && entry.vs.length > 1) {
+    var vh = document.createElement("div");
+    vh.className = "hint";
+    vh.textContent = "Win rate by opponent (the overall rate above is their weighted average):";
+    div.appendChild(vh);
+    var box = document.createElement("div");
+    box.style.cssText = "max-height:260px;overflow:auto";
+    box.appendChild(vt);
+    div.appendChild(box);
+  }
 
   var pre = document.createElement("pre");
   pre.className = "toml";
@@ -913,13 +964,13 @@ function renderHof(hof) {
   body.className = "";
   var table = document.createElement("table");
   table.className = "hof";
-  table.innerHTML = "<thead><tr><th>#</th><th>win rate</th><th>95% CI</th><th>games</th><th>size</th><th>gen</th><th>summary</th><th></th></tr></thead>";
+  table.innerHTML = "<thead><tr><th>#</th><th>win rate</th><th>95% CI</th><th>games</th><th>size</th><th>gen</th><th>summary</th><th>by opponent</th><th></th></tr></thead>";
   var tbody = document.createElement("tbody");
   hof.forEach(function (e, i) {
     var tr = document.createElement("tr");
     tr.className = "hof-row";
     tr.innerHTML = "<td>" + (i + 1) + "</td><td>" + fmtPct(e.win_rate) + "</td><td>" + fmtPct(e.ci_lo) + "-" + fmtPct(e.ci_hi) +
-      "</td><td>" + e.games.toLocaleString() + "</td><td>" + e.size + "</td><td>" + e.generation + "</td><td>" + escapeHtml(e.summary) + "</td>";
+      "</td><td>" + e.games.toLocaleString() + "</td><td>" + e.size + "</td><td>" + e.generation + "</td><td>" + escapeHtml(e.summary) + "</td><td>" + vsCompact(e.vs) + "</td>";
     var td = document.createElement("td");
     var saveBtn = document.createElement("button");
     saveBtn.textContent = "Save";
@@ -961,7 +1012,10 @@ function runAssess() {
   $("assess-result").textContent = "Running...";
   $("assess-run").disabled = true;
   postJson("/api/assess", body).then(function (entry) {
-    $("assess-result").textContent = "win rate " + fmtPct(entry.win_rate) + " (95% CI " + fmtPct(entry.ci_lo) + "-" + fmtPct(entry.ci_hi) + ") over " + entry.games.toLocaleString() + " games";
+    var out = $("assess-result");
+    out.textContent = "win rate " + fmtPct(entry.win_rate) + " overall (95% CI " + fmtPct(entry.ci_lo) + "-" + fmtPct(entry.ci_hi) + ") over " + entry.games.toLocaleString() + " games";
+    var vt = vsTable(entry.vs);
+    if (vt && entry.vs.length > 1) { out.appendChild(vt); }
     $("assess-run").disabled = false;
   }).catch(function (e) {
     $("assess-result").textContent = "error: " + e.message;
@@ -1107,10 +1161,46 @@ function showEntry(entry) {
   window.scrollTo({ top: $("result-panel").offsetTop, behavior: "smooth" });
 }
 
+function fmtExpl(e) { return e == null ? "-" : (e * 100).toFixed(1) + " pts"; }
+
+function nashText(list) {
+  return list.map(function (m) { return Math.round(m[1] * 100) + "% " + m[0]; }).join(", ");
+}
+
+// The exploiter rounds: what each best response to the Nash mix scored, and whether it joined.
+function renderExploiters(L) {
+  var R = L.exploiters || [];
+  var hint = $("exploit-hint");
+  var msg = "Each round evolves a best response to the current Nash mix. It joins the table (and the mix is recomputed) when it beats the mix by more than the margin; the first round that does not ends the loop, which means the mix is hard to beat. Exploitability: how much the strongest challenger found beats a strategy. Near 0 = hard to beat. If several strategies share the Nash mix, they beat each other in a cycle.";
+  if (L.nash_exploitability != null) {
+    msg += " Last exploiter against its mix: " + (L.nash_exploitability >= 0 ? "+" : "") + (L.nash_exploitability * 100).toFixed(1) + " points" +
+      (R.length && !R[R.length - 1].added ? " (the final mix: not beaten by more than the margin)" : " (it was added, so the final mix has not been tested)") + ".";
+  }
+  hint.textContent = msg;
+  var body = $("exploit-body");
+  body.innerHTML = "";
+  if (!R.length) return;
+  var t = document.createElement("table");
+  t.className = "hof";
+  t.innerHTML = "<thead><tr><th>round</th><th>vs mix</th><th>95% CI</th><th>added?</th><th>against</th><th>Nash after</th><th>strategy</th></tr></thead>";
+  var tb = document.createElement("tbody");
+  R.forEach(function (r) {
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + r.round + "/" + L.exploit_rounds + "</td><td><b>" + fmtPct(r.rate_vs_mix) + "</b></td><td>" + fmtPct(r.ci_lo) + "-" + fmtPct(r.ci_hi) +
+      "</td><td>" + (r.added ? "yes: " + escapeHtml(r.name) : "no") + "</td><td>" + escapeHtml(nashText(r.mix)) + "<br>" + vsCompact(r.vs) +
+      "</td><td>" + escapeHtml(nashText(r.nash_after)) + "</td><td>" + escapeHtml(r.summary) + "</td>";
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  body.appendChild(t);
+}
+
 function renderLeague(p) {
   var L = p && p.league;
   $("niche-panel").style.display = L ? "" : "none";
   $("cross-panel").style.display = L && L.crosstable ? "" : "none";
+  $("exploit-panel").style.display = L && L.exploiters && L.exploiters.length ? "" : "none";
+  if (L) renderExploiters(L);
   if (!L) return;
   $("niche-hint").textContent = "Anchors: " + L.anchors.map(function (a) { return a.name; }).join(", ") +
     ". League now: " + (L.league_now.length ? L.league_now.length + " opponents" : "-") + ". Win rates are against the league of the latest generation (anchors plus hall-of-fame champions), not a fixed opponent.";
@@ -1141,12 +1231,12 @@ function renderLeague(p) {
   top.innerHTML = "";
   var tt = document.createElement("table");
   tt.className = "hof";
-  tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th>what it does</th><th></th></tr></thead>";
+  tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th title='how much the strongest challenger found beats it'>exploitability</th><th>what it does</th><th></th></tr></thead>";
   var tbody = document.createElement("tbody");
   L.top.forEach(function (r) {
     var tr = document.createElement("tr");
     tr.className = "hof-row";
-    tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + escapeHtml(r.description) + "</td>";
+    tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + fmtExpl(r.exploitability) + "</td><td>" + escapeHtml(r.description) + "</td>";
     var td = document.createElement("td");
     td.appendChild(saveButton(L.strategies[r.index]));
     tr.appendChild(td);
@@ -1160,7 +1250,7 @@ function renderLeague(p) {
   x.className = "hof";
   var head = "<thead><tr><th></th>";
   C.names.forEach(function (n, j) { head += "<th title=\"" + escapeHtml(n) + "\">" + j + "</th>"; });
-  head += "<th>mean</th><th>Nash</th></tr></thead>";
+  head += "<th>mean</th><th>Nash</th><th title=\"how much the strongest challenger found beats it\">expl.</th></tr></thead>";
   x.innerHTML = head;
   var xb = document.createElement("tbody");
   C.names.forEach(function (n, i) {
@@ -1171,7 +1261,7 @@ function renderLeague(p) {
       var shade = i === j ? "" : " style=\"background:rgba(" + (v >= 0.5 ? "60,160,90" : "200,80,70") + "," + (Math.abs(v - 0.5) * 1.4).toFixed(2) + ")\"";
       h += "<td" + shade + " title=\"" + escapeHtml(n) + " vs " + escapeHtml(m) + ": " + fmtPct(C.lo[i][j]) + "-" + fmtPct(C.hi[i][j]) + "\">" + (i === j ? "-" : Math.round(v * 100)) + "</td>";
     });
-    h += "<td><b>" + fmtPct(C.mean_vs_field[i]) + "</b></td><td>" + Math.round(C.nash[i] * 100) + "%</td>";
+    h += "<td><b>" + fmtPct(C.mean_vs_field[i]) + "</b></td><td>" + Math.round(C.nash[i] * 100) + "%</td><td>" + fmtExpl(L.exploitability && L.exploitability[i]) + "</td>";
     tr.innerHTML = h;
     xb.appendChild(tr);
   });

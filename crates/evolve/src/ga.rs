@@ -10,7 +10,7 @@ use dominion_engine::rng::Rng;
 use dominion_sim::Strategy;
 use rayon::prelude::*;
 
-use crate::arena::{set_fast, Arena, Opponent, Scenario, Score};
+use crate::arena::{set_fast, vs_text, Arena, OppRate, Opponent, Scenario, Score};
 use crate::config::{Colonies, EvolveConfig, Track};
 use crate::genome::{Genome, TomlMeta};
 use crate::ops;
@@ -290,7 +290,7 @@ fn tournament<'a>(members: &'a [(Genome, f64)], k: usize, rng: &mut Rng) -> &'a 
     &best.0
 }
 
-fn entry(g: &Genome, score: &Score, parsimony: f64, generation: usize, validated: bool, meta: TomlMeta) -> Entry {
+fn entry(g: &Genome, score: &Score, vs: Vec<OppRate>, parsimony: f64, generation: usize, validated: bool, meta: TomlMeta) -> Entry {
     let (lo, hi) = score.ci95();
     Entry {
         toml: g.to_toml(&meta),
@@ -303,11 +303,13 @@ fn entry(g: &Genome, score: &Score, parsimony: f64, generation: usize, validated
         fitness: fitness(score, g, parsimony),
         generation,
         validated,
+        vs,
     }
 }
 
 fn meta_for(cfg: &EvolveConfig, setup: &Setup, generation: usize, score: &Score, how: &str) -> TomlMeta {
     let (lo, hi) = score.ci95();
+    let vs = setup.arena.breakdown(score);
     let track = match &cfg.track {
         Track::Fixed { kingdom } if kingdom.is_empty() => "every kingdom card available".to_string(),
         Track::Fixed { kingdom } => format!("kingdom {}", kingdom.join(", ")),
@@ -326,11 +328,12 @@ fn meta_for(cfg: &EvolveConfig, setup: &Setup, generation: usize, score: &Score,
             format!("Evolved by dominion-lab, generation {generation}, {how}."),
             format!("Opponents: {}. Track: {track}.", setup.opponent_names.join(", ")),
             format!(
-                "Win rate {:.1}% (95% CI {:.1}-{:.1}%) over {} games; never gains {}.",
+                "Win rate {:.1}% overall (95% CI {:.1}-{:.1}%) over {} games{}; never gains {}.",
                 score.win_rate() * 100.0,
                 lo * 100.0,
                 hi * 100.0,
                 score.played,
+                if vs.len() > 1 { format!(": {}", vs_text(&vs)) } else { String::new() },
                 if cfg.forbidden.is_empty() { "nothing extra".into() } else { cfg.forbidden.join(", ") }
             ),
         ],
@@ -436,7 +439,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             stall += 1;
         }
         let c = &cands[champ];
-        progress.champion = Some(entry(&c.genome, &c.score, parsimony, gen, false, meta_for(cfg, &setup, gen, &c.score, "selection seeds")));
+        progress.champion = Some(entry(&c.genome, &c.score, setup.arena.breakdown(&c.score), parsimony, gen, false, meta_for(cfg, &setup, gen, &c.score, "selection seeds")));
         let mut stat = GenStat {
             generation: gen,
             best_fitness: cf,
@@ -539,7 +542,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             let mut meta = meta_for(cfg, &setup, last_gen, &score, "polished, held-out seeds");
             meta.notes = p.notes.clone();
             progress.note(format!("result: {:.1}% over {} held-out games: {}", score.win_rate() * 100.0, score.played, p.genome.summary()));
-            progress.result = Some(entry(&p.genome, &score, parsimony, last_gen, true, meta));
+            progress.result = Some(entry(&p.genome, &score, setup.arena.breakdown(&score), parsimony, last_gen, true, meta));
         } else {
             progress.result = Some(hall[0].3.clone());
         }
@@ -566,12 +569,12 @@ fn validate(cfg: &EvolveConfig, setup: &Setup, g: &Genome, gen: usize) -> (Genom
 
 fn add_to_hall(hall: &mut Vec<(String, Genome, Score, Entry)>, cfg: &EvolveConfig, setup: &Setup, g: Genome, s: Score, gen: usize) {
     let key = g.key();
-    let e = entry(&g, &s, cfg.parsimony, gen, true, meta_for(cfg, setup, gen, &s, "held-out seeds"));
+    let e = entry(&g, &s, setup.arena.breakdown(&s), cfg.parsimony, gen, true, meta_for(cfg, setup, gen, &s, "held-out seeds"));
     match hall.iter_mut().find(|h| h.0 == key) {
         // Seen before: pool the evidence.
         Some(h) => {
             h.2.add(&s);
-            h.3 = entry(&h.1, &h.2, cfg.parsimony, gen, true, meta_for(cfg, setup, gen, &h.2, "held-out seeds"));
+            h.3 = entry(&h.1, &h.2, setup.arena.breakdown(&h.2), cfg.parsimony, gen, true, meta_for(cfg, setup, gen, &h.2, "held-out seeds"));
         }
         None => hall.push((key, g, s, e)),
     }
@@ -605,5 +608,6 @@ pub fn assess(cfg: &EvolveConfig, toml_src: &str, games: u64, full: bool) -> Res
         fitness: score.win_rate() - cfg.parsimony * genome.as_ref().map_or(0, Genome::size) as f64,
         generation: 0,
         validated: true,
+        vs: setup.arena.breakdown(&score),
     })
 }

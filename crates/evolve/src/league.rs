@@ -23,15 +23,15 @@ use dominion_sim::stats::{wilson_ci, Z_95};
 use dominion_sim::Strategy;
 use rayon::prelude::*;
 
-use crate::arena::{Arena, Opponent, Scenario, Score};
+use crate::arena::{vs_text, Arena, OppRate, Opponent, Scenario, Score};
 use crate::baselines::{baselines, Baseline};
-use crate::config::{EvolveConfig, LeagueConfig};
+use crate::config::{EvolveConfig, LeagueConfig, OpponentSpec};
 use crate::ga::{Control, Setup};
 use crate::genome::{Genome, TomlMeta};
 use crate::niche::{Archive, Behaviour, Descriptor, Elite, NicheParams, Offer};
 use crate::ops;
 use crate::polish::polish;
-use crate::progress::{AnchorInfo, Entry, GenStat, LeagueReport, NicheRow, Progress, TopRow};
+use crate::progress::{AnchorInfo, Entry, ExploiterRound, GenStat, LeagueReport, NicheRow, Progress, TopRow};
 use crate::rank;
 
 /// Per-opponent weights for a league of `anchors` anchors, `recent` recent and `old` older
@@ -48,6 +48,9 @@ pub fn league_weights(cfg: &LeagueConfig, anchors: usize, recent: usize, old: us
     }
     groups.iter().flat_map(|&(n, w)| std::iter::repeat(w / total / n.max(1) as f64).take(n)).collect()
 }
+
+/// Nash weight below which a strategy is not counted as part of the mix's support.
+const NASH_SUPPORT_MIN: f64 = 0.02;
 
 /// Tracks, per island, when it last contributed a niche champion, and when it must be shaken up.
 #[derive(Clone, Debug)]
@@ -87,6 +90,7 @@ struct Member {
     name: String,
     gen: usize,
     val: Score,
+    vs: Vec<OppRate>,
 }
 
 struct Cand {
@@ -106,7 +110,7 @@ fn fitness(score: &Score, g: &Genome, parsimony: f64) -> f64 {
     score.win_rate() - parsimony * g.size() as f64
 }
 
-fn sample_entry(g: &Genome, score: &Score, parsimony: f64, generation: usize, validated: bool, meta: &TomlMeta) -> Entry {
+fn sample_entry(g: &Genome, score: &Score, vs: Vec<OppRate>, parsimony: f64, generation: usize, validated: bool, meta: &TomlMeta) -> Entry {
     let (lo, hi) = score.ci95();
     Entry {
         toml: g.to_toml(meta),
@@ -119,7 +123,14 @@ fn sample_entry(g: &Genome, score: &Score, parsimony: f64, generation: usize, va
         fitness: fitness(score, g, parsimony),
         generation,
         validated,
+        vs,
     }
+}
+
+/// Whether an exploiter that wins `rate` of its games against the Nash mix beats it by more than
+/// `margin` (0.03: more than 53%) and so joins the population.
+pub fn exploiter_beats_mix(rate: f64, margin: f64) -> bool {
+    rate - 0.5 > margin + 1e-9
 }
 
 fn kingdom_text(cfg: &EvolveConfig) -> String {
@@ -403,6 +414,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
                 behaviour: beh.clone(),
                 generation: gen,
                 island: island_of.get(&i).copied().unwrap_or(0),
+                vs: arena.breakdown(&c.score),
             };
             if matches!(new_archive.offer(d, elite), Offer::New | Offer::Replaced) && !old_champs.contains(&c.key) {
                 archive_changed = true;
@@ -438,7 +450,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         let cf = fitness(&cands[champ].score, &cands[champ].genome, parsimony);
         let c = &cands[champ];
         let meta = meta_for(cfg, &setup, "Candidate".into(), &described[&champ].0.label(), &format!("generation {gen}, selection seeds"), String::new());
-        progress.champion = Some(sample_entry(&c.genome, &c.score, parsimony, gen, false, &meta));
+        progress.champion = Some(sample_entry(&c.genome, &c.score, arena.breakdown(&c.score), parsimony, gen, false, &meta));
         let mut stat = GenStat {
             generation: gen,
             best_fitness: cf,
@@ -476,12 +488,13 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
                 Ok(s) => val_arena.evaluate(&s, &scenario, cfg.validate_games, vseed),
                 Err(_) => Score::default(),
             };
+            let vs_split = val_arena.breakdown(&vs);
             progress.games_played += vs.played;
             stat.validated_win_rate = Some(stat.validated_win_rate.map_or(vs.win_rate(), |v: f64| v.max(vs.win_rate())));
             if vs.win_rate() >= lc.hof_min_win {
                 let name = format!("{} (gen {gen})", d.card_names().join(" + "));
                 progress.note(format!("gen {gen}: joins the hall of fame, validated {:.1}% over {} games: {}", vs.win_rate() * 100.0, vs.played, c.genome.summary()));
-                hall.push(Member { genome: c.genome.clone(), key: c.key.clone(), name: name.trim().to_string(), gen, val: vs });
+                hall.push(Member { genome: c.genome.clone(), key: c.key.clone(), name: name.trim().to_string(), gen, val: vs, vs: vs_split });
                 joined += 1;
                 last_progress_gen = gen;
             }
@@ -502,7 +515,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             .iter()
             .map(|m| {
                 let meta = meta_for(cfg, &setup, m.name.clone(), "hall of fame", &format!("generation {}, held-out seeds", m.gen), String::new());
-                sample_entry(&m.genome, &m.val, parsimony, m.gen, true, &meta)
+                sample_entry(&m.genome, &m.val, m.vs.clone(), parsimony, m.gen, true, &meta)
             })
             .collect();
 
@@ -667,8 +680,193 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         report(&progress);
         return Ok(progress);
     };
+    let n0 = names.len();
+    progress.games_played += (n0 * (n0 - 1) / 2) as u64 * rr.table.games;
+
+    // ---- Exploiter rounds (PSRO): evolve a best response to the current Nash mix; if it beats the
+    // mix by more than the margin it joins the population, the table and the mix are recomputed,
+    // and the next round faces the new mix. The first round that fails ends the loop. --------------
+    let mut rr = rr;
+    let mut strategies = strategies;
+    let mut kinds: Vec<String> = (0..n0).map(|i| if i < anchors.len() { "anchor" } else { "champion" }.to_string()).collect();
+    // Win rates of exploiters that were tried but not added, against each table row.
+    let mut challengers: Vec<Vec<f64>> = vec![Vec::new(); n0];
+    let mut rounds: Vec<ExploiterRound> = Vec::new();
+    let mut nash_exploitability: Option<f64> = None;
+    report_data.exploit_rounds = lc.exploit_rounds;
+    let pop_toml = |name: &str, g: &Genome| g.to_toml(&TomlMeta { name: name.to_string(), never_gain: forbidden.clone(), ..Default::default() });
+    for round in 1..=lc.exploit_rounds {
+        if control.stopped() {
+            break;
+        }
+        let support = rank::nash_support(&rr.table.nash, NASH_SUPPORT_MIN, crate::arena::MAX_TALLY);
+        let mix: Vec<(String, f64)> = support.iter().map(|&(i, w)| (names[i].clone(), w)).collect();
+        let mix_text = mix.iter().map(|(nm, w)| format!("{:.0}% {nm}", w * 100.0)).collect::<Vec<_>>().join(", ");
+        progress.note(format!("exploiter round {round}/{}: evolving a best response to the Nash mix ({mix_text})", lc.exploit_rounds));
+        let label = format!("exploiter round {round}/{}", lc.exploit_rounds);
+        progress.status = label.clone();
+        report(&progress);
+
+        // A normal GA run against the mix: opponents are the support, weighted by Nash share,
+        // seeded with the support members (a good start for beating them) and the user's seeds.
+        let specs: Vec<OpponentSpec> = support.iter().map(|&(i, w)| OpponentSpec { name: names[i].clone(), toml: pop_toml(&names[i], &genomes[i]), weight: w }).collect();
+        let mut sub = cfg.clone();
+        sub.league = None;
+        sub.seeds = specs.iter().map(|o| o.toml.clone()).chain(cfg.seeds.iter().cloned()).collect();
+        sub.opponents = specs;
+        sub.generations = lc.exploit_generations.max(1);
+        sub.validate_every = 0;
+        sub.validate_games = cfg.validate_games.min(lc.exploit_games.max(2));
+        sub.seed = Rng::derive(cfg.seed ^ 0xE8_0173, round as u64).next_u64();
+        let before = start.elapsed().as_secs_f64();
+        let inner = {
+            let mut on_inner = |p: &Progress| {
+                progress.status = format!("{label}: generation {}/{} ({})", p.generation, sub.generations, p.status);
+                progress.elapsed_secs = start.elapsed().as_secs_f64();
+                report(&progress);
+            };
+            crate::ga::run(&sub, control, &mut on_inner)
+        };
+        let inner = match inner {
+            Ok(p) => p,
+            Err(e) => {
+                progress.note(format!("exploiter round {round}: search failed: {e}"));
+                break;
+            }
+        };
+        progress.games_played += inner.games_played;
+        if control.stopped() {
+            progress.note(format!("stopped during exploiter round {round}"));
+            break;
+        }
+        let Some(found) = inner.result.as_ref().and_then(|e| Genome::from_toml(&e.toml).ok()) else {
+            progress.note(format!("exploiter round {round}: the search produced no strategy"));
+            break;
+        };
+
+        // Measure it against the mix with the round robin's kind of bots, on fresh deals.
+        let meas_fast = !(cfg.validate_full || lc.final_full);
+        let meas_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: meas_fast, max_turns: cfg.max_turns };
+        let meas = Arena {
+            opponents: support
+                .iter()
+                .map(|&(i, w)| Opponent { name: names[i].clone(), strategy: meas_template.compile(&genomes[i]).expect("a ranked strategy compiles"), weight: w })
+                .collect(),
+            forbidden: forbidden.clone(),
+            fast: meas_fast,
+            max_turns: cfg.max_turns,
+        };
+        let exploiter = match meas.compile(&found) {
+            Ok(s) => s,
+            Err(e) => {
+                progress.note(format!("exploiter round {round}: the strategy does not compile: {e}"));
+                break;
+            }
+        };
+        progress.status = format!("{label}: measuring against the mix");
+        report(&progress);
+        let mseed = Rng::derive(cfg.seed ^ 0xE8_5EED, round as u64).next_u64();
+        let score = meas.evaluate(&exploiter, &scenario, lc.exploit_games.max(2), mseed);
+        progress.games_played += score.played;
+        let rate = score.win_rate();
+        let (ci_lo, ci_hi) = wilson_ci(rate * score.played as f64, score.played as f64, Z_95);
+        nash_exploitability = Some(rate - 0.5);
+        let beats = exploiter_beats_mix(rate, lc.exploit_margin);
+
+        let mut added_name = None;
+        let mut stopped_here = false;
+        if beats {
+            let name = format!("Exploiter {round}");
+            let mut new_names = names.clone();
+            new_names.push(name.clone());
+            let final_exploiter = final_template.compile(&found)?;
+            strategies.push(final_exploiter);
+            let refs: Vec<&Strategy> = strategies.iter().collect();
+            let n_old = names.len();
+            let extended = {
+                let mut on_pair = |done: usize, total: usize| {
+                    progress.status = format!("{label}: round robin row, pair {done} / {total}");
+                    progress.elapsed_secs = start.elapsed().as_secs_f64();
+                    report(&progress);
+                };
+                rank::extend(&rr, &refs, &new_names, lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
+            };
+            match extended {
+                Some(next) => {
+                    progress.games_played += n_old as u64 * next.table.games;
+                    rr = next;
+                    names = new_names;
+                    genomes.push(found.clone());
+                    kinds.push("exploiter".into());
+                    challengers.push(Vec::new());
+                    added_name = Some(name);
+                }
+                None => {
+                    strategies.pop();
+                    stopped_here = true;
+                }
+            }
+        } else {
+            // Not added, but it is still evidence of how beatable each mix member is.
+            for (k, &(i, _)) in support.iter().enumerate() {
+                let t = score.per_opp[k];
+                if t.games > 0 {
+                    challengers[i].push(t.wins / t.games as f64);
+                }
+            }
+        }
+        let nash_after: Vec<(String, f64)> = rank::nash_support(&rr.table.nash, NASH_SUPPORT_MIN, crate::arena::MAX_TALLY).into_iter().map(|(i, w)| (names[i].clone(), w)).collect();
+        progress.note(format!(
+            "exploiter round {round}/{}: {:.1}% against the mix (95% CI {:.1}-{:.1}%, {} games), {} ({:.0} s): {}",
+            lc.exploit_rounds,
+            rate * 100.0,
+            ci_lo * 100.0,
+            ci_hi * 100.0,
+            score.played,
+            match (&added_name, beats) {
+                (Some(nm), _) => format!("added as {nm}"),
+                (None, true) => "stopped before it could be ranked".to_string(),
+                (None, false) => format!("not added: not above {:.0}%", (0.5 + lc.exploit_margin) * 100.0),
+            },
+            start.elapsed().as_secs_f64() - before,
+            found.summary()
+        ));
+        progress.note(format!(
+            "exploiter round {round}/{}: against the mix: {}. Nash mix now: {}",
+            lc.exploit_rounds,
+            vs_text(&meas.breakdown(&score)),
+            nash_after.iter().map(|(nm, w)| format!("{:.0}% {nm}", w * 100.0)).collect::<Vec<_>>().join(", ")
+        ));
+        rounds.push(ExploiterRound {
+            round,
+            mix,
+            rate_vs_mix: rate,
+            ci_lo,
+            ci_hi,
+            games: score.played,
+            vs: meas.breakdown(&score),
+            added: added_name.is_some(),
+            name: added_name.clone(),
+            summary: found.summary(),
+            nash_after,
+        });
+        report_data.exploiters = rounds.clone();
+        report_data.nash_exploitability = nash_exploitability;
+        progress.league = Some(report_data.clone());
+        report(&progress);
+        if stopped_here {
+            break;
+        }
+        if added_name.is_none() {
+            progress.note(format!("the mix is not exploitable within {:.0} points: the loop has settled", lc.exploit_margin * 100.0));
+            break;
+        }
+    }
     let n = names.len();
-    progress.games_played += (n * (n - 1) / 2) as u64 * rr.table.games;
+    report_data.exploiters = rounds;
+    report_data.nash_exploitability = nash_exploitability;
+    let exploitability = rank::exploitability(&rr.table.rate, &challengers);
+    progress.status = "ranking".into();
 
     // Behaviour of each strategy over its round-robin games, labels, entries.
     let mut descriptors: Vec<Descriptor> = Vec::new();
@@ -680,19 +878,32 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     }
     let field_games = (rr.table.games * (n as u64 - 1).max(1)) as f64;
     let mut entries: Vec<Entry> = Vec::new();
-    let mut kinds: Vec<String> = Vec::new();
     for i in 0..n {
         let is_anchor = i < anchors.len();
+        // This strategy against each other one, from the round robin.
+        let vs: Vec<OppRate> = (0..n)
+            .filter(|&j| j != i)
+            .map(|j| OppRate { name: names[j].clone(), weight: 1.0 / (n - 1).max(1) as f64, win_rate: rr.table.rate[i][j], ci_lo: rr.table.lo[i][j], ci_hi: rr.table.hi[i][j], games: rr.table.games })
+            .collect();
+        let mut worst: Vec<&OppRate> = vs.iter().collect();
+        worst.sort_by(|a, b| a.win_rate.total_cmp(&b.win_rate));
+        let worst_text = worst.iter().take(3).map(|o| format!("{:.1}% vs {}", o.win_rate * 100.0, o.name)).collect::<Vec<_>>().join(", ");
         let wins = rr.table.mean_vs_field[i] * field_games;
         let (lo, hi) = wilson_ci(wins, field_games, Z_95);
         let label = descriptors[i].label();
-        let extra = format!("Round robin on this kingdom: {:.1}% against the field, Nash weight {:.0}%.", rr.table.mean_vs_field[i] * 100.0, rr.table.nash[i] * 100.0);
+        let extra = format!(
+            "Round robin on this kingdom: {:.1}% overall against the field, Nash weight {:.0}%, exploitability {:.1} points. Weakest matchups: {}.",
+            rr.table.mean_vs_field[i] * 100.0,
+            rr.table.nash[i] * 100.0,
+            exploitability[i] * 100.0,
+            worst_text
+        );
         let meta = if is_anchor {
             let mut m = anchor_meta(&anchors[i]);
             m.header.push(extra);
             m
         } else {
-            meta_for(cfg, &setup, format!("League: {}", names[i]), &label, "niche champion", extra)
+            meta_for(cfg, &setup, format!("League: {}", names[i]), &label, if kinds[i] == "exploiter" { "exploiter (best response to the Nash mix)" } else { "niche champion" }, extra)
         };
         let g = &genomes[i];
         entries.push(Entry {
@@ -706,8 +917,8 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             fitness: rr.table.mean_vs_field[i],
             generation: last_gen,
             validated: true,
+            vs,
         });
-        kinds.push(if is_anchor { "anchor".into() } else { "champion".into() });
     }
 
     // Top N distinct strategies by mean against the field.
@@ -731,12 +942,14 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             baseline: i < anchors.len(),
             mean_vs_field: rr.table.mean_vs_field[i],
             nash: rr.table.nash[i],
+            exploitability: exploitability[i],
         });
     }
 
     report_data.crosstable = Some(rr.table.clone());
     report_data.strategies = entries.clone();
     report_data.kinds = kinds;
+    report_data.exploitability = exploitability;
     report_data.top = top;
     progress.league = Some(report_data);
     // The result: the best evolved strategy (an anchor only if no champion exists).
@@ -764,14 +977,14 @@ fn niche_rows(cfg: &EvolveConfig, setup: &Setup, archive: &Archive, anchor_keys:
                 None => format!("generation {}", e.generation),
             };
             let meta = meta_for(cfg, setup, format!("League: {label}"), &label, &how, String::new());
-            let score = Score { wins: e.win_rate * e.games as f64, games: e.games as f64, played: e.games, turns: 0.0 };
+            let score = Score { wins: e.win_rate * e.games as f64, games: e.games as f64, played: e.games, ..Score::default() };
             NicheRow {
                 label,
                 key_cards: d.card_names().into_iter().map(String::from).collect(),
                 trash: crate::niche::TRASH_LABELS[d.trash as usize].to_string(),
                 length: crate::niche::LENGTH_LABELS[d.length as usize].to_string(),
                 behaviour: e.behaviour.text(),
-                entry: sample_entry(&e.genome, &score, parsimony, e.generation, false, &meta),
+                entry: sample_entry(&e.genome, &score, e.vs.clone(), parsimony, e.generation, false, &meta),
                 island: e.island + 1,
                 generation: e.generation,
             }
@@ -801,6 +1014,14 @@ mod tests {
         let z = LeagueConfig { anchor_weight: 0.0, recent_weight: 0.0, old_weight: 0.0, ..lc };
         let w = league_weights(&z, 2, 2, 0);
         assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_exploiter_must_beat_the_mix_by_more_than_the_margin() {
+        assert!(exploiter_beats_mix(0.54, 0.03));
+        assert!(!exploiter_beats_mix(0.53, 0.03));
+        assert!(!exploiter_beats_mix(0.45, 0.03));
+        assert!(!exploiter_beats_mix(0.6, 0.2));
     }
 
     #[test]

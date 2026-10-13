@@ -226,3 +226,41 @@ The report holds:
 Caveats: league fitness is relative, so absolute numbers drift as the hall of fame strengthens; the
 inner loop uses fast bots (no turn search), which under-rates engines that need play-order search, so
 rerun candidate engines with full bots (Assess).
+
+**Exploiter rounds** (PSRO-style, `league.rs`). A round robin only says how the strategies found so far
+compare; it cannot say whether something unseen beats all of them. After the final ranking, up to
+`exploit_rounds` (3; 0 = off) rounds run:
+1. Take the Nash mix over everything ranked so far (anchors, champions, earlier exploiters) and its support
+   (weight at least 2%, at most 32 strategies, renormalized).
+2. Evolve a best response: an ordinary `ga::run` (not league mode) whose opponents are the support, weighted by
+   their Nash shares, for `exploit_generations` (30) generations, seeded with the support members and the user's
+   seeds, with the usual polish and held-out validation (`validate_full` applies).
+3. Measure it against the mix with `exploit_games` (4000) fresh games, with full bots when `final_full` (or
+   `validate_full`) is set. If it wins by more than `exploit_margin` (0.03: above 53%) it is added: only its row
+   and column of the round robin are played (`rank::extend`, the same deals as the original), and the
+   crosstable, means and Nash mix are recomputed for the next round. Otherwise the loop stops: the mix is not
+   exploitable within the margin. Exploiters that fail still count as challengers (below).
+
+Stop works inside a round (the GA run, the measurement, the extension all check it); the run ends "stopped" with
+the table so far. Progress reads "exploiter round 2/3: generation 7/30 (running)". Each round is reported (log,
+`LeagueReport.exploiters`, a table in the Lab): rate against the mix with a 95% interval, win rate against each mix member,
+whether it was added, its name ("Exploiter 2", kind "exploiter" in the table) and the new Nash support.
+
+**Exploitability.** Per final strategy: the largest win rate any other strategy in the table (or a rejected
+exploiter, against the members of its mix) achieved against it, minus 50 points, at least 0. It is shown in the
+crosstable, the top-N table and the saved header ("exploitability 2.1 points"). Near 0: nobody found a way to beat
+it. When several strategies share the Nash mix their exploitabilities are large and they beat each other in a
+cycle; the mix is the thing to play. For the mix itself, `nash_exploitability` is the last exploiter's win rate
+against the mix of its round minus 50 points (if that exploiter was added, the final mix is a new one that no
+exploiter has tested yet). The maximum over many noisy estimates is biased upward by about the interval's width
+(+-2 points at 2000 games), so differences of that size mean nothing.
+
+**Per-opponent reporting.** A score against several opponents is one weighted average, which hides weak
+matchups (66% overall can be 79% against Big Money and 53% against the strongest opponent). `arena::Score`
+keeps a fixed array of per-opponent tallies (unweighted wins and games; `MAX_TALLY` = 32, filled once per match
+batch, so the hot path is unchanged) and `Arena::breakdown` turns it into `OppRate`s (rate, 95% Wilson interval,
+weight, games). `Entry.vs` carries them: the Lab result panel shows a table, hall-of-fame rows a compact
+"78.9 Big Money Ultimate . 53.8 League: ..." column, the Assess panel a table, the saved TOML header
+"Win rate 66.3% overall (95% CI ...) over 20000 games: 78.9% vs Big Money Ultimate, 53.8% vs League: ...; never gains ...".
+In kingdom mode a strategy's `vs` is its crosstable row (against every other strategy) and its header lists the
+three weakest matchups.

@@ -110,3 +110,84 @@ ids above `NUM_ZONE_IDS` so that no loop over zone ids ever visits them.
 * The per-game compaction of section 3 stays unneeded for now; the "cached total" idea of section 6 is done (and gave about 1%: the block bitmap is what paid).
 * `GameState` is 20 704 bytes, but `GameState::dup()` copies 9.8 KB in a 2-player game (see `docs/adding-a-set.md`, "Keeping `GameState` small"): the size matters less than the live part.
 
+## 9. The full card count (plan for every remaining expansion)
+
+Counted from the wiki copy (`C:/explore/wiki/dominion-wiki/pages/0`: `Sets`, `Renaissance`, `Menagerie (expansion)_6737`, `Allies`, `Plunder (expansion)`, `Promo`). Today (after Rising Sun and the Promo cards):
+398 zone ids (`NUM_ZONE_IDS`; 14 spare below the 412 that `LANES` 416 allows), 109 pseudo ids (44 Events, 21 Landmarks, 15 Prophecies, 12 Boons, 12 Hexes, 5 States), `NUM_CARDS` 507.
+
+| Still to come | Zone ids | Pseudo ids | Notes |
+|---|---|---|---|
+| Renaissance | 25 | 25 (5 Artifacts, 20 Projects) | Villagers and Coffers are counters; Projects are a per-player bitmask, Artifacts a holder per Artifact |
+| Menagerie | 31 (30 kingdom + Horse) | 40 (20 Events, 20 Ways) | an Exile mat per player (a `SmallMultiset`) |
+| Allies | 49 (25 single piles + 6 split piles of 4 cards) | 23 Allies | the 6 split piles *rotate* (4 cards, not 2); Favors are a counter; Liaisons are ordinary kingdom cards |
+| Plunder | 55 (40 kingdom + 15 Loot) | 30 (15 Events, 15 Traits) | a Loot pile outside the Supply; a Trait sits on a Supply pile (a per-pile record, like Empires' tokens) |
+| rest of the Promos | 2 (Black Market, Stash) | 0 | the Black Market deck is the kingdom cards not in the game: a mask, not a zone |
+| **Sum** | **+162** | **+118** | |
+| Arcana (announced for 2026: 500 cards, 37 kingdom piles, mechanics unknown) | about +50 | about +30 | an assumption: 37 kingdom piles and about a dozen non-Supply cards |
+
+So **560 zone ids and 227 pseudo ids** (`NUM_CARDS` 787) without Arcana, **about 610 zone ids and 257 pseudo ids** (`NUM_CARDS` about 870) with it. Nothing else in the wiki's set list is missing:
+the later 2nd-edition reprints change cards inside sets that are already in, and the Promo page lists 12 releases, 10 of them done. Planning figures: **640 `Counts` lanes, 5 `SupplyMask` words (640 bits), `CardId` stays 16 bits**.
+
+When each limit is crossed, in the order the sets are likely to come (Renaissance, Menagerie, Allies, Plunder, Arcana):
+
+| After | Zone ids | `LANES` needed | `SupplyMask` | Block bitmap |
+|---|---|---|---|---|
+| now | 398 | 416 | 4 words | `u16` |
+| Renaissance | 423 | 448 | 4 | `u16` |
+| Menagerie | 454 | 480 | 4 | `u16` |
+| Allies | 503 | 512 (ids below 508: the last that fit with a `u16` bitmap) | 4 (ids below 512) | `u16` (16 blocks) |
+| Plunder | 558 | 576 | 5 words | `u32` (18 blocks) |
+| Arcana (est.) | 610 | 640 | 5 | `u32` |
+
+`GameState` at 640 lanes: a `Counts` grows by 224 bytes and a state holds 33 of them (5 per seat times 6, the Supply, the trash, `TurnState::played`), so +7.4 KB: about 30 KB, 31.5 KB with the new sets' own state.
+A 2-player `dup()` copies 13 `Counts`, +2.9 KB: about 13.5 KB (14.5 KB with the new state). The wasm stack (8 MiB) and the search's recursion are the things to re-check at that size (`tests/state_size.rs`).
+
+## 10. Measurements for the plan (third speed pass)
+
+`bench/perf.sh` (see its header) runs the benchmarks of this section with two builds interleaved, best of 5, and diffs the outputs. All the numbers below are from one machine (32 logical CPUs; the match benchmarks on 4 threads, because
+with all of them the run-to-run noise is larger than most of the effects; the same binary measured against itself differs by up to +-3%).
+
+**Widening cost.** Only `LANES` changed (and the bitmap to a `u32` for 576), `dominion-sim match` games per second (best of 5, 4 threads), nothing else touched:
+
+| `LANES` | 128 | 224 | 320 | **416 (today)** | 512 | 576 |
+|---|---|---|---|---|---|---|
+| Big Money Ultimate vs Double Witch | 444k (+14.6%) | 389k | 388k | 387k | 367k (-5.3%) | 363k (-6.2%) |
+| Smithy BM vs Laboratory BM | 462k (+13.2%) | 414k | 405k | 408k | 392k (-4.0%) | 386k (-5.4%) |
+
+(The 128-lane build is only valid for base-set kingdoms, which is all those two pairings use.) Two facts: the cost is **flat between 224 and 416 and steps at about 500 lanes** (probably where the 2-player copy stops fitting in a cache level), so
+the widening to 640 is a one-time step of about -7%, not a slope; and the *only* shrinking that pays is to about 128 lanes (+15%), nothing in between.
+
+For the bots that search, the widening costs much more, because **`turn_hash` walks every lane of every `Counts` it hashes** (six of them, plus `TurnState::played`): 340 ns at 416 lanes, 435 ns at 576 (+28%). The match benchmarks with search bots lost 19% (village/smithy engine vs
+Kitsune BM) and 11% (the Rising Sun kingdom), the position analysis 8%, at 576 lanes. This part of the cost is avoidable: see the recommendation.
+
+**Compaction, with the numbers.** Per-game dense card ids would bring a `Counts` to 64-128 lanes, i.e. the +15% of the 128-lane column against today, and about +25% against a state widened to 640 lanes (444k against about 360k games/s) for the plain bots; the search bots add whatever the hash costs
+(below). The price is unchanged from section 3 (a lane map consulted at every `Counts` access, the map travelling with the state, a two-tier scheme for the ids the engine names as constants) and the gain is not available in small steps (nothing between 416 and 224). Not implemented.
+
+**Recommendation (replaces section 4's).**
+
+1. *Do not compact.* Widen in the stages of the table above. `LANES` 448 and 480 are the same code as today. At Allies (`LANES` 512) the 16-block `u16` bitmap is full: from Plunder on the bitmap is a `u32` (the bookkeeping lanes become 6),
+   and `SupplyMask` gets a fifth word when an id passes 511.
+2. *Before the first widening past 416, make `Counts`' `Hash` independent of `LANES`*: hash the 13 legacy blocks exactly as today (length prefix 416, so every existing key is unchanged and the results stay identical), and the blocks above them only when the bitmap says they hold a card (never, for
+   today's cards). Otherwise every added block costs 4 more dependent hash steps in each of the six `Counts` of every search node (the 28% above). `Counts::hash` already goes block by block and skips the multiply-xor for empty blocks, so this is a small change to it. `stable_seed` (SipHash over the same bytes) is unaffected.
+3. If the plain bots' speed matters more than the cost of a larger redesign after Plunder: keep `Counts` dense for the Supply and the trash (they are indexed by pile all the time) and make the *player zones* sparse (sorted `(id, count)` pairs, capacity about 32; the `Counts` methods are the whole interface, so the layout can change behind them).
+   A 2-player state would copy about 6 KB instead of 13 KB, which is what the 128-lane column measures (+15%), minus the dearer `get` and `add`, plus a cheaper draw (`nth` walks pairs, not 32-lane blocks). Prototype it with the real benchmark first; the 224-416 plateau says that only a large shrink is worth anything.
+
+## 11. What the third speed pass changed (results unchanged)
+
+Profile first (`tools/winprof`: a sampling profiler for Windows that needs no admin rights; `bench/perf.sh` for before/after). The result for the bots that search: **55-60% of the time was the transposition-table key** (`search::hash::turn_hash`), a chain of FxHash steps (rotate, xor, multiply: 5 cycles of latency each, nothing to run in parallel)
+over 6 + 1 `Counts` of 52 words each, nearly all of them zero. The key must not change (it indexes a direct-mapped table: a different hash changes which entries evict which, hence the node counts), and the chain cannot be shortened or reordered, so the work went into doing the same steps faster and fewer times:
+
+* `Counts::hash` feeds the lanes in 32-byte pieces and a block without a card (the bitmap says so) as a constant piece, so the search's `FxHasher` runs its steps without the xor (4 cycles each instead of 5) and no 416-byte copy is made; a stream hasher (`stable_seed`'s SipHash) takes the same bytes in 32-byte writes. A test pins the equality with the hash of the plain `[u8; LANES]` for both kinds of hasher. `turn_hash` 410 ns to 338 ns on states of random games (-17%).
+* `HashCache` (in `Searcher`): the first part of the chain (`me`, hand, known deck, unknown deck) is stored with the zones it was computed for. A node's children are hashed one after another and most of them (every Buy that gains a card, every choice that changes only the coins) share those zones with the previous state,
+  so the hash resumes from the stored chain: the hit rate is 76% on the analysis positions, 41% in the village/smithy engine games, 91% in the Rising Sun kingdom, and it saves 3 of 6 `Counts` per hit. The equality of cached and plain hashes is a test (`tests/hash.rs`); the search results are the same (`bench/perf.sh` diffs them).
+
+| Benchmark (best of 5, interleaved) | before | after | |
+|---|---|---|---|
+| plain bots, BMU vs Double Witch, 300k games | 792 ms | 771 ms | +2.8% (noise: the plain path does not use the hash) |
+| search bots, village/smithy engine vs Kitsune BM, 8000 games | 1331 ms | 1216 ms | +9.5% |
+| search bots, Rising Sun kingdom, Kitsune BM vs Samurai BM, 8000 games | 747 ms | 686 ms | +8.9% |
+| `Searcher::analyze` on four positions (`bench_analyze`) | 370 ms | 339 ms | +9.2% |
+| league run (2 islands x 8, 5 generations) | 7883 ms | 7608 ms | +3.6% |
+
+Tried and left alone: a hash cache with more entries (8 entries: 47% hits instead of 41% in the engine games), fat LTO (no gain on the analysis benchmark or the league run). Left for later, in the order of value: resuming the chain inside the discard pile for the children of a Buy (they differ in one lane: saves about a third of a `Counts` per node),
+caching the root's `all_cards` and the opponents' Curse counts across the leaves of one search (`GainListEvaluator::leaf_value` rebuilds them for each leaf; roughly 5-8% of the bots' search time is `all_cards`/`add_all`), and the cost of `legal_choices` for the Buy phase (13% of the plain bots).

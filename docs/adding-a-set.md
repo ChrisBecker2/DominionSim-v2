@@ -123,6 +123,12 @@ the log should say something (`engine.rs`, `web/app.js`'s log).
   `add_all` and `clear` visit only the blocks that have cards (a hand: two or three of twelve). Use its methods only (the field is private); a loop over a hand is cheap, a loop over every card id
   (`0..NUM_ZONE_IDS`) is not: walk `iter()` of the zones involved (`choose_discard`, `zone_of` and the evaluators did sort or scan all 370 ids on every call before the second speed pass). Card ids
   must stay below `LANES - 4`.
+* **The search's table key walks the `Counts`.** `search::hash::turn_hash` hashes six `Counts` (about 55-60% of the time of a search-heavy game), so a wider `LANES` costs search bots far more than plain ones (`docs/card-id-capacity.md`
+  sections 9-10 have the measurements and the staged plan: make `Counts::hash` independent of `LANES` before the first widening past 416). The key is also the transposition table's index: a speed change must not alter its value.
+  A new per-player field that matters to the search goes into `finish_turn_hash`; the part before it (`chain_start`: `me`, hand, known and unknown deck) is what `HashCache` keeps between nodes, so anything added *there* must be added to the cache's comparison too
+  (`tests/hash.rs` checks the cached hash against the plain one).
+* **Measure with `bench/perf.sh`** (two builds interleaved, best of 5, outputs diffed: a speed change must leave every result identical). Build with `cargo build --release --workspace --bins --examples`: `--examples` alone does not rebuild
+  `dominion-sim`, and a stale binary makes a before/after comparison meaningless. `tools/winprof` is a sampling profiler that works on Windows without admin rights.
 * Loops over the supply (`phase_choices`' Buy list) go through masks over the card ids (`cards::buy_masks`: cards by cost, no-Potion cards) and `SupplyCards`, not one pile at a time.
 * **Hidden state is state.** `PlayerView::stable_seed` hashes the whole effect stack array, popped frames beyond `len` included, and the bots' searches are seeded from it: a fast path that leaves a
   different stale frame (or any dead data that is hashed) than the step-by-step code changes bot play, whatever it does to the visible state. The cure is the check the speed passes use: the same seeds

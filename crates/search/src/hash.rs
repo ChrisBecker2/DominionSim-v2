@@ -7,6 +7,7 @@
 //! counters, the supply (buy legality depends on it), and the effect stack (it determines what
 //! happens next). Trash and opponents' zones are deliberately excluded.
 
+use dominion_engine::counts::Counts;
 use dominion_engine::state::{FrameStack, KnownStack, PlayerState};
 use dominion_engine::{GameState, Phase};
 use std::hash::{Hash, Hasher};
@@ -61,19 +62,6 @@ fn hash_known_stack<const N: usize>(ks: &KnownStack<N>, h: &mut FxHasher) {
 }
 
 #[inline]
-fn hash_player(ps: &PlayerState, h: &mut FxHasher) {
-    ps.hand.hash(h);
-    hash_known_stack(&ps.deck_known, h);
-    ps.deck_unknown.hash(h);
-    ps.discard.hash(h);
-    ps.in_play.hash(h);
-    ps.set_aside.hash(h);
-    // Adventures: the Tavern mat (calls), tokens, the Journey and -1 Card / -$1 flags, Inheritance, Save.
-    ps.tavern.hash(h);
-    (ps.tok, ps.adv, ps.inherit, ps.saved).hash(h);
-}
-
-#[inline]
 fn hash_stack(stack: &FrameStack, h: &mut FxHasher) {
     stack.len.hash(h);
     for f in stack.iter() {
@@ -81,14 +69,64 @@ fn hash_stack(stack: &FrameStack, h: &mut FxHasher) {
     }
 }
 
-/// Hash of the part of `state` that determines the value of the subtree rooted here, from
-/// `me`'s point of view: my own zones, the turn counters, the supply, and the pending effect
-/// stack. Two states with the same hash are treated as the same search node (collisions are
-/// accepted as negligible at 64 bits for the node counts this search runs).
-pub fn turn_hash(state: &GameState, me: u8) -> u64 {
+/// The chain of `turn_hash` up to and including the searching player's undrawn deck (`me`, hand, known deck cards, unknown deck), for
+/// the last state hashed. The search hashes a node's children one after another, and most of them (every Buy that gains a card, every
+/// choice that changes only the coins) agree with the previous state on those three zones, so the hash resumes from the stored chain
+/// instead of walking the zones again. The chain is a pure function of the zones, so the hash is the one `turn_hash` computes.
+pub struct HashCache {
+    valid: bool,
+    me: u8,
+    hand: Counts,
+    deck_known: KnownStack,
+    deck_unknown: Counts,
+    /// The hasher's state after `me`, `hand`, `deck_known` and `deck_unknown`.
+    chain: u64,
+}
+
+impl Default for HashCache {
+    fn default() -> Self {
+        HashCache { valid: false, me: 0, hand: Counts::EMPTY, deck_known: KnownStack::default(), deck_unknown: Counts::EMPTY, chain: 0 }
+    }
+}
+
+impl HashCache {
+    /// `turn_hash(state, me)`.
+    pub fn turn_hash(&mut self, state: &GameState, me: u8) -> u64 {
+        let ps = &state.players[me as usize];
+        let known_len = ps.deck_known.len as usize;
+        let same = self.valid
+            && self.me == me
+            && self.deck_known.len == ps.deck_known.len
+            && self.deck_known.cards[..known_len] == ps.deck_known.cards[..known_len]
+            && self.hand == ps.hand
+            && self.deck_unknown == ps.deck_unknown;
+        if !same {
+            *self = HashCache { valid: true, me, hand: ps.hand, deck_known: ps.deck_known, deck_unknown: ps.deck_unknown, chain: chain_start(ps, me).0 };
+        }
+        finish_turn_hash(state, ps, FxHasher(self.chain))
+    }
+}
+
+/// The first part of `turn_hash`: `me`, hand, known deck cards and unknown deck.
+#[inline]
+fn chain_start(ps: &PlayerState, me: u8) -> FxHasher {
     let mut h = FxHasher::new();
     me.hash(&mut h);
-    hash_player(&state.players[me as usize], &mut h);
+    ps.hand.hash(&mut h);
+    hash_known_stack(&ps.deck_known, &mut h);
+    ps.deck_unknown.hash(&mut h);
+    h
+}
+
+/// The rest of `turn_hash`, after the chain of `HashCache`.
+#[inline]
+fn finish_turn_hash(state: &GameState, ps: &PlayerState, mut h: FxHasher) -> u64 {
+    ps.discard.hash(&mut h);
+    ps.in_play.hash(&mut h);
+    ps.set_aside.hash(&mut h);
+    // Adventures: the Tavern mat (calls), tokens, the Journey and -1 Card / -$1 flags, Inheritance, Save.
+    ps.tavern.hash(&mut h);
+    (ps.tok, ps.adv, ps.inherit, ps.saved).hash(&mut h);
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
     (state.spoils, state.madman, state.mercenary, state.trav, state.adv).hash(&mut h);
@@ -98,4 +136,13 @@ pub fn turn_hash(state: &GameState, me: u8) -> u64 {
     // against ever changing what `turn`'s Hash impl covers.
     (state.turn.phase == Phase::CleanupDraw).hash(&mut h);
     h.finish()
+}
+
+/// Hash of the part of `state` that determines the value of the subtree rooted here, from
+/// `me`'s point of view: my own zones, the turn counters, the supply, and the pending effect
+/// stack. Two states with the same hash are treated as the same search node (collisions are
+/// accepted as negligible at 64 bits for the node counts this search runs).
+pub fn turn_hash(state: &GameState, me: u8) -> u64 {
+    let ps = &state.players[me as usize];
+    finish_turn_hash(state, ps, chain_start(ps, me))
 }

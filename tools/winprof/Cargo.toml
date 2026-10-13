@@ -1,0 +1,11 @@
+# A sampling profiler for Windows that needs no admin rights and no ETW: standalone (not a member of the workspace; build it
+# with `cargo build --release` inside this directory). See the header of src/main.rs.
+[package]
+name = "winprof"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Kernel"] }
+
+[workspace]

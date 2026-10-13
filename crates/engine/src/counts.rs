@@ -32,13 +32,27 @@ impl PartialEq for Counts {
 
 impl Eq for Counts {}
 
-/// Hashes as the plain `[u8; LANES]` of the card lanes (the bookkeeping lanes as zero), so the hash of a state (`stable_seed`, the search's table
+/// Hashes as the plain `[u8; LANES]` of the card lanes (the bookkeeping lanes as zero; a test pins the equality), so the hash of a state (`stable_seed`, the search's table
 /// key) does not depend on how `Counts` caches its total and blocks.
 impl std::hash::Hash for Counts {
+    #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut lanes = self.0;
-        lanes[BLOCKS_LANE..].fill(0);
-        lanes.hash(state);
+        // The length prefix of `[u8; LANES]`, then the lanes in 32-byte pieces: a block without a card (the bitmap says so) is a constant
+        // piece, which a hasher that goes word by word (the search's FxHasher) folds into a cheaper step, and a stream hasher takes in one copy.
+        state.write_usize(LANES);
+        let blocks = self.blocks();
+        for b in 0..LANES / 32 {
+            if blocks & (1 << b) == 0 {
+                state.write(&[0u8; 32]);
+            } else {
+                let mut piece = [0u8; 32];
+                piece.copy_from_slice(&self.0[b * 32..b * 32 + 32]);
+                if b == LANES / 32 - 1 {
+                    piece[32 - (LANES - BLOCKS_LANE)..].fill(0);
+                }
+                state.write(&piece);
+            }
+        }
     }
 }
 
@@ -311,6 +325,50 @@ impl std::fmt::Debug for Counts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `Hash` is that of the plain card-lane array (bookkeeping lanes as zero), however the bitmap and the total stand, for a stream hasher and a word-by-word one.
+    #[test]
+    fn hash_is_that_of_the_lane_array() {
+        use std::hash::{Hash, Hasher};
+        struct Words(u64);
+        impl Hasher for Words {
+            fn finish(&self) -> u64 {
+                self.0
+            }
+            fn write(&mut self, bytes: &[u8]) {
+                for chunk in bytes.chunks(8) {
+                    let mut w = [0u8; 8];
+                    w[..chunk.len()].copy_from_slice(chunk);
+                    self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(w)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+                }
+            }
+        }
+        fn check(c: &Counts) {
+            let mut lanes = c.0;
+            lanes[BLOCKS_LANE..].fill(0);
+            let (mut a, mut b) = (std::collections::hash_map::DefaultHasher::new(), std::collections::hash_map::DefaultHasher::new());
+            c.hash(&mut a);
+            lanes.hash(&mut b);
+            assert_eq!(a.finish(), b.finish());
+            let (mut a, mut b) = (Words(0), Words(0));
+            c.hash(&mut a);
+            lanes.hash(&mut b);
+            assert_eq!(a.0, b.0);
+        }
+        let mut c = Counts::EMPTY;
+        check(&c);
+        for id in [0, 5, 31, 32, 100, 351, 352, BLOCKS_LANE - 1] {
+            c.add(id as CardId, 3);
+            check(&c);
+        }
+        // Removing leaves a stale bit in the bitmap: still the same hash.
+        for id in [5, 100, 351] {
+            c.set(id as CardId, 0);
+            check(&c);
+        }
+        c.clear();
+        check(&c);
+    }
 
     #[test]
     fn simd_and_swar_masks_agree() {

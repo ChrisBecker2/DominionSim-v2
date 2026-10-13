@@ -7,7 +7,7 @@
 //! allocates: it clones `GameState` (a `Copy` memcpy) and reuses `ChoiceBuf`.
 
 use crate::eval::Evaluator;
-use crate::hash::turn_hash;
+use crate::hash::HashCache;
 use crate::policy::default_policy;
 use dominion_engine::cards;
 use dominion_engine::rng::Rng;
@@ -157,13 +157,15 @@ pub struct Searcher {
     tt_stores: u64,
     rng: Rng,
     generation: u32,
+    /// The unchanged start of the previous state's hash (see `HashCache`).
+    hash_cache: HashCache,
 }
 
 impl Searcher {
     pub fn new(tt_bits: u32) -> Self {
         let tt_bits = tt_bits.clamp(1, 30);
         let cap = 1usize << tt_bits;
-        Searcher { tt: vec![TTEntry::default(); cap], mask: cap - 1, nodes: 0, tt_hits: 0, tt_stores: 0, rng: Rng::new(0), generation: 0 }
+        Searcher { tt: vec![TTEntry::default(); cap], mask: cap - 1, nodes: 0, tt_hits: 0, tt_stores: 0, rng: Rng::new(0), generation: 0, hash_cache: HashCache::default() }
     }
 
     pub fn tt_capacity(&self) -> usize {
@@ -315,7 +317,7 @@ impl Searcher {
             return Eval { ev: eval.leaf_value(root, state, me), exact: true };
         }
 
-        let key = turn_hash(state, me);
+        let key = self.hash_cache.turn_hash(state, me);
         let idx = (key as usize) & self.mask;
         let slot = self.tt[idx];
         if slot.generation == self.generation && slot.key == key {

@@ -52,6 +52,18 @@ impl Evaluator for SeatEval<'_> {
         }
     }
 
+    fn begin_root(&self, root: &GameState, me: u8) {
+        if let SeatEval::Gains(e) = self {
+            e.begin_root(root, me);
+        }
+    }
+
+    fn end_root(&self) {
+        if let SeatEval::Gains(e) = self {
+            e.end_root();
+        }
+    }
+
     fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
         match self {
             SeatEval::General(e) => e.allows(state, me, decision, choice),

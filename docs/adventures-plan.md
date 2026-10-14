@@ -217,6 +217,14 @@ Duplicate's call, Royal Carriage's and Coin of the Realm's calls, and Wine Merch
 calls (Guide, Ratcatcher, Transmogrify, Teacher) follow the rules below. A stated `[[call]]` rule wins over the search. The leaf values a Reserve card returned from the mat to the deck cycle (`mat_return_value`): the
 coins its next play is worth times the chance it is drawn and played in the turns left, in `vp_per_coin` like Coffers.
 
+Artificer's discards are searched too (`eval::search_artificer_choice`): the candidate sets are the `m` least valuable cards of the hand (dead cards first, then Treasures by their coins, Actions a little
+above), one for each `m` such that a listed card costs exactly the number discarded in all (those picked already count), and `m = 0`. Each candidate is played out on the sampled world (picks, the optional gain
+onto the deck by the rules, then the rest of the turn is searched with the strategy's scoring), so the Treasures lost to the Buy phase are weighed against the card gained, both on the gain-list scale. The best wins,
+stopping first on ties. Picks come one card at a time in card order, so the choice is made again at each pick from what is left of the hand and reaches the same plan (`Strategy::artificer_candidates`, using
+`PlayerView::select_progress` for the count and the last card picked). With `search_play = false`, and inside other searches' playouts, the same candidates are scored without the search by
+`defaults::adventures::artificer_pick`: the gain's list weight plus the weight of the best listed card the remaining Treasures (and the $ so far) still buy; stopping wins ties. Big hands (Biding Time) are
+covered: the candidates are bounded by the distinct costs of listed cards, not by the hand's size. Tests: `crates/sim/tests/artificer_defaults.rs`.
+
 ### 3.6 Defaults for the other new decisions
 
 (Each is tested in `crates/sim/tests/adventures_defaults.rs`; the code is `crates/sim/src/defaults/adventures.rs`.)

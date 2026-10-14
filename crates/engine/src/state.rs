@@ -837,6 +837,40 @@ impl PlayerState {
         c.add_all(&self.deck_known_bottom.counts());
         c
     }
+    /// How many copies of `card` the player owns, wherever they are: `all_cards().get(card)` without building the multiset
+    /// (the zones listed here must be the ones `all_cards` sums; a test checks the two agree).
+    pub fn count_of(&self, card: CardId) -> u32 {
+        let mut n = self.deck_known.iter_top_down().filter(|&c| c == card).count() as u32
+            + self.deck_known_bottom.iter_front_to_back().filter(|&c| c == card).count() as u32
+            + self.deck_unknown.get(card) as u32
+            + self.hand.get(card) as u32
+            + self.discard.get(card) as u32
+            + self.in_play.get(card) as u32
+            + self.set_aside.get(card) as u32
+            + self.passed.get(card) as u32
+            + self.held.get(card) as u32
+            + self.native_village_mat.get(card) as u32
+            + self.island_mat.get(card) as u32
+            + self.prince_cards.get(card) as u32
+            + self.farm_cards.get(card) as u32
+            + self.summon_cards.get(card) as u32
+            + self.cleanup_aside.get(card) as u32
+            + self.tavern.get(card) as u32
+            + self.archive.get(card) as u32
+            + self.aside.get(card) as u32
+            + self.foresight.get(card) as u32
+            + (self.saved == card && card != 0) as u32
+            + (self.inherit == card && card != 0) as u32;
+        if card == id::FAITHFUL_HOUND {
+            n += self.hounds as u32;
+        }
+        if !self.church.is_empty() {
+            let mut c = Counts::EMPTY;
+            self.church.add_into(&mut c);
+            n += c.get(card) as u32;
+        }
+        n
+    }
     /// Every card the player owns, wherever it is.
     pub fn all_cards(&self) -> Counts {
         let mut c = self.deck_counts();

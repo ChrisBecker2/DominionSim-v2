@@ -6,3 +6,4 @@ web/dist/
 
 # Local open-items list (not shared)
 docs/TODO.md
+.claude/worktrees/

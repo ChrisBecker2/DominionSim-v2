@@ -11,6 +11,42 @@ fn total_cards(g: &GameState) -> u32 {
     t
 }
 
+/// `PlayerState::count_of` (used by the bots' evaluator in place of building `all_cards`) agrees with `all_cards().get` in every position.
+#[test]
+fn count_of_matches_all_cards() {
+    let mut rng = Rng::new(7);
+    for game in 0..300u64 {
+        let n = 2 + (game % 3) as usize;
+        let mut kingdom: Vec<CardId> = cards::kingdom_cards().collect();
+        for i in (1..kingdom.len()).rev() {
+            let j = rng.below(i as u32 + 1) as usize;
+            kingdom.swap(i, j);
+        }
+        kingdom.truncate(10);
+        let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 200, ..Default::default() });
+        let mut buf = ChoiceBuf::default();
+        loop {
+            match g.advance(&mut NoEvents) {
+                Step::Decision(_) => {
+                    g.legal_choices(&mut buf);
+                    let c = buf.as_slice()[rng.below(buf.len() as u32) as usize];
+                    g.apply(c, &mut NoEvents).unwrap();
+                }
+                Step::Chance { .. } => unreachable!(),
+                Step::TurnStart { .. } => {}
+                Step::GameOver => break,
+            }
+            for p in 0..n {
+                let all = g.players[p].all_cards();
+                for (c, k) in all.iter() {
+                    assert_eq!(g.players[p].count_of(c), k as u32, "game {game}, card {c}");
+                }
+                assert_eq!(g.players[p].count_of(cards::id::CURSE), all.get(cards::id::CURSE) as u32);
+            }
+        }
+    }
+}
+
 #[test]
 fn random_games_conserve_cards_and_terminate() {
     let mut rng = Rng::new(42);

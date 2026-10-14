@@ -4,6 +4,7 @@ use dominion_engine::cards::{self, id};
 use dominion_engine::text::parse_state;
 use dominion_engine::{Choice, ChoiceBuf, NoEvents, PlayerView, Step};
 use dominion_sim::batch::{run_match, MatchConfig};
+use dominion_search::Evaluator;
 use dominion_sim::Strategy;
 
 fn load(name: &str) -> Strategy {
@@ -74,4 +75,43 @@ fn the_searching_bot_curses_with_kitsune() {
         g.apply(c, &mut NoEvents).unwrap();
     }
     assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "player 2 got a Curse");
+}
+
+// --- Sun tokens ------------------------------------------------------------------------------------------
+
+/// A state at the Buy phase with the given Prophecy and 3 Sun tokens left; each player's cards are given as `deck:` lines.
+fn sun_state(prophecy: &str, p1_cards: &str, p2_cards: &str) -> dominion_engine::GameState {
+    parse_state(&format!(
+        "players: 2\nkingdom: Kitsune, Samurai, Militia, Smithy, Village, Market, Moat, Cellar, Workshop, Remodel\nprophecy: {prophecy}\nsuns: 3\n\
+         turn: 5  player: 1  phase: buy  actions: 0  buys: 1  coins: 0\n\n[player 1]\nhand: Copper\ndeck: {p1_cards}\n\n[player 2]\nhand: Copper\ndeck: {p2_cards}\n"
+    ))
+    .unwrap()
+}
+
+#[test]
+fn removing_a_sun_token_is_worth_what_the_prophecy_does_for_the_player() {
+    let strat = load("big_money_ultimate.toml");
+    let ev = dominion_sim::GainListEvaluator::new(&strat);
+    let value_of_a_token = |g: &dominion_engine::GameState| {
+        let mut leaf = *g;
+        leaf.rs.suns -= 1;
+        ev.leaf_value(g, &leaf, 0) - ev.leaf_value(g, g, 0)
+    };
+    // Approaching Army (+$1 for each Attack played): good for the player with more Attacks, bad for the other, nothing when level.
+    let mine = sun_state("Approaching Army", "4 Militia, 6 Copper", "6 Copper, 4 Estate");
+    let theirs = sun_state("Approaching Army", "6 Copper, 4 Estate", "4 Militia, 6 Copper");
+    let level = sun_state("Approaching Army", "4 Militia, 6 Copper", "4 Militia, 6 Copper");
+    assert!(value_of_a_token(&mine) > 0.1, "{}", value_of_a_token(&mine));
+    assert!(value_of_a_token(&theirs) < -0.1, "{}", value_of_a_token(&theirs));
+    assert!(value_of_a_token(&level).abs() < 1e-6, "{}", value_of_a_token(&level));
+    // Panic hurts the player with more Treasures.
+    let treasure_rich = sun_state("Panic", "10 Silver", "4 Silver, 6 Estate");
+    assert!(value_of_a_token(&treasure_rich) < -0.1);
+    // Biding Time: the Artificer (discarding from a bigger hand) and clean decks favour their owner.
+    let artificer = sun_state("Biding Time", "2 Artificer, 8 Copper", "2 Smithy, 8 Copper");
+    assert!(value_of_a_token(&artificer) > 0.1);
+    // A Prophecy without a model (Progress) and a game without Prophecy: nothing.
+    assert!(value_of_a_token(&sun_state("Progress", "4 Militia, 6 Copper", "6 Copper, 4 Estate")).abs() < 1e-6);
+    // Always far below one gain-list step (a Silver, 1000 on the gain-list scale) and below a stated play rule (5).
+    assert!(value_of_a_token(&mine) < 1.0);
 }

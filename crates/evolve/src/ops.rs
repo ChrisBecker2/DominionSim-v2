@@ -88,6 +88,13 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         75..=81 => (Var::VpLead, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
         82..=87 => (Var::CountActions, Op::Lt),
         88..=92 => (Var::TotalCards, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
+        // Pile endings: a pile nearly empty, piles nearly empty, piles empty.
+        93..=94 => {
+            let piles: Vec<CardId> = space.gainable.iter().copied().filter(|&c| !cards::is_event(c) && !cards::is_pseudo(c)).collect();
+            if piles.is_empty() { (Var::LowPiles, Op::Ge) } else { (Var::Supply(pick(rng, &piles)), Op::Lt) }
+        }
+        95 => (Var::LowPiles, Op::Ge),
+        96 => (Var::EmptyPiles, Op::Ge),
         _ => {
             let other = pick(rng, &space.gainable);
             // An Event is never owned: "have I bought it" instead.
@@ -104,6 +111,10 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         Var::Count(_) => 1 + rng.below(3) as i16,
         Var::Bought(_) | Var::LosesGame => 1,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,
+        // "supply(X) <= 1 .. 4", "low_piles >= 1 .. 3", "empty_piles >= 1 .. 2".
+        Var::Supply(_) => 2 + rng.below(4) as i16,
+        Var::LowPiles => 1 + rng.below(3) as i16,
+        Var::EmptyPiles => 1 + rng.below(2) as i16,
         _ => lo + rng.below((hi - lo + 1) as u32) as i16,
     };
     Atom { var, op, n }
@@ -371,6 +382,36 @@ mod tests {
             dominion_sim::Strategy::parse(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
             pop.push(child);
         }
+    }
+
+    #[test]
+    fn random_conditions_include_pile_endings() {
+        let pool: Vec<CardId> = cards::kingdom_cards().take(12).collect();
+        let space = SearchSpace::new(&pool, &[]);
+        let mut rng = Rng::new(3);
+        let (mut supply, mut low, mut empty) = (0, 0, 0);
+        for _ in 0..4000 {
+            let a = random_atom(&space, &mut rng, id::DUCHY);
+            match a.var {
+                Var::Supply(c) => {
+                    supply += 1;
+                    assert!(!cards::is_pseudo(c) && !cards::is_event(c));
+                    assert!((1..=10).contains(&a.n));
+                }
+                Var::LowPiles => {
+                    low += 1;
+                    assert!((1..=3).contains(&a.n));
+                }
+                Var::EmptyPiles => {
+                    empty += 1;
+                    assert!((1..=2).contains(&a.n));
+                }
+                _ => {}
+            }
+            // Every atom prints as a condition that loads again.
+            assert_eq!(crate::genome::Atom::parse(&a.text()).unwrap(), a, "{}", a.text());
+        }
+        assert!(supply > 20 && low > 20 && empty > 20, "{supply} {low} {empty}");
     }
 
     #[test]

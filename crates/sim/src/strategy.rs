@@ -240,14 +240,26 @@ struct StrategyFile {
 // Compiled strategy
 // -------------------------------------------------------------------------------------------
 
+/// What the don't-lose guard says about gaining a card.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Guard {
+    Free,
+    /// Gaining it ends the game with me not winning.
+    Loses,
+    /// The second-to-last Province or Colony, which lets an opponent win by taking the last one.
+    Penultimate,
+}
+
 #[derive(Debug)]
 pub struct Strategy {
     pub name: String,
     pub description: String,
     buy: Vec<(CardId, Option<Expr>)>,
-    /// Whether the gain list skips the last Province or Colony when taking it would end the game
-    /// with this player not winning. On unless a rule's condition uses `wins_game` / `loses_game`
-    /// itself.
+    /// The don't-lose guard (see `Strategy::guard`): whether the gain list skips a gain that would end the game with
+    /// this player not winning (the last Province or Colony, the card that empties the game-ending pile), or the
+    /// second-to-last Province or Colony when an opponent could then win by taking the last (only for a Victory card
+    /// listed after it); with a second buy, a listed card that makes the last Province a win comes first. On unless a
+    /// rule's condition uses `wins_game` / `loses_game` itself.
     guard_game_end: bool,
     /// `[[play]]` rules in priority order.
     play: Vec<(CardId, Option<Expr>)>,
@@ -504,6 +516,18 @@ impl Strategy {
                 }
             }
         }
+        // Artificer's discards: the candidate sets are searched against the gain it buys (see `eval::search_artificer_choice`).
+        if self.search_play
+            && decision.source == Some(id::ARTIFICER)
+            && decision.player == view.me()
+            && view.is_my_turn()
+            && matches!(decision.kind, DecisionKind::Select { act: Act::Discard, from: Zone::Hand, .. })
+            && choices.len() > 1
+        {
+            if let Some(c) = crate::eval::search_artificer_choice(self, view, choices) {
+                return c;
+            }
+        }
         // The order of the start-of-turn effects, and Prince's set-aside choices, are searched too:
         // they decide what the turn starts with. Orders of draws, returns and discards are left to
         // the rules (see `START_ORDER_SEARCH_ALL`); only an order with a play in it (Prince, Clerk)
@@ -682,8 +706,13 @@ impl Strategy {
 
     /// The first gain-list card that `money` and `potions` reach.
     fn first_reachable_with(&self, view: &PlayerView, money: u32, potions: u8) -> Option<CardId> {
-        self.buy.iter().find_map(|(card, cond)| {
-            let ok = if cards::is_event(*card) {
+        self.reachable_rank_with(view, money, potions).map(|r| self.buy[r].0)
+    }
+
+    /// The position in the gain list of the first entry that `money` and `potions` reach.
+    pub(crate) fn reachable_rank_with(&self, view: &PlayerView, money: u32, potions: u8) -> Option<usize> {
+        self.buy.iter().position(|(card, cond)| {
+            (if cards::is_event(*card) {
                 view.event_available(*card) && view.event_cost(*card) as u32 <= money
             } else {
                 view.in_supply(*card)
@@ -691,9 +720,14 @@ impl Strategy {
                     && view.cost(*card) as u32 <= money
                     && (potions > 0 || !cards::potion_cost(*card))
                     && view.may_buy(*card)
-            } && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card));
-            ok.then_some(*card)
+            }) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
         })
+    }
+
+    /// What the gain-list entry at position `rank` is worth on the scale of `GainListEvaluator`: the last entry 1000, each entry up ten times
+    /// more, so one entry outranks everything below it together.
+    pub fn rank_weight(&self, rank: usize) -> f64 {
+        1000.0 * 10f64.powi((self.buy.len() - 1 - rank) as i32)
     }
 
     /// How much to overpay for the card just bought, by rule (the bot searches it when `search_play`
@@ -812,27 +846,104 @@ impl Strategy {
         low >= pile_limit
     }
 
-    /// First entry in the gain list that's a legal choice and whose condition holds.
+    /// First entry in the gain list that's a legal choice and whose condition holds, skipping the gains the don't-lose guard (`Strategy::guard`)
+    /// advises against. The guard's cheap precheck (`guard_may_apply`) is the only extra work in the common case.
     fn match_gain_list(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
         for (card, cond) in &self.buy {
-            if has_card(choices, *card)
-                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
-                && !(self.guard_game_end && Self::gain_loses(view, *card))
-            {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+                if self.guard_game_end && Self::guard_may_apply(view, *card) {
+                    return self.match_gain_list_guarded(view, choices);
+                }
                 return Some(*card);
             }
         }
         None
     }
 
-    /// Gaining `card` would end the game this turn with me not among the winners (a shared win is
-    /// fine). Only the last Province or Colony is checked (emptying a third pile is not, for now):
-    /// any other gain costs one comparison.
+    /// `match_gain_list` when the entry it reaches is one the guard may object to (the end of the game is near: rare).
+    #[cold]
+    #[inline(never)]
+    fn match_gain_list_guarded(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+        // The second-to-last Province (or Colony) that the guard would rather not take: passed over for a Victory card that follows it in the
+        // list (a Duchy), taken after all when the next card is not worth points or nothing else is wanted.
+        let mut penultimate: Option<CardId> = None;
+        for (card, cond) in &self.buy {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+                match Self::guard(view, *card) {
+                    Guard::Free => {
+                        return match penultimate {
+                            // Declining the Province only helps when the alternative scores: a bot that gains Gold instead stalls, and the
+                            // opponent in front keeps its lead (measured: Big Money, Double Witch and Smithy lose win rate otherwise).
+                            Some(p) if !cards::is(*card, VICTORY) => Some(p),
+                            _ => Some(*card),
+                        };
+                    }
+                    Guard::Penultimate => {
+                        penultimate.get_or_insert(*card);
+                    }
+                    // The last Province or Colony loses on its own: with a second buy a listed card first may turn it into a win.
+                    Guard::Loses => {
+                        if let Some(first) = self.gain_to_set_up_last(view, choices, *card) {
+                            return Some(first);
+                        }
+                    }
+                }
+            }
+        }
+        penultimate
+    }
+
+    /// Whether the guard could have a say about gaining `card`: it is a Province or Colony with at most two left, or the last card of a pile.
+    #[inline(always)]
+    fn guard_may_apply(view: &PlayerView, card: CardId) -> bool {
+        if card == id::PROVINCE || card == id::COLONY { view.supply(card) <= 2 } else { view.is_last_of_pile(card) }
+    }
+
+    /// The don't-lose guard (on unless a gain rule uses `wins_game` / `loses_game` itself): gaining `card` would end the game this turn with me not
+    /// among the winners (a shared win is fine), or, for the second-to-last Province or Colony, would let an opponent win by taking the last one
+    /// on their next turn. The ending gains: the last Province or Colony; the last card of a pile when that is the third empty pile (two empty,
+    /// in 2-4 players) or the pile limit's last. Any other gain costs one or two comparisons.
     #[inline]
-    fn gain_loses(view: &PlayerView, card: CardId) -> bool {
-        (card == id::PROVINCE || card == id::COLONY)
-            && view.supply(card) == 1
-            && matches!(view.result_if_gained(card), Some(w) if w & (1 << view.me()) == 0)
+    fn guard(view: &PlayerView, card: CardId) -> Guard {
+        let me_loses = |w: Option<u8>| matches!(w, Some(w) if w & (1 << view.me()) == 0);
+        if card == id::PROVINCE || card == id::COLONY {
+            match view.supply(card) {
+                1 if me_loses(view.result_if_gained(card)) => Guard::Loses,
+                // A second buy at the price of two takes the last one too: that is the last-copy case when the bot gets there.
+                2 if !(view.buys_left() >= 2 && view.turn().coins as u32 >= 2 * view.cost(card) as u32) && view.leaves_last_card_to_opponent(card) => Guard::Penultimate,
+                _ => Guard::Free,
+            }
+        } else if view.is_last_of_pile(card) && me_loses(view.result_if_gained(card)) {
+            Guard::Loses
+        } else {
+            Guard::Free
+        }
+    }
+
+    /// With the last Province or Colony (`last`) losing on its own and a second buy to spend: the first card of the gain list that can be bought
+    /// together with it (the $ and Buys allow both) and after which gaining `last` does not lose. Only in that rare endgame position.
+    fn gain_to_set_up_last(&self, view: &PlayerView, choices: &[Choice], last: CardId) -> Option<CardId> {
+        if !self.guard_game_end
+            || !(last == id::PROVINCE || last == id::COLONY)
+            || view.phase() != dominion_engine::Phase::Buy
+            || view.buys_left() < 2
+            || view.supply(last) != 1
+        {
+            return None;
+        }
+        let money = view.turn().coins as u32 + view.coffers() as u32;
+        let me = view.me();
+        self.buy.iter().find_map(|(x, cond)| {
+            (*x != last
+                && !cards::is_event(*x)
+                && has_card(choices, *x)
+                && cards::debt_cost(*x) == 0
+                && !cards::potion_cost(*x)
+                && view.cost(*x) as u32 + view.cost(last) as u32 <= money
+                && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *x))
+                && matches!(view.result_if_gained_after(*x, last), Some(w) if w & (1 << me) != 0))
+            .then_some(*x)
+        })
     }
 
     /// Whether the strategy's rules would ever buy `card` here: it's in the gain list with its

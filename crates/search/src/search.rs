@@ -55,6 +55,22 @@ pub(crate) fn is_leaf(state: &GameState) -> bool {
                     && state.players[state.turn.player as usize].hand.any_type(cards::NIGHT))))
 }
 
+/// Tells the evaluator which root its leaves are scored against, for as long as the search lasts (`Evaluator::begin_root` / `end_root`).
+struct RootScope<'e, E: Evaluator>(&'e E);
+
+impl<'e, E: Evaluator> RootScope<'e, E> {
+    fn new(eval: &'e E, root: &GameState, me: u8) -> Self {
+        eval.begin_root(root, me);
+        RootScope(eval)
+    }
+}
+
+impl<E: Evaluator> Drop for RootScope<'_, E> {
+    fn drop(&mut self) {
+        self.0.end_root();
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Eval {
     ev: f64,
@@ -189,6 +205,7 @@ impl Searcher {
         let d = root.pending_decision().expect("analyze: root state has no pending decision");
         assert_eq!(d.player, me, "analyze: pending decision belongs to player {}, not {me}", d.player);
 
+        let _scope = RootScope::new(eval, &root, me);
         let mut buf = ChoiceBuf::default();
         root.legal_choices(&mut buf);
         let mut options = Vec::with_capacity(buf.len());
@@ -232,6 +249,7 @@ impl Searcher {
         if d.player != me {
             return None;
         }
+        let _scope = RootScope::new(eval, &root, me);
         let mut buf = ChoiceBuf::default();
         root.legal_choices(&mut buf);
         let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
@@ -265,6 +283,7 @@ impl Searcher {
         if d.player != me {
             return None;
         }
+        let _scope = RootScope::new(eval, &root, me);
         let mut buf = ChoiceBuf::default();
         root.legal_choices(&mut buf);
         let any_allowed = buf.as_slice().iter().any(|&c| eval.allows(&root, me, &d, c));
@@ -294,6 +313,7 @@ impl Searcher {
         self.tt_stores = 0;
         self.rng = Rng::new(cfg.seed);
         self.generation = self.generation.wrapping_add(1).max(1);
+        let _scope = RootScope::new(eval, root, me);
         let r = self.node_value(root, state, me, cfg, eval);
         let pv = self.build_pv(root, state, me, cfg, eval);
         let outcomes = self.outcomes(root, state, me, cfg, eval);

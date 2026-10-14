@@ -2,7 +2,7 @@
 
 use dominion_engine::cards::{id, CardId};
 use dominion_engine::{GameState, PlayerView};
-use dominion_engine::{Choice, Decision, DecisionKind};
+use dominion_engine::{Choice, Decision, DecisionKind, Step};
 use dominion_search::{game_end_value, Evaluator, NextHandEvaluator};
 
 use crate::Strategy;
@@ -20,17 +20,38 @@ use std::cell::RefCell;
 pub struct GainListEvaluator<'a> {
     pub strategy: &'a Strategy,
     pub tie_break: NextHandEvaluator,
+    /// What `leaf_value` needs of the search's root, computed once per root (`begin_root` .. `end_root`) instead of for every leaf.
+    root: RefCell<Option<RootCache>>,
+}
+
+/// The parts of `leaf_value` that depend on the root alone.
+struct RootCache {
+    me: u8,
+    /// Everything `me` owns at the root.
+    before: dominion_engine::Counts,
+    /// The Curses each player owns at the root.
+    curses: [u8; dominion_engine::state::MAX_PLAYERS],
+}
+
+impl RootCache {
+    fn new(root: &GameState, me: u8) -> Self {
+        let mut curses = [0u8; dominion_engine::state::MAX_PLAYERS];
+        for (o, c) in curses.iter_mut().enumerate().take(root.num_players as usize) {
+            *c = root.players[o].count_of(id::CURSE).min(255) as u8;
+        }
+        RootCache { me, before: root.players[me as usize].all_cards(), curses }
+    }
 }
 
 impl<'a> GainListEvaluator<'a> {
     pub fn new(strategy: &'a Strategy) -> Self {
-        GainListEvaluator { strategy, tie_break: NextHandEvaluator::default() }
+        GainListEvaluator { strategy, tie_break: NextHandEvaluator::default(), root: RefCell::new(None) }
     }
 
     fn weight(&self, view: &PlayerView, card: CardId) -> f64 {
         match self.strategy.gain_rank(view, card) {
             // Tier 1: the gain list. Silver-at-the-bottom is worth 1000, each entry up is 10x.
-            Some(rank) => 1000.0 * 10f64.powi((self.strategy.gain_list_len() - 1 - rank) as i32),
+            Some(rank) => self.strategy.rank_weight(rank),
             None => 0.0,
         }
     }
@@ -79,7 +100,11 @@ impl GainListEvaluator<'_> {
                 p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
             }
         }
-        p + self.vp_token_value(root, leaf, me) + self.coffers_value(root, leaf, me) + self.mat_return_value(root, leaf, me) + self.debt_value(root, leaf, me)
+        p + self.vp_token_value(root, leaf, me)
+            + self.coffers_value(root, leaf, me)
+            + self.mat_return_value(root, leaf, me)
+            + self.debt_value(root, leaf, me)
+            + sun_value(root, leaf, me)
     }
 
     /// Debt is money owed out of a later hand: each token is the opposite of a Coffers token, `vp_per_coin` while the game has turns left to pay it
@@ -175,9 +200,26 @@ impl GainListEvaluator<'_> {
 }
 
 impl Evaluator for GainListEvaluator<'_> {
+    fn begin_root(&self, root: &GameState, me: u8) {
+        *self.root.borrow_mut() = Some(RootCache::new(root, me));
+    }
+
+    fn end_root(&self) {
+        *self.root.borrow_mut() = None;
+    }
+
     fn leaf_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
         let view = PlayerView::new(root, me);
-        let before = root.players[me as usize].all_cards();
+        let cached = self.root.borrow();
+        let local;
+        let cache = match &*cached {
+            Some(c) if c.me == me => c,
+            _ => {
+                local = RootCache::new(root, me);
+                &local
+            }
+        };
+        let before = &cache.before;
         let mut after = leaf.players[me as usize].all_cards();
         // A Traveller exchanged for its upgrade is neither lost nor gained (the pile is not the Supply's): count the pair as unchanged, and
         // prefer the exchange a little, so that playing a Traveller to upgrade it is not a loss.
@@ -196,7 +238,7 @@ impl Evaluator for GainListEvaluator<'_> {
         let mut v = exchanges as f64 * 0.5;
         // Only cards owned before or after, or used up, can have changed.
         let mut touched = after;
-        touched.max_assign(&before);
+        touched.max_assign(before);
         for (c, _) in leaf.turn.used_up.iter() {
             touched.set(c, touched.get(c).max(1));
         }
@@ -228,7 +270,7 @@ impl Evaluator for GainListEvaluator<'_> {
             let mut given = 0i32;
             for o in 0..leaf.num_players {
                 if o != me {
-                    given += leaf.players[o as usize].all_cards().get(id::CURSE) as i32 - root.players[o as usize].all_cards().get(id::CURSE) as i32;
+                    given += leaf.players[o as usize].count_of(id::CURSE) as i32 - cache.curses[o as usize] as i32;
                 }
             }
             if given > 0 {
@@ -252,7 +294,7 @@ impl Evaluator for GainListEvaluator<'_> {
         let tie = self.tie_break.leaf_value(root, leaf, me) - game_end_value(leaf, me);
         // A turn that wins the game outright outranks everything, whatever it gains.
         let win = if self.strategy.win_this_turn && leaf.result_if_turn_ends() == Some(1 << me) { 1e15 } else { 0.0 };
-        win + v + self.preferences(root, leaf, me, &before, &after) + 1e-6 * tie
+        win + v + self.preferences(root, leaf, me, before, &after) + 1e-6 * tie
     }
 
     /// Below the analyzed decision, play exactly as the strategy's rules do, so the analysis
@@ -411,6 +453,69 @@ pub fn is_call_decision(turn_player: u8, d: &Decision) -> bool {
         }
 }
 
+/// What one Sun token removed from the Prophecy is worth to a player the Prophecy helps as much as can be (and, negated, to one it hurts): on the
+/// preference scale, a fraction of a stated `[[play]]` rule (5 or more), far below any gain-list difference (1000 or more).
+const SUN_TOKEN: f64 = 0.4;
+
+/// Sun tokens taken off the Prophecy this turn (an Omen played), valued by who the Prophecy helps: each token brings the Prophecy closer for everyone,
+/// so it is a gain for `me` when the Prophecy (see [`prophecy_edge`]) helps `me` more than the opponents, and a loss when it helps them more. Zero in
+/// a game without a Prophecy, and for any turn that removes no token.
+fn sun_value(root: &GameState, leaf: &GameState, me: u8) -> f64 {
+    let removed = root.rs.suns.saturating_sub(leaf.rs.suns);
+    if removed == 0 || root.rs.prophecy == 0 {
+        return 0.0;
+    }
+    removed as f64 * SUN_TOKEN * prophecy_edge(root.rs.prophecy, root, me)
+}
+
+/// How much the Prophecy, once it is in effect, favours `me` over the other players, from -1 to 1, judged from the cards each owns (all public). Simple
+/// and coarse by design: the difference in the density of the card kind the Prophecy rewards (4 times the difference, so 25 points of density is
+/// the whole range), signed by whether it rewards or punishes owning it:
+///
+/// | Prophecy | favours the player with more | note |
+/// |---|---|---|
+/// | Approaching Army (+$1 per Attack played) | Attacks | |
+/// | Great Leader (+1 Action per Action played) | Actions | |
+/// | Enlightenment, Kind Emperor (Actions to hand) | Actions | half weight |
+/// | Good Harvest (+$1 +Buy for the first Treasure), Growth (a Silver per Treasure gained) | Treasures | |
+/// | Panic (Treasures return to their piles at Clean-up) | fewer Treasures | |
+/// | Biding Time (the hand carries over) | fewer dead cards, and Artificers (a bigger hand to discard from) | dead cards: Curses and Victory cards that do nothing |
+///
+/// The others (Bureaucracy, Divine Wind, Flourishing Trade, Harsh Winter, Progress, Rapid Expansion, Sickness) are valued 0: they apply to everyone
+/// alike, or depend on play this model does not see.
+pub fn prophecy_edge(prophecy: CardId, state: &GameState, me: u8) -> f64 {
+    use dominion_engine::cards::{ATTACK, TREASURE};
+    let n = state.num_players;
+    let mine = state.players[me as usize].all_cards();
+    // The average of the other players' cards (each player's density, then the mean).
+    let density = |all: &dominion_engine::Counts, f: &dyn Fn(CardId) -> bool| -> f64 {
+        let total = all.total();
+        if total == 0 {
+            return 0.0;
+        }
+        all.iter().filter(|&(c, _)| f(c)).map(|(_, k)| k as f64).sum::<f64>() / total as f64
+    };
+    let diff = |f: &dyn Fn(CardId) -> bool| -> f64 {
+        let theirs: f64 = (0..n).filter(|&o| o != me).map(|o| density(&state.players[o as usize].all_cards(), f)).sum::<f64>() / (n.max(2) - 1) as f64;
+        density(&mine, f) - theirs
+    };
+    let is_action = |c: CardId| dominion_engine::cards::is(c, dominion_engine::cards::ACTION);
+    let e = match prophecy {
+        id::APPROACHING_ARMY => 4.0 * diff(&|c| dominion_engine::cards::is(c, ATTACK)),
+        id::GREAT_LEADER => 4.0 * diff(&is_action),
+        id::ENLIGHTENMENT | id::KIND_EMPEROR => 2.0 * diff(&is_action),
+        id::GOOD_HARVEST | id::GROWTH => 4.0 * diff(&|c| dominion_engine::cards::is(c, TREASURE)),
+        id::PANIC => -4.0 * diff(&|c| dominion_engine::cards::is(c, TREASURE)),
+        id::BIDING_TIME => {
+            let dead = |c: CardId| c == id::CURSE || (dominion_engine::cards::is(c, dominion_engine::cards::VICTORY) && !is_action(c) && !dominion_engine::cards::is(c, TREASURE));
+            let artificers = |c: CardId| c == id::ARTIFICER;
+            -4.0 * diff(&dead) + 8.0 * diff(&artificers)
+        }
+        _ => 0.0,
+    };
+    e.clamp(-1.0, 1.0)
+}
+
 /// The coins a Reserve card is worth in a hand when it is played (and so what returning it to the deck cycle is worth).
 pub fn reserve_play_coins(card: CardId) -> f64 {
     use dominion_engine::cards::id;
@@ -512,6 +617,77 @@ pub fn search_start_choice(strategy: &Strategy, view: &PlayerView) -> Option<Cho
         let (choice, _, exact) = searcher.best_choice(&world, view.me(), &cfg, &eval)?;
         exact.then_some(choice)
     })
+}
+
+/// Node budgets for each candidate of `search_artificer_choice`: the rest of the turn after the discards is small.
+const ARTIFICER_BUDGETS: [u64; 2] = [1_000, 30_000];
+
+/// Artificer's discards, searched: each candidate discard set (`Strategy::artificer_candidates`: the cheapest cards of the hand, for each
+/// number that a listed card costs exactly) is played out on the sampled world, and the rest of the turn (the gain onto the deck, the
+/// remaining Actions, the Treasures and the buy) is searched with the strategy's own scoring: what the discards cost the Buy phase is weighed
+/// against the card gained, on the gain list's scale. The best candidate wins, stopping first on ties. `None` when there is nothing to
+/// weigh (the rule decides). Picks come in card order, so the answer is the lowest card of the best plan, or `Pass` to stop; it is chosen
+/// afresh at each pick, from what is left of the hand, and reaches the same plan.
+pub fn search_artificer_choice(strategy: &Strategy, view: &PlayerView, choices: &[Choice]) -> Option<Choice> {
+    let cands = strategy.artificer_candidates(view);
+    if cands.len <= 1 {
+        return None;
+    }
+    let me = view.me();
+    let world = view.determinize(&mut Rng::new(view.stable_seed()));
+    let eval = GainListEvaluator::new(strategy);
+    let mut best: Option<(f64, usize)> = None;
+    PLAY_SEARCHER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let searcher = slot.get_or_insert_with(|| Searcher::new(PLAY_TT_BITS));
+        for i in 0..cands.len {
+            let mut w = world.dup();
+            w.chance_mode = true;
+            let mut ok = true;
+            for (c, n) in cands.sets[i].iter() {
+                for _ in 0..n {
+                    ok &= matches!(w.advance(&mut dominion_engine::NoEvents), Step::Decision(_)) && w.apply(Choice::Card(c), &mut dominion_engine::NoEvents).is_ok();
+                }
+            }
+            if !ok {
+                continue;
+            }
+            let Step::Decision(mut d) = w.advance(&mut dominion_engine::NoEvents) else { continue };
+            // The selection ends by itself once the whole hand is picked; otherwise stop picking.
+            if matches!(d.kind, DecisionKind::Select { .. }) && d.source == Some(id::ARTIFICER) {
+                if w.apply(Choice::Pass, &mut dominion_engine::NoEvents).is_err() {
+                    continue;
+                }
+                match w.advance(&mut dominion_engine::NoEvents) {
+                    Step::Decision(d2) => d = d2,
+                    _ => continue,
+                }
+            }
+            if d.player != me {
+                continue;
+            }
+            let mut value = None;
+            for budget in ARTIFICER_BUDGETS {
+                let cfg = SearchConfig { node_budget: budget, tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
+                let Some((_, v, exact)) = searcher.best_choice(&w, me, &cfg, &eval) else { break };
+                value = Some(v);
+                if exact {
+                    break;
+                }
+            }
+            if let Some(v) = value {
+                if best.map_or(true, |(b, _)| v > b + 1e-9) {
+                    best = Some((v, i));
+                }
+            }
+        }
+    });
+    let (_, i) = best?;
+    if i == 0 {
+        return Some(Choice::Pass);
+    }
+    let pick = cands.sets[i].iter().map(|(c, _)| c).find(|&c| choices.contains(&Choice::Card(c)))?;
+    Some(Choice::Card(pick))
 }
 
 const WIN_TT_BITS: u32 = 16;

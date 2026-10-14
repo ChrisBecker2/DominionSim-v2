@@ -26,6 +26,10 @@ pub enum Var {
     /// Cards I own.
     TotalCards,
     EmptyPiles,
+    /// Supply piles with at most 2 cards left, the empty ones included (how close a pile ending is).
+    LowPiles,
+    /// Cards left in a Supply pile.
+    Supply(CardId),
     /// 1 if I have bought the Event (Adventures, Empires) this game, else 0 (not a count).
     Bought(CardId),
     /// Debt tokens I have (Empires).
@@ -125,6 +129,8 @@ impl Var {
             Var::MyTurn => (2, 30),
             Var::TotalCards => (8, 50),
             Var::EmptyPiles => (1, 2),
+            Var::LowPiles => (1, 3),
+            Var::Supply(_) => (1, 10),
             // 0 or 1 ("bought it this game"): the only threshold that changes anything is 1.
             Var::Bought(_) => (1, 1),
             Var::Debt => (1, 8),
@@ -151,6 +157,8 @@ impl Var {
             Var::MyTurn => "my_turn".into(),
             Var::TotalCards => "total_cards".into(),
             Var::EmptyPiles => "empty_piles".into(),
+            Var::LowPiles => "low_piles".into(),
+            Var::Supply(c) => format!("supply({})", cards::name(c).replace([' ', '\''], "")),
             Var::Bought(c) => format!("bought({})", cards::name(c)),
             Var::Debt => "debt".into(),
             Var::LosesGame => "loses_game".into(),
@@ -163,6 +171,10 @@ impl Var {
         if let Some(inner) = lower.strip_prefix("count(").and_then(|r| r.strip_suffix(')')) {
             let inner_orig = &s[6..s.len() - 1];
             return cards::by_name(inner_orig).filter(|&c| !cards::is_pseudo(c)).map(Var::Count).or_else(|| (inner.trim() == "action").then_some(Var::CountActions));
+        }
+        if let Some(inner) = lower.strip_prefix("supply(").and_then(|r| r.strip_suffix(')')) {
+            let _ = inner;
+            return cards::by_name(&s[7..s.len() - 1]).filter(|&c| !cards::is_pseudo(c)).map(Var::Supply);
         }
         if let Some(inner) = lower.strip_prefix("bought(").and_then(|r| r.strip_suffix(')')) {
             let _ = inner;
@@ -179,6 +191,7 @@ impl Var {
             "my_turn" | "myturn" => Var::MyTurn,
             "total_cards" | "totalcards" => Var::TotalCards,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
+            "low_piles" | "lowpiles" => Var::LowPiles,
             "debt" => Var::Debt,
             "loses_game" | "losesgame" => Var::LosesGame,
             _ => return None,
@@ -187,7 +200,7 @@ impl Var {
 
     /// Whether `x <= n` reads better than `x < n+1`.
     fn prefers_le(self) -> bool {
-        matches!(self, Var::ProvincesLeft | Var::ColoniesLeft | Var::EmptyPiles)
+        matches!(self, Var::ProvincesLeft | Var::ColoniesLeft | Var::EmptyPiles | Var::LowPiles | Var::Supply(_))
     }
 }
 
@@ -570,6 +583,31 @@ mod tests {
         let g = Genome::from_toml(text).unwrap();
         assert_eq!(g.gain[0].conds, vec![a]);
         dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
+    }
+
+    #[test]
+    fn pile_conditions_round_trip_and_load() {
+        let a = Atom::parse("supply(Curse) <= 2").unwrap();
+        assert_eq!(a, Atom { var: Var::Supply(id::CURSE), op: Op::Lt, n: 3 });
+        assert_eq!(a.text(), "supply(Curse) <= 2");
+        let b = Atom::parse("low_piles >= 2").unwrap();
+        assert_eq!(b, Atom { var: Var::LowPiles, op: Op::Ge, n: 2 });
+        assert_eq!(b.text(), "low_piles >= 2");
+        let c = Atom::parse("supply(Throne Room) < 4").unwrap();
+        assert_eq!(c.text(), "supply(ThroneRoom) <= 3");
+        assert_eq!(Atom::parse(&c.text()).unwrap(), c);
+        let text = "name = \"P\"
+[[gain]]
+card = \"Duchy\"
+if = \"supply(Curse) <= 2 and low_piles >= 2\"
+[[gain]]
+card = \"Gold\"
+";
+        let g = Genome::from_toml(text).unwrap();
+        assert_eq!(g.gain[0].conds, vec![a, b]);
+        let out = g.to_toml(&TomlMeta::default());
+        dominion_sim::Strategy::parse(&out).unwrap();
+        assert_eq!(Genome::from_toml(&out).unwrap(), g);
     }
 
     #[test]

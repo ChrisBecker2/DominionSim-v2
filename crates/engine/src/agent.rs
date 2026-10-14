@@ -78,6 +78,12 @@ impl<'a> PlayerView<'a> {
     pub fn pending_subject(&self) -> Option<CardId> {
         self.state.pending_decision().map(|d| d.subject)
     }
+    /// For a multi-card selection pending (Artificer's discards): the cards picked so far and the last card picked (picks come in
+    /// non-decreasing card order, so the next one is at least that). `None` when no selection is on top of the effect stack.
+    pub fn select_progress(&self) -> Option<(u8, CardId)> {
+        let f = self.state.stack.top()?;
+        (f.kind == crate::state::FrameKind::Select).then_some((f.count, f.last))
+    }
     /// My Coffers tokens (Cornucopia & Guilds).
     pub fn coffers(&self) -> u16 {
         self.state.players[self.me as usize].coffers
@@ -520,6 +526,41 @@ impl<'a> PlayerView<'a> {
         after.supply.remove(card);
         after.players[self.me as usize].discard.add(card, 1);
         after.result_if_turn_ends()
+    }
+
+    /// `result_if_gained(card)` once `first` has been gained as well (a second buy in the same turn): the winners if gaining `first`, then `card`,
+    /// ends the game at the end of this turn; `None` if it does not, or `first` cannot be gained.
+    pub fn result_if_gained_after(&self, first: CardId, card: CardId) -> Option<u8> {
+        let s = self.state;
+        if first == card || !s.in_supply(first) || s.supply.get(first) == 0 {
+            return None;
+        }
+        let mut after = s.dup();
+        after.supply.remove(first);
+        after.players[self.me as usize].discard.add(first, 1);
+        PlayerView::new(&after, self.me).result_if_gained(card)
+    }
+
+    /// Whether `card` is the last copy of its pile (the one that empties it). Events and the like have no pile: false.
+    #[inline]
+    pub fn is_last_of_pile(&self, card: CardId) -> bool {
+        (card as usize) < crate::cards::NUM_ZONE_IDS && self.state.supply.get(card) == 1
+    }
+
+    /// Whether gaining `card`, the second-to-last of its pile (the Province or Colony), would let an opponent end the game on their next turn by
+    /// taking the last one and win outright: the card adds its VP to either side, so that is when an opponent's score beats mine now, or ties it
+    /// with fewer turns by then (this turn counts for me, their next turn for them: the end-of-game tie rule). Everything is public; the
+    /// opponent is assumed to be able to afford it, and the card to be worth the same VP to both.
+    pub fn leaves_last_card_to_opponent(&self, card: CardId) -> bool {
+        let s = self.state;
+        if !s.in_supply(card) || s.supply.get(card) != 2 {
+            return false;
+        }
+        let me = self.me;
+        let v = crate::cards::def(card).vp as i32;
+        let key = |p: u8| (s.player_vp(p) + v, -(s.players[p as usize].turns_taken as i32 + 1));
+        let mine = key(me);
+        (0..s.num_players).filter(|&o| o != me).any(|o| key(o) > mine)
     }
 
     /// A seed derived only from what `me` can see, so every path that samples hidden

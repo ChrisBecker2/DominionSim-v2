@@ -32,6 +32,7 @@ A candidate is exactly what `Strategy::parse` accepts:
   grammar of templates, so they stay readable:
   - `count(C) < N`
   - `provinces_left <= N`
+  - `supply(C) <= N` (cards left in a pile), `low_piles >= N` (piles with 2 or fewer cards left), `empty_piles >= N`: pile endings
   - `coins >= N`
   - `count_type(action) < N`
   - `money >= N`

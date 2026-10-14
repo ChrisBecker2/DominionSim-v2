@@ -11,6 +11,13 @@ pub trait Evaluator {
     /// buys don't distort.
     fn leaf_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64;
 
+    /// The search is about to score leaves against `root` for `me`: an evaluator may compute what depends on the root alone once
+    /// (`end_root` follows when the search is done with it). Optional: without the call, `leaf_value` computes it every time.
+    fn begin_root(&self, _root: &GameState, _me: u8) {}
+
+    /// The search is done with the root given to `begin_root`.
+    fn end_root(&self) {}
+
     /// Whether `me` would consider `choice` at `decision` in `state` (e.g. a strategy only buys
     /// from its gain list). The search skips disallowed choices unless none are allowed.
     fn allows(&self, _state: &GameState, _me: u8, _decision: &Decision, _choice: Choice) -> bool {

@@ -55,6 +55,8 @@ pub enum Var {
     ColoniesLeft,
     /// Number of empty supply piles.
     EmptyPiles,
+    /// Number of supply piles with at most 2 cards left (the empty ones too): how close the game is to ending on piles.
+    LowPiles,
     /// This player's current VP.
     MyVp,
     /// My VP minus the best opponent's VP (positive = I'm ahead).
@@ -105,6 +107,7 @@ impl Var {
             Var::ProvincesLeft => view.supply(id::PROVINCE) as i64,
             Var::ColoniesLeft => view.supply(id::COLONY) as i64,
             Var::EmptyPiles => view.empty_piles() as i64,
+            Var::LowPiles => view.supply_cards().filter(|&c| view.supply(c) <= 2).count() as i64,
             Var::MyVp => view.my_vp() as i64,
             Var::VpLead => {
                 let mine = view.my_vp();
@@ -145,6 +148,7 @@ impl Var {
             "provinces_left" | "provincesleft" => Var::ProvincesLeft,
             "colonies_left" | "coloniesleft" => Var::ColoniesLeft,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
+            "low_piles" | "lowpiles" => Var::LowPiles,
             "my_vp" | "myvp" => Var::MyVp,
             "vp_lead" | "vplead" => Var::VpLead,
             "journey" => Var::Journey,
@@ -712,6 +716,18 @@ mod tests {
         let view = PlayerView::new(&g, 0);
         assert_eq!(Expr::parse("colonies_left").unwrap().eval(&view), view.supply(id::COLONY) as i64);
         assert!(Expr::parse("colonies_left > 0").unwrap().eval(&view) == 1);
+    }
+
+    #[test]
+    fn low_piles_counts_piles_with_at_most_two_cards() {
+        let mut g = GameState::new(&GameConfig::default());
+        assert_eq!(Expr::parse("low_piles").unwrap().eval(&PlayerView::new(&g, 0)), 0);
+        g.supply.set(id::CURSE, 2);
+        g.supply.set(id::DUCHY, 0);
+        g.supply.set(id::SILVER, 3);
+        let view = PlayerView::new(&g, 0);
+        assert_eq!(Expr::parse("low_piles").unwrap().eval(&view), 2);
+        assert_eq!(Expr::parse("low_piles >= 2 and empty_piles >= 1").unwrap().eval(&view), 1);
     }
 
     #[test]

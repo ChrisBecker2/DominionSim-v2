@@ -4,6 +4,7 @@
 
 use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTORY};
+use dominion_engine::counts::Counts;
 use dominion_engine::engine::{Choice, Decision, DecisionKind};
 use dominion_engine::state::{Act, Zone, TOK_ACTION, TOK_BUY, TOK_CARD, TOK_COIN, TOK_COST, TOK_TRASH};
 
@@ -29,6 +30,8 @@ impl SetDefaults for Adventures {
             id::PILGRIMAGE if act == Act::Reveal => Some(pilgrimage_pick(s, view, choices)),
             // Gear: set aside what cannot be used this turn and will be good next turn.
             id::GEAR if act == Act::SetAside => Some(gear_pick(view, choices)),
+            // Artificer: the discards, by the fast rule (the turn search chooses them in `decide` when the strategy searches its play).
+            id::ARTIFICER if act == Act::Discard && from == Zone::Hand => Some(artificer_pick(s, view, choices)),
             // Miser's Copper and other forced single picks.
             _ if act == Act::Tavern => Some(iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)),
             _ => None,
@@ -323,6 +326,128 @@ fn pilgrimage_pick(s: &Strategy, view: &PlayerView, choices: &[Choice]) -> Choic
     match iter_cards(choices).filter(|&c| wanted(c)).min() {
         Some(c) => Choice::Card(c),
         None => Choice::Pass,
+    }
+}
+
+/// The most Artificer discards a candidate list holds (one per number of cards that a listed card costs).
+pub(crate) const ARTIFICER_MAX_CANDIDATES: usize = 16;
+
+/// The discard sets worth weighing at an Artificer selection, from the cheapest cards of the hand up (see `Strategy::artificer_candidates`).
+pub(crate) struct ArtificerCandidates {
+    /// How many cards each candidate discards in addition to those picked already (the first is 0: stop here).
+    pub more: [u8; ARTIFICER_MAX_CANDIDATES],
+    /// The cards each one discards in addition, by card.
+    pub sets: [Counts; ARTIFICER_MAX_CANDIDATES],
+    pub len: usize,
+}
+
+/// How much a card in the hand is worth keeping for this turn's Buy phase (lower = discard sooner): nothing for dead cards, the coins of a
+/// Treasure, and a little more than the same for an Action that can still be played (Artificer gives +1 Action).
+fn artificer_keep_value(c: CardId) -> i32 {
+    let d = cards::def(c);
+    if is_junk(c) {
+        -100
+    } else if cards::is(c, TREASURE) {
+        10 * d.coins as i32
+    } else if cards::is(c, ACTION) {
+        12 + 10 * d.coins as i32 + 8 * d.cards as i32 + 6 * d.actions as i32
+    } else {
+        0
+    }
+}
+
+impl Strategy {
+    /// The Artificer discard sets worth weighing: the `m` least valuable cards of the hand (dead cards first, then by what they give this
+    /// turn), for each `m` with a listed card costing exactly the number discarded in all (those picked already count), and `m = 0` (stop
+    /// here). Each is the continuation of a plan picked in card order: its cards are not below the last pick.
+    pub(crate) fn artificer_candidates(&self, view: &PlayerView) -> ArtificerCandidates {
+        let (done, last) = view.select_progress().unwrap_or((0, 0));
+        let hand = *view.hand();
+        // The hand's cards, least valuable first (ties by card): at most 32 are looked at.
+        let mut order = [0 as CardId; 32];
+        let mut n = 0usize;
+        let mut kinds = [(0i32, 0 as CardId); 32];
+        let mut k = 0usize;
+        for (c, cnt) in hand.iter() {
+            if k < kinds.len() {
+                kinds[k] = (artificer_keep_value(c), c);
+                k += 1;
+            }
+            let _ = cnt;
+        }
+        kinds[..k].sort_unstable();
+        for &(_, c) in &kinds[..k] {
+            for _ in 0..hand.get(c) {
+                if n < order.len() {
+                    order[n] = c;
+                    n += 1;
+                }
+            }
+        }
+        let mut out = ArtificerCandidates { more: [0; ARTIFICER_MAX_CANDIDATES], sets: [Counts::EMPTY; ARTIFICER_MAX_CANDIDATES], len: 1 };
+        let mut set = Counts::EMPTY;
+        let mut lowest = CardId::MAX;
+        for m in 1..=n {
+            let c = order[m - 1];
+            set.add(c, 1);
+            lowest = lowest.min(c);
+            if lowest < last {
+                // This plan would have to pick below the last pick already made: not a continuation.
+                break;
+            }
+            let cost = done as usize + m;
+            if cost > u8::MAX as usize || out.len >= ARTIFICER_MAX_CANDIDATES {
+                break;
+            }
+            if self.best_gain_rank(view, cost as u8, dominion_engine::Filter::Any, true, false).is_some() {
+                out.more[out.len] = m as u8;
+                out.sets[out.len] = set;
+                out.len += 1;
+            }
+        }
+        out
+    }
+}
+
+/// Artificer's discards by rule, without a search: of the candidate sets (`artificer_candidates`), the one for which the card gained onto the
+/// deck (the best listed card costing exactly the discards) plus the best listed card the rest of the hand still buys is worth most on the
+/// gain list's scale; stopping wins ties (no discard is free). Picks come in card order, so this answers with the lowest card of the plan, or
+/// `Pass` when the plan is to stop. Chosen again after each pick, from what is left of the hand (the same plan every time).
+fn artificer_pick(s: &Strategy, view: &PlayerView, choices: &[Choice]) -> Choice {
+    let cands = s.artificer_candidates(view);
+    if cands.len <= 1 {
+        return Choice::Pass;
+    }
+    let done = view.select_progress().map_or(0, |(c, _)| c) as usize;
+    let hand = *view.hand();
+    let buys = view.buys_left() > 0;
+    let mut best = (f64::NEG_INFINITY, 0usize);
+    for i in 0..cands.len {
+        let cost = done + cands.more[i] as usize;
+        let mut score = 0.0;
+        if cost <= u8::MAX as usize {
+            if let Some(r) = s.best_gain_rank(view, cost as u8, dominion_engine::Filter::Any, true, false) {
+                score += s.rank_weight(r);
+            }
+        }
+        if buys {
+            let mut money = view.turn().coins as u32 + view.coffers() as u32;
+            for (c, n) in hand.iter() {
+                if cards::is(c, TREASURE) {
+                    money += cards::def(c).coins as u32 * n.saturating_sub(cands.sets[i].get(c)) as u32;
+                }
+            }
+            if let Some(r) = s.reachable_rank_with(view, money, view.turn().potions) {
+                score += s.rank_weight(r);
+            }
+        }
+        if score > best.0 {
+            best = (score, i);
+        }
+    }
+    match cands.sets[best.1].iter().map(|(c, _)| c).find(|&c| has_card(choices, c)) {
+        Some(c) if best.1 > 0 => Choice::Card(c),
+        _ => Choice::Pass,
     }
 }
 

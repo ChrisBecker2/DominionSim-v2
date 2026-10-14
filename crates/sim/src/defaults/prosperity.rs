@@ -4,12 +4,18 @@ use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{id, CardId, ModeOpt};
 use dominion_engine::engine::{Choice, Decision};
 
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct Prosperity;
 
 impl SetDefaults for Prosperity {
+    /// Expand: a forced upgrade, played only when it pays (see `defaults::trashers`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        card == id::EXPAND && !trashers::upgrade_pays(s, view, card, 3, false)
+    }
+
     fn default_mode(_s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
         (card == id::INVESTMENT).then(|| default_investment(view, choices))
     }

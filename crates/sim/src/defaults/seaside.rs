@@ -6,12 +6,21 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt};
 use dominion_engine::engine::{Choice};
 use dominion_engine::state::{Filter};
 
+use super::draws;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct Seaside;
 
+/// The most chance of having to trash a listed card that still makes a Lookout worth playing.
+const LOOKOUT_RISK: f64 = 0.02;
+
 impl SetDefaults for Seaside {
+    /// Lookout trashes one of the top three cards: not worth it once those are likely all cards the strategy lists.
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        card == id::LOOKOUT && draws::lookout_risk(s, view) > LOOKOUT_RISK
+    }
+
     fn default_mode(_s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
         (card == id::NATIVE_VILLAGE).then(|| default_native_village(view, choices))
     }

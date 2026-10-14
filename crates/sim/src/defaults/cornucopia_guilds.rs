@@ -6,14 +6,26 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTOR
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Filter, Zone};
 
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct CornucopiaGuilds;
 
 impl SetDefaults for CornucopiaGuilds {
-    fn select(_s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, _from: Zone, choices: &[Choice]) -> Option<Choice> {
+    /// Stonemason and Remake: forced trashes, played only when the trash pays (see `defaults::trashers`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::STONEMASON => !trashers::stonemason_pays(s, view, card),
+            id::REMAKE => !trashers::upgrade_pays(s, view, card, 1, true),
+            _ => false,
+        }
+    }
+
+    fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, _from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
+            // Stonemason: the card whose two cheaper cards are worth most against losing it.
+            id::STONEMASON if act == Act::Trash && !s.legacy_defaults => trashers::pick(s, view, choices, |s, c| trashers::stonemason_gain(s, view, c)),
             // Advisor: the player to the left picks which of the revealed cards the revealer loses.
             id::ADVISOR if act == Act::Discard && decision.player != decision.for_player => {
                 Some(iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(choices[0]))
@@ -79,7 +91,9 @@ impl SetDefaults for CornucopiaGuilds {
                 if x == 0 && !pot {
                     continue;
                 }
-                if let Some(rank) = s.best_gain_rank(view, x, Filter::Action, true, pot) {
+                // Not Stonemason itself: the one just bought is already counted when the gain is made (an `own < 1` rule that holds now
+                // does not hold then), and a second terminal Stonemason is rarely wanted.
+                if let Some(rank) = s.best_gain_rank(view, x, Filter::Action, true, pot).filter(|&r| s.legacy_defaults || s.buy[r].0 != id::STONEMASON) {
                     if best.map_or(true, |(r, _, _)| rank < r) {
                         best = Some((rank, x, pot));
                     }

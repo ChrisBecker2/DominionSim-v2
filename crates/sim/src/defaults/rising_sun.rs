@@ -8,12 +8,23 @@ use dominion_engine::engine::{Choice, Decision, DecisionKind};
 use dominion_engine::state::{Act, Zone};
 
 use super::empires::Empires;
+use super::draws;
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct RisingSun;
 
 impl SetDefaults for RisingSun {
+    /// Tanuki: a forced upgrade, played only when it pays (see `defaults::trashers`); Root Cellar only when its cards pay the Debt (`defaults::draws`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::TANUKI => !trashers::upgrade_pays(s, view, card, 2, false),
+            id::ROOT_CELLAR => !draws::root_cellar_pays(s, view),
+            _ => false,
+        }
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
             id::CHANGE => Empires::select(s, view, decision, source, act, from, choices),

@@ -7,6 +7,7 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTOR
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Filter, Zone};
 
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
@@ -23,8 +24,19 @@ fn is_junk(c: CardId) -> bool {
 }
 
 impl SetDefaults for DarkAges {
+    /// Rats and Forager: forced trashes, played only when something in the hand is free to lose (see `defaults::trashers`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::RATS => !trashers::plain_trash_pays(s, view, card),
+            id::FORAGER => !trashers::forager_pays(s, view, card),
+            _ => false,
+        }
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
+            // Forager: the card whose loss costs least once the $ for the Treasures in the trash are counted.
+            id::FORAGER if act == Act::Trash && !s.legacy_defaults => trashers::forager_pick(s, view, choices),
             // Procession: the Action whose upgrade (exactly $1 more) the gain list ranks highest; a card that cannot be upgraded to
             // anything listed (a good Action) is kept.
             id::PROCESSION if act == Act::Play => Some(choose_procession_card(s, view, choices)),

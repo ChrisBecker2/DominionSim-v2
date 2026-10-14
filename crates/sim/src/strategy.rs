@@ -1533,8 +1533,17 @@ impl Strategy {
     /// Used both as the `search_play = false` default and inside search playouts (avoiding
     /// re-entering `search_play_choice` from within its own playout).
     pub fn rule_play_treasure(&self, choices: &[Choice]) -> Choice {
-        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c)) {
+        // Crystal Ball looks at the top card and may play it: the plain Treasures are played first, so that the card played from the deck
+        // is chosen with the hand's $ known.
+        let plain_left = !self.legacy_defaults && iter_cards(choices).any(|c| cards::is_choice_free(c) && !plays_last(c));
+        let hand_dependent = |c: CardId| plain_left && c == id::CRYSTAL_BALL;
+        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c) && !hand_dependent(c)) {
             return Choice::Card(c);
+        }
+        if plain_left {
+            if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c) && !plays_last(c)) {
+                return Choice::Card(c);
+            }
         }
         if iter_cards(choices).any(plays_last) {
             if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c)) {

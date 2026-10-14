@@ -350,7 +350,11 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     }
     let setup = Setup::new(cfg)?;
     let start = Instant::now();
-    let mut progress = Progress { status: "starting".into(), generations: cfg.generations, ..Default::default() };
+    let fixed_kingdom: Vec<String> = match (&cfg.track, setup.fixed_kingdom()) {
+        (Track::Fixed { kingdom }, Some(k)) if !kingdom.is_empty() => k.iter().map(|&c| cards::name(c).to_string()).collect(),
+        _ => Vec::new(),
+    };
+    let mut progress = Progress { status: "starting".into(), generations: cfg.generations, kingdom: fixed_kingdom, ..Default::default() };
     let mut rng = Rng::derive(cfg.seed, 0xE70);
     let mut islands = initial_population(cfg, &setup, &mut rng, &mut progress);
     progress.note(format!(

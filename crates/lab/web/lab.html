@@ -114,6 +114,19 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
 #log-panel { max-height: 200px; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; color: var(--text-dim); }
 .error-msg { color: var(--danger); font-size: 12.5px; white-space: pre-wrap; }
 .muted { color: var(--text-dim); }
+.presets { display: flex; flex-direction: column; gap: 3px; }
+.preset { display: flex; flex-direction: row; align-items: baseline; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
+.preset input { width: auto; margin: 0; }
+.preset .time { color: var(--text-dim); font-size: 12px; }
+.preset.custom { color: var(--text-dim); }
+.setting-group { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 2px; }
+.setting-group > h3 { margin-top: 6px; color: var(--text); }
+#search-settings:not(.kingdom-mode) .league-only { display: none; }
+.fh { font-size: 10.5px; color: var(--text-dim); font-weight: 400; line-height: 1.25; }
+.checkbox-row .fh { flex-basis: 100%; }
+#play-panel { position: sticky; bottom: 8px; z-index: 4; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+td.pickcell { white-space: nowrap; }
+td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin-right: 4px; }
 .saved-path { font-size: 12px; color: var(--accent-2); word-break: break-all; }
 </style>
 </head>
@@ -133,23 +146,108 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
           <label>Recommended kingdom <select id="league-recommended"><option value="">(type your own)</option></select></label>
           <label>Kingdom (card names, comma separated)
             <textarea id="league-kingdom" rows="3"></textarea></label>
-          <div class="grid2">
-            <label>Colony / Platinum <select id="league-colonies"><option value="auto">auto (Prosperity cards)</option><option value="yes">yes</option><option value="no">no</option></select></label>
-            <label>Niches kept <input type="number" id="league-niches" min="1" value="10"></label>
-            <label>Final games per pair <input type="number" id="league-final_games" min="2" value="2000"></label>
-            <label>Hall-of-fame games <input type="number" id="league-validate" min="100" value="10000"></label>
-            <label>Anchor weight <input type="number" id="league-anchor_weight" step="0.05" min="0" value="0.4"></label>
-            <label>Recent champions weight <input type="number" id="league-recent_weight" step="0.05" min="0" value="0.4"></label>
-            <label>Older champions weight <input type="number" id="league-old_weight" step="0.05" min="0" value="0.2"></label>
-            <label>Novelty bonus (%) <input type="number" id="league-novelty" step="0.1" min="0" value="1"></label>
-            <label>Island stagnation (gens) <input type="number" id="league-stagnation" min="0" value="8"></label>
-            <label>Exploiter rounds (0 = off) <input type="number" id="league-exploit_rounds" min="0" value="3"></label>
-            <label>Exploiter generations <input type="number" id="league-exploit_generations" min="1" value="30"></label>
-            <label>Exploiter margin (%) <input type="number" id="league-exploit_margin" step="0.5" min="-50" value="3"></label>
+          <label>Colony / Platinum <select id="league-colonies"><option value="auto">auto (Prosperity cards)</option><option value="yes">yes</option><option value="no">no</option></select></label>
+          <div id="league-settings-slot">
+            <div id="search-settings">
+              <h3>How hard to search</h3>
+              <div id="preset-list" class="presets"></div>
+              <div class="hint" id="preset-desc"></div>
+              <details id="exact-settings">
+                <summary>Exact settings</summary>
+                <div class="hint">Every number of the search, once. Choosing a preset fills them in; editing any value switches the preset to Custom.</div>
+
+                <div class="setting-group">
+                  <h3>Search size</h3>
+                  <div class="hint">How much searching is done. Time grows in proportion to islands x island size x generations.</div>
+                  <div class="grid2">
+                    <label>Islands <input type="number" id="cfg-islands" min="1"><span class="fh">separate populations evolving side by side</span></label>
+                    <label>Island size <input type="number" id="cfg-island_size" min="4"><span class="fh">candidate strategies per island</span></label>
+                    <label>Generations <input type="number" id="cfg-generations" min="1"><span class="fh">rounds of selecting and breeding</span></label>
+                    <label>Stall generations <input type="number" id="cfg-stall_generations" min="0"><span class="fh">stop early after this many generations with nothing new (0 = never)</span></label>
+                    <label>Seed <input type="number" id="cfg-seed" min="0"><span class="fh">same seed, same run</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group league-only">
+                  <h3>Diversity</h3>
+                  <div class="hint">How hard the search tries to find different kinds of strategy, not just the strongest one.</div>
+                  <div class="grid2">
+                    <label>Niches kept <input type="number" id="league-niches" min="1"><span class="fh">one champion per niche (key cards, trashing, game length), up to this many</span></label>
+                    <label>Novelty bonus (%) <input type="number" id="league-novelty" step="0.1" min="0"><span class="fh">win-rate bonus for a strategy in a niche nobody held</span></label>
+                    <label>Island stagnation (gens) <input type="number" id="league-stagnation" min="0"><span class="fh">an island with nothing new for this long is shaken up or restarted (0 = never)</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group league-only">
+                  <h3>Final ranking</h3>
+                  <div class="hint">The round robin among the champions and the baselines at the end.</div>
+                  <div class="grid2">
+                    <label>Games per pair <input type="number" id="league-final_games" min="2"><span class="fh">more games, tighter win-rate intervals</span></label>
+                    <label class="checkbox-row"><input type="checkbox" id="league-full"> Full bots <span class="fh">play the final games with turn search, like the game page</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group league-only">
+                  <h3>Challengers</h3>
+                  <div class="hint">After the ranking, each round evolves a best response to the current Nash mix. If it beats the mix by more than the margin it joins the table (3 = above 53%); the first round that fails ends the loop. 0 rounds = off.</div>
+                  <div class="grid2">
+                    <label>Exploiter rounds <input type="number" id="league-exploit_rounds" min="0"><span class="fh">at most this many challengers</span></label>
+                    <label>Exploiter generations <input type="number" id="league-exploit_generations" min="1"><span class="fh">search length of each challenger</span></label>
+                    <label>Exploiter margin (%) <input type="number" id="league-exploit_margin" step="0.5" min="-50"><span class="fh">win rate above 50% it must reach</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <h3>Scoring weights</h3>
+                  <div class="hint league-only">A candidate's score is its win rate against a weighted mix of the baselines, the newest champions and some older ones (weights are shares; empty groups drop out).</div>
+                  <div class="grid2">
+                    <label class="league-only">Baselines weight <input type="number" id="league-anchor_weight" step="0.05" min="0"></label>
+                    <label class="league-only">Recent champions weight <input type="number" id="league-recent_weight" step="0.05" min="0"></label>
+                    <label class="league-only">Older champions weight <input type="number" id="league-old_weight" step="0.05" min="0"></label>
+                    <label>Parsimony (% per rule) <input type="number" id="cfg-parsimony" min="0" step="0.01"><span class="fh">win-rate penalty per rule and condition: shorter, more readable strategies</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <h3>Rule limits</h3>
+                  <div class="hint">The most rules a strategy may have.</div>
+                  <div class="grid2">
+                    <label>Max gain rules <input type="number" id="cfg-max_gain_rules" min="1"></label>
+                    <label>Max play rules <input type="number" id="cfg-max_play_rules" min="0"></label>
+                    <label>Max trash rules <input type="number" id="cfg-max_trash_rules" min="0"></label>
+                    <label>Max mode rules <input type="number" id="cfg-max_mode_rules" min="0"></label>
+                    <label>Max conditions per rule <input type="number" id="cfg-max_conds" min="0"></label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <h3>Breeding</h3>
+                  <div class="hint">How the genetic search picks and combines parents.</div>
+                  <div class="grid2">
+                    <label>Elite <input type="number" id="cfg-elite" min="0"><span class="fh">best candidates copied unchanged</span></label>
+                    <label>Tournament <input type="number" id="cfg-tournament" min="1"><span class="fh">candidates compared to pick a parent</span></label>
+                    <label>Crossover rate <input type="number" id="cfg-crossover_rate" min="0" max="1" step="0.01"><span class="fh">share of children made by mixing two parents</span></label>
+                    <label>Migration interval <input type="number" id="cfg-migration_interval" min="0"><span class="fh">generations between island exchanges</span></label>
+                    <label>Hall of fame size <input type="number" id="cfg-hall_of_fame" min="1"><span class="fh">validated champions kept</span></label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <h3>Speed / accuracy</h3>
+                  <div class="hint">How many games back each judgement: more games are slower and steadier.</div>
+                  <div class="grid2">
+                    <label>Race games (comma list) <input type="text" id="cfg-race_games"><span class="fh">games per cutting stage: weak candidates drop early</span></label>
+                    <label>Race keep (fraction) <input type="number" id="cfg-race_keep" min="0" max="1" step="0.01"><span class="fh">share surviving each stage</span></label>
+                    <label><span id="validate-games-label">Validation games</span> <input type="number" id="cfg-validate_games" min="0"><span class="fh">held-out games checking a champion before it counts</span></label>
+                    <label>Validate every <input type="number" id="cfg-validate_every" min="0"><span class="fh">generations between checks</span></label>
+                    <label>Polish games <input type="number" id="cfg-polish_games" min="0"><span class="fh">games per rule-removal test at the end (0 = no polishing)</span></label>
+                    <label>Max turns <input type="number" id="cfg-max_turns" min="1"><span class="fh">game length cap</span></label>
+                    <label class="checkbox-row"><input type="checkbox" id="cfg-validate_full"> Full-behaviour validation <span class="fh">validate with exact bot play (turn search): slower for engines, matches the game page</span></label>
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
-          <div class="hint">After the final round robin, each exploiter round evolves a best response to the current Nash mix. If it beats the mix by more than the margin (3 = above 53%) it joins the table and the mix is recomputed; the first round that fails ends the loop.</div>
-          <label class="checkbox-row"><input type="checkbox" id="league-full" checked> Full bots in the final round robin</label>
-          <div class="hint">Islands, island size, generations and the other search settings below apply too (try 6 islands, 24 each, 40 generations).</div>
         </div>
       </section>
 
@@ -224,41 +322,7 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
         <div class="list" id="seeds-list"></div>
         </div>
 
-        <h3>Numbers</h3>
-        <div class="grid2">
-          <label>Generations <input type="number" id="cfg-generations" min="1"></label>
-          <label>Islands <input type="number" id="cfg-islands" min="1"></label>
-          <label>Island size <input type="number" id="cfg-island_size" min="4"></label>
-          <label>Stall generations <input type="number" id="cfg-stall_generations" min="0"></label>
-          <label>Parsimony (% per rule) <input type="number" id="cfg-parsimony" min="0" step="0.01"></label>
-          <label>Seed <input type="number" id="cfg-seed" min="0"></label>
-        </div>
-
-        <details id="advanced">
-          <summary>Advanced</summary>
-          <div class="grid2">
-            <label>Race games (comma list) <input type="text" id="cfg-race_games"></label>
-            <label>Race keep (fraction) <input type="number" id="cfg-race_keep" min="0" max="1" step="0.01"></label>
-            <label>Elite <input type="number" id="cfg-elite" min="0"></label>
-            <label>Tournament <input type="number" id="cfg-tournament" min="1"></label>
-            <label>Crossover rate <input type="number" id="cfg-crossover_rate" min="0" max="1" step="0.01"></label>
-            <label>Migration interval <input type="number" id="cfg-migration_interval" min="0"></label>
-            <label>Validate every <input type="number" id="cfg-validate_every" min="0"></label>
-            <label>Validate games <input type="number" id="cfg-validate_games" min="0"></label>
-            <label>Polish games <input type="number" id="cfg-polish_games" min="0"></label>
-            <label>Max gain rules <input type="number" id="cfg-max_gain_rules" min="1"></label>
-            <label>Max play rules <input type="number" id="cfg-max_play_rules" min="0"></label>
-            <label>Max trash rules <input type="number" id="cfg-max_trash_rules" min="0"></label>
-            <label>Max mode rules <input type="number" id="cfg-max_mode_rules" min="0"></label>
-            <label>Max conditions/rule <input type="number" id="cfg-max_conds" min="0"></label>
-            <label>Max turns <input type="number" id="cfg-max_turns" min="1"></label>
-            <label>Hall of fame size <input type="number" id="cfg-hall_of_fame" min="1"></label>
-          </div>
-          <label class="checkbox-row" style="margin-top:6px">
-            <input type="checkbox" id="cfg-validate_full"> Full-behaviour validation
-          </label>
-          <div class="hint">Validate (and the final result) with exact bot play (turn search), not just rule order. Slower for engine strategies, matches how bots play in the game UI.</div>
-        </details>
+        <div id="opp-settings-slot"></div>
 
         <div class="row" style="margin-top:10px">
           <a href="#" id="reset-defaults">Reset to defaults</a>
@@ -319,6 +383,16 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
         <div id="top-body"></div>
         <div class="hint">Crosstable: the row strategy beats the column strategy this often (ties count half; hover for the 95% interval). Mean = average over the other strategies. Nash = share of an approximate equilibrium mix of the strategies: only strategies in the mix are not beaten by a combination of the others. Exploitability: how much the strongest challenger found beats this strategy (win rate minus 50%, at least 0). Near 0 = hard to beat. If several strategies share the Nash mix, they beat each other in a cycle.</div>
         <div id="cross-body" style="overflow:auto"></div>
+      </section>
+
+      <section id="play-panel" style="display:none">
+        <div class="row">
+          <button class="primary" id="play-btn">Play the checked strategies in a game</button>
+          <span id="play-count" class="muted"></span>
+          <a href="#" id="play-clear">uncheck all</a>
+        </div>
+        <div class="hint">Opens the game page on this league's kingdom with the checked strategies seated as the players (2 to 6; one checked plays against the game's default Player 1).</div>
+        <div id="play-msg" class="error-msg"></div>
       </section>
 
       <section id="result-panel">
@@ -611,7 +685,7 @@ function buildRequest() {
     config.track = { kind: "fixed", kingdom: kingdom };
     config.forbidden = [];
     config.colonies = $("league-colonies").value;
-    config.validate_games = Math.max(100, parseInt($("league-validate").value, 10) || 10000);
+    config.validate_games = Math.max(100, config.validate_games);
     var num = function (id, d) { var v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     config.league = {
       anchor_weight: num("league-anchor_weight", 0.4), recent_weight: num("league-recent_weight", 0.4), old_weight: num("league-old_weight", 0.2),
@@ -728,6 +802,8 @@ function onStart() {
     return;
   }
   $("status-error").textContent = "";
+  picked = [];
+  syncPicks();
   var req = buildRequest();
   $("start-btn").disabled = true;
   postJson("/api/start", req).then(function () {
@@ -937,11 +1013,8 @@ function entryHtml(entry, source, idx) {
   });
   var gameBtn = document.createElement("button");
   gameBtn.textContent = "Open in game";
-  gameBtn.title = "Open the game UI with this strategy loaded as Player 2 (Player 1 is Double Witch)";
-  gameBtn.addEventListener("click", function () {
-    var b64 = btoa(unescape(encodeURIComponent(entry.toml)));
-    window.open("/game#strategy=" + encodeURIComponent(b64), "_blank");
-  });
+  gameBtn.title = "Open the game page with this strategy as Player 2 (Player 1 is the game's default); on the run's kingdom when it had a fixed one";
+  gameBtn.addEventListener("click", function () { openInGame([entry.toml], savedSpan); });
   row.appendChild(copyBtn); row.appendChild(saveBtn); row.appendChild(gameBtn); row.appendChild(assessBtn);
   div.appendChild(row);
   div.appendChild(savedSpan);
@@ -1024,6 +1097,162 @@ function runAssess() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Presets and exact settings
+// ---------------------------------------------------------------------------------------------
+
+// Every search number once, keyed by the id of its input. "Standard" is the server's defaults (EvolveConfig / LeagueConfig).
+var CFG_STANDARD = {
+  "cfg-generations": 100, "cfg-islands": 4, "cfg-island_size": 32, "cfg-stall_generations": 30, "cfg-parsimony": 0.2,
+  "cfg-race_games": "1000,4000,16000", "cfg-race_keep": 0.25, "cfg-elite": 3, "cfg-tournament": 3, "cfg-crossover_rate": 0.2,
+  "cfg-migration_interval": 10, "cfg-validate_every": 10, "cfg-validate_games": 20000, "cfg-polish_games": 20000,
+  "cfg-max_gain_rules": 10, "cfg-max_play_rules": 5, "cfg-max_trash_rules": 4, "cfg-max_mode_rules": 3, "cfg-max_conds": 2,
+  "cfg-max_turns": 60, "cfg-hall_of_fame": 20, "cfg-validate_full": false,
+};
+var LEAGUE_STANDARD = {
+  "league-niches": 10, "league-novelty": 1, "league-stagnation": 8, "league-final_games": 2000, "league-full": true,
+  "league-exploit_rounds": 3, "league-exploit_generations": 30, "league-exploit_margin": 3,
+  "league-anchor_weight": 0.4, "league-recent_weight": 0.4, "league-old_weight": 0.2,
+};
+function withValues(base, changes) { return Object.assign({}, base, changes); }
+var KINGDOM_STANDARD = withValues(withValues(CFG_STANDARD, LEAGUE_STANDARD), { "cfg-validate_games": 10000 });
+
+// Times were measured once on the Deck Top kingdom with a 32-thread desktop (docs/strategy-search-plan.md, section 9): other kingdoms, fewer cores and
+// the strategies a run happens to find move them, by a factor of two or more.
+var PRESETS = {
+  kingdom: [
+    { id: "quick", name: "Quick", time: "about 20 s", values: withValues(KINGDOM_STANDARD, {
+        "cfg-islands": 3, "cfg-island_size": 20, "cfg-generations": 20, "cfg-stall_generations": 10, "cfg-validate_games": 2000, "cfg-polish_games": 2000,
+        "league-niches": 6, "league-final_games": 500, "league-exploit_rounds": 1, "league-exploit_generations": 10 }),
+      desc: "A first look: 3 small islands, 20 generations, one challenger round. Finds the obvious strategies; expect only a few niches." },
+    { id: "standard", name: "Standard", time: "about 5 min", values: KINGDOM_STANDARD,
+      desc: "The usual run: 4 islands of 32, up to 100 generations, 10 niches, a 2000-game round robin and up to 3 challenger rounds." },
+    { id: "thorough", name: "Thorough", time: "about 9 min", values: withValues(KINGDOM_STANDARD, {
+        "cfg-islands": 6, "cfg-island_size": 32, "cfg-generations": 200, "cfg-stall_generations": 50, "cfg-validate_games": 20000, "cfg-polish_games": 40000,
+        "league-niches": 12, "league-final_games": 4000, "league-exploit_rounds": 5, "league-exploit_generations": 50 }),
+      desc: "Longer and more careful: 6 islands of 32, up to 200 generations, bigger validation and polish, 4000 games per pair and up to 5 challenger rounds." },
+    { id: "wide", name: "Wide exploration", time: "about 25 min", values: withValues(KINGDOM_STANDARD, {
+        "cfg-islands": 8, "cfg-island_size": 32, "cfg-generations": 150, "cfg-stall_generations": 60,
+        "league-niches": 16, "league-novelty": 3, "league-stagnation": 5, "league-exploit_rounds": 5 }),
+      desc: "Favours variety over polish: 8 islands of 32, up to 150 generations, up to 16 niches, a 3% bonus for new niches, islands shaken up after 5 idle generations, up to 5 challenger rounds. Found 11 niches on Deck Top where Standard found 8." },
+  ],
+  opponent: [
+    { id: "quick", name: "Quick", time: "shorter than Standard, not timed", values: withValues(CFG_STANDARD, {
+        "cfg-islands": 2, "cfg-island_size": 16, "cfg-generations": 40, "cfg-stall_generations": 15, "cfg-validate_games": 5000, "cfg-polish_games": 5000 }),
+      desc: "A first look: 2 islands of 16, up to 40 generations, lighter validation." },
+    { id: "standard", name: "Standard", time: "the usual run", values: CFG_STANDARD,
+      desc: "4 islands of 32, up to 100 generations, 20000-game validation and polish." },
+    { id: "thorough", name: "Thorough", time: "longer than Standard, not timed", values: withValues(CFG_STANDARD, {
+        "cfg-islands": 6, "cfg-generations": 200, "cfg-stall_generations": 50, "cfg-validate_games": 40000, "cfg-polish_games": 40000 }),
+      desc: "6 islands of 32, up to 200 generations, 40000-game validation and polish." },
+  ],
+};
+
+var settingsMode = null;   // "kingdom" or "opponent": which mode's settings the inputs show
+var modeSaved = {};        // mode -> the input values it had when left
+
+function currentMode() { return $("league-on").checked ? "kingdom" : "opponent"; }
+
+function readInput(id) { var e = $(id); return e.type === "checkbox" ? e.checked : e.value; }
+function writeInput(id, v) { var e = $(id); if (e.type === "checkbox") e.checked = !!v; else e.value = v; }
+
+function sameValue(actual, want) {
+  if (typeof want === "boolean") return actual === want;
+  if (typeof want === "string") return String(actual).replace(/\s/g, "") === want;
+  return Math.abs(parseFloat(actual) - want) < 1e-9;
+}
+
+function detectPreset() {
+  var list = PRESETS[currentMode()];
+  for (var i = 0; i < list.length; i++) {
+    var v = list[i].values;
+    if (Object.keys(v).every(function (id) { return sameValue(readInput(id), v[id]); })) return list[i].id;
+  }
+  return "custom";
+}
+
+function renderPresetList() {
+  var box = $("preset-list");
+  box.innerHTML = "";
+  var add = function (id, name, time, disabled) {
+    var l = document.createElement("label");
+    l.className = "preset" + (id === "custom" ? " custom" : "");
+    var r = document.createElement("input");
+    r.type = "radio"; r.name = "preset"; r.value = id; r.disabled = !!disabled;
+    r.addEventListener("change", function () { if (r.checked) applyPreset(id); });
+    l.appendChild(r);
+    l.appendChild(document.createTextNode(name));
+    if (time) { var t = document.createElement("span"); t.className = "time"; t.textContent = "(" + time + ")"; l.appendChild(t); }
+    box.appendChild(l);
+  };
+  PRESETS[currentMode()].forEach(function (p) { add(p.id, p.name, p.time, false); });
+  add("custom", "Custom", "edited in Exact settings", true);
+}
+
+function showPreset(id) {
+  var radios = $("preset-list").querySelectorAll("input[name=preset]");
+  Array.prototype.forEach.call(radios, function (r) { r.checked = r.value === id; });
+  var p = PRESETS[currentMode()].filter(function (x) { return x.id === id; })[0];
+  $("preset-desc").textContent = p ? p.desc : "Your own numbers (see Exact settings). Pick a preset to start from one again.";
+}
+
+function applyPreset(id) {
+  var p = PRESETS[currentMode()].filter(function (x) { return x.id === id; })[0];
+  if (!p) return;
+  Object.keys(p.values).forEach(function (k) { writeInput(k, p.values[k]); });
+  readNumbersFromForm();
+  showPreset(id);
+}
+
+function settingIds() { return Object.keys(CFG_STANDARD).concat(Object.keys(LEAGUE_STANDARD)); }
+
+// Show the settings of `mode`: move the one settings block into that mode's panel and restore what that mode had (Standard the first time).
+function switchSettingsMode(mode) {
+  if (mode === settingsMode) return;
+  if (settingsMode) {
+    var saved = {};
+    settingIds().forEach(function (id) { saved[id] = readInput(id); });
+    modeSaved[settingsMode] = saved;
+  }
+  settingsMode = mode;
+  var block = $("search-settings");
+  $(mode === "kingdom" ? "league-settings-slot" : "opp-settings-slot").appendChild(block);
+  block.classList.toggle("kingdom-mode", mode === "kingdom");
+  $("validate-games-label").textContent = mode === "kingdom" ? "Hall-of-fame validation games" : "Validation games";
+  renderPresetList();
+  if (modeSaved[mode]) {
+    Object.keys(modeSaved[mode]).forEach(function (id) { writeInput(id, modeSaved[mode][id]); });
+    readNumbersFromForm();
+    showPreset(detectPreset());
+  } else {
+    applyPreset("standard");
+  }
+}
+
+// A running search's league settings, shown in the inputs (after a page reload).
+function leagueSettingsFromRequest(cfg) {
+  var l = cfg.league;
+  if (!l) return;
+  var pct = function (x) { return Math.round(x * 10000) / 100; };
+  writeInput("league-niches", l.niches); writeInput("league-novelty", pct(l.novelty_bonus)); writeInput("league-stagnation", l.stagnation_generations);
+  writeInput("league-final_games", l.final_games); writeInput("league-full", l.final_full);
+  writeInput("league-exploit_rounds", l.exploit_rounds); writeInput("league-exploit_generations", l.exploit_generations); writeInput("league-exploit_margin", pct(l.exploit_margin));
+  writeInput("league-anchor_weight", l.anchor_weight); writeInput("league-recent_weight", l.recent_weight); writeInput("league-old_weight", l.old_weight);
+  var t = cfg.track || {};
+  $("league-kingdom").value = (t.kingdom || []).join(", ");
+  $("league-colonies").value = cfg.colonies || "auto";
+}
+
+function wireSettings() {
+  var onEdit = function (ev) {
+    if (ev.target.name === "preset") return;
+    readNumbersFromForm();
+    showPreset(detectPreset());
+  };
+  $("search-settings").addEventListener("input", onEdit);
+  $("search-settings").addEventListener("change", onEdit);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------------------------
 
@@ -1049,11 +1278,14 @@ function wireStaticEvents() {
   $("reset-defaults").addEventListener("click", function (ev) {
     ev.preventDefault();
     try { localStorage.removeItem(LS_KEY); } catch (e) {}
-    if (state.defaults) applyRequestToForm(state.defaults);
+    if (state.defaults) { applyRequestToForm(state.defaults); applyPreset("standard"); }
   });
   $("start-btn").addEventListener("click", onStart);
   $("stop-btn").addEventListener("click", onStop);
   $("assess-run").addEventListener("click", runAssess);
+  $("play-btn").addEventListener("click", playChecked);
+  $("play-clear").addEventListener("click", function (ev) { ev.preventDefault(); picked = []; syncPicks(); });
+  wireSettings();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1067,6 +1299,8 @@ function leagueFormShow() {
   $("league-form").style.display = on ? "" : "none";
   // Kingdom mode has its own kingdom and no opponents: hide those settings, keep the search numbers.
   $("config-opponent-parts").style.display = on ? "none" : "";
+  $("config-panel").style.display = on ? "none" : "";
+  switchSettingsMode(on ? "kingdom" : "opponent");
   $("assess-panel").style.display = on ? "none" : "";
   $("hof-panel").style.display = on ? "none" : "";
 }
@@ -1155,6 +1389,117 @@ function saveButton(entry, label) {
   return b;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Playing results in the game page
+// ---------------------------------------------------------------------------------------------
+
+// The game page takes /game#lab=<base64 of UTF-8 JSON {kingdom: [card names], strategies: [TOML text]}>: the run's kingdom (Events,
+// Landmarks, the Prophecy, Platinum / Colony and Potion as set up) and the strategies to seat, in seat order. The data travels in the URL
+// fragment, which the browser keeps to itself: no server state, nothing to expire, and a link can be copied. 6 strategies are a few
+// tens of kilobytes; MAX_LINK keeps well inside what browsers accept.
+var MAX_LINK = 1500000;
+var MAX_SEATS = 6;
+
+function tomlName(toml) {
+  var m = /^name\s*=\s*"((?:[^"\\]|\\.)*)"/m.exec(toml);
+  return m ? m[1] : "strategy";
+}
+
+// The kingdom of the latest run (empty when the run had no fixed kingdom).
+function runKingdom() {
+  var p = state.status && state.status.progress;
+  return (p && p.kingdom) || [];
+}
+
+// The URL that opens the game page with `tomls` seated on the run's kingdom, or {error}.
+function gameLink(tomls) {
+  var kingdom = runKingdom();
+  if (!kingdom.length) {
+    // No fixed kingdom: today's behaviour, one strategy as Player 2 and a kingdom built from its cards.
+    if (tomls.length !== 1) return { error: "This run has no fixed kingdom, so only one strategy can be opened at a time." };
+    return { url: "/game#strategy=" + encodeURIComponent(btoa(unescape(encodeURIComponent(tomls[0])))) };
+  }
+  var payload = JSON.stringify({ kingdom: kingdom, strategies: tomls });
+  var url = "/game#lab=" + encodeURIComponent(btoa(unescape(encodeURIComponent(payload))));
+  if (url.length > MAX_LINK) return { error: "These strategies are too large for a link (" + Math.round(url.length / 1000) + " kB). Check fewer of them." };
+  return { url: url };
+}
+
+function openInGame(tomls, msgEl) {
+  if (msgEl) msgEl.textContent = "";
+  if (tomls.length > MAX_SEATS) {
+    if (msgEl) msgEl.textContent = tomls.length + " strategies are checked and the game has " + MAX_SEATS + " seats at most: uncheck " + (tomls.length - MAX_SEATS) + ".";
+    return;
+  }
+  var link = gameLink(tomls);
+  if (link.error) { if (msgEl) msgEl.textContent = link.error; return; }
+  window.open(link.url, "_blank");
+}
+
+var picked = []; // checked strategies in the order they were checked: {key, toml, name}
+
+function pickKey(toml) {
+  var h = 5381;
+  for (var i = 0; i < toml.length; i++) h = (((h << 5) + h) + toml.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + "-" + toml.length;
+}
+
+// A checkbox choosing `toml` for the game; every box for the same strategy (niche, ranking and challenger tables) shows the same state.
+function pickBox(toml, name) {
+  var key = pickKey(toml);
+  var cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.className = "pick";
+  cb.dataset.key = key;
+  cb.checked = picked.some(function (p) { return p.key === key; });
+  cb.title = "Check to play this strategy in a game (button at the bottom of the results)";
+  cb.addEventListener("click", function (ev) { ev.stopPropagation(); });
+  cb.addEventListener("change", function () {
+    picked = picked.filter(function (p) { return p.key !== key; });
+    if (cb.checked) picked.push({ key: key, toml: toml, name: name || tomlName(toml) });
+    syncPicks();
+  });
+  return cb;
+}
+
+function openButton(entry) {
+  var b = document.createElement("button");
+  b.textContent = "Open";
+  b.title = "Open the game page on this league's kingdom with just this strategy (as Player 2)";
+  b.addEventListener("click", function (ev) { ev.stopPropagation(); openInGame([entry.toml], $("play-msg")); });
+  return b;
+}
+
+// The cell of a results table: check box, Open and Save for one strategy.
+function strategyCell(entry, name) {
+  var td = document.createElement("td");
+  td.className = "pickcell";
+  td.appendChild(pickBox(entry.toml, name));
+  td.appendChild(openButton(entry));
+  td.appendChild(document.createTextNode(" "));
+  td.appendChild(saveButton(entry));
+  return td;
+}
+
+function syncPicks() {
+  Array.prototype.forEach.call(document.querySelectorAll("input.pick"), function (b) {
+    b.checked = picked.some(function (p) { return p.key === b.dataset.key; });
+  });
+  updatePlayPanel();
+}
+
+function updatePlayPanel() {
+  var n = picked.length;
+  $("play-count").textContent = n ? n + " checked: " + picked.map(function (p) { return p.name; }).join("; ") : "none checked";
+  if (n <= MAX_SEATS) $("play-msg").textContent = "";
+}
+
+function playChecked() {
+  var msg = $("play-msg");
+  if (!picked.length) { msg.textContent = "Check at least one strategy first."; return; }
+  openInGame(picked.map(function (p) { return p.toml; }), msg);
+}
+
 function showEntry(entry) {
   state.selectedTomlSource = entry;
   renderResult(state.status && state.status.progress);
@@ -1182,13 +1527,17 @@ function renderExploiters(L) {
   if (!R.length) return;
   var t = document.createElement("table");
   t.className = "hof";
-  t.innerHTML = "<thead><tr><th>round</th><th>vs mix</th><th>95% CI</th><th>added?</th><th>against</th><th>Nash after</th><th>strategy</th></tr></thead>";
+  t.innerHTML = "<thead><tr><th>round</th><th>vs mix</th><th>95% CI</th><th>added?</th><th>against</th><th>Nash after</th><th>strategy</th><th title='check to play in the game'>play / open / save</th></tr></thead>";
   var tb = document.createElement("tbody");
   R.forEach(function (r) {
     var tr = document.createElement("tr");
     tr.innerHTML = "<td>" + r.round + "/" + L.exploit_rounds + "</td><td><b>" + fmtPct(r.rate_vs_mix) + "</b></td><td>" + fmtPct(r.ci_lo) + "-" + fmtPct(r.ci_hi) +
       "</td><td>" + (r.added ? "yes: " + escapeHtml(r.name) : "no") + "</td><td>" + escapeHtml(nashText(r.mix)) + "<br>" + vsCompact(r.vs) +
       "</td><td>" + escapeHtml(nashText(r.nash_after)) + "</td><td>" + escapeHtml(r.summary) + "</td>";
+    // An exploiter that joined the table is a ranked strategy; the others are not kept.
+    var idx = r.added && L.crosstable ? L.crosstable.names.indexOf(r.name) : -1;
+    if (idx >= 0 && L.strategies[idx]) tr.appendChild(strategyCell(L.strategies[idx], r.name));
+    else tr.appendChild(document.createElement("td"));
     tb.appendChild(tr);
   });
   t.appendChild(tb);
@@ -1200,6 +1549,8 @@ function renderLeague(p) {
   $("niche-panel").style.display = L ? "" : "none";
   $("cross-panel").style.display = L && L.crosstable ? "" : "none";
   $("exploit-panel").style.display = L && L.exploiters && L.exploiters.length ? "" : "none";
+  $("play-panel").style.display = L && L.niches && L.niches.length ? "" : "none";
+  updatePlayPanel();
   if (L) renderExploiters(L);
   if (!L) return;
   $("niche-hint").textContent = "Anchors: " + L.anchors.map(function (a) { return a.name; }).join(", ") +
@@ -1210,15 +1561,13 @@ function renderLeague(p) {
   body.className = "";
   var t = document.createElement("table");
   t.className = "hof";
-  t.innerHTML = "<thead><tr><th>#</th><th>niche</th><th>vs league</th><th>behaviour</th><th>strategy</th><th></th></tr></thead>";
+  t.innerHTML = "<thead><tr><th>#</th><th>niche</th><th>vs league</th><th>behaviour</th><th>strategy</th><th title=\"check to play in the game\">play / open / save</th></tr></thead>";
   var tb = document.createElement("tbody");
   L.niches.forEach(function (r, i) {
     var tr = document.createElement("tr");
     tr.className = "hof-row";
     tr.innerHTML = "<td>" + (i + 1) + "</td><td><b>" + escapeHtml(r.label) + "</b></td><td>" + fmtPct(r.entry.win_rate) + "</td><td>" + escapeHtml(r.behaviour) + "</td><td>" + escapeHtml(r.entry.summary) + "</td>";
-    var td = document.createElement("td");
-    td.appendChild(saveButton(r.entry));
-    tr.appendChild(td);
+    tr.appendChild(strategyCell(r.entry));
     tr.addEventListener("click", function () { showEntry(r.entry); });
     tb.appendChild(tr);
   });
@@ -1231,15 +1580,13 @@ function renderLeague(p) {
   top.innerHTML = "";
   var tt = document.createElement("table");
   tt.className = "hof";
-  tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th title='how much the strongest challenger found beats it'>exploitability</th><th>what it does</th><th></th></tr></thead>";
+  tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th title='how much the strongest challenger found beats it'>exploitability</th><th>what it does</th><th title='check to play in the game'>play / open / save</th></tr></thead>";
   var tbody = document.createElement("tbody");
   L.top.forEach(function (r) {
     var tr = document.createElement("tr");
     tr.className = "hof-row";
     tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + fmtExpl(r.exploitability) + "</td><td>" + escapeHtml(r.description) + "</td>";
-    var td = document.createElement("td");
-    td.appendChild(saveButton(L.strategies[r.index]));
-    tr.appendChild(td);
+    tr.appendChild(strategyCell(L.strategies[r.index], r.name));
     tr.addEventListener("click", function () { showEntry(L.strategies[r.index]); });
     tbody.appendChild(tr);
   });
@@ -1287,8 +1634,18 @@ function init() {
     state.defaults = results[2];
     state.status = results[3];
 
-    var initial = (state.status && state.status.running && state.status.request) ? state.status.request : (loadSavedConfig() || state.defaults);
+    var running = !!(state.status && state.status.running && state.status.request);
+    var initial = running ? state.status.request : (loadSavedConfig() || state.defaults);
+    // A running search shows its own mode and numbers; otherwise Kingdom mode starts on the Standard preset.
+    $("league-on").checked = running ? !!(initial.config && initial.config.league) : true;
+    leagueFormShow();
     applyRequestToForm(initial);
+    if (running) {
+      leagueSettingsFromRequest(initial.config);
+      showPreset(detectPreset());
+    } else {
+      applyPreset("standard");
+    }
     applyFixedHash();
     renderStatus();
     schedulePoll();

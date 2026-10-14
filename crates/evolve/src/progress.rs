@@ -59,6 +59,10 @@ pub struct Progress {
     pub result: Option<Entry>,
     /// Kingdom league mode: anchors, niche champions, final crosstable.
     pub league: Option<LeagueReport>,
+    /// The fixed kingdom the run plays on, as it is set up (names: the kingdom cards, Events,
+    /// Landmarks, the Prophecy, Platinum / Colony and Potion when in play). Empty for random
+    /// kingdoms and for a fixed track naming no cards. The game page starts on exactly this.
+    pub kingdom: Vec<String>,
     /// Recent messages (newest last).
     pub log: Vec<String>,
 }

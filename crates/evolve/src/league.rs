@@ -262,7 +262,12 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     let kingdom: Vec<CardId> = setup.fixed_kingdom().ok_or("kingdom league needs a fixed kingdom")?.to_vec();
     let colonies = kingdom.contains(&cards::id::COLONY);
     let start = Instant::now();
-    let mut progress = Progress { status: "starting".into(), generations: cfg.generations, ..Default::default() };
+    let mut progress = Progress {
+        status: "starting".into(),
+        generations: cfg.generations,
+        kingdom: kingdom.iter().map(|&c| cards::name(c).to_string()).collect(),
+        ..Default::default()
+    };
     let mut rng = Rng::derive(cfg.seed, 0xE70);
 
     // Anchors.

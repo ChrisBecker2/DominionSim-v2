@@ -996,14 +996,76 @@
     return gameRequiredKingdom !== null && seatsKingdom() !== gameRequiredKingdom;
   }
 
+  // ---- kingdom and strategies handed over by the Strategy Lab ----------------------------
+  // index.html#lab=<base64 of UTF-8 JSON {kingdom: [card names], strategies: [TOML text]}>. The kingdom (when given)
+  // is the one the strategies were found on; New Game keeps using it until "Random kingdoms" is pressed.
+  let labKingdom = null; // comma-separated card names, or null for a kingdom built from the seats
+  let labSeatNote = "";
+
+  function showLabKingdomNote() {
+    const note = $("lab-kingdom-note");
+    if (!note) return;
+    note.hidden = labKingdom === null;
+    if (labKingdom !== null) $("lab-kingdom-text").textContent = "Strategy Lab kingdom: " + labKingdom + labSeatNote;
+  }
+
+  // Add the payload's strategies (names made unique within it: "X", "X (2)") and seat them: one strategy sits
+  // as Player 2 against the default Player 1, several take seats 1.. in order. Throws a readable error.
+  function applyLabPayload(p) {
+    const tomls = p && Array.isArray(p.strategies) ? p.strategies.filter((s) => typeof s === "string" && s.trim()) : [];
+    if (tomls.length < 1) throw new Error("the link carries no strategy");
+    if (tomls.length > 6) throw new Error(`the link carries ${tomls.length} strategies, the game has at most 6 seats`);
+    const names = Array.isArray(p.kingdom) ? p.kingdom.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim()) : [];
+    const taken = new Set();
+    const ids = tomls.map((text) => {
+      let toml = text;
+      const m = text.match(/^name\s*=\s*"((?:[^"\\]|\\.)*)"/m);
+      if (m) {
+        let name = m[1];
+        for (let n = 2; taken.has(name); n++) name = `${m[1]} (${n})`;
+        taken.add(name);
+        if (name !== m[1]) toml = text.replace(m[0], () => `name = "${name}"`);
+      }
+      return addStrategy(toml).id;
+    });
+    $("ng-players").value = String(Math.max(2, ids.length));
+    if (ids.length === 1) api.setSeat(1, ids[0]);
+    else ids.forEach((id, i) => api.setSeat(i, id));
+    labKingdom = names.length ? names.join(", ") : null;
+    labSeatNote = "";
+    if (ids.length === 1 && labKingdom !== null) {
+      // The default Player 1 (Double Witch) may need cards this kingdom does not have: then Big Money Ultimate sits there.
+      const have = new Set(names);
+      const missing = seatsKingdom().split(",").map((x) => x.trim()).filter((x) => x && !have.has(x));
+      const bm = botNames.indexOf("Big Money Ultimate");
+      if (missing.length && bm >= 0) {
+        api.setSeat(0, bm);
+        labSeatNote = " (Player 1 is Big Money Ultimate: the default Player 1 needs " + missing.join(", ") + ")";
+      }
+    }
+  }
+
   function startNewGame() {
     if (stopRunGame) stopRunGame();
     const players = parseInt($("ng-players").value, 10) || 2;
     const seed = parseInt($("ng-seed").value, 10) || 0;
     cancelAnalysis();
     gameRequiredKingdom = seatsKingdom();
-    const setsMask = cardSetsMask() || (SET_BITS.base | SET_BITS.intrigue | SET_BITS.seaside | SET_BITS.prosperity);
-    const kingdom = api.paddedKingdom(players, setsMask, seed).kingdom;
+    let kingdom;
+    if (labKingdom !== null) {
+      // The Strategy Lab's kingdom, exactly as listed (Events, Landmarks, the Prophecy, Platinum / Colony included):
+      // nothing is added or drawn, so the strategies meet the kingdom they were found on.
+      const have = new Set(labKingdom.split(",").map((s) => s.trim()));
+      const missing = gameRequiredKingdom.split(",").map((s) => s.trim()).filter((s) => s && !have.has(s));
+      if (missing.length) {
+        throw new Error(`The seated strategies need ${missing.join(", ")}, which the Strategy Lab's kingdom does not have.`);
+      }
+      kingdom = labKingdom;
+    } else {
+      const setsMask = cardSetsMask() || (SET_BITS.base | SET_BITS.intrigue | SET_BITS.seaside | SET_BITS.prosperity);
+      kingdom = api.paddedKingdom(players, setsMask, seed).kingdom;
+    }
+    showLabKingdomNote();
     api.newGame(players, kingdom, seed, 0);
     showNewGameError("");
     $("state-text").value = api.getStartText();
@@ -2460,6 +2522,10 @@
   function wire() {
     wireStrategyLoader();
     setCheckboxes().forEach((b) => b.addEventListener("change", onSetsChanged));
+    $("btn-lab-kingdom-clear").addEventListener("click", () => {
+      labKingdom = null;
+      $("btn-new-game").click();
+    });
     $("btn-new-game").addEventListener("click", () => {
       try {
         startNewGame();
@@ -2610,12 +2676,31 @@
         showNewGameError("Could not load the linked strategy: " + String(e.message || e));
       }
     }
+    // index.html#lab=<base64 JSON>: the Strategy Lab's kingdom and strategies (see applyLabPayload).
+    let labError = "";
+    if (location.hash.startsWith("#lab=")) {
+      try {
+        applyLabPayload(JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(location.hash.slice("#lab=".length)))))));
+        history.replaceState(null, "", location.pathname + location.search);
+      } catch (e) {
+        labError = "Could not load the Strategy Lab link: " + String(e.message || e);
+        labKingdom = null;
+      }
+    }
     // Start with a kingdom matching the default seats' rules.
     try {
       startNewGame();
+      if (labError) showNewGameError(labError);
     } catch (e) {
-      showNewGameError(String(e.message || e));
-      $("state-text").value = api.getStartText();
+      labError = labError || String(e.message || e);
+      // The lab's kingdom cannot take these strategies: say so, and start an ordinary game so the page still works.
+      labKingdom = null;
+      try {
+        startNewGame();
+      } catch (e2) {
+        $("state-text").value = api.getStartText();
+      }
+      showNewGameError(labError);
     }
     render();
     // Test hook: open index.html#selftest-analyze to run a parallel analysis on load.

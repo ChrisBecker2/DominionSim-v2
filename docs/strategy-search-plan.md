@@ -265,3 +265,36 @@ weight, games). `Entry.vs` carries them: the Lab result panel shows a table, hal
 "Win rate 66.3% overall (95% CI ...) over 20000 games: 78.9% vs Big Money Ultimate, 53.8% vs League: ...; never gains ...".
 In kingdom mode a strategy's `vs` is its crosstable row (against every other strategy) and its header lists the
 three weakest matchups.
+
+**Presets and exact settings (Lab).** The Lab shows one choice, "How hard to search", and one collapsed "Exact settings"
+section; each number appears once. A preset fills in every number (league and GA); editing any value switches the display to
+"Custom" (and back to a preset if the numbers match one again). The form is not remembered between page loads. Kingdom mode and
+opponent mode keep their own numbers when you switch (the same settings block moves between the two panels); "Hall-of-fame validation
+games" and "Validation games" are the one `validate_games` input. Exact settings are grouped: Search size (islands, island size,
+generations, stall generations, seed), Diversity (niches, novelty bonus, island stagnation), Final ranking (games per pair, full bots),
+Challengers (exploiter rounds, generations, margin), Scoring weights (anchor/recent/older weights, parsimony), Rule limits, Breeding
+(elite, tournament, crossover, migration, hall of fame size) and Speed / accuracy (race games and keep, validation games and interval,
+polish games, max turns, full-behaviour validation). Standard equals the server defaults.
+
+| Kingdom preset | islands x size x generations (stall) | niches | final games / pair | challengers | validation / polish games | time on Deck Top |
+|---|---|---|---|---|---|---|
+| Quick | 3 x 20 x 20 (10) | 6 | 500 | 1 x 10 gens | 2000 / 2000 | 18-22 s (5 niches) |
+| Standard | 4 x 32 x 100 (30) | 10 | 2000 | 3 x 30 | 10000 / 20000 | 302 s idle, 1123 s under load (8 niches) |
+| Thorough | 6 x 32 x 200 (50) | 12 | 4000 | 5 x 50 | 20000 / 40000 | 535 s (7 niches) |
+| Wide exploration | 8 x 32 x 150 (60), novelty 3%, stagnation 5 | 16 | 2000 | 5 x 30 | 10000 / 20000 | 1624 s (11 niches) |
+
+Times are wall clock on a 32-thread desktop, one run each on the Deck Top kingdom, full bots in the final ranking (except Quick's
+tiny round robin). They vary with the kingdom and the cores, and
+with other load on the machine: the identical Standard run (same seed, same 69.4M games, same result) took 302 s and later 1123 s, and
+an identical `3 x 24 x 30` run 245 s and 503 s, so read the labels as the best case on an otherwise idle machine. Wide exploration found the most niches. Opponent mode has Quick / Standard / Thorough (GA numbers only, not timed).
+
+**Playing results in the game.** The run's kingdom is reported in `Progress.kingdom` (names, as set up: kingdom cards, Events,
+Landmarks, a named Prophecy, Platinum / Colony and Potion when in play; empty for random kingdoms and for a fixed track naming no
+cards). Shelters are not part of it: the engine's per-game rule decides them, as in the run. The result panel's "Open in game" and the
+Open buttons and checkboxes of the niche, ranking and challenger tables open `/game#lab=<base64 of UTF-8 JSON {kingdom: [...],
+strategies: [toml, ...]}>`. The data stays in the URL fragment: no server state, nothing to expire, the link can be copied (six strategies
+are a few tens of kilobytes; the Lab refuses links over 1.5 MB). `#strategy=<base64 TOML>` still works (one strategy, random kingdom,
+used when a run has no fixed kingdom). The game page adds the strategies like "Load strategy" (a repeated name becomes "X (2)"), seats
+them (2 to 6; one strategy sits as Player 2, and when the default Player 1 needs cards this kingdom lacks, Big Money Ultimate takes
+its seat), and starts the game on exactly the listed kingdom, nothing padded or drawn, so a named Prophecy is kept. A strategy needing
+a card the kingdom lacks shows an error and an ordinary game starts. New game keeps the Lab's kingdom until "Random kingdoms" is pressed.

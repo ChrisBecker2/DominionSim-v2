@@ -10,7 +10,7 @@ use dominion_engine::rng::Rng;
 use dominion_sim::Strategy;
 use rayon::prelude::*;
 
-use crate::arena::{set_fast, vs_text, Arena, OppRate, Opponent, Scenario, Score};
+use crate::arena::{set_play_mode, vs_text, Arena, OppRate, Opponent, Scenario, Score};
 use crate::config::{Colonies, EvolveConfig, Track};
 use crate::genome::{Genome, TomlMeta};
 use crate::ops;
@@ -170,14 +170,14 @@ impl Setup {
                 .iter()
                 .map(|o| {
                     let mut strategy = Strategy::parse(&o.toml).map_err(|e| format!("opponent {}: {e}", o.name))?;
-                    set_fast(&mut strategy, fast);
+                    set_play_mode(&mut strategy, fast, cfg.search_mask().as_ref());
                     Ok(Opponent { name: o.name.clone(), strategy, weight: o.weight.max(0.0) })
                 })
                 .collect()
         };
-        let arena = Arena { opponents: opponents(cfg.fast_eval)?, forbidden: forbidden.clone(), fast: cfg.fast_eval, max_turns: cfg.max_turns };
+        let arena = Arena { opponents: opponents(cfg.fast_eval)?, forbidden: forbidden.clone(), fast: cfg.fast_eval, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let val_fast = !cfg.validate_full;
-        let val_arena = Arena { opponents: opponents(val_fast)?, forbidden: forbidden.clone(), fast: val_fast, max_turns: cfg.max_turns };
+        let val_arena = Arena { opponents: opponents(val_fast)?, forbidden: forbidden.clone(), fast: val_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let mut space = SearchSpace::new(&pool, &forbidden);
         space.max_gain_rules = cfg.max_gain_rules.max(1);
         space.max_play_rules = cfg.max_play_rules;
@@ -590,7 +590,7 @@ pub fn assess(cfg: &EvolveConfig, toml_src: &str, games: u64, full: bool) -> Res
     c.fast_eval = !full;
     let setup = Setup::new(&c)?;
     let mut strategy = Strategy::parse(toml_src)?;
-    set_fast(&mut strategy, setup.arena.fast);
+    set_play_mode(&mut strategy, setup.arena.fast, setup.arena.search_cards.as_ref());
     let seed = Rng::derive(cfg.seed ^ 0xA55E_5500, games).next_u64();
     let mut krng = Rng::derive(seed, 0x6B);
     let scen = setup.scenarios(&mut krng, 2);

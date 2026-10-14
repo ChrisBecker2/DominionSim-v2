@@ -228,6 +228,16 @@ Caveats: league fitness is relative, so absolute numbers drift as the hall of fa
 inner loop uses fast bots (no turn search), which under-rates engines that need play-order search, so
 rerun candidate engines with full bots (Assess).
 
+**Search in the league** (details, per-card table and numbers: `docs/search-in-league.md`). Evaluation bots are fast
+(no turn search). `EvolveConfig.search_mode = "selective"` (opt-in, default `off`) lets fast bots still search the
+decisions that involve a card whose measured full-vs-fast gap is at least `search_gap` points and whose search costs at most
+`search_max_cost` times a fast game (`dominion_sim::search_gap`, from `examples/search_gap.rs`); `search_budget` caps the
+node budget. `league_run`: `SEARCH=off|selective|full`. Measured: 61 of 288 cards show a gap of 3+ points (mostly
+trash-for-benefit, mode, copy and discard cards), 10 are *negative* (the full bot loses to the fast one with Chapel, Temple,
+Miser, Bishop...: full-bot rankings under-rate such strategies), and a fast league with a larger population matched the
+full-bot league in a tenth of the time; so keep fast evaluation and use selective search only for validation/exploiter
+stages on kingdoms with cheap high-gap cards.
+
 **Exploiter rounds** (PSRO-style, `league.rs`). A round robin only says how the strategies found so far
 compare; it cannot say whether something unseen beats all of them. After the final ranking, up to
 `exploit_rounds` (3; 0 = off) rounds run:

@@ -13,7 +13,7 @@ fn main() {
         let mut opp = Strategy::parse(&dw).unwrap();
         opp.search_play = false;
         opp.win_this_turn = win;
-        let arena = Arena { opponents: vec![Opponent { name: "DW".into(), strategy: opp, weight: 1.0 }], forbidden: vec![cards::id::WITCH], fast: false, max_turns: 60 };
+        let arena = Arena { opponents: vec![Opponent { name: "DW".into(), strategy: opp, weight: 1.0 }], forbidden: vec![cards::id::WITCH], fast: false, search_cards: None, max_turns: 60 };
         let mut cand = arena.compile(&Genome::from_toml(&bm).unwrap()).unwrap();
         cand.win_this_turn = win;
         for (name, k) in [("full", &full), ("ten", &ten)] {

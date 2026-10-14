@@ -576,7 +576,7 @@ fn bank_too_early(state: &GameState, me: u8, c: CardId) -> bool {
 const PLAY_TT_BITS: u32 = 16;
 /// Node budgets tried in turn until the play search is exact: fast for ordinary turns, and as
 /// deep as the analysis (`SearchConfig::default()`) for big ones.
-const PLAY_BUDGETS: [u64; 2] = [1_000, 200_000];
+pub const PLAY_BUDGETS: [u64; 2] = [1_000, 200_000];
 
 /// The strategy's own search for a play decision: the turn is searched with the strategy's
 /// scoring (gain list, then stated [[play]] rules, then defaults), its rules followed for every
@@ -591,7 +591,11 @@ pub fn search_play_choice(strategy: &Strategy, view: &PlayerView) -> Option<Choi
         // with many actions and draws), search again with a budget matching the analysis, so the
         // bot's choice doesn't come from shortcut playouts. Deterministic for a given position.
         let mut last = None;
-        for budget in PLAY_BUDGETS {
+        let first = PLAY_BUDGETS[0].min(strategy.search_budget);
+        for (i, budget) in [first, strategy.search_budget].into_iter().enumerate() {
+            if i == 1 && budget <= first {
+                break;
+            }
             let cfg = SearchConfig { node_budget: budget, tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
             let r = searcher.best_choice(&world, view.me(), &cfg, &eval)?;
             last = Some(r.0);

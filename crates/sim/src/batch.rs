@@ -268,6 +268,7 @@ pub struct LeagueCell {
 /// Round-robin: every unordered pair of `strategies` plays a 2-player match of `games_per_match`
 /// games. Pairs run in parallel too (via rayon), each pair's games also parallelized internally.
 pub fn run_league(strategies: &[&Strategy], games_per_match: u64, kingdom: &[CardId], seed: u64, max_turns: u16) -> Vec<LeagueCell> {
+    init_thread_pool();
     let n = strategies.len();
     let mut pairs = Vec::with_capacity(n * (n - 1) / 2);
     for i in 0..n {

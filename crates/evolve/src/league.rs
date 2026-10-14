@@ -268,7 +268,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     // Anchors.
     let forbidden = setup.arena.forbidden.clone();
     let anchors: Vec<Anchor> = baselines(&kingdom, colonies, &forbidden).into_iter().map(|base| Anchor { base }).collect();
-    let template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: cfg.fast_eval, max_turns: cfg.max_turns };
+    let template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: cfg.fast_eval, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
     let anchor_meta = |a: &Anchor| TomlMeta {
         name: a.base.name.clone(),
         description: a.base.description.clone(),
@@ -329,7 +329,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         // This generation's league.
         let mut lrng = Rng::derive(round_seed, 0x01D);
         let (opps, league_names) = pick_league(&lc, &anchors, &hall, &template, &mut lrng);
-        let arena = Arena { opponents: opps, forbidden: forbidden.clone(), fast: cfg.fast_eval, max_turns: cfg.max_turns };
+        let arena = Arena { opponents: opps, forbidden: forbidden.clone(), fast: cfg.fast_eval, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
 
         // Unique candidates across islands, plus the niche champions (protected through the race,
         // so they are re-measured against this generation's league like everyone else).
@@ -467,9 +467,9 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         progress.status = "validating".into();
         report(&progress);
         let val_fast = !cfg.validate_full;
-        let val_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: val_fast, max_turns: cfg.max_turns };
+        let val_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: val_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let (vopps, _) = pick_league(&lc, &anchors, &hall, &val_template, &mut Rng::derive(round_seed, 0x01D));
-        let val_arena = Arena { opponents: vopps, forbidden: forbidden.clone(), fast: val_fast, max_turns: cfg.max_turns };
+        let val_arena = Arena { opponents: vopps, forbidden: forbidden.clone(), fast: val_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let mut taken_niches: HashSet<Descriptor> = HashSet::new();
         let mut joined = 0;
         let hall_keys: HashSet<String> = hall.iter().map(|m| m.key.clone()).collect();
@@ -619,7 +619,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     progress.status = "polishing".into();
     report(&progress);
     let final_fast = !lc.final_full;
-    let final_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: final_fast, max_turns: cfg.max_turns };
+    let final_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: final_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
     let mut champions: Vec<(Descriptor, Genome, Elite)> = archive.champions().into_iter().map(|(d, e)| (*d, e.genome.clone(), e.clone())).collect();
     // Champions that are exactly an anchor are ranked as that anchor.
     champions.retain(|(_, g, _)| !anchor_keys.contains_key(&g.key()));
@@ -627,7 +627,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         progress.note("polishing the niche champions (dropping rules that don't pay)");
         report(&progress);
         let (popps, _) = pick_league(&lc, &anchors, &hall, &template, &mut Rng::derive(cfg.seed, 0x9011));
-        let parena = Arena { opponents: popps, forbidden: forbidden.clone(), fast: cfg.fast_eval, max_turns: cfg.max_turns };
+        let parena = Arena { opponents: popps, forbidden: forbidden.clone(), fast: cfg.fast_eval, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let pseed = Rng::derive(cfg.seed ^ 0x9011_5400, 1).next_u64();
         for (_, g, _) in champions.iter_mut() {
             if control.stopped() {
@@ -746,7 +746,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
 
         // Measure it against the mix with the round robin's kind of bots, on fresh deals.
         let meas_fast = !(cfg.validate_full || lc.final_full);
-        let meas_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: meas_fast, max_turns: cfg.max_turns };
+        let meas_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: meas_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
         let meas = Arena {
             opponents: support
                 .iter()
@@ -754,6 +754,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
                 .collect(),
             forbidden: forbidden.clone(),
             fast: meas_fast,
+            search_cards: cfg.search_mask(),
             max_turns: cfg.max_turns,
         };
         let exploiter = match meas.compile(&found) {

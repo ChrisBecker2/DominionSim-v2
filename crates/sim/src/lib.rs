@@ -15,6 +15,7 @@ pub mod agent;
 pub mod eval;
 pub mod expr;
 pub mod kingdom;
+pub mod search_gap;
 pub mod stats;
 pub mod strategy;
 

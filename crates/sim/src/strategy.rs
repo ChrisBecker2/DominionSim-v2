@@ -280,9 +280,32 @@ pub struct Strategy {
     pub win_this_turn: bool,
     never_gain: Vec<CardId>,
     pub search_play: bool,
+    /// With `search_play`: search only the decisions that offer one of these cards or belong to one (selective search, see
+    /// `docs/search-in-league.md`); every other decision follows the rules like a fast bot. `None`: search them all.
+    search_cards: Option<Vec<bool>>,
+    /// Node budget of the second, deeper pass of the turn search (the first pass uses `eval::PLAY_BUDGETS[0]` nodes, or this many if
+    /// that is fewer); a value at or below the first budget turns the second pass off. Default `eval::PLAY_BUDGETS[1]`.
+    pub search_budget: u64,
 }
 
 impl Strategy {
+    /// Restrict the turn searches (`search_play`) to decisions involving the cards of `mask` (indexed by card id). Decisions that
+    /// involve none of them are decided by the rules, as in a bot with `search_play` off.
+    pub fn set_search_cards(&mut self, mask: Vec<bool>) {
+        self.search_cards = Some(mask);
+    }
+
+    /// Whether this decision is searched: `search_play`, and under selective search an offered card or the deciding card is in the mask
+    /// (a Debt payment counts as Change's).
+    pub(crate) fn searches(&self, decision: &Decision, choices: &[Choice]) -> bool {
+        if !self.search_play {
+            return false;
+        }
+        let Some(m) = &self.search_cards else { return true };
+        let on = |c: CardId| m.get(c as usize).copied().unwrap_or(false);
+        decision.source.is_some_and(on) || iter_cards(choices).any(on) || (on(id::CHANGE) && choices.iter().any(|c| matches!(c, Choice::PayDebt | Choice::PayDebtKeep(_))))
+    }
+
     pub fn load(path: &Path) -> Result<Strategy, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
         Strategy::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
@@ -411,6 +434,8 @@ impl Strategy {
                 .flat_map(expand_pile)
                 .collect(),
             search_play: raw.search_play,
+            search_cards: None,
+            search_budget: crate::eval::PLAY_BUDGETS[1],
         })
     }
 
@@ -469,12 +494,13 @@ impl Strategy {
                 return c;
             }
         }
+        let searching = self.searches(decision, choices);
         // Stated rules come before any search.
         if let Some(c) = self.stated_effect_choice(view, decision, choices) {
             return c;
         }
         // Debt: pay it as soon as there is $ for it. In a game with Change, whether to keep a token (Change gives +$3 with Debt) is searched.
-        if self.search_play
+        if searching
             && decision.kind == DecisionKind::Buy
             && decision.player == view.me()
             && view.is_my_turn()
@@ -492,7 +518,7 @@ impl Strategy {
         }
         // Choices inside a Treasure being played (Investment, Crystal Ball, Anvil) change which
         // Treasures are left to play: searched like the play order when `search_play` is on.
-        if self.search_play && view.is_my_turn() && crate::eval::is_treasure_effect_decision(view.me(), decision) && choices.len() > 1 {
+        if searching && view.is_my_turn() && crate::eval::is_treasure_effect_decision(view.me(), decision) && choices.len() > 1 {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -501,7 +527,7 @@ impl Strategy {
         }
         // Calls that shape the turn (Duplicate on a gain, Royal Carriage, Coin of the Realm, Wine Merchant's discard) are searched like the
         // play order, unless a `[[call]]` rule has spoken (above).
-        if self.search_play && view.is_my_turn() && crate::eval::is_call_decision(view.me(), decision) && choices.len() > 1 {
+        if searching && view.is_my_turn() && crate::eval::is_call_decision(view.me(), decision) && choices.len() > 1 {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -509,7 +535,7 @@ impl Strategy {
             }
         }
         // How much to overpay shapes the turn too (what it buys is scored by the gain list).
-        if self.search_play && view.is_my_turn() && crate::eval::is_overpay_decision(view.me(), decision) && choices.len() > 1 {
+        if searching && view.is_my_turn() && crate::eval::is_overpay_decision(view.me(), decision) && choices.len() > 1 {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -517,7 +543,7 @@ impl Strategy {
             }
         }
         // Artificer's discards: the candidate sets are searched against the gain it buys (see `eval::search_artificer_choice`).
-        if self.search_play
+        if searching
             && decision.source == Some(id::ARTIFICER)
             && decision.player == view.me()
             && view.is_my_turn()
@@ -533,7 +559,7 @@ impl Strategy {
         // the rules (see `START_ORDER_SEARCH_ALL`); only an order with a play in it (Prince, Clerk)
         // is a real trade-off.
         if decision.kind == DecisionKind::StartOrder
-            && self.search_play
+            && searching
             && view.is_my_turn()
             && choices.len() > 1
             && crate::eval::is_start_effect_decision(view.me(), decision)
@@ -1061,12 +1087,13 @@ impl Strategy {
     /// the best line; a single playable card is simply played. The rule order in `best_play` is
     /// only a fallback if the search can't run.
     fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
+        let searching = self.searches(decision, choices);
         // A stated `[[debt]] pay = "all"` rule pays the Debt off before a Change is played (so that it remodels).
         if matches!(decision.kind, DecisionKind::PlayAction) && choices.contains(&Choice::PayDebt) && self.stated_debt_choice(view, choices) == Some(Choice::PayDebt) {
             return Choice::PayDebt;
         }
         // No real choice (every action choice-free, all playable): the obvious order, no search.
-        if self.search_play && matches!(decision.kind, DecisionKind::PlayAction) && decision.player == view.me() {
+        if searching && matches!(decision.kind, DecisionKind::PlayAction) && decision.player == view.me() {
             if let Some(c) = obvious_play(view, choices) {
                 return Choice::Card(c);
             }
@@ -1086,7 +1113,7 @@ impl Strategy {
             && choices.contains(&Choice::Pass)
             && matches!(decision.kind, DecisionKind::PlayAction)
             && iter_cards(choices).all(|c| !cards::is_choice_free(c));
-        if self.search_play && (cards_offered >= 2 || lone_risky) && decision.player == view.me() {
+        if searching && (cards_offered >= 2 || lone_risky) && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -1322,6 +1349,7 @@ impl Strategy {
     /// `play_decision` does for `PlayAction` (`is_play_decision` in `eval.rs` treats it the same
     /// way); `rule_play_treasure` is the fast/default fallback otherwise.
     fn play_treasure_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let searching = self.searches(decision, choices);
         // An Event offered before the Treasures are played (Alms) is searched like the play order.
         let event = iter_cards(choices).find(|&c| cards::is_event(c));
         // Nothing left whose order or choices matter (only plain Treasures, and Bank, which goes
@@ -1329,7 +1357,7 @@ impl Strategy {
         if event.is_none() && !iter_cards(choices).any(|c| !plays_last(c) && !cards::is_choice_free(c)) {
             return self.rule_play_treasure(choices);
         }
-        if self.search_play && decision.player == view.me() {
+        if searching && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;
@@ -1361,7 +1389,8 @@ impl Strategy {
     /// not matter and they are all played (no search); otherwise the turn is searched with the strategy's own scoring, and a stated `[[play]]`
     /// rule for a Night card (with its condition) decides how they rank.
     fn night_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
-        if self.search_play && decision.player == view.me() {
+        let searching = self.searches(decision, choices);
+        if searching && decision.player == view.me() {
             if let Some(c) = night_obvious(view, choices) {
                 return Choice::Card(c);
             }
@@ -1465,6 +1494,7 @@ impl Strategy {
     /// this once per remaining pick, excluding indices already chosen, so a multi-pick card like
     /// Pawn or Courtier is handled by repeated single calls).
     fn choose_mode(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        let searching = self.searches(decision, choices);
         let card = decision.source.expect("Mode decision always has a source card");
         // Stated `[[mode]]` rules always come first.
         if let Some(c) = self.stated_mode_rule(view, card, choices) {
@@ -1474,7 +1504,7 @@ impl Strategy {
         // strategy's own scoring, exactly like `play_decision`. Never applies to a reactive mode
         // decision during someone else's turn (Torturer's victim), which always uses the fast
         // heuristic below regardless of `search_play`.
-        if self.search_play && decision.player == view.me() && view.is_my_turn() {
+        if searching && decision.player == view.me() && view.is_my_turn() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {
                     return c;

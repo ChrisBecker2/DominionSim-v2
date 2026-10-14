@@ -84,10 +84,30 @@ impl Score {
 
 /// Apply an arena's play mode to a strategy (fast mode turns off both turn searches).
 pub fn set_fast(s: &mut Strategy, fast: bool) {
+    set_play_mode(s, fast, None);
+}
+
+/// [`set_fast`], optionally leaving the turn search on for decisions that involve the cards of `search_cards` (selective search:
+/// see `docs/search-in-league.md`). Without a mask a fast strategy searches nothing.
+pub fn set_play_mode(s: &mut Strategy, fast: bool, search: Option<&Selective>) {
     if fast {
-        s.search_play = false;
         s.win_this_turn = false;
+        match search {
+            Some(sel) if s.search_play => {
+                s.set_search_cards(sel.cards.clone());
+                s.search_budget = sel.budget;
+            }
+            _ => s.search_play = false,
+        }
     }
+}
+
+/// Selective search: fast bots still search the decisions that involve `cards` (indexed by card id), with a second-pass node budget of
+/// `budget` (`Strategy::search_budget`).
+#[derive(Clone, Debug)]
+pub struct Selective {
+    pub cards: Vec<bool>,
+    pub budget: u64,
 }
 
 pub struct Opponent {
@@ -104,6 +124,8 @@ pub struct Arena {
     /// `win_this_turn` lookahead. Several times faster, slightly weaker endgames. Full mode plays
     /// exactly like the bots in the game UI. Applies to candidates and opponents alike.
     pub fast: bool,
+    /// With `fast`: the cards whose decisions are still searched (selective search, `None`: none are).
+    pub search_cards: Option<Selective>,
     pub max_turns: u16,
 }
 
@@ -112,7 +134,7 @@ impl Arena {
     pub fn compile(&self, g: &Genome) -> Result<Strategy, String> {
         let meta = TomlMeta { name: "Candidate".into(), never_gain: self.forbidden.clone(), ..Default::default() };
         let mut s = Strategy::parse(&g.to_toml(&meta))?;
-        set_fast(&mut s, self.fast);
+        set_play_mode(&mut s, self.fast, self.search_cards.as_ref());
         Ok(s)
     }
 
@@ -201,6 +223,7 @@ card = \"Silver\"
             ],
             forbidden: vec![],
             fast: true,
+            search_cards: None,
             max_turns: 60,
         };
         let k: Vec<CardId> = vec![cards::by_name("Smithy").unwrap()];

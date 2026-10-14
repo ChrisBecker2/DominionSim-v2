@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::arena::Selective;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Track {
@@ -115,6 +117,18 @@ impl Default for LeagueConfig {
     }
 }
 
+/// How much turn search the bots of a fast evaluation (`fast_eval`) keep. `Full` is `fast_eval = false`.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    /// Rules only: no turn search (today's fast bots).
+    #[default]
+    Off,
+    /// Search only the decisions that involve a card whose measured fast-versus-full gap is at least `search_gap` points
+    /// (`dominion_sim::search_gap`); the rest follow the rules.
+    Selective,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct EvolveConfig {
@@ -162,6 +176,16 @@ pub struct EvolveConfig {
     /// Evolve and polish in fast mode (rule-order action plays, no win lookahead). Several times
     /// faster; validation re-checks with full behaviour when `validate_full` is set.
     pub fast_eval: bool,
+    /// Fast evaluation only: which decisions the bots still search (see [`SearchMode`]).
+    pub search_mode: SearchMode,
+    /// `Selective`: the smallest fast-versus-full win-rate gap (percentage points, from `docs/search-in-league.md`) for a card's
+    /// decisions to be searched.
+    pub search_gap: f64,
+    /// `Selective`: cards whose search makes a game more than this many times slower than a fast game are left out.
+    pub search_max_cost: f64,
+    /// `Selective`: node budget of the deeper second pass of each searched decision (the first pass always has 1000). At or below 1000
+    /// the second pass is off.
+    pub search_budget: u64,
     pub max_turns: u16,
     pub seed: u64,
     pub max_gain_rules: usize,
@@ -171,6 +195,14 @@ pub struct EvolveConfig {
     pub max_mode_rules: usize,
     pub max_conds: usize,
     pub hall_of_fame: usize,
+}
+
+impl EvolveConfig {
+    /// The cards (by id) whose decisions fast bots search, under `SearchMode::Selective`.
+    pub fn search_mask(&self) -> Option<Selective> {
+        (self.fast_eval && self.search_mode == SearchMode::Selective)
+            .then(|| Selective { cards: dominion_sim::search_gap::mask(self.search_gap, self.search_max_cost), budget: self.search_budget })
+    }
 }
 
 impl Default for EvolveConfig {
@@ -199,6 +231,10 @@ impl Default for EvolveConfig {
             validate_full: false,
             polish_games: 20_000,
             fast_eval: true,
+            search_mode: SearchMode::Off,
+            search_gap: 3.0,
+            search_max_cost: 100.0,
+            search_budget: dominion_sim::eval::PLAY_BUDGETS[1],
             max_turns: 60,
             seed: 1,
             max_gain_rules: 10,

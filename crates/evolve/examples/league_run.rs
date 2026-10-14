@@ -1,7 +1,8 @@
 //! Run a kingdom league from the command line and print the niche table and crosstable.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
-//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE)
-use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, Track};
+//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED,
+//! SEARCH=off|selective|full with SEARCH_GAP (points) and SEARCH_COST (times a fast game): how much turn search the evaluation bots keep)
+use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, SearchMode, Track};
 
 /// An environment override of a count (`ISLANDS=3`), for quicker runs.
 fn env(name: &str, default: usize) -> usize {
@@ -23,6 +24,12 @@ fn main() {
         race_games: if std::env::var("RACES").is_ok() { std::env::var("RACES").unwrap().split(',').filter_map(|x| x.parse().ok()).collect() } else { EvolveConfig::default().race_games },
         polish_games: env("POLISH", 4000) as u64,
         validate_games: env("VALIDATE", 10_000) as u64,
+        seed: env("SEED", EvolveConfig::default().seed as usize) as u64,
+        fast_eval: std::env::var("SEARCH").map_or(true, |v| v != "full"),
+        search_mode: if std::env::var("SEARCH").is_ok_and(|v| v == "selective") { SearchMode::Selective } else { SearchMode::Off },
+        search_gap: std::env::var("SEARCH_GAP").ok().and_then(|v| v.parse().ok()).unwrap_or(EvolveConfig::default().search_gap),
+        search_budget: env("SEARCH_BUDGET", EvolveConfig::default().search_budget as usize) as u64,
+        search_max_cost: std::env::var("SEARCH_COST").ok().and_then(|v| v.parse().ok()).unwrap_or(EvolveConfig::default().search_max_cost),
         ..EvolveConfig::default()
     };
     let mut last = 0;

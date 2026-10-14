@@ -95,7 +95,7 @@ pub(super) fn choose_captain_card(s: &Strategy, view: &PlayerView, decision: &De
     if let Some(c) = captain_stated_pick(s, view, choices) {
         return c;
     }
-    if s.search_play && iter_cards(choices).count() >= 2 && decision.player == view.me() {
+    if s.searches(decision, choices) && iter_cards(choices).count() >= 2 && decision.player == view.me() {
         if let Some(c) = crate::eval::search_play_choice(s, view) {
             if choices.contains(&c) {
                 return c;

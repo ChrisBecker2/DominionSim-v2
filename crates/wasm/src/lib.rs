@@ -310,6 +310,12 @@ struct App {
     /// card's two different bonuses (Monument's +$2, then +1 VP) stay one card. Cleared by any
     /// other event.
     last_bonus: Option<(u8, CardId, u8, (u16, u16, u16, u16), u16, usize)>,
+    /// Biding Time handing back the set-aside hand: (player, log index, cards named so far). The cards it puts into the hand arrive as
+    /// draws; they are named on its line ("Player 1 takes back the cards Biding Time set aside: Curse, Curse"), not as a draw from the deck.
+    take_back: Option<(u8, usize, u16)>,
+    /// The card just bought (player, card): its own gain to the discard pile is not logged again under the buy (a gain anywhere
+    /// else is: "gains Nomad Camp to their deck (on top)").
+    last_buy: Option<(u8, CardId)>,
 }
 
 impl App {
@@ -342,6 +348,8 @@ impl App {
             record: GameRecord::default(),
             last_played: None,
             last_bonus: None,
+            take_back: None,
+            last_buy: None,
         };
         app.record = GameRecord::new(&app.state);
         app.log.push("New game: shuffled, opening hands not dealt yet.".to_string());
@@ -364,11 +372,29 @@ impl App {
         // Effects are indented under the card that caused them (non-breaking spaces survive HTML).
         let indent = "\u{a0}\u{a0}\u{a0}".repeat(depth as usize);
         let last_bonus = self.last_bonus.take();
+        if let Some((pl, at, n)) = self.take_back.take() {
+            if let Event::Draw { player, card } = *e {
+                if player == pl && at + 1 == self.log.len() {
+                    let line = &mut self.log[at];
+                    line.push_str(if n == 0 { ": " } else { ", " });
+                    line.push_str(cards::name(card));
+                    self.take_back = Some((pl, at, n + 1));
+                    return;
+                }
+            }
+        }
         match *e {
             Event::TurnStart { .. } => self.last_played = None,
             Event::Play { card, .. } | Event::PlayAgain { card, .. } | Event::StartPlay { card, .. } => self.last_played = Some(card),
             // A buy (and what it triggers) isn't the last played card's doing.
-            Event::Buy { .. } => self.last_played = None,
+            Event::Buy { player, card } => {
+                self.last_played = None;
+                self.last_buy = Some((player, card));
+            }
+            Event::Gain { player, card, to: Dest::Discard, source: NO_SOURCE } if self.last_buy == Some((player, card)) => {
+                self.last_buy = None;
+                return;
+            }
             Event::Bonus { player, source, actions, buys, coins, vp } => {
                 let unit = (actions as u16, buys as u16, coins, vp);
                 // The same bonus again from another copy of the same card: merge into its line.
@@ -384,7 +410,10 @@ impl App {
                 // Samurai), so name the copies in play ("Samurai ×2"; one Throne Room'd Samurai stays "Samurai").
                 let shown = if depth == 0 && (source as usize) < cards::NUM_ZONE_IDS { copies.max(self.state.players[player as usize].in_play.get(source) as u16) } else { copies };
                 let name = if shown > 1 { format!("{} \u{d7}{shown}", cards::name(source)) } else { cards::name(source).to_string() };
-                let line = if depth == 0 {
+                let take_back = depth == 0 && source == id::BIDING_TIME;
+                let line = if take_back {
+                    format!("Player {} takes back the cards Biding Time set aside", player + 1)
+                } else if depth == 0 {
                     // A Duration firing at the start of its owner's turn (or a Prophecy such as Biding Time, which is no card in play).
                     let sep = if text.is_empty() { "" } else { ": " };
                     let kind = if (source as usize) < cards::NUM_ZONE_IDS { " (duration)" } else { "" };
@@ -406,11 +435,26 @@ impl App {
                     }
                 };
                 self.last_bonus = Some((player, source, depth, unit, copies, at));
+                if take_back {
+                    self.take_back = Some((player, at, 0));
+                }
                 self.log_group = None;
                 return;
             }
             _ => {}
         }
+        if !matches!(e, Event::Buy { .. } | Event::Overpay { .. }) {
+            self.last_buy = None;
+        }
+        // A gain indented under the card that caused it does not name that card again.
+        let bare;
+        let e = match *e {
+            Event::Gain { player, card, to, source } if depth > 0 && self.last_played == Some(source) => {
+                bare = Event::Gain { player, card, to, source: NO_SOURCE };
+                &bare
+            }
+            _ => e,
+        };
         if let Some((tag, player, card)) = groupable(e) {
             // Runs only condense at the same depth.
             let tag = tag * 16 + depth.min(15);
@@ -1867,6 +1911,7 @@ fn groupable(e: &Event) -> Option<(u8, u8, CardId)> {
         Event::Discard { player, card } => Some((2, player, card)),
         Event::Reveal { player, card } => Some((3, player, card)),
         Event::Trash { player, card } => Some((4, player, card)),
+        Event::SetAside { player, card } => Some((5, player, card)),
         _ => None,
     }
 }
@@ -2939,7 +2984,13 @@ mod run_game_tests {
                 assert_eq!(app.state.turn.phase, Phase::GameOver);
                 let _ = app.record.json(&app.state);
                 // Biding Time hands back the set-aside cards at the start of a turn: it is named, but is no Duration.
-                assert!(app.log.iter().any(|l| l.contains("Player 1's Biding Time") || l.contains("Player 2's Biding Time")));
+                // The cards come back on its line, named, not as a draw from the deck.
+                let lines: Vec<&String> = app.log.iter().filter(|l| l.contains("takes back the cards Biding Time set aside")).collect();
+                assert!(!lines.is_empty());
+                assert!(lines.iter().all(|l| l.contains("set aside: ")), "{lines:?}");
+                assert!(!app.log.iter().any(|l| l.contains("Player 2 gains Curse to their discard pile (Kitsune)")), "the gain sits under Kitsune: no source");
+                assert!(!app.log.iter().any(|l| l.contains("Player 1 gains Province") || l.contains("Player 2 gains Province")), "a bought card's own gain is the buy");
+                assert!(app.log.iter().any(|l| l.contains("buys Province")));
                 assert!(!app.log.iter().any(|l| l.contains("Biding Time (duration)")));
             });
         }

@@ -1,12 +1,24 @@
 # Laboratory Big Money — Laboratory (+2 Cards, +1 Action) is a pure cantrip upgrade: it never
 # costs you tempo and thins the ratio of dead draws. Two Labs meaningfully smooth a money deck's
 # draws without displacing much treasure.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Laboratory-BM"
 description = "Big Money with up to two Laboratories for smoother draws."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Laboratory"
@@ -14,6 +26,10 @@ if = "count(Laboratory) < 2"
 
 [[gain]]
 card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Silver"

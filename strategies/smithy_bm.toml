@@ -2,15 +2,31 @@
 # by drawing more cards per turn), then play plain Big Money. Community consensus is one Smithy
 # is a clear improvement over pure BM in 2-player; a second rarely pays off before the game ends
 # in the base kingdom, so this only ever buys one.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Smithy-BM"
 description = "Big Money that picks up one Smithy along the way."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Smithy"

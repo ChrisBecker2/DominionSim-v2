@@ -1,26 +1,36 @@
-# Gardens/Workshop — Gardens is worth VP/10 cards, so a big deck scores well even with few
-# Provinces. But *only* rushing Gardens and never buying Provinces just hands the opponent all
-# of them for free (48 VP from an uncontested Province pile beats almost any Gardens count) — so
-# this still buys Provinces whenever affordable. Workshop ($3, gain a card up to $4) is the
-# cheapest way to pile up extra Gardens without spending a whole buy's worth of coin on each one;
-# a couple of early Workshops seed the rush, then Gardens are bought directly, topped up with
-# Gold/Silver so there's still enough coin to contest Provinces too.
+# Gardens/Workshop — the classic rush. Gardens is worth 1 VP per 10 cards you own, so the deck
+# wants to be big rather than good: Workshop ($3, gain a card costing up to $4) gains a Gardens
+# or another Workshop every time it is played, and each buy picks up whatever is affordable. When
+# the Gardens are gone, Estates. The game usually ends on piles (Workshop, Gardens, Estate)
+# before Big Money can take enough Provinces. Buys a Province when $8 turns up anyway.
+# Measured with --kingdom auto: 96% against the older "Province, Gold, Gardens" version, 47%
+# against Big Money Ultimate.
 
 name = "Gardens/Workshop"
-description = "Province when affordable; otherwise rush Gardens (via Workshop) for VP from deck size."
+description = "Workshop/Gardens rush: gain Gardens and Workshops, then Estates; ends the game on piles."
 
 [[gain]]
 card = "Province"
 
 [[gain]]
-card = "Workshop"
-if = "count(Workshop) < 2"
-
-[[gain]]
 card = "Gardens"
 
 [[gain]]
-card = "Gold"
+card = "Workshop"
+
+[[gain]]
+card = "Estate"
+if = "supply(Gardens) == 0"
 
 [[gain]]
 card = "Silver"
+if = "count(Silver) < 2"
+
+[[gain]]
+card = "Estate"
+
+[[gain]]
+card = "Copper"
+
+[[play]]
+card = "Workshop"

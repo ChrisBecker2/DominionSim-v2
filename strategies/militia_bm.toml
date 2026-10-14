@@ -1,15 +1,31 @@
 # Militia Big Money — Militia is a cheap ($4) attack that nets +$2 and strips 2 cards from every
 # opponent's hand, slowing their buys while barely costing you tempo. Two is the usual target
 # in 2-player (enough to matter without crowding out treasures); then plain Big Money.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Militia-BM"
 description = "Big Money plus two Militias to disrupt the opponent's hand."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Militia"

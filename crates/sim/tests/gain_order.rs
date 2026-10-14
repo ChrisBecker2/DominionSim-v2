@@ -35,7 +35,7 @@ fn remodel_follows_gain_order_strictly() {
 
 fn bot_action_plays(hand: &str) -> (Vec<dominion_engine::CardId>, dominion_engine::GameState) {
     use dominion_engine::Phase;
-    let src = std::fs::read_to_string(format!("{}/../../strategies/double_witch.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let src = std::fs::read_to_string(format!("{}/../../strategies/big_money_ultimate.toml", env!("CARGO_MANIFEST_DIR"))).unwrap(); // Province first, unconditionally
     let strat = Strategy::parse(&src).unwrap();
     let text = format!(
         "players: 2
@@ -89,7 +89,7 @@ fn five_throne_rooms_still_remodel_both_golds() {
 #[test]
 fn throne_room_is_played_before_remodel_to_double_it() {
     use dominion_engine::Phase;
-    let src = std::fs::read_to_string(format!("{}/../../strategies/double_witch.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let src = std::fs::read_to_string(format!("{}/../../strategies/big_money_ultimate.toml", env!("CARGO_MANIFEST_DIR"))).unwrap(); // Province first, unconditionally
     let strat = Strategy::parse(&src).unwrap();
     let text = "players: 2\nkingdom: Cellar, Market, Merchant, Militia, Mine, Moat, Remodel, Smithy, Village, Workshop\n\
                 turn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
@@ -291,7 +291,7 @@ fn win_this_turn_finds_the_two_duchy_win() {
 
 #[test]
 fn win_this_turn_is_off_by_default() {
-    let g = play_turn(&read_strategy("double_witch.toml"), DUCHY_WIN);
+    let g = play_turn(&read_strategy("big_money_ultimate.toml"), DUCHY_WIN);
     assert!(!g.is_game_over(), "without the rule it follows its list (Gold -> Province twice)");
     assert_eq!(g.players[0].all_cards().get(id::PROVINCE), 2);
 }

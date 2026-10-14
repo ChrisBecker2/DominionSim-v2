@@ -1,15 +1,31 @@
 # Moneylender Big Money — trash a Copper for +$3 the first time you draw Moneylender with a
 # Copper in hand, which is a strictly good economy boost early (a permanent +$2 swing whenever
 # that Copper would have been played). One is enough; buying a second is rarely worth a $4 slot.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Moneylender-BM"
 description = "Big Money that trashes one Copper via Moneylender for a fast economy boost."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Moneylender"

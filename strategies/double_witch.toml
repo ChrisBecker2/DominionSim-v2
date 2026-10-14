@@ -3,12 +3,24 @@
 # Witches before anything else, then fall back to Big Money (with a Duchy endgame, since the
 # curses you hand out usually turn a money race into a lopsided one). Needs Witch in the
 # kingdom — pair with `--kingdom auto` if the default "first-game" kingdom doesn't include it.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Double Witch"
 description = "Two Witches ASAP, then Big Money with a Duchy endgame."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Witch"
@@ -19,7 +31,7 @@ card = "Gold"
 
 [[gain]]
 card = "Duchy"
-if = "provinces_left <= 4"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Silver"

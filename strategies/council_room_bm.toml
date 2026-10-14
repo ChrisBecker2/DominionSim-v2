@@ -1,12 +1,24 @@
 # Council Room Big Money — Council Room draws 4 cards and gives your opponents a free card too,
 # but the extra draws for you are worth it in a money-heavy deck (more treasures seen per turn
 # more than offsets the opponents' minor benefit), especially once you can support two of them.
+# Endgame (shared by the Big Money variants): a Province once the deck holds $15 of treasure
+# (earlier greening stalls the deck); Duchy over Gold with 4 or fewer Provinces left, Estate over
+# Gold with 2 or fewer; Duchy over Silver with 6 or fewer.
 
 name = "Council Room-BM"
 description = "Big Money using Council Room's big draw to accelerate through the deck."
 
 [[gain]]
 card = "Province"
+if = "money >= 15"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
 
 [[gain]]
 card = "Council Room"
@@ -14,6 +26,10 @@ if = "count(CouncilRoom) < 2"
 
 [[gain]]
 card = "Gold"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
 
 [[gain]]
 card = "Silver"

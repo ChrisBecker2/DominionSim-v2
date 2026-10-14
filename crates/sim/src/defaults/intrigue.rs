@@ -5,6 +5,7 @@ use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, CURSE_T, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision};
 
+use super::draws;
 use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
@@ -22,6 +23,11 @@ impl SetDefaults for Intrigue {
     }
 
     fn default_mode(s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
+        if card == id::COURTIER {
+            if let Some(c) = draws::mode_by_value(s, view, card, choices) {
+                return Some(c);
+            }
+        }
         Some(match card {
             id::PAWN => default_pawn(view, choices),
             id::STEWARD => default_steward(s, view, choices),

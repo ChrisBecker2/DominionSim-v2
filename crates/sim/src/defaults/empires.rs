@@ -33,6 +33,8 @@ impl SetDefaults for Empires {
             id::CROWN if act == Act::Play && view.phase() == dominion_engine::state::Phase::Buy => Some(crown_treasure_pick(view, choices)),
             // Crown in the Action phase: another Crown is no Action worth doubling (it would do nothing).
             id::CROWN if act == Act::Play && !s.legacy_defaults && iter_cards(choices).all(|c| c == id::CROWN) => Some(Choice::Pass),
+            // Overlord: the Action worth most in this hand (`defaults::draws::mimic_pick`).
+            id::OVERLORD if act == Act::Play && from == Zone::Supply && !s.legacy_defaults && !s.searches(decision, choices) => Some(draws::mimic_pick(s, view, choices)),
             // Change: trash the card that unlocks the best gain-list card costing more (junk first, then the cheapest).
             id::CHANGE if act == Act::Trash => Some(change_pick(s, view, choices)),
             // Gladiator: reveal the card the player to the left is least likely to have a copy of.

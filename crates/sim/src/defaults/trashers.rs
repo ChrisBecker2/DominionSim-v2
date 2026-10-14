@@ -124,3 +124,15 @@ pub(super) fn trading_post_pays(s: &Strategy, view: &PlayerView, me: CardId) -> 
     }
     best >= 0.0
 }
+
+/// Dismantle: a Gold (when the card cost $1 or more) and a card costing less.
+pub(super) fn dismantle_gain(s: &Strategy, view: &PlayerView, c: CardId) -> f64 {
+    match view.cost(c) {
+        0 => 0.0,
+        k => s.weight_of(view, id::GOLD) + s.gain_weight(view, k - 1, Filter::Any, false, cards::potion_cost(c)),
+    }
+}
+
+pub(super) fn dismantle_pays(s: &Strategy, view: &PlayerView, me: CardId) -> bool {
+    pays(s, view, me, |s, c| dismantle_gain(s, view, c))
+}

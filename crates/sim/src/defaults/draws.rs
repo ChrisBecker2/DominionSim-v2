@@ -63,3 +63,71 @@ pub(super) fn lookout_risk(s: &Strategy, view: &PlayerView) -> f64 {
     let wanted: f64 = pool.iter().filter(|&(c, _)| s.weight_of(view, c) > 0.0).map(|(_, k)| k as f64).sum();
     (wanted / n) * ((wanted - 1.0).max(0.0) / (n - 1.0)) * ((wanted - 2.0).max(0.0) / (n - 2.0))
 }
+
+/// The Action from the Supply that a card playing "an Action from the Supply" (Overlord, Band of Misfits, Captain) is best used as: the
+/// strategy's own `[[play]]` rules first, in their order; else the card worth most in this hand, in $: its $, its cards at the average $ of
+/// the deck, a Buy a little, +Actions for the Actions the hand has left to play, an Attack a little. Cards that only help with a choice
+/// (a gain, a trash) are worth a little less than their plain bonuses.
+pub(super) fn mimic_pick(s: &Strategy, view: &PlayerView, choices: &[dominion_engine::engine::Choice]) -> dominion_engine::engine::Choice {
+    use dominion_engine::engine::Choice;
+    if let Some(c) = s.play.iter().find_map(|(card, cond)| {
+        (has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))).then_some(*card)
+    }) {
+        return Choice::Card(c);
+    }
+    let avg = money_per_card(view, false);
+    // More $ buy nothing better when the hand already reaches the best card the gain list could ask for.
+    let money = Strategy::money_in_hand(view);
+    let need = if s.buy_weight(view, money) >= s.buy_weight(view, money + 8) { 0.0 } else { 1.0 };
+    let others: f64 = view.hand().iter().filter(|&(c, _)| cards::is(c, cards::ACTION)).map(|(_, n)| n as f64).sum();
+    let score = |c: CardId| -> f64 {
+        let d = cards::def(c);
+        let mut v = need * (d.coins as f64 + d.cards as f64 * avg) + 0.4 * d.buys as f64;
+        if d.actions >= 2 {
+            v += (d.actions as f64 - 1.0).min(others) * 2.0;
+        } else if d.actions == 1 {
+            v += 0.3;
+        }
+        if cards::is(c, cards::ATTACK) {
+            v += 1.2;
+        }
+        v
+    };
+    iter_cards(choices)
+        .max_by(|&a, &b| score(a).total_cmp(&score(b)).then(b.cmp(&a)))
+        .map(Choice::Card)
+        .unwrap_or(choices[0])
+}
+
+/// The option of a mode card (Courtier, Squire, Count's second choice) that the buy values most, as the turn search sees it: +$ by the buy
+/// it reaches, a gain by its place in the gain list, cards by the $ they are expected to bring, a Buy or an Action a little. `None` when an
+/// option is not one of these (the card's own default decides). Ties go to the first option.
+pub(super) fn mode_by_value(s: &Strategy, view: &PlayerView, card: CardId, choices: &[dominion_engine::engine::Choice]) -> Option<dominion_engine::engine::Choice> {
+    use dominion_engine::cards::ModeOpt;
+    use dominion_engine::engine::Choice;
+    if s.legacy_defaults {
+        return None;
+    }
+    let money = Strategy::money_in_hand(view);
+    let base = s.buy_weight(view, money);
+    let avg = money_per_card(view, false);
+    let actions_left = view.hand().iter().any(|(c, _)| cards::is(c, cards::ACTION));
+    let table = cards::modes(card);
+    let mut best: Option<(f64, Choice)> = None;
+    for &ch in choices {
+        let Choice::Mode(i) = ch else { return None };
+        let v = match table.get(i as usize)? {
+            ModeOpt::Coins(n) => s.buy_weight(view, money + *n as u32),
+            ModeOpt::Cards(n) => s.buy_weight(view, money + (*n as f64 * avg).round() as u32),
+            ModeOpt::Gain(c, _) => if view.supply(*c) > 0 { s.weight_of(view, *c) + base } else { f64::NEG_INFINITY },
+            ModeOpt::Buys(_) => base + 0.1,
+            ModeOpt::Actions(_) => base + if actions_left { 2.0 } else { 0.0 },
+            ModeOpt::TrashHand => f64::NEG_INFINITY,
+            _ => return None,
+        };
+        if best.map_or(true, |(b, _)| v > b) {
+            best = Some((v, ch));
+        }
+    }
+    best.map(|(_, c)| c)
+}

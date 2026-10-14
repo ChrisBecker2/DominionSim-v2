@@ -7,6 +7,7 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTOR
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Filter, Zone};
 
+use super::draws;
 use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
@@ -35,12 +36,23 @@ impl SetDefaults for DarkAges {
 
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
+            // Band of Misfits: the Action worth most in this hand (`defaults::draws::mimic_pick`).
+            id::BAND_OF_MISFITS if act == Act::Play && from == Zone::Supply && !s.legacy_defaults && !s.searches(decision, choices) => Some(draws::mimic_pick(s, view, choices)),
             // Forager: the card whose loss costs least once the $ for the Treasures in the trash are counted.
             id::FORAGER if act == Act::Trash && !s.legacy_defaults => trashers::forager_pick(s, view, choices),
             // Procession: the Action whose upgrade (exactly $1 more) the gain list ranks highest; a card that cannot be upgraded to
             // anything listed (a good Action) is kept.
             id::PROCESSION if act == Act::Play => Some(choose_procession_card(s, view, choices)),
             // Counterfeit: a Spoils for $6, else a Copper the trash rules want gone (it is played twice and thinned), else nothing.
+            // (Searched like the play order when `search_play` is on; by the rules, the Treasure whose second play brings the most against
+            // losing it: a Spoils, a Copper, a Silver that reaches a better buy.)
+            id::COUNTERFEIT if act == Act::Play && !s.legacy_defaults => {
+                let coins = |c: CardId| if view.is_treasure(c) { cards::def(c).coins as u32 } else { 0 };
+                match s.best_trash_with_coins(view, iter_cards(choices), |_, _| 0.0, |_, c| 2 * coins(c)) {
+                    Some((c, v)) if v >= 0.0 => Some(Choice::Card(c)),
+                    _ => Some(Choice::Pass),
+                }
+            }
             id::COUNTERFEIT if act == Act::Play => Some(
                 if has_card(choices, id::SPOILS) {
                     Choice::Card(id::SPOILS)
@@ -74,6 +86,11 @@ impl SetDefaults for DarkAges {
     }
 
     fn default_mode(s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
+        if card == id::COUNT {
+            if let Some(c) = draws::mode_by_value(s, view, card, choices) {
+                return Some(c);
+            }
+        }
         match card {
             id::SQUIRE => Some(default_squire(s, view, choices)),
             id::COUNT => Some(default_count(s, view, choices)),

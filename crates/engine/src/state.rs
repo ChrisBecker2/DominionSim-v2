@@ -626,6 +626,23 @@ impl ChurchBatches {
         self.batches[self.len as usize] = 0;
         out
     }
+    /// Remove batch `i` (0 = oldest) and return its cards.
+    pub fn take(&mut self, i: usize) -> ([CardId; 3], usize) {
+        if i >= self.len as usize {
+            return ([0; 3], 0);
+        }
+        let out = Self::decode(self.batches[i]);
+        for j in i + 1..self.len as usize {
+            self.batches[j - 1] = self.batches[j];
+        }
+        self.len -= 1;
+        self.batches[self.len as usize] = 0;
+        out
+    }
+    /// Whether batches `i` and `j` hold the same cards.
+    pub fn same(&self, i: usize, j: usize) -> bool {
+        self.batches[i] == self.batches[j]
+    }
     /// The cards of batch `i` (0 = oldest).
     pub fn batch(&self, i: usize) -> ([CardId; 3], usize) {
         Self::decode(self.batches[i])

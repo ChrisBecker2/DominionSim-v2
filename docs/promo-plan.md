@@ -240,17 +240,23 @@ now `0..374` (6 left below the `Counts` bookkeeping lanes at 380), see `docs/car
   hand, then you may trash a card from your hand." Zero cards is fine and the trash is still offered; the card
   trashed can be one of the set-aside cards or one already in the hand; Church is discarded at the end of that turn.
   Several plays (Throne Room, more Churches) make several batches: one batch into the hand, then its trash, then the
-  next batch and its trash. The wiki lets the player choose which batch comes first; here the batches come in the
-  order they were set aside (the batches are not distinguishable by name in the start-of-turn question, and this is
-  the only simplification; gap).
+  next batch and its trash. The player chooses which batch comes first ("You can choose which batch of set-aside cards
+  you put in hand first"): in the start-of-turn question (`DecisionKind::StartOrder`) the pending Church plays are
+  offered as `Choice::Position(i)`, one for each different batch (`i` counts from the oldest, 0; batches with the same
+  cards are one choice, named by the oldest), next to the other effects' `Choice::Card(name)`. The question is asked
+  when at least two different effects remain (two different batches count as two). A Church entry resolved without a
+  question (one batch, or equal ones) takes the oldest. A Church played during the start of the turn (a Summon'd one)
+  makes a newer batch that waits for the next turn and is not offered. Bots: `choose_start_order` takes `Card`
+  choices by their groups and leaves the batches to `choices[0]`, the oldest (the batches' order matters only through
+  what the trash after each sees; a smarter default is a gap).
 - The cards are face down, so private: `PlayerState::church` (`state::ChurchBatches`, up to `CHURCH_CAP` 4 batches
   of 3 cards, packed in `u32`s, oldest first; a play with all the slots full sets nothing aside and schedules
   nothing). It is not in `PlayerView` for the other players (`church_count_of` gives only how many), and
   `determinize` pools the other players' batches with their hands and deals the same sizes back. It counts as
   owned (`all_cards`). Text format: `church: Gold, Copper; -` (batches separated by `;`, `-` an empty batch).
 - Each play schedules its own pending entry (`Church (Church)`, `arg` = Church so that it never merges and is never
-  0 = Copper); `SetRules::schedules_own_duration`. `duration_start` takes the oldest batch into the hand and pushes
-  the optional trash; the entries are resolved by the start-of-turn order (section 1): Church is order-sensitive.
+  0 = Copper); `SetRules::schedules_own_duration`. `duration_start` takes a batch into the hand (the chosen index,
+  set in the entry's `arg` by `GameState::take_church_batch`, else the oldest) and pushes the optional trash; the entries are resolved by the start-of-turn order (section 1): Church is order-sensitive.
   The cards are set aside through `Then::ChurchAside` (per pick, from `set_aside` into the newest batch).
 
 ### Marchland ($5, Victory)

@@ -568,10 +568,14 @@ impl SetRules for DarkAges {
                 if g.madman == 0 {
                     break;
                 }
+                // Its pile is gone (Divine Wind swapped the Kingdom piles): there is nowhere to return it to, and it stays in play.
+                if !g.in_supply(id::HERMIT) && g.ferryman != id::HERMIT {
+                    break;
+                }
                 g.players[p as usize].in_play.remove(id::HERMIT);
                 if g.in_supply(id::HERMIT) {
                     g.supply.add(id::HERMIT, 1);
-                } else if g.ferryman == id::HERMIT {
+                } else {
                     g.ferryman_left += 1;
                 }
                 sink.event(Event::Return { player: p, card: id::HERMIT });

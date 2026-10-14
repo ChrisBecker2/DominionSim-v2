@@ -734,6 +734,7 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::DeckPosition { .. }, Choice::Position(k)) => format!("below the {k}th known card"),
         (DecisionKind::DeckPosition { .. }, _) => "?".to_string(),
         (DecisionKind::StartOrder, Choice::Card(c)) => format!("Start of turn: resolve {} first", cards::name(c)),
+        (DecisionKind::StartOrder, Choice::Position(i)) => format!("Start of turn: Church batch {} first", i + 1),
         (DecisionKind::StartOrder, _) => "?".to_string(),
         (DecisionKind::Token { token }, Choice::Card(c)) => format!("Move the {} token to {}", cards::TOKEN_NAMES[token as usize], cards::name(c)),
         (DecisionKind::Token { .. }, _) => "?".to_string(),

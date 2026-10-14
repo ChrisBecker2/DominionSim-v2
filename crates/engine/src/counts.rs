@@ -32,28 +32,68 @@ impl PartialEq for Counts {
 
 impl Eq for Counts {}
 
-/// Hashes as the plain `[u8; LANES]` of the card lanes (the bookkeeping lanes as zero; a test pins the equality), so the hash of a state (`stable_seed`, the search's table
-/// key) does not depend on how `Counts` caches its total and blocks.
+/// The blocks that are always hashed, empty or not: the 13 of the 416-lane layout (`LANES` when the hash keys of the search were first stored).
+/// A wider `Counts` hashes the blocks past them only when they hold a card, so the cost of a hash follows the cards present, not `LANES`.
+const LEGACY_BLOCKS: usize = 13;
+const _: () = assert!(LANES / 32 >= LEGACY_BLOCKS, "Counts narrower than the legacy hash layout");
+
+/// Hashes as the plain `[u8; 416]` of the first 13 blocks of card lanes (the bookkeeping lanes as zero; a test pins the equality), so the hash of a state
+/// (`stable_seed`, the search's table key) does not depend on how `Counts` caches its total and blocks. Blocks past the 13th (none while `LANES` is 416) add
+/// their index and 32 bytes each, and only when they hold a card.
 impl std::hash::Hash for Counts {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // The length prefix of `[u8; LANES]`, then the lanes in 32-byte pieces: a block without a card (the bitmap says so) is a constant
-        // piece, which a hasher that goes word by word (the search's FxHasher) folds into a cheaper step, and a stream hasher takes in one copy.
-        state.write_usize(LANES);
-        let blocks = self.blocks();
-        for b in 0..LANES / 32 {
-            if blocks & (1 << b) == 0 {
-                state.write(&[0u8; 32]);
-            } else {
-                let mut piece = [0u8; 32];
-                piece.copy_from_slice(&self.0[b * 32..b * 32 + 32]);
-                if b == LANES / 32 - 1 {
-                    piece[32 - (LANES - BLOCKS_LANE)..].fill(0);
-                }
-                state.write(&piece);
-            }
+        hash_blocks(&self.0, BLOCKS_LANE, self.blocks(), state);
+    }
+}
+
+/// The 32 lanes of block `b` with the bookkeeping lanes (`card_lanes` on) as zero.
+#[inline(always)]
+fn piece_of(lanes: &[u8], card_lanes: usize, b: usize) -> [u8; 32] {
+    let mut piece = [0u8; 32];
+    piece.copy_from_slice(&lanes[b * 32..b * 32 + 32]);
+    if card_lanes < b * 32 + 32 {
+        piece[card_lanes.saturating_sub(b * 32)..].fill(0);
+    }
+    piece
+}
+
+/// The hash step of one legacy block: its 32 lanes, or a constant piece when the bitmap says it holds no card (a hasher that goes word by
+/// word, the search's FxHasher, folds a constant piece into a cheaper step, and a stream hasher takes in one copy).
+#[inline(always)]
+fn hash_legacy_block<H: std::hash::Hasher>(lanes: &[u8], card_lanes: usize, blocks: u32, b: usize, state: &mut H) {
+    if blocks & (1 << b) == 0 {
+        state.write(&[0u8; 32]);
+    } else {
+        state.write(&piece_of(lanes, card_lanes, b));
+    }
+}
+
+/// The blocks past the legacy ones that hold a card, each by index and content.
+#[inline(always)]
+fn hash_upper_blocks<H: std::hash::Hasher>(lanes: &[u8], card_lanes: usize, blocks: u32, state: &mut H) {
+    let mut upper = blocks >> LEGACY_BLOCKS << LEGACY_BLOCKS;
+    while upper != 0 {
+        let b = upper.trailing_zeros() as usize;
+        upper &= upper - 1;
+        let piece = piece_of(lanes, card_lanes, b);
+        // A stale bit (no card left in the block) hashes as no block.
+        if piece != [0u8; 32] {
+            state.write_u8(b as u8);
+            state.write(&piece);
         }
     }
+}
+
+/// `Counts::hash` over any lane array (`lanes.len()` a multiple of 32, the lanes from `card_lanes` on bookkeeping) so that a test can use a wider one: the
+/// length prefix of the legacy `[u8; 416]`, its blocks in order, then the upper blocks that hold a card.
+#[inline(always)]
+fn hash_blocks<H: std::hash::Hasher>(lanes: &[u8], card_lanes: usize, blocks: u32, state: &mut H) {
+    state.write_usize(LEGACY_BLOCKS * 32);
+    for b in 0..LEGACY_BLOCKS {
+        hash_legacy_block(lanes, card_lanes, blocks, b, state);
+    }
+    hash_upper_blocks(lanes, card_lanes, blocks, state);
 }
 
 impl Default for Counts {
@@ -64,6 +104,7 @@ impl Default for Counts {
 
 impl Counts {
     pub const EMPTY: Counts = Counts([0; LANES]);
+
 
     #[inline(always)]
     pub fn get(&self, c: CardId) -> u8 {
@@ -368,6 +409,53 @@ mod tests {
         }
         c.clear();
         check(&c);
+    }
+
+    /// Blocks past the legacy 13 (a wider `Counts`, exercised on a plain lane array) are hashed only when they hold a card, by index and content: no card in them is the
+    /// legacy hash, a card in different blocks or lanes is different, and a stale bitmap bit changes nothing.
+    #[test]
+    fn upper_blocks_are_hashed_only_when_they_hold_a_card() {
+        use std::hash::{Hash, Hasher};
+        const WIDE: usize = 640;
+        let hash = |lanes: &[u8; WIDE], blocks: u32| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            hash_blocks(lanes, WIDE - 4, blocks, &mut h);
+            h.finish()
+        };
+        let legacy = |lanes: &[u8; WIDE]| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            let mut plain = [0u8; LEGACY_BLOCKS * 32];
+            plain.copy_from_slice(&lanes[..LEGACY_BLOCKS * 32]);
+            plain.hash(&mut h);
+            h.finish()
+        };
+        let mut a = [0u8; WIDE];
+        a[5] = 2;
+        a[300] = 1;
+        let low_blocks = (1 << 0) | (1 << 9);
+        assert_eq!(hash(&a, low_blocks), legacy(&a), "nothing above the 13th block: the plain legacy hash");
+        assert_eq!(hash(&a, low_blocks | 1 << 15), legacy(&a), "a stale bit in an empty upper block changes nothing");
+        // The bookkeeping lanes at the end are not cards.
+        let mut b = a;
+        b[WIDE - 3] = 77;
+        assert_eq!(hash(&b, low_blocks), hash(&a, low_blocks));
+        let mut seen = vec![hash(&a, low_blocks)];
+        for lane in [416, 417, 447, 448, 500, WIDE - 5] {
+            let mut x = a;
+            x[lane] = 1;
+            let h = hash(&x, low_blocks | 1 << (lane / 32));
+            assert!(!seen.contains(&h), "lane {lane} hashes like an earlier state");
+            seen.push(h);
+        }
+        // The same piece in two different upper blocks differs (the index is hashed).
+        let (mut x, mut y) = (a, a);
+        x[448 + 3] = 1;
+        y[480 + 3] = 1;
+        assert_ne!(hash(&x, low_blocks | 1 << 14), hash(&y, low_blocks | 1 << 15));
+        // A card in the last lane of the 13th block is a card (it was a bookkeeping lane in the 416-lane layout).
+        let mut z = a;
+        z[411] = 1;
+        assert_ne!(hash(&z, low_blocks | 1 << 12), hash(&a, low_blocks));
     }
 
     #[test]

@@ -159,6 +159,28 @@ deck: 5 Estate
   check("no +N Cards lines at turn start", !log.some((l) => /\+\d+ Cards?/.test(l)));
 }
 
+// --- Two Samurai at the start of the turn: the engine merges them into one +$2, the log names both ---
+{
+  const text = `players: 2
+kingdom: Samurai, Smithy, Village, Market, Militia, Moat, Cellar, Workshop, Remodel, Mine
+turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+[player 1]
+hand: Estate, Estate, Copper, Copper, Copper
+deck: 5 Copper
+durations: Samurai, Samurai
+
+[player 2]
+hand: 5 Copper
+deck: 5 Copper
+`;
+  const I = await instance();
+  I.load(text);
+  if (I.view().pending.paused) I.w.resume();
+  const log = I.view().log;
+  check("two Samurai: 'Samurai ×2 (duration): +$2'", log.includes("Player 1's Samurai ×2 (duration): +$2"), log.join(" | "));
+}
+
 // --- A played Caravan, through a whole round -----------------------------------------------
 {
   const I = await instance();

@@ -372,7 +372,10 @@ impl App {
                 };
                 let (a, b, c, v) = (unit.0 * copies, unit.1 * copies, unit.2 * copies, unit.3 * copies);
                 let text = bonus_text(a.min(255) as u8, b.min(255) as u8, c, v, cards::is(source, cards::TREASURE));
-                let name = if copies > 1 { format!("{} \u{d7}{copies}", cards::name(source)) } else { cards::name(source).to_string() };
+                // A Duration firing at the start of a turn: the engine merges the copies of a card into one entry ("+$2" for two
+                // Samurai), so name the copies in play ("Samurai ×2"; one Throne Room'd Samurai stays "Samurai").
+                let shown = if depth == 0 { copies.max(self.state.players[player as usize].in_play.get(source) as u16) } else { copies };
+                let name = if shown > 1 { format!("{} \u{d7}{shown}", cards::name(source)) } else { cards::name(source).to_string() };
                 let line = if depth == 0 {
                     // A Duration firing at the start of its owner's turn.
                     let sep = if text.is_empty() { "" } else { ": " };

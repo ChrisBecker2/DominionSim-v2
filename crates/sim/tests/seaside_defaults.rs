@@ -37,11 +37,11 @@ fn state(fields: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------------------
-// Haven: set aside the best card you can't use this turn.
+// Haven: set aside a Treasure the buy does not need (else a dead card, else the cheapest).
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn haven_sets_aside_the_most_valuable_card() {
+fn haven_sets_aside_the_treasure_the_buy_does_not_need() {
     let strat = load("big_money_ultimate.toml");
     // Hand after Haven's own +1 Card +1 Action leaves {Gold, Copper, Estate} to choose from.
     let text = state("hand: Haven, Gold, Copper, Estate\ndeck: Duchy\nin play:");
@@ -56,7 +56,8 @@ fn haven_sets_aside_the_most_valuable_card() {
     let mut buf = ChoiceBuf::default();
     g.legal_choices(&mut buf);
     let choice = strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice());
-    assert_eq!(choice, Choice::Card(id::GOLD), "the Gold is the most valuable card to keep for next turn");
+    // $4 buys a Silver with or without the Copper; without the Gold it buys nothing: the Copper goes aside, the Gold is played.
+    assert_eq!(choice, Choice::Card(id::COPPER), "the Copper is the treasure this turn's buy does not need");
 }
 
 // ---------------------------------------------------------------------------------------

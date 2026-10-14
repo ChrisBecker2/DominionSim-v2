@@ -3,8 +3,8 @@
 
 use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{self, id, CardId, ModeOpt};
-use dominion_engine::engine::{Choice};
-use dominion_engine::state::{Filter};
+use dominion_engine::engine::{Choice, Decision};
+use dominion_engine::state::{Act, Filter, Zone};
 
 use super::SetDefaults;
 use crate::strategy::*;
@@ -12,6 +12,10 @@ use crate::strategy::*;
 pub(super) struct Seaside;
 
 impl SetDefaults for Seaside {
+    fn select(s: &Strategy, view: &PlayerView, _decision: &Decision, source: CardId, act: Act, _from: Zone, choices: &[Choice]) -> Option<Choice> {
+        (source == id::HAVEN && act == Act::SetAside).then(|| haven_pick(s, view, choices))
+    }
+
     fn default_mode(_s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
         (card == id::NATIVE_VILLAGE).then(|| default_native_village(view, choices))
     }
@@ -53,4 +57,23 @@ pub(super) fn default_native_village(view: &PlayerView, choices: &[Choice]) -> C
     let take = mat_size >= 2 || needs_them_now;
     let pred: fn(&ModeOpt) -> bool = if take { is_native_village_take } else { is_native_village_add };
     find_mode(id::NATIVE_VILLAGE, choices, pred).unwrap_or(choices[0])
+}
+
+/// Haven: the card to set aside comes back in next turn's hand, so set aside what this turn does not need. First a Treasure the buy does
+/// not miss (the best gain-list card affordable stays the same without it; the dearest such one, as it is worth the most next turn); else a
+/// card that is dead in a hand (Curse, Ruins, Victory); else the cheapest card.
+fn haven_pick(s: &Strategy, view: &PlayerView, choices: &[Choice]) -> Choice {
+    let coins = |c: CardId| if view.is_treasure(c) { cards::def(c).coins as u32 } else { 0 };
+    let money: u32 = view.turn().coins as u32 + view.hand().iter().map(|(c, n)| coins(c) * n as u32).sum::<u32>();
+    let potion = view.hand().has(id::POTION) || view.turn().potions > 0;
+    let rank = |m: u32| s.best_gain_rank(view, m.min(u8::MAX as u32) as u8, Filter::Any, false, potion);
+    let now = rank(money);
+    if let Some(c) = iter_cards(choices).filter(|&c| coins(c) > 0 && rank(money - coins(c)) == now).max_by_key(|&c| (coins(c), c)) {
+        return Choice::Card(c);
+    }
+    let dead = |c: CardId| c == id::CURSE || cards::is(c, cards::RUINS) || (cards::is(c, cards::VICTORY) && !cards::is(c, cards::ACTION) && !cards::is(c, cards::TREASURE));
+    if let Some(c) = iter_cards(choices).find(|&c| dead(c)) {
+        return Choice::Card(c);
+    }
+    iter_cards(choices).min_by_key(|&c| (cards::cost(c), c)).map(Choice::Card).unwrap_or(choices[0])
 }

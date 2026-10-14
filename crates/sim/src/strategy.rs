@@ -756,6 +756,23 @@ impl Strategy {
         1000.0 * 10f64.powi((self.buy.len() - 1 - rank) as i32)
     }
 
+    /// What one VP token is worth on the scale of `rank_weight`: the cheapest VP the gain list buys now, an allowed Victory card's weight per VP
+    /// (an Estate's, once it buys Estates; a Duchy's third before that), so VP are worth as much as the strategy rates VP: nothing while it lists no
+    /// Victory card (Provinces and Colonies do not count: a token is not a sixth of one). Linear in the tokens, so that the order of two plays that give tokens never matters by itself.
+    pub fn vp_token_weight(&self, view: &PlayerView) -> f64 {
+        let mut best: Option<f64> = None;
+        for (c, _) in &self.buy {
+            let vp = cards::def(*c).vp;
+            if (1..=3).contains(&vp) && cards::is(*c, VICTORY) {
+                if let Some(rank) = self.gain_rank(view, *c) {
+                    let per_vp = self.rank_weight(rank) / vp as f64;
+                    best = Some(best.map_or(per_vp, |b| b.min(per_vp)));
+                }
+            }
+        }
+        best.unwrap_or(0.0)
+    }
+
     /// How much to overpay for the card just bought, by rule (the bot searches it when `search_play`
     /// is on). Stonemason: the amount at which the gain list ranks an Action costing exactly that
     /// highest (with the Potion when that is a listed Potion card), none if there is no listed one.

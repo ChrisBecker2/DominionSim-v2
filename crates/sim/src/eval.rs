@@ -31,15 +31,39 @@ struct RootCache {
     before: dominion_engine::Counts,
     /// The Curses each player owns at the root.
     curses: [u8; dominion_engine::state::MAX_PLAYERS],
+    /// What the gain list's best entry affordable with $m is worth (its weight, 0 when none), for m = 0..TIERS: the price of money in gain-list units.
+    tiers: [f64; TIERS],
+}
+
+const TIERS: usize = 16;
+
+/// How much of the average-hand estimate of a thinner deck counts: it ignores that a thinner deck also cycles faster and that a trash often comes
+/// with an effect of its own (priced separately), and taken in full it overrates trashing in a few cards (Count 64 -> 53% against the rules at 1.0, 56 at 0.3).
+const THINNING_SHARE: f64 = 0.3;
+
+/// The gain list's price of $m of hand (`RootCache::tiers`, interpolated between whole dollars).
+fn tier_price(tiers: &[f64; TIERS], m: f64) -> f64 {
+    let m = m.clamp(0.0, (TIERS - 1) as f64);
+    let (lo, f) = (m.floor() as usize, m.fract());
+    if lo + 1 < TIERS { tiers[lo] * (1.0 - f) + tiers[lo + 1] * f } else { tiers[lo] }
 }
 
 impl RootCache {
-    fn new(root: &GameState, me: u8) -> Self {
+    fn new(root: &GameState, me: u8, strategy: &Strategy) -> Self {
+        let view = PlayerView::new(root, me);
+        let steps: [f64; TIERS] = std::array::from_fn(|m| strategy.best_gain_rank_up_to(&view, m as u8).map_or(0.0, |r| strategy.rank_weight(r)));
+        // A hand's money varies around its average (a standard deviation of about $1.5), so the average hand is worth what hands around it are worth
+        // on average: the steps smoothed with a Gaussian of that width.
+        let kernel: [f64; 9] = std::array::from_fn(|i| (-((i as f64 - 4.0) / 1.5).powi(2) / 2.0).exp());
+        let total: f64 = kernel.iter().sum();
+        let tiers = std::array::from_fn(|m| {
+            kernel.iter().enumerate().map(|(i, k)| k * steps[(m as i32 + i as i32 - 4).clamp(0, TIERS as i32 - 1) as usize]).sum::<f64>() / total
+        });
         let mut curses = [0u8; dominion_engine::state::MAX_PLAYERS];
         for (o, c) in curses.iter_mut().enumerate().take(root.num_players as usize) {
             *c = root.players[o].count_of(id::CURSE).min(255) as u8;
         }
-        RootCache { me, before: root.players[me as usize].all_cards(), curses }
+        RootCache { me, before: root.players[me as usize].all_cards(), curses, tiers }
     }
 }
 
@@ -63,7 +87,7 @@ impl GainListEvaluator<'_> {
     /// 5 + (rules below it), so earlier rules count more;
     /// tier 3, defaults: each Attack played +0.5, each card trashed that the trash rules want gone
     /// +0.3, each Action played +0.1, each Treasure played +0.01.
-    fn preferences(&self, root: &GameState, leaf: &GameState, me: u8, before: &dominion_engine::Counts, after: &dominion_engine::Counts) -> f64 {
+    fn preferences(&self, root: &GameState, leaf: &GameState, me: u8, before: &dominion_engine::Counts, after: &dominion_engine::Counts, tiers: &[f64; TIERS]) -> f64 {
         if leaf.turn.player != me {
             return 0.0;
         }
@@ -91,20 +115,53 @@ impl GainListEvaluator<'_> {
                 }
             }
         }
+        let mut thinned = dominion_engine::Counts::EMPTY;
+        let mut lost_any = !leaf.turn.used_up.is_empty();
         for (c, _) in before.iter() {
             // A card that trashed itself as part of its effect was used, not lost.
             let gone = before.get(c) as i32 - after.get(c) as i32 - leaf.turn.used_up.get(c) as i32;
             // Trashing what the trash rules want is a plus; losing anything else (a lone
             // Treasure Map trashing itself, a forced trash) a small minus.
             if gone > 0 {
-                p += if self.strategy.wants_trash(&view, c) { 0.3 } else { -0.3 } * gone as f64;
+                lost_any = true;
+                let wanted = self.strategy.wants_trash(&view, c);
+                p += if wanted { 0.3 } else { -0.3 } * gone as f64;
+                if wanted {
+                    thinned.add(c, gone.min(255) as u8);
+                }
             }
         }
-        p + self.vp_token_value(root, leaf, me)
+        p + self.thinning_value(root, before.total(), after, &thinned, tiers)
+            + self.vp_token_value(root, leaf, me, tiers, lost_any)
             + self.coffers_value(root, leaf, me)
             + self.mat_return_value(root, leaf, me)
+            + self.mat_copper_value(root, leaf, me, tiers)
+            + self.next_turn_value(root, leaf, me, tiers)
             + self.debt_value(root, leaf, me)
             + sun_value(root, leaf, me)
+    }
+
+    /// What a deck without the cards the trash rules wanted gone (`thinned`, trashed this turn) is worth over the one with them, in gain-list units: each
+    /// remaining turn's hand holds `average_hand_money` of the deck, and money is priced by the gain list (`tiers`: the weight of the best entry
+    /// affordable, interpolated between whole dollars). Without it the search sees a trash only as the buy it costs this turn, and a trasher's play
+    /// looks worse than passing; the cards lost that the rules did not want are charged by their own gain-list weight (above).
+    fn thinning_value(&self, root: &GameState, before_total: u32, after: &dominion_engine::Counts, thinned: &dominion_engine::Counts, tiers: &[f64; TIERS]) -> f64 {
+        if thinned.is_empty() {
+            return 0.0;
+        }
+        let turns = (dominion_search::estimated_turns_left(root, &self.tie_break.weights) - 1.0).max(0.0);
+        if turns <= 0.0 {
+            return 0.0;
+        }
+        let price = |m: f64| tier_price(tiers, m);
+        // Only a deck that shrinks: a trash that comes with gains (Remodel, Develop, Count) is priced by those gains.
+        if after.total() >= before_total {
+            return 0.0;
+        }
+        let mut with = *after;
+        with.add_all(thinned);
+        // Never a charge: a card the rules want trashed is not a loss, and the average hand ignores that a thinner deck cycles faster.
+        (THINNING_SHARE * turns * (price(dominion_search::average_hand_money(after)) - price(dominion_search::average_hand_money(&with)))).max(0.0)
     }
 
     /// Debt is money owed out of a later hand: each token is the opposite of a Coffers token, `vp_per_coin` while the game has turns left to pay it
@@ -155,6 +212,53 @@ impl GainListEvaluator<'_> {
         v
     }
 
+    /// Coppers put on the Tavern mat this turn (Miser): each is +$1 in every future hand that plays a Miser to cash the mat in, so over the turns left
+    /// it is worth that many dollars of hand, priced by the gain list's tiers around the deck's average hand. Without it the search sees the Copper
+    /// only as $1 lost from this turn's buy and never builds a mat. (The dollars a cash-in gives this turn are counted by the buy it makes.)
+    fn mat_copper_value(&self, root: &GameState, leaf: &GameState, me: u8, tiers: &[f64; TIERS]) -> f64 {
+        let delta = leaf.players[me as usize].tavern.get(id::COPPER) as f64 - root.players[me as usize].tavern.get(id::COPPER) as f64;
+        if delta == 0.0 {
+            return 0.0;
+        }
+        let turns = (dominion_search::estimated_turns_left(root, &self.tie_break.weights) - 1.0).max(0.0);
+        let all = root.players[me as usize].all_cards();
+        let n = (all.total() as f64).max(5.0);
+        let p_miser = (5.0 * all.get(id::MISER) as f64 / n).min(1.0);
+        let m = dominion_search::average_hand_money(&all);
+        let slope = (tier_price(tiers, m + 1.0) - tier_price(tiers, m)).max(0.0);
+        delta * turns * p_miser * slope
+    }
+
+    /// What the Durations played this turn (and the cards a Haven set aside) bring to next turn's hand, as money priced by the gain list's tiers:
+    /// the extra cards, the $ and the returning Treasures, on top of the average hand (not Farrier's or Expedition's extra draw, which is an overpay the rules size; and only for Durations with a choice, Tactician and Haven: a choice-free Duration's value must not depend on the order it is played in, which the play shortcuts rely on). Without it the search sees only what a Tactician
+    /// costs this turn (the hand discarded), and a Haven's set-aside Treasure as a loss. Debt and Coffers have their own terms.
+    fn next_turn_value(&self, root: &GameState, leaf: &GameState, me: u8, tiers: &[f64; TIERS]) -> f64 {
+        let (r, l) = (&root.players[me as usize], &leaf.players[me as usize]);
+        if l.pending_durations_len == 0 && r.pending_durations_len == 0 {
+            return 0.0;
+        }
+        if dominion_search::estimated_turns_left(root, &self.tie_break.weights) - 1.0 <= 0.0 {
+            return 0.0;
+        }
+        let bonus = |ps: &dominion_engine::state::PlayerState| -> f64 {
+            let (mut cards, mut coins) = (0u32, 0u32);
+            for e in ps.pending_durations[..ps.pending_durations_len as usize].iter().filter(|e| !dominion_engine::cards::is_choice_free(e.card)) {
+                let (c, _, _, k) = dominion_engine::cards::duration_bonus(e.card);
+                cards += c as u32 * e.times as u32;
+                coins += k as u32 * e.times as u32;
+                // Haven: the Treasure set aside is back in the hand.
+                if e.card == id::HAVEN && e.arg != 0 && dominion_engine::cards::is(e.arg, dominion_engine::cards::TREASURE) {
+                    coins += dominion_engine::cards::def(e.arg).coins as u32;
+                }
+            }
+            // An extra card is worth an average card of the whole deck, not of what is left to draw: what the cards drawn this turn were must not
+            // matter, or the order of two cantrips would.
+            coins as f64 + cards as f64 * dominion_search::average_hand_money(&ps.all_cards()) / 5.0
+        };
+        let m = dominion_search::average_hand_money(&l.all_cards());
+        tier_price(tiers, m + bonus(l)) - tier_price(tiers, m + bonus(r))
+    }
+
     /// Coffers tokens gained this turn, net of those spent: a token is +$1 in a future hand, worth
     /// `vp_per_coin` while the game has turns left to spend it (nothing in the last turn). On the
     /// preference scale: more than any play preference, never more than a gain-list difference, so a
@@ -177,9 +281,20 @@ impl GainListEvaluator<'_> {
     /// a card that trashed itself for them gives up: Investment's +$1 in every future hand it
     /// would have turned up in. Priced like `NextHandEvaluator`: `vp_per_coin` VP per coin over the
     /// `estimated_turns_left`, each card in a hand of 5 out of the deck's N cards.
-    fn vp_token_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+    fn vp_token_value(&self, root: &GameState, leaf: &GameState, me: u8, tiers: &[f64; TIERS], traded: bool) -> f64 {
         let tokens = leaf.players[me as usize].vp_tokens as f64 - root.players[me as usize].vp_tokens as f64;
         let mut v = tokens;
+        let m = dominion_search::average_hand_money(&root.players[me as usize].all_cards());
+        let slope = ((tier_price(tiers, m + 1.0) - tier_price(tiers, m - 1.0)) / 2.0).max(0.0);
+        // Tokens given for a card (Bishop, Temple, Investment) are weighed against the card's worth; tokens that cost nothing (Monument) stay a plain
+        // preference, so that when to play them never outweighs a buy.
+        if tokens > 0.0 && traded {
+            // What the strategy would pay for the same VP in Victory cards, or what the same VP are worth as money (`vp_per_coin`) at the price of
+            // the gain list's tiers around the deck's average hand, whichever is more.
+            let as_cards = tokens * self.strategy.vp_token_weight(&PlayerView::new(root, me));
+            let as_money = tokens * slope / self.tie_break.weights.vp_per_coin;
+            v += as_cards.max(as_money);
+        }
         if !leaf.turn.used_up.is_empty() {
             let w = &self.tie_break.weights;
             let turns = (dominion_search::estimated_turns_left(root, w) - 1.0).max(0.0);
@@ -191,7 +306,9 @@ impl GainListEvaluator<'_> {
                     .map(|o| if let dominion_engine::cards::ModeOpt::Coins(x) = o { *x as f64 } else { 0.0 })
                     .sum();
                 if dominion_engine::cards::is(c, dominion_engine::cards::TREASURE) {
-                    v -= k as f64 * coin * w.vp_per_coin * turns * (5.0 / n);
+                    // The same price as the VP above: a coin in every future hand it would have turned up in.
+                    // The same price as the VP above: a coin in every future hand it would have turned up in.
+                    v -= k as f64 * coin * slope.max(w.vp_per_coin) * turns * (5.0 / n);
                 }
             }
         }
@@ -201,7 +318,7 @@ impl GainListEvaluator<'_> {
 
 impl Evaluator for GainListEvaluator<'_> {
     fn begin_root(&self, root: &GameState, me: u8) {
-        *self.root.borrow_mut() = Some(RootCache::new(root, me));
+        *self.root.borrow_mut() = Some(RootCache::new(root, me, self.strategy));
     }
 
     fn end_root(&self) {
@@ -215,7 +332,7 @@ impl Evaluator for GainListEvaluator<'_> {
         let cache = match &*cached {
             Some(c) if c.me == me => c,
             _ => {
-                local = RootCache::new(root, me);
+                local = RootCache::new(root, me, self.strategy);
                 &local
             }
         };
@@ -294,7 +411,7 @@ impl Evaluator for GainListEvaluator<'_> {
         let tie = self.tie_break.leaf_value(root, leaf, me) - game_end_value(leaf, me);
         // A turn that wins the game outright outranks everything, whatever it gains.
         let win = if self.strategy.win_this_turn && leaf.result_if_turn_ends() == Some(1 << me) { 1e15 } else { 0.0 };
-        win + v + self.preferences(root, leaf, me, before, &after) + 1e-6 * tie
+        win + v + self.preferences(root, leaf, me, before, &after, &cache.tiers) + 1e-6 * tie
     }
 
     /// Below the analyzed decision, play exactly as the strategy's rules do, so the analysis
@@ -605,6 +722,16 @@ pub fn search_play_choice(strategy: &Strategy, view: &PlayerView) -> Option<Choi
         }
         last
     })
+}
+
+/// Every option of the play decision `view` faces, with the value the strategy's scoring gives it (best first) and its best line as text:
+/// what `search_play_choice` ranks, for diagnosing why the search prefers a move.
+pub fn analyze_play(strategy: &Strategy, view: &PlayerView) -> Vec<(Choice, f64, String)> {
+    let world = view.determinize(&mut Rng::new(view.stable_seed()));
+    let eval = GainListEvaluator::new(strategy);
+    let mut searcher = Searcher::new(PLAY_TT_BITS);
+    let cfg = SearchConfig { node_budget: PLAY_BUDGETS[1], tt_bits: PLAY_TT_BITS, ..SearchConfig::default() };
+    searcher.analyze(&world, view.me(), &cfg, &eval).options.into_iter().map(|o| (o.choice, o.ev, o.pv)).collect()
 }
 
 /// `search_play_choice` for the start-of-turn decisions (the order of the start-of-turn effects,

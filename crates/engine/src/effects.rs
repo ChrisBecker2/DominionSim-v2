@@ -1124,6 +1124,10 @@ impl GameState {
                 } else if !(f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }
+                if f.act == Act::Trash && f.zone == Zone::InPlay && c == f.source {
+                    // A card trashing itself for its effect (Pillage) was used, not lost: the same as Mining Village's yes (below).
+                    self.turn.used_up.add_or_drop(f.source, 1);
+                }
                 match f.then {
                     // Gear: each card set aside returns at the start of the next turn.
                     Then::GearAside => self.push_duration_pending(p, f.source, 1, c),

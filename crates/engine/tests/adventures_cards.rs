@@ -2168,6 +2168,29 @@ fn mission_gives_an_extra_turn_in_which_no_cards_can_be_bought_but_events_can() 
 }
 
 #[test]
+fn a_missions_extra_turn_does_not_count_towards_the_fewer_turns_tiebreak() {
+    // Rules (Turn, Gameplay): tied scores go to the player with fewer turns; extra turns don't count.
+    let mut g = buy_phase(&[id::MISSION, id::ALMS], 4);
+    g.turn.buys = 1;
+    let before = g.players[0].turns_taken;
+    adv(&mut g);
+    buy(&mut g, id::MISSION);
+    assert!(g.turn.is_extra_turn && g.turn.player == 0);
+    assert_eq!(g.players[0].turns_taken, before + 1, "the normal turn counts");
+    // End the Mission turn.
+    g.turn.phase = Phase::Buy;
+    g.pending = Pending::None;
+    g.turn.buys = 0;
+    adv(&mut g);
+    while g.turn.player == 0 {
+        let cs = choices(&g);
+        g.apply(*cs.last().unwrap(), &mut NoEvents).unwrap();
+        adv(&mut g);
+    }
+    assert_eq!(g.players[0].turns_taken, before + 1, "the Mission turn is not a turn taken for the tie-break");
+}
+
+#[test]
 fn mission_bought_twice_gives_one_extra_turn() {
     let mut g = buy_phase(&[id::MISSION], 8);
     g.turn.buys = 2;
@@ -2489,4 +2512,3 @@ fn teacher_moves_one_of_the_four_tokens_to_a_pile_without_the_players_tokens() {
     choose(&mut g, Choice::Card(id::VILLAGE));
     assert_eq!(g.players[0].tok[TOK_ACTION], id::VILLAGE);
 }
-

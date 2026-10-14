@@ -57,7 +57,7 @@ fn the_card_that_empties_the_third_pile_is_not_taken_when_it_loses() {
     // Ahead by enough that the Estate wins (1 to 0): taken.
     let g = state("Estate=1, Cellar=0, Moat=0", 1, "Silver Silver", "", "");
     assert_eq!(pick(&strat, g), card(id::ESTATE));
-    // A tie is a shared win, and fewer turns win it: taken.
+    // A tie (5 to 5) when the game ends now: 15 turns each, so a shared win (equal VP and equal turns), not a loss: taken.
     let g = state("Estate=1, Cellar=0, Moat=0", 1, "Silver Silver", "Duchy Estate Estate", "Duchy Duchy");
     assert_eq!(pick(&strat, g), card(id::ESTATE));
 }
@@ -108,7 +108,8 @@ fn the_second_to_last_province_is_not_taken_when_it_hands_over_the_game() {
     assert_eq!(pick(&strat, state("Province=2", 1, "Gold Gold Silver", "", "3 Province")), card(id::DUCHY));
     // Far ahead (24 to 0): after mine, 30 to 0; the last one gives them 6. Taken.
     assert_eq!(pick(&strat, state("Province=2", 1, "Gold Gold Silver", "4 Province", "")), card(id::PROVINCE));
-    // Level (0 to 0): 6 to 0 after my gain, the opponent's last one makes it 6 to 6, and I have fewer turns: a shared win, so it is fine.
+    // Level (0 to 0): 6 to 0 after my gain, the opponent's last one makes it 6 to 6 on their 16th turn against my 15: fewer turns wins the
+    // tie, so I win; it is fine.
     assert_eq!(pick(&strat, state("Province=2", 1, "Gold Gold Silver", "", "")), card(id::PROVINCE));
     // Behind by 1 (0 to 1): 6 to 1 after mine, the last gives them 7: a loss.
     assert_eq!(pick(&strat, state("Province=2", 1, "Gold Gold Silver", "", "Estate")), card(id::DUCHY));

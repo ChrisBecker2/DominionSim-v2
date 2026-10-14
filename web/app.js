@@ -2114,6 +2114,16 @@
           m: { fmt: (v) => v.toFixed(2) },
         };
       }
+      case "curse": {
+        if (!r.players.some((q) => q.curse.some((v) => v > 0))) return { kind: "message", text: "Nobody had a Curse in these games." };
+        return {
+          kind: "lines",
+          title: "Curses owned by turn (average)",
+          caption: "Average number of Curses the seat owns after each of its turns, however they came (an opponent's attack, or bought or gained), less any it trashed (a finished game keeps its final count). " + OWN_TURN,
+          series: seatSeries(SS.carriedSeries(r, "curse", "curseEnd")),
+          m: { fmt: (v) => v.toFixed(2) },
+        };
+      }
       case "winturn": {
         const series = r.players.map((q, p) => ({ name: names[p], color: seatColor(p), pts: q.winsAt.map((w, i) => ({ x: i + 1, y: (100 * w) / r.games })) }));
         return {

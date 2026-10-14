@@ -963,6 +963,8 @@ const SIM_DECK: u32 = 1;
 ///   turn, summed over the games that reached it; provEnd, duchyEnd, colonyEnd: the same totals
 ///   at the seat's last turn, indexed by that turn (to carry finished games forward: the average
 ///   over all games by turn t is (cum[t] + sum of end[<t]) / games);
+/// - curse, curseEnd: Curses the seat owns after the turn (however they came), summed like provCum /
+///   provEnd;
 /// - wins and winsSq (sum of squared win shares) and winsAt (by the winner's turn count; a
 ///   shared win counts 1/k); firstGames / firstWins: games the seat went first in, and its wins
 ///   in them (so the second-player rate is the rest);
@@ -990,6 +992,8 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
         let mut count = vec![Vec::<f64>::new(); n];
         let mut green = vec![vec![Vec::<f64>::new(); n]; 3];
         let mut green_end = vec![vec![Vec::<f64>::new(); n]; 3];
+        let mut curse = vec![Vec::<f64>::new(); n];
+        let mut curse_end = vec![Vec::<f64>::new(); n];
         let mut owned = vec![Vec::<f64>::new(); n]; // [turn * NUM_CARDS + card]
         let mut wins = vec![0f64; n];
         let mut wins_sq = vec![0f64; n];
@@ -1066,6 +1070,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
                         vp_hist[seat].resize(t + 1, i32::MIN);
                     }
                     vp_hist[seat][t] = score;
+                    bump(&mut curse[seat], t, s.players[p].count_of(cards::id::CURSE) as f64);
                     if want_deck {
                         if owned[seat].len() < (t + 1) * cards::NUM_CARDS {
                             owned[seat].resize((t + 1) * cards::NUM_CARDS, 0.0);
@@ -1110,6 +1115,8 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
                     for k in 0..3 {
                         bump(&mut green_end[k][p], last, run_green[p][k] as f64);
                     }
+                    let q = order.iter().position(|&o| o == p).unwrap_or(p);
+                    bump(&mut curse_end[p], last, s.players[q].count_of(cards::id::CURSE) as f64);
                 }
             }
             if !s.is_game_over() {
@@ -1149,7 +1156,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
             .map(|p| {
                 let mut o = format!(
                     "{{\"vp\":{},\"vpSq\":{},\"money\":{},\"moneySq\":{},\"buys\":{},\"buysSq\":{},\"count\":{},\
-                     \"provCum\":{},\"duchyCum\":{},\"colonyCum\":{},\"provEnd\":{},\"duchyEnd\":{},\"colonyEnd\":{},\"wins\":{},\"winsSq\":{},\"winsAt\":{},\
+                     \"provCum\":{},\"duchyCum\":{},\"colonyCum\":{},\"provEnd\":{},\"duchyEnd\":{},\"colonyEnd\":{},\"curse\":{},\"curseEnd\":{},\"wins\":{},\"winsSq\":{},\"winsAt\":{},\
                      \"firstGames\":{},\"firstWins\":{}",
                     arr(&vp[p]),
                     arr(&vp_sq[p]),
@@ -1164,6 +1171,8 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
                     arr(&green_end[0][p]),
                     arr(&green_end[1][p]),
                     arr(&green_end[2][p]),
+                    arr(&curse[p]),
+                    arr(&curse_end[p]),
                     wins[p],
                     wins_sq[p],
                     arr(&wins_at[p]),

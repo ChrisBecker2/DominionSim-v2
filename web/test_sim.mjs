@@ -129,4 +129,26 @@ console.log("worker ranges");
 const per = [0, 1, 2, 3].map((i) => sim(150, 7, 3, 150 * i));
 check("any number of workers gives the same result", JSON.stringify(SS.mergeSims(per, 2)) === JSON.stringify(r));
 
+console.log("curses");
+check("no Curses without a Curse giver in the kingdom", r.players.every((q) => q.curse.every((x) => x === 0) && q.curseEnd.every((x) => x === 0)));
+{
+  // Double Witch against Big Money Ultimate on a kingdom with Witch: Curses owned match the deck record.
+  const wk = new TextEncoder().encode("Witch, Village, Market, Moat, Cellar, Militia, Laboratory, Festival, Smithy, Library");
+  const wp = w.alloc(wk.length);
+  new Uint8Array(w.memory.buffer, wp, wk.length).set(wk);
+  w.new_game(2, wp, wk.length, 5n, 0);
+  w.set_seat(0, 4);
+  w.set_seat(1, 2);
+  w.state_bytes_current();
+  const st = new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()).slice();
+  const p2 = w.alloc(st.length);
+  new Uint8Array(w.memory.buffer, p2, st.length).set(st);
+  if (!w.simulate(p2, 200, 11, 1, 0)) throw new Error(text());
+  const c = SS.mergeSims([JSON.parse(text())], 2);
+  check("Curses owned equal the deck record's Curses", c.players.every((q) => q.curse.every((x, i) => near(x, (q.owned.Curse || [])[i] || 0))));
+  const seen = SS.carriedSeries(c, "curse", "curseEnd");
+  check("Big Money Ultimate ends with more Curses than Double Witch", seen[1][seen[1].length - 1].y > seen[0][seen[0].length - 1].y + 1);
+  check("at most 10 Curses per game in a 2-player game", sum(c.players.map((q) => sum(q.curseEnd))) <= 10 * 200);
+}
+
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED (sim)");

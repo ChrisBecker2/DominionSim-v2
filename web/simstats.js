@@ -7,7 +7,7 @@
 // confidence intervals are computed here, after merging. Shapes (see crates/wasm/src/lib.rs):
 //   { games, capped, lengthSum, lengthHist[], fresh, pairs[{a,b,n[],sum[],sq[],marginSq}],
 //     players[{ vp[], vpSq[], money[], moneySq[], buys[], buysSq[], count[], provCum[], duchyCum[],
-//               colonyCum[], provEnd[], duchyEnd[], colonyEnd[], wins, winsSq, winsAt[], firstGames, firstWins, owned?{card: sums[]} }] }
+//               colonyCum[], provEnd[], duchyEnd[], colonyEnd[], curse[], curseEnd[], wins, winsSq, winsAt[], firstGames, firstWins, owned?{card: sums[]} }] }
 // Arrays are indexed by the player's own turn number minus 1.
 
 (function (root) {
@@ -18,7 +18,7 @@
   const MIN_SHARE = 0.05;
   const Z95 = 1.959964;
 
-  const PLAYER_ARRAYS = ["vp", "vpSq", "money", "moneySq", "buys", "buysSq", "count", "provCum", "duchyCum", "colonyCum", "provEnd", "duchyEnd", "colonyEnd", "winsAt"];
+  const PLAYER_ARRAYS = ["vp", "vpSq", "money", "moneySq", "buys", "buysSq", "count", "provCum", "duchyCum", "colonyCum", "provEnd", "duchyEnd", "colonyEnd", "curse", "curseEnd", "winsAt"];
   const PLAYER_NUMBERS = ["wins", "winsSq", "firstGames", "firstWins"];
 
   function addArr(a, b) {

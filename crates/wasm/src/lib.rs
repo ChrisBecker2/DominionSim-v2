@@ -374,12 +374,13 @@ impl App {
                 let text = bonus_text(a.min(255) as u8, b.min(255) as u8, c, v, cards::is(source, cards::TREASURE));
                 // A Duration firing at the start of a turn: the engine merges the copies of a card into one entry ("+$2" for two
                 // Samurai), so name the copies in play ("Samurai ×2"; one Throne Room'd Samurai stays "Samurai").
-                let shown = if depth == 0 { copies.max(self.state.players[player as usize].in_play.get(source) as u16) } else { copies };
+                let shown = if depth == 0 && (source as usize) < cards::NUM_ZONE_IDS { copies.max(self.state.players[player as usize].in_play.get(source) as u16) } else { copies };
                 let name = if shown > 1 { format!("{} \u{d7}{shown}", cards::name(source)) } else { cards::name(source).to_string() };
                 let line = if depth == 0 {
-                    // A Duration firing at the start of its owner's turn.
+                    // A Duration firing at the start of its owner's turn (or a Prophecy such as Biding Time, which is no card in play).
                     let sep = if text.is_empty() { "" } else { ": " };
-                    format!("Player {}'s {name} (duration){sep}{text}", player + 1)
+                    let kind = if (source as usize) < cards::NUM_ZONE_IDS { " (duration)" } else { "" };
+                    format!("Player {}'s {name}{kind}{sep}{text}", player + 1)
                 } else if copies == 1 && self.last_played == Some(source) {
                     text
                 } else {
@@ -2855,5 +2856,45 @@ mod log_tests {
                 "Player 1 gains Gold to their discard pile (Hoard)".to_string(),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod run_game_tests {
+    use super::*;
+
+    /// Run Game on a Rising Sun kingdom with an Event and a Prophecy (Biding Time), both seats one
+    /// strategy: plays to the end through the page's own path (log, per-turn record).
+    #[test]
+    fn run_game_with_a_prophecy_and_an_event() {
+        let kingdom = dominion_engine::parse_kingdom(
+            "Aristocrat, Artist, Kitsune, Root Cellar, Samurai, Artificer, Distant Lands, Dungeon, Duplicate, Page, Kintsugi, Biding Time",
+        )
+        .unwrap();
+        let text = "name = \"T\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Samurai\"\nif = \"count(Samurai) < 3\"\n[[gain]]\ncard = \"Kitsune\"\nif = \"count(Kitsune) < 2\"\n[[gain]]\ncard = \"Distant Lands\"\n[[gain]]\ncard = \"Kintsugi\"\n[[gain]]\ncard = \"Silver\"\n";
+        for seed in 1..=5u64 {
+            APP.with(|cell| {
+                let mut app = cell.borrow_mut();
+                let cfg = GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200, ..Default::default() };
+                let mut state = GameState::new(&cfg);
+                state.pause_at_turn_start = true;
+                app.state = state;
+                app.record = GameRecord::new(&app.state);
+                app.history.clear();
+                app.log.clear();
+                if app.strategies.len() == STRATEGY_SOURCES.len() {
+                    app.strategies.push(Strategy::parse(text).unwrap());
+                }
+                let id = FIRST_STRATEGY_SEAT + STRATEGY_SOURCES.len() as u32;
+                app.seats[0] = id;
+                app.seats[1] = id;
+                run_bots_impl(&mut app).unwrap();
+                assert_eq!(app.state.turn.phase, Phase::GameOver);
+                let _ = app.record.json(&app.state);
+                // Biding Time hands back the set-aside cards at the start of a turn: it is named, but is no Duration.
+                assert!(app.log.iter().any(|l| l.contains("Player 1's Biding Time") || l.contains("Player 2's Biding Time")));
+                assert!(!app.log.iter().any(|l| l.contains("Biding Time (duration)")));
+            });
+        }
     }
 }

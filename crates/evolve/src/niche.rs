@@ -110,6 +110,14 @@ impl Behaviour {
         Behaviour { gains, events, trashes: p.trashes_per_game(), turns: if games > 0 { turns_sum / games as f64 } else { 0.0 } }
     }
 
+    /// The same behaviour with only the kingdom cards `genome`'s gain list names counted as gained: the niche's key cards. A card the
+    /// strategy only ever gains because an effect forces a gain (Kintsugi on a Curse gaining a Page, a Workshop with nothing listed) does
+    /// not name its niche. The full list stays in `text`.
+    pub fn listed_in(&self, genome: &Genome) -> Behaviour {
+        let gains = self.gains.iter().copied().filter(|&(c, _)| genome.gain.iter().any(|r| r.card == c)).collect();
+        Behaviour { gains, ..self.clone() }
+    }
+
     pub fn describe(&self, reference_turns: f64, prm: &NicheParams) -> Descriptor {
         let mut key = [NO_CARD; 2];
         if let Some(&(c0, g0)) = self.gains.first() {
@@ -288,6 +296,18 @@ mod tests {
         assert!(none.label().starts_with("Money only"));
         let heavy = Behaviour { trashes: 9.0, turns: 10.0, ..Default::default() }.describe(15.0, &NicheParams::default());
         assert_eq!((heavy.trash, heavy.length), (2, 0));
+    }
+
+    #[test]
+    fn only_listed_cards_name_the_niche() {
+        // Samurai is listed and bought; Pages arrive only as forced gains (Kintsugi on a Curse): the niche is Samurai's, the text keeps both.
+        let p = profile(&[(id::SAMURAI, 200), (id::PAGE, 300)], 0, 100);
+        let b = Behaviour::from_profile(&p, 1500.0, 100);
+        let g = crate::ops::big_money_with(&[(id::SAMURAI, 3)]);
+        assert!(b.describe(15.0, &NicheParams::default()).label().starts_with("Page + Samurai,"));
+        let d = b.listed_in(&g).describe(15.0, &NicheParams::default());
+        assert!(d.label().starts_with("Samurai,"), "{}", d.label());
+        assert!(b.text().contains("Page 3.0"), "{}", b.text());
     }
 
     #[test]

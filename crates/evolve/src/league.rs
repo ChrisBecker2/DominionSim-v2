@@ -409,7 +409,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         for &i in &order {
             let c = &cands[i];
             let beh = Behaviour::from_profile(c.profile.as_ref().unwrap(), c.score.turns, c.score.played);
-            let d = beh.describe(reference_turns, &prm);
+            let d = beh.listed_in(&c.genome).describe(reference_turns, &prm);
             let f = fitness(&c.score, &c.genome, parsimony);
             let elite = Elite {
                 genome: c.genome.clone(),
@@ -879,7 +879,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     let mut behaviours: Vec<Behaviour> = Vec::new();
     for i in 0..n {
         let b = Behaviour::from_profile(&rr.profiles[i], rr.turns_sum[i], rr.games_played[i]);
-        descriptors.push(b.describe(reference_turns, &prm));
+        descriptors.push(b.listed_in(&genomes[i]).describe(reference_turns, &prm));
         behaviours.push(b);
     }
     let field_games = (rr.table.games * (n as u64 - 1).max(1)) as f64;

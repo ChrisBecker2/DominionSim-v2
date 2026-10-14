@@ -140,6 +140,11 @@ pub(super) trait SetDefaults {
     fn useless_play(_s: &Strategy, _view: &PlayerView, _card: CardId) -> bool {
         false
     }
+    /// Whether buying the Event `card` now can only do harm (it must trash a card from the hand and none is worth trashing): the gain list
+    /// passes over it, even when it is the first entry the $ reaches.
+    fn useless_buy(_s: &Strategy, _view: &PlayerView, _card: CardId) -> bool {
+        false
+    }
     /// A Treasure that is best played after every other one, ranked among such Treasures (lower first).
     fn plays_last_rank(_card: CardId) -> Option<u8> {
         None
@@ -199,6 +204,10 @@ pub(super) fn worth_playing(s: &Strategy, view: &PlayerView, card: CardId) -> bo
 
 pub(super) fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
     with_set!(cards::set_of(card), S => S::useless_play(s, view, card))
+}
+
+pub(super) fn useless_buy(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+    with_set!(cards::set_of(card), S => S::useless_buy(s, view, card))
 }
 
 pub(super) fn plays_last_rank(card: CardId) -> Option<u8> {

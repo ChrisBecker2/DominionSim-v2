@@ -43,6 +43,17 @@ pub(super) fn trader_gain(s: &Strategy, view: &PlayerView, c: CardId) -> f64 {
     view.cost(c) as f64 * s.weight_of(view, id::SILVER)
 }
 
+/// Kintsugi (an Event, judged at the buy): trash a card from the hand; once a Gold was gained, also gain a card costing up to $2 more. Worth
+/// buying when some card of the hand is worth trashing for it. Judged by the cards' places in the gain list only (not the buy their coins
+/// pay for: at the buy the Treasures are played, and that sum asks the gain list what $ buys, which would ask this again).
+pub(super) fn kintsugi_pays(s: &Strategy, view: &PlayerView) -> bool {
+    let gold = view.gained_a_gold();
+    view.hand().iter().any(|(c, _)| {
+        let gain = if gold { upgrade_gain(s, view, c, 2, false) } else { 0.0 };
+        gain - s.weight_of(view, c) + if s.wants_trash(view, c) { 0.3 } else { -0.3 } >= 0.0
+    })
+}
+
 /// Whether the best card of the hand is worth giving to the effect (not a loss).
 fn pays(s: &Strategy, view: &PlayerView, me: CardId, gain: impl Fn(&Strategy, CardId) -> f64) -> bool {
     s.best_hand_trash(view, me, gain).is_some_and(|(_, v)| v >= 0.0)

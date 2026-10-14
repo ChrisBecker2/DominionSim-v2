@@ -747,7 +747,7 @@ impl Strategy {
     pub(crate) fn reachable_rank_with(&self, view: &PlayerView, money: u32, potions: u8) -> Option<usize> {
         self.buy.iter().position(|(card, cond)| {
             (if cards::is_event(*card) {
-                view.event_available(*card) && view.event_cost(*card) as u32 <= money
+                view.event_available(*card) && view.event_cost(*card) as u32 <= money && !self.useless_buy(view, *card)
             } else {
                 view.in_supply(*card)
                     && view.supply(*card) > 0
@@ -951,6 +951,11 @@ impl Strategy {
         !self.legacy_defaults && defaults::useless_play(self, view, card)
     }
 
+    /// Whether buying the Event `card` now can only do harm (SetDefaults::useless_buy: Kintsugi with nothing in the hand worth trashing).
+    pub(crate) fn useless_buy(&self, view: &PlayerView, card: CardId) -> bool {
+        !self.legacy_defaults && defaults::useless_buy(self, view, card)
+    }
+
     /// Cheap gate for `win_this_turn`: only search when the game could end with at most
     /// `MAX_ENDING_GAINS` more gains: the Province pile, or the smallest piles needed to reach
     /// the empty-pile limit. Allocation-free.
@@ -974,7 +979,7 @@ impl Strategy {
     /// advises against. The guard's cheap precheck (`guard_may_apply`) is the only extra work in the common case.
     fn match_gain_list(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
                 if self.guard_game_end && Self::guard_may_apply(view, *card) {
                     return self.match_gain_list_guarded(view, choices);
                 }
@@ -992,7 +997,7 @@ impl Strategy {
         // list (a Duchy), taken after all when the next card is not worth points or nothing else is wanted.
         let mut penultimate: Option<CardId> = None;
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
                 match Self::guard(view, *card) {
                     Guard::Free => {
                         return match penultimate {

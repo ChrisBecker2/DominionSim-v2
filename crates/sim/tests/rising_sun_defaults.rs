@@ -115,3 +115,55 @@ fn removing_a_sun_token_is_worth_what_the_prophecy_does_for_the_player() {
     // Always far below one gain-list step (a Silver, 1000 on the gain-list scale) and below a stated play rule (5).
     assert!(value_of_a_token(&mine) < 1.0);
 }
+
+#[test]
+fn kintsugi_is_bought_only_with_a_card_worth_trashing() {
+    // Kintsugi must trash a card from the hand. Late in the game the hand left at the buy is often all Victory cards: a Duchy turned into a
+    // Gold loses 3 VP, a Province into a Province wastes the buy. Early, an Estate is worth trashing.
+    let strat = Strategy::parse(
+        "name = \"K\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Duchy\"
+if = \"provinces_left <= 4\"
+[[gain]]
+card = \"Gold\"
+[[gain]]
+card = \"Kintsugi\"
+[[gain]]
+card = \"Silver\"
+",
+    )
+    .unwrap();
+    let buy = |supply: &str, hand: &str| {
+        let text = format!(
+            "players: 2
+kingdom: Samurai, Kitsune, Page, Dungeon, Artist, Aristocrat, Root Cellar, Duplicate, Distant Lands, Artificer
+events: Kintsugi
+             supply: {supply}
+turn: 9  player: 1  phase: buy  actions: 0  buys: 1  coins: 4
+
+[player 1]
+hand: {hand}
+deck: 3 Copper, Gold
+rs gold: true
+
+             [player 2]
+hand: 5 Copper
+deck: 5 Copper
+"
+        );
+        let mut g = parse_state(&text).unwrap();
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            s => panic!("{s:?}"),
+        };
+        let mut buf = ChoiceBuf::default();
+        g.legal_choices(&mut buf);
+        assert!(buf.as_slice().contains(&Choice::Card(id::KINTSUGI)), "Kintsugi is on offer");
+        strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice())
+    };
+    assert_eq!(buy("Province=8", "Estate, Province"), Choice::Card(id::KINTSUGI), "an Estate is worth trashing early");
+    assert_ne!(buy("Province=3", "Duchy, Province"), Choice::Card(id::KINTSUGI), "nothing worth trashing late");
+}

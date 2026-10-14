@@ -25,6 +25,12 @@ impl SetDefaults for RisingSun {
         }
     }
 
+    /// Kintsugi must trash a card from the hand: bought only when one is worth trashing (late in the game the hand left at the buy is often
+    /// all Victory cards, and a Duchy turned into a Gold, or a Province into a Province, only loses).
+    fn useless_buy(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        card == id::KINTSUGI && !trashers::kintsugi_pays(s, view)
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
             id::CHANGE => Empires::select(s, view, decision, source, act, from, choices),

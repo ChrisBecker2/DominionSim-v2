@@ -324,7 +324,11 @@ fn dismantle_trashes_a_curse_or_estate_before_it_trashes_money() {
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, min: 1, max: 1, .. }));
     assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::ESTATE), "an Estate becomes a Gold (and a Copper)");
     let (g, d, ch) = after_play(id::DISMANTLE, "hand: Dismantle, Gold, Curse, Estate\ndeck: 10 Estate");
-    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::CURSE), "a Curse is worth removing most");
+    // Not the Curse: an Estate brings a Gold and a Copper, which the gain list values far above removing a Curse (a Curse brings nothing).
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::ESTATE), "an Estate becomes a Gold");
+    let (g, d, ch) = after_play(id::DISMANTLE, "hand: Dismantle, Gold, Curse, Copper
+deck: 10 Estate");
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::CURSE), "a Curse is worth removing most when nothing else brings anything");
     // Late in the game a Victory card is worth its points: the Silver goes instead.
     let mut late = state_new("action", "hand: Dismantle, Silver, Duchy\ndeck: 10 Estate");
     late.supply.set(id::PROVINCE, 2);
@@ -337,9 +341,12 @@ fn dismantle_trashes_a_curse_or_estate_before_it_trashes_money() {
 #[test]
 fn dismantle_is_not_played_by_default_with_nothing_worth_trashing() {
     let strat = money("");
-    let mut g = state_new("action", "hand: Dismantle, Copper, Province\ndeck: 10 Estate");
+    // With the Golds gone, trashing a Province brings only a Silver (otherwise a Gold is gained: Dismantle turns even a Gold into a Gold and
+    // a cheaper card, which the turn search plays too).
+    let mut g = state_new("action", "hand: Dismantle, Province\ndeck: 10 Estate");
+    g.supply.set(id::GOLD, 0);
     let (d, ch) = next_decision(&mut g);
-    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass, "Dismantle would only trash a Copper or a Province");
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass, "Dismantle would only trash a Province");
     let mut g = state_new("action", "hand: Dismantle, Copper, Estate\ndeck: 10 Estate");
     let (d, ch) = next_decision(&mut g);
     assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::DISMANTLE));

@@ -28,7 +28,9 @@ fn remodel_pick(strategy_file: &str, hand: &str) -> Choice {
 #[test]
 fn remodel_follows_gain_order_strictly() {
     // Gold (+2 -> $8) unlocks Province, the top of Double Witch's gain list.
-    assert_eq!(remodel_pick("double_witch.toml", "Remodel Gold 3 Estate Copper"), Choice::Card(id::GOLD));
+    assert_eq!(remodel_pick("big_money_ultimate.toml", "Remodel Gold 3 Estate Copper"), Choice::Card(id::GOLD));
+    // Double Witch buys a Province only with $15 of Treasure in the deck: early on, the Gold stays and the Estate becomes a Silver.
+    assert_eq!(remodel_pick("double_witch.toml", "Remodel Gold 3 Estate Copper"), Choice::Card(id::ESTATE));
     // Without a Gold, Estate (+2 -> $4) unlocks Silver; Copper would only reach $2 (nothing listed).
     assert_eq!(remodel_pick("double_witch.toml", "Remodel 3 Estate Copper"), Choice::Card(id::ESTATE));
 }

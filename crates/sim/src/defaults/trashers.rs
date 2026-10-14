@@ -127,9 +127,13 @@ pub(super) fn trading_post_pays(s: &Strategy, view: &PlayerView, me: CardId) -> 
 
 /// Dismantle: a Gold (when the card cost $1 or more) and a card costing less.
 pub(super) fn dismantle_gain(s: &Strategy, view: &PlayerView, c: CardId) -> f64 {
+    // Late in the game a Victory card is worth its points: it is not turned into a Gold.
+    if cards::is(c, cards::VICTORY) && Strategy::game_could_end_soon(view) {
+        return f64::NEG_INFINITY;
+    }
     match view.cost(c) {
         0 => 0.0,
-        k => s.weight_of(view, id::GOLD) + s.gain_weight(view, k - 1, Filter::Any, false, cards::potion_cost(c)),
+        k => (if view.supply(id::GOLD) > 0 { s.weight_of(view, id::GOLD) } else { 0.0 }) + s.gain_weight(view, k - 1, Filter::Any, false, cards::potion_cost(c)),
     }
 }
 

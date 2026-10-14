@@ -911,14 +911,15 @@ impl Strategy {
         &self, view: &PlayerView, candidates: impl Iterator<Item = CardId>, gain: impl Fn(&Self, CardId) -> f64, extra: impl Fn(&Self, CardId) -> u32,
     ) -> Option<(CardId, f64)> {
         let money = Self::money_in_hand(view);
-        let mut best: Option<(f64, std::cmp::Reverse<u8>, std::cmp::Reverse<CardId>)> = None;
+        let mut best: Option<(f64, std::cmp::Reverse<i32>, std::cmp::Reverse<u8>, std::cmp::Reverse<CardId>)> = None;
         for c in candidates {
-            let key = (self.trash_value(view, c, money, gain(self, c), extra(self, c)), std::cmp::Reverse(cards::cost(c)), std::cmp::Reverse(c));
+            // Ties: the card worth least in a deck (a Curse before a Copper), then the cheaper, then the lower id.
+            let key = (self.trash_value(view, c, money, gain(self, c), extra(self, c)), std::cmp::Reverse(Self::card_value(c)), std::cmp::Reverse(cards::cost(c)), std::cmp::Reverse(c));
             if best.map_or(true, |b| key > b) {
                 best = Some(key);
             }
         }
-        best.map(|(v, _, c)| (c.0, v))
+        best.map(|(v, _, _, c)| (c.0, v))
     }
 
     /// [`Strategy::best_trash_among`] the cards of the hand, for an effect that is about to be played: one copy of `source`, the card

@@ -2004,8 +2004,8 @@ fn render_event(e: &Event) -> String {
         Event::Sun { player, source, left } => {
             format!("Player {} removes a Sun token ({}): {left} left on {}", player + 1, cards::name(source), "the Prophecy")
         }
-        Event::Prophecy { prophecy, player } => {
-            format!("*** The last Sun token is gone: {} is in effect (Player {}) ***", cards::name(prophecy), player + 1)
+        Event::Prophecy { prophecy, .. } => {
+            format!("*** The last Sun token is gone: {} is in effect ***", cards::name(prophecy))
         }
         Event::PlayAgain { player, card, source, nth } => {
             let again = if nth == 2 { "again".to_string() } else { format!("for the {} time", ordinal(nth)) };

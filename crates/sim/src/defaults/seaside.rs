@@ -6,14 +6,28 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt};
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Filter, Zone};
 
+use super::draws;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct Seaside;
 
+/// The most chance of having to trash a listed card that still makes a Lookout worth playing.
+const LOOKOUT_RISK: f64 = 0.02;
+
 impl SetDefaults for Seaside {
     fn select(s: &Strategy, view: &PlayerView, _decision: &Decision, source: CardId, act: Act, _from: Zone, choices: &[Choice]) -> Option<Choice> {
         (source == id::HAVEN && act == Act::SetAside).then(|| haven_pick(s, view, choices))
+    }
+
+    /// Lookout trashes one of the top three cards: not worth it once those are likely all cards the strategy lists.
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::LOOKOUT => draws::lookout_risk(s, view) > LOOKOUT_RISK,
+            // A lone Treasure Map only trashes itself, whatever the play rules say.
+            id::TREASURE_MAP => view.hand().get(id::TREASURE_MAP) < 2,
+            _ => false,
+        }
     }
 
     fn default_mode(_s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {

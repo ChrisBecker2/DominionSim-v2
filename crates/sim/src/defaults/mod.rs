@@ -20,6 +20,7 @@ mod alchemy;
 mod base;
 mod cornucopia_guilds;
 mod dark_ages;
+mod draws;
 mod empires;
 mod hinterlands;
 mod intrigue;
@@ -28,6 +29,7 @@ mod promo;
 mod prosperity;
 mod rising_sun;
 mod seaside;
+mod trashers;
 
 /// Expands `$body` once per set with `$S` naming that set's [`SetDefaults`] type, as a `match` on `$set`.
 macro_rules! with_set {
@@ -133,6 +135,11 @@ pub(super) trait SetDefaults {
     fn worth_playing(_s: &Strategy, _view: &PlayerView, _card: CardId) -> bool {
         true
     }
+    /// Whether playing the Action `card` now can only do harm (a card that must trash something with nothing worth trashing): such a card is
+    /// passed over even when a `[[play]]` rule names it (see `Strategy::useless_play`). `worth_playing` is the weaker, default-only check.
+    fn useless_play(_s: &Strategy, _view: &PlayerView, _card: CardId) -> bool {
+        false
+    }
     /// A Treasure that is best played after every other one, ranked among such Treasures (lower first).
     fn plays_last_rank(_card: CardId) -> Option<u8> {
         None
@@ -188,6 +195,10 @@ pub(super) fn start_order_play(card: CardId) -> bool {
 
 pub(super) fn worth_playing(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
     with_set!(cards::set_of(card), S => S::worth_playing(s, view, card))
+}
+
+pub(super) fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+    with_set!(cards::set_of(card), S => S::useless_play(s, view, card))
 }
 
 pub(super) fn plays_last_rank(card: CardId) -> Option<u8> {

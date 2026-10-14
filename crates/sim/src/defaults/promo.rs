@@ -7,18 +7,25 @@ use dominion_engine::cards::{self, id, CardId, ACTION, VICTORY};
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Filter, Phase, Zone};
 
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct Promo;
 
 impl SetDefaults for Promo {
+    /// Dismantle trashes a card it must, whatever the play rules say: not played when nothing in the rest of the hand pays for it.
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        card == id::DISMANTLE && !trashers::dismantle_pays(s, view, card)
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
             id::PRINCE if act == Act::SetAside => Some(choose_prince_card(s, view, choices)),
             // Captain: the Action from the Supply to play (now, or at the start of the next turn).
             id::CAPTAIN if act == Act::Play && from == Zone::Supply => Some(choose_captain_card(s, view, decision, choices)),
             // Dismantle: the card whose trash pays best (a Gold, a cheaper card of the gain list and the Gold it brings).
+            id::DISMANTLE if act == Act::Trash && !s.legacy_defaults => trashers::pick(s, view, choices, |s, c| trashers::dismantle_gain(s, view, c)),
             id::DISMANTLE if act == Act::Trash => Some(choose_dismantle_trash(s, view, choices)),
             // Governor's third option, for every player: trash a card only for a better card of exactly $1 ($2) more.
             id::GOVERNOR if act == Act::Trash => Some(choose_governor_trash(s, view, decision, choices)),

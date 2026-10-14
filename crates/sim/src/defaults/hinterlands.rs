@@ -10,6 +10,7 @@ use dominion_engine::cards::{self, id, CardId, ACTION, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision};
 use dominion_engine::state::{Act, Zone};
 
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
@@ -30,6 +31,15 @@ fn is_poor(c: CardId) -> bool {
 }
 
 impl SetDefaults for Hinterlands {
+    /// Develop and Trader: forced trashes, played only when the trash pays (see `defaults::trashers`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::DEVELOP => !trashers::develop_pays(s, view, card),
+            id::TRADER => !trashers::trader_pays(s, view, card),
+            _ => false,
+        }
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
             // Jack of All Trades looks at the top card: a poor one is discarded (Tunnel, a Victory card, goes too: it may pay a Gold).
@@ -56,7 +66,10 @@ impl SetDefaults for Hinterlands {
             // Scheme: the Actions the strategy wants to see again, at most one terminal.
             id::SCHEME if act == Act::Topdeck => Some(choose_scheme_topdeck(s, view, choices)),
             // Develop: the card that pays best (the gain list's choice at $1 more or $1 less), a card the trash rules want gone first.
-            id::DEVELOP if act == Act::Trash => Some(choose_develop_trash(s, view, choices)),
+            id::DEVELOP if act == Act::Trash && s.legacy_defaults => Some(choose_develop_trash(s, view, choices)),
+            id::DEVELOP if act == Act::Trash => trashers::pick(s, view, choices, |s, c| trashers::develop_gain(s, view, c)),
+            // Trader: the card whose Silvers (one per $1 it cost) are worth most against losing it.
+            id::TRADER if act == Act::Trash => trashers::pick(s, view, choices, |s, c| trashers::trader_gain(s, view, c)),
             _ => None,
         }
     }

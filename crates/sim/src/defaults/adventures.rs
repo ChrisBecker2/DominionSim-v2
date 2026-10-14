@@ -254,6 +254,30 @@ fn default_amulet(s: &Strategy, view: &PlayerView, choices: &[Choice]) -> Choice
     let trash = mode_index(id::AMULET, is_trash_hand, choices);
     let silver = mode_index(id::AMULET, is_gain, choices);
     let coins = mode_index(id::AMULET, is_coins, choices);
+    if !s.legacy_defaults {
+        // As the turn search values the three: the buy +$1 reaches, a Silver (its place in the gain list) with the buy as it is, or
+        // the best card to trash (what losing it costs, 0.3 for one the trash rules want).
+        let money = Strategy::money_in_hand(view);
+        let trash_value = s
+            .best_trash_among(view, view.hand().iter().map(|(c, _)| c), |_, _| 0.0)
+            .map(|(_, v)| v + s.buy_weight(view, money));
+        let options = [
+            (coins, Some(s.buy_weight(view, money + 1))),
+            (silver, (view.supply(id::SILVER) > 0).then(|| s.weight_of(view, id::SILVER) + s.buy_weight(view, money))),
+            (trash.filter(|_| view.hand().total() > 0), trash_value),
+        ];
+        let mut best: Option<(f64, Choice)> = None;
+        for (c, v) in options {
+            if let (Some(c), Some(v)) = (c, v) {
+                if best.map_or(true, |(b, _)| v > b) {
+                    best = Some((v, c));
+                }
+            }
+        }
+        if let Some((_, c)) = best {
+            return c;
+        }
+    }
     if view.hand().iter().any(|(c, _)| s.wants_trash(view, c)) && view.hand().total() > 1 {
         if let Some(t) = trash {
             return t;

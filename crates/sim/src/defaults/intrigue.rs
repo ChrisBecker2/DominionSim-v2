@@ -5,13 +5,29 @@ use dominion_engine::agent::PlayerView;
 use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, CURSE_T, TREASURE, VICTORY};
 use dominion_engine::engine::{Choice, Decision};
 
+use super::draws;
+use super::trashers;
 use super::SetDefaults;
 use crate::strategy::*;
 
 pub(super) struct Intrigue;
 
 impl SetDefaults for Intrigue {
+    /// Trading Post, Upgrade: forced trashes, played only when the trash pays (see `defaults::trashers`).
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::TRADING_POST => !trashers::trading_post_pays(s, view, card),
+            id::UPGRADE => !trashers::upgrade_pays(s, view, card, 1, true),
+            _ => false,
+        }
+    }
+
     fn default_mode(s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
+        if card == id::COURTIER {
+            if let Some(c) = draws::mode_by_value(s, view, card, choices) {
+                return Some(c);
+            }
+        }
         Some(match card {
             id::PAWN => default_pawn(view, choices),
             id::STEWARD => default_steward(s, view, choices),

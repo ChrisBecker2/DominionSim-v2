@@ -267,6 +267,8 @@ pub struct Strategy {
     play_rank: [i16; NUM_CARDS],
     /// `[[trash]]` rules followed by the defaults (`DEFAULT_TRASH`).
     trash: Vec<(CardId, Option<Expr>)>,
+    /// How many of the `trash` rules are the strategy's own (the rest are the built-in defaults).
+    stated_trash: usize,
     /// `[[mode]]` rules in priority order: (card, index into `cards::modes(card)`, condition).
     mode: Vec<(CardId, u8, Option<Expr>)>,
     /// `[[token]]` rules in priority order: (token index, pile, condition).
@@ -286,6 +288,9 @@ pub struct Strategy {
     /// Node budget of the second, deeper pass of the turn search (the first pass uses `eval::PLAY_BUDGETS[0]` nodes, or this many if
     /// that is fewer); a value at or below the first budget turns the second pass off. Default `eval::PLAY_BUDGETS[1]`.
     pub search_budget: u64,
+    /// Measurement aid: play the defaults as they were before the search-gap work (`docs/search-in-league.md` section 7), so that a new
+    /// bot can be played against an old one in the same binary. Off by default; the rule-based bots never set it.
+    pub legacy_defaults: bool,
 }
 
 impl Strategy {
@@ -349,6 +354,7 @@ impl Strategy {
             None => raw.trash,
         };
         let mut trash = compile_rules(&stated, "trash")?;
+        let stated_trash = trash.len();
         for (name, cond) in DEFAULT_TRASH {
             let card = cards::by_name(name).expect("default trash card");
             if !trash.iter().any(|(c, _)| *c == card) {
@@ -436,6 +442,8 @@ impl Strategy {
             search_play: raw.search_play,
             search_cards: None,
             search_budget: crate::eval::PLAY_BUDGETS[1],
+            legacy_defaults: false,
+            stated_trash,
         })
     }
 
@@ -870,6 +878,79 @@ impl Strategy {
         })
     }
 
+    // -----------------------------------------------------------------------------------------
+    // What a card or a coin is worth to the gain list, on the scale `eval::GainListEvaluator` uses (the turn search's own scoring). The
+    // fast bot uses it to see, without a search, when a card that must trash something is not worth playing.
+    // -----------------------------------------------------------------------------------------
+
+    /// The weight of `c` in the gain list as it stands now (0: the strategy would not gain it).
+    pub(crate) fn weight_of(&self, view: &PlayerView, c: CardId) -> f64 {
+        self.gain_rank(view, c).map_or(0.0, |r| self.rank_weight(r))
+    }
+
+    /// The weight of the best gain costing up to `max_cost` (exactly, if `exact`) that matches `filter`.
+    pub(crate) fn gain_weight(&self, view: &PlayerView, max_cost: u8, filter: Filter, exact: bool, potion: bool) -> f64 {
+        self.best_gain_rank(view, max_cost, filter, exact, potion).map_or(0.0, |r| self.rank_weight(r))
+    }
+
+    /// The weight of what `money` buys by the gain list (the single best buy).
+    pub(crate) fn buy_weight(&self, view: &PlayerView, money: u32) -> f64 {
+        self.reachable_rank_with(view, money, view.turn().potions).map_or(0.0, |r| self.rank_weight(r))
+    }
+
+    /// The $ this turn's buy has: the $ already made plus the Treasures in the hand.
+    pub(crate) fn money_in_hand(view: &PlayerView) -> u32 {
+        view.turn().coins as u32 + view.hand().iter().filter(|&(c, _)| view.is_treasure(c)).map(|(c, n)| cards::def(c).coins as u32 * n as u32).sum::<u32>()
+    }
+
+    /// What losing `c` from the hand costs this turn: its own weight, plus the buy its coins would have paid for.
+    /// `extra` is the $ the trashing itself brings (Forager).
+    pub(crate) fn trash_cost(&self, view: &PlayerView, c: CardId, money: u32, extra: u32) -> f64 {
+        let coins = if view.is_treasure(c) { cards::def(c).coins as u32 } else { 0 };
+        let lost = if coins > 0 || extra > 0 { self.buy_weight(view, money) - self.buy_weight(view, (money + extra).saturating_sub(coins)) } else { 0.0 };
+        self.weight_of(view, c) + lost
+    }
+
+    /// The net value of using a "trash a card" effect worth `gain(card)` on `c` (on the weight scale), with the turn search's tie-break of
+    /// 0.3 for a card the trash rules want gone and -0.3 for one they do not.
+    pub(crate) fn trash_value(&self, view: &PlayerView, c: CardId, money: u32, gain: f64, extra: u32) -> f64 {
+        gain - self.trash_cost(view, c, money, extra) + if self.wants_trash(view, c) { 0.3 } else { -0.3 }
+    }
+
+    /// The best of `candidates` to use a "trash a card" effect on, worth `gain(card)` each: the card and the net value
+    /// ([`Strategy::trash_value`]); the cheaper card first among equals.
+    pub(crate) fn best_trash_among(&self, view: &PlayerView, candidates: impl Iterator<Item = CardId>, gain: impl Fn(&Self, CardId) -> f64) -> Option<(CardId, f64)> {
+        self.best_trash_with_coins(view, candidates, gain, |_, _| 0)
+    }
+
+    /// [`Strategy::best_trash_among`] for an effect that also brings `extra(card)` $ (Forager).
+    pub(crate) fn best_trash_with_coins(
+        &self, view: &PlayerView, candidates: impl Iterator<Item = CardId>, gain: impl Fn(&Self, CardId) -> f64, extra: impl Fn(&Self, CardId) -> u32,
+    ) -> Option<(CardId, f64)> {
+        let money = Self::money_in_hand(view);
+        let mut best: Option<(f64, std::cmp::Reverse<i32>, std::cmp::Reverse<u8>, std::cmp::Reverse<CardId>)> = None;
+        for c in candidates {
+            // Ties: the card worth least in a deck (a Curse before a Copper), then the cheaper, then the lower id.
+            let key = (self.trash_value(view, c, money, gain(self, c), extra(self, c)), std::cmp::Reverse(Self::card_value(c)), std::cmp::Reverse(cards::cost(c)), std::cmp::Reverse(c));
+            if best.map_or(true, |b| key > b) {
+                best = Some(key);
+            }
+        }
+        best.map(|(v, _, _, c)| (c.0, v))
+    }
+
+    /// [`Strategy::best_trash_among`] the cards of the hand, for an effect that is about to be played: one copy of `source`, the card
+    /// whose effect it is and which is still in the hand, is no candidate.
+    pub(crate) fn best_hand_trash(&self, view: &PlayerView, source: CardId, gain: impl Fn(&Self, CardId) -> f64) -> Option<(CardId, f64)> {
+        self.best_trash_among(view, view.hand().iter().filter(|&(c, n)| c != source || n >= 2).map(|(c, _)| c), gain)
+    }
+
+    /// Whether the Action `card` can only do harm played now (SetDefaults::useless_play, for cards that must trash something and
+    /// have nothing worth trashing). Applies to stated `[[play]]` rules too: a rule says which card to play first, not to play it at a loss.
+    pub(crate) fn useless_play(&self, view: &PlayerView, card: CardId) -> bool {
+        !self.legacy_defaults && defaults::useless_play(self, view, card)
+    }
+
     /// Cheap gate for `win_this_turn`: only search when the game could end with at most
     /// `MAX_ENDING_GAINS` more gains: the Province pile, or the smallest piles needed to reach
     /// the empty-pile limit. Allocation-free.
@@ -1079,13 +1160,13 @@ impl Strategy {
         let multiplier_ok = if for_multiplier { ordinary_in_hand >= 2 } else { ordinary_in_hand >= 1 };
         // Stated [[play]] rules first, in order, when their condition holds; then the default order.
         for (card, cond) in &self.play {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) {
+            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && (for_multiplier || !self.useless_play(view, *card)) {
                 return Some(*card);
             }
         }
         iter_cards(choices)
             .filter(|&c| cards::def(c).plays == 0 || multiplier_ok)
-            .filter(|&c| for_multiplier || self.default_worth_playing(view, c))
+            .filter(|&c| for_multiplier || (self.default_worth_playing(view, c) && !self.useless_play(view, c)))
             .min_by_key(|&c| (self.play_rank_of(c), c))
     }
 
@@ -1173,7 +1254,18 @@ impl Strategy {
     /// Whether the trash rules (stated, then defaults) want `card` gone right now.
     pub fn wants_trash(&self, view: &PlayerView, card: CardId) -> bool {
         // Rocks (Empires) gains a Silver when trashed, so it is always worth trashing (but not named: that would ask for its split pile).
-        card == id::ROCKS || self.trash.iter().any(|(c, cond)| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)))
+        card == id::ROCKS
+            || self
+                .trash
+                .iter()
+                .enumerate()
+                .any(|(i, (c, cond))| *c == card && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)) && !self.default_trash_off(i, view, card))
+    }
+
+    /// The built-in rule that trashes Estates is off while the strategy itself gains Estates (an endgame rule of the gain list): they are
+    /// points then, not junk.
+    fn default_trash_off(&self, i: usize, view: &PlayerView, card: CardId) -> bool {
+        !self.legacy_defaults && i >= self.stated_trash && card == id::ESTATE && self.gain_rank(view, id::ESTATE).is_some()
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1233,6 +1325,13 @@ impl Strategy {
         let forced = min > 0;
         // Upgrades (Remodel, Mine, ...): trash whichever card unlocks the best gain in the gain
         // list, strictly by list order; ties trash the cheaper card.
+        if let Some(up) = decision.upgrade.filter(|_| !self.legacy_defaults) {
+            // What the turn search would pick: the card whose upgrade gains most over what losing it costs (a Treasure's coins count).
+            let gain = |s: &Strategy, c: CardId| s.gain_weight(view, view.cost(c).saturating_add(up.plus), up.filter, up.exact, cards::potion_cost(c));
+            if let Some((c, v)) = self.best_trash_among(view, iter_cards(choices), gain) {
+                return if forced || v >= 0.0 { Choice::Card(c) } else { Choice::Pass };
+            }
+        }
         if let Some(up) = decision.upgrade {
             let mut best: Option<(usize, u8, CardId)> = None;
             for c in iter_cards(choices) {
@@ -1263,12 +1362,12 @@ impl Strategy {
         } else {
             u32::MAX
         };
-        for (jc, cond) in &self.trash {
+        for (i, (jc, cond)) in self.trash.iter().enumerate() {
             let jc = *jc;
             if left == 0 {
                 break;
             }
-            if !cond.as_ref().map_or(true, |e| e.eval_bool_for(view, jc)) {
+            if !cond.as_ref().map_or(true, |e| e.eval_bool_for(view, jc)) || self.default_trash_off(i, view, jc) {
                 continue;
             }
             let mut take = ((zone.get(jc) - wanted.get(jc)) as u32).min(left);
@@ -1281,9 +1380,18 @@ impl Strategy {
         }
         let mut need = (min as u32).saturating_sub(wanted.total());
         if need > 0 {
-            // Cheapest first, ties by id, among the zone's cards not yet fully wanted.
+            // The card that costs the least to lose (its place in the gain list, and the buy its coins pay for; a Copper or an Estate
+            // before a Silver, a Silver before a Gold), then the cheapest, ties by id, among the zone's cards not yet fully wanted.
+            let money = Self::money_in_hand(view);
             while need > 0 {
-                let Some((_, c)) = zone.iter().filter(|&(c, n)| n > wanted.get(c)).map(|(c, _)| (cards::cost(c), c)).min() else { break };
+                let Some((_, _, c)) = zone
+                    .iter()
+                    .filter(|&(c, n)| n > wanted.get(c))
+                    .map(|(c, _)| (if self.legacy_defaults || from != Zone::Hand { 0.0 } else { self.trash_cost(view, c, money, 0) }, cards::cost(c), c))
+                    .min_by(|a, b| a.0.total_cmp(&b.0).then((a.1, a.2).cmp(&(b.1, b.2))))
+                else {
+                    break;
+                };
                 let take = ((zone.get(c) - wanted.get(c)) as u32).min(need);
                 wanted.add(c, take as u8);
                 need -= take;
@@ -1443,8 +1551,17 @@ impl Strategy {
     /// Used both as the `search_play = false` default and inside search playouts (avoiding
     /// re-entering `search_play_choice` from within its own playout).
     pub fn rule_play_treasure(&self, choices: &[Choice]) -> Choice {
-        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c)) {
+        // Crystal Ball looks at the top card and may play it: the plain Treasures are played first, so that the card played from the deck
+        // is chosen with the hand's $ known.
+        let plain_left = !self.legacy_defaults && iter_cards(choices).any(|c| cards::is_choice_free(c) && !plays_last(c));
+        let hand_dependent = |c: CardId| plain_left && c == id::CRYSTAL_BALL;
+        if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c) && !hand_dependent(c)) {
             return Choice::Card(c);
+        }
+        if plain_left {
+            if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c) && !plays_last(c)) {
+                return Choice::Card(c);
+            }
         }
         if iter_cards(choices).any(plays_last) {
             if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c)) {

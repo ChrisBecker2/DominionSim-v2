@@ -202,7 +202,11 @@ fn minion_default_redraws_only_when_four_new_cards_beat_the_hand_plus_two() {
 }
 
 #[test]
-fn courtier_default_priority_is_coins_then_gain_then_buys_then_actions() {
+fn courtier_default_picks_the_option_the_buy_values_most() {
+    // Since the search-gap work (docs/search-in-league.md, section 7) the options are valued as the turn search sees them: +$3 by the buy
+    // it reaches, the Gold by its place in the gain list, a Buy a little, an Action when another Action waits in the hand. A Gold the list
+    // does not ask for is worth nothing, so the second pick is the +1 Action that lets the Witch be played. (Measured: 62% against the old
+    // fixed priority, which took the unlisted Gold.)
     let strat = Strategy::parse("name = \"T\"\nsearch_play = false\n[[gain]]\ncard = \"Silver\"\n").unwrap();
     let coins_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Coins(_)));
     let gain_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Gain(c, _) if *c == id::GOLD));
@@ -214,7 +218,19 @@ fn courtier_default_priority_is_coins_then_gain_then_buys_then_actions() {
     let c1 = decide(&strat, &g, &d);
     assert_eq!(c1, Choice::Mode(coins_i));
     let d2 = apply_and_next(&mut g, c1);
-    assert_eq!(decide(&strat, &g, &d2), Choice::Mode(gain_i));
+    let actions_i = mode_idx(id::COURTIER, |o| matches!(o, ModeOpt::Actions(_)));
+    assert_eq!(decide(&strat, &g, &d2), Choice::Mode(actions_i));
+    // With Gold on the gain list the Gold is the first pick (a Gold and the Silver the five Coppers buy beat the Gold they reach with +$3).
+    let strat = Strategy::parse("name = \"T\"
+search_play = false
+[[gain]]
+card = \"Gold\"
+[[gain]]
+card = \"Silver\"
+").unwrap();
+    let (g, d) = decide_after_play("Courtier, Witch", "Courtier, Witch", "5 Copper", id::COURTIER);
+    let _ = &g;
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(gain_i));
 }
 
 #[test]

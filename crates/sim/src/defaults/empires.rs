@@ -6,6 +6,7 @@ use dominion_engine::cards::{self, id, CardId, ModeOpt, ACTION, TREASURE, VICTOR
 use dominion_engine::engine::{Choice, Decision, DecisionKind};
 use dominion_engine::state::{Act, Zone};
 
+use super::draws;
 use super::SetDefaults;
 use crate::strategy::*;
 
@@ -15,12 +16,25 @@ pub(super) struct Empires;
 const BID_WORTH: u8 = 5;
 
 impl SetDefaults for Empires {
+    /// Crown in the Action phase needs another Action in the hand to play twice; stated rules do not change that.
+    fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
+        match card {
+            id::CROWN => !view.hand().iter().any(|(c, _)| c != id::CROWN && cards::is(c, ACTION)),
+            id::ROYAL_BLACKSMITH => !draws::royal_blacksmith_pays(s, view),
+            _ => false,
+        }
+    }
+
     fn select(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, act: Act, from: Zone, choices: &[Choice]) -> Option<Choice> {
         match source {
             // Archive: the card to take into the hand now or at the start of a turn.
             id::ARCHIVE if from == Zone::Archive => Some(archive_pick(view, choices)),
             // Crown in the Buy phase: the Treasure worth the most played twice.
             id::CROWN if act == Act::Play && view.phase() == dominion_engine::state::Phase::Buy => Some(crown_treasure_pick(view, choices)),
+            // Crown in the Action phase: another Crown is no Action worth doubling (it would do nothing).
+            id::CROWN if act == Act::Play && !s.legacy_defaults && iter_cards(choices).all(|c| c == id::CROWN) => Some(Choice::Pass),
+            // Overlord: the Action worth most in this hand (`defaults::draws::mimic_pick`).
+            id::OVERLORD if act == Act::Play && from == Zone::Supply && !s.legacy_defaults && !s.searches(decision, choices) => Some(draws::mimic_pick(s, view, choices)),
             // Change: trash the card that unlocks the best gain-list card costing more (junk first, then the cheapest).
             id::CHANGE if act == Act::Trash => Some(change_pick(s, view, choices)),
             // Gladiator: reveal the card the player to the left is least likely to have a copy of.

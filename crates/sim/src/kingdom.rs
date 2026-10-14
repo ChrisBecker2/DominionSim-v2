@@ -58,6 +58,9 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         if !cards::is_kingdom(c) && !cards::is_optional_basic(c) && !cards::is_event(c) && !cards::is_prophecy(c) {
             return Err(format!("{name:?} is not a kingdom card (the Ruins come with a Looter, Shelters with Dark Ages, Spoils, Madman and Mercenary with their cards)"));
         }
+        if !cards::is_ready(c) {
+            return Err(format!("{name:?} is not available (not implemented, or disabled for now)"));
+        }
         if out.contains(&c) {
             return Err(format!("{name:?} listed twice in --kingdom"));
         }

@@ -121,7 +121,8 @@ const CARDS: &[(CardId, CardDef)] = &[
     (ids::APPROACHING_ARMY, prophecy("Approaching Army")),
     (ids::BIDING_TIME, prophecy("Biding Time")),
     (ids::BUREAUCRACY, prophecy("Bureaucracy")),
-    (ids::DIVINE_WIND, prophecy("Divine Wind")),
+    // Disabled for now (it replaces every Kingdom pile mid-game): not dealt, and a kingdom may not name it. The code stays below.
+    (ids::DIVINE_WIND, crate::cards::todo(prophecy("Divine Wind"))),
     (ids::ENLIGHTENMENT, prophecy("Enlightenment")),
     (ids::FLOURISHING_TRADE, prophecy("Flourishing Trade")),
     (ids::GOOD_HARVEST, prophecy("Good Harvest")),

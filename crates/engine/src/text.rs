@@ -169,7 +169,19 @@ fn split_parts(s: &str) -> Vec<&str> {
 /// `3xCopper`).
 fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
     const MAX_NAME_WORDS: usize = 4;
-    let toks: Vec<&str> = s.split(|c: char| c == ',' || c.is_whitespace()).filter(|t| !t.is_empty()).collect();
+    // Words, and for each whether a comma follows it: a card name never runs across a comma
+    // ("Gold, Mine" is two cards, not Rising Sun's Gold Mine).
+    let mut toks: Vec<&str> = Vec::new();
+    let mut comma_after: Vec<bool> = Vec::new();
+    for part in s.split(',') {
+        for t in part.split_whitespace() {
+            toks.push(t);
+            comma_after.push(false);
+        }
+        if let Some(last) = comma_after.last_mut() {
+            *last = true;
+        }
+    }
     let mut out = Vec::new();
     let mut i = 0;
     while i < toks.len() {
@@ -192,7 +204,7 @@ fn parse_entries(s: &str) -> Result<Vec<(u32, CardId)>, String> {
         // Longest card name starting here.
         let mut matched = None;
         for words in (1..=MAX_NAME_WORDS).rev() {
-            if i + words > toks.len() {
+            if i + words > toks.len() || comma_after[i..i + words - 1].iter().any(|&c| c) {
                 continue;
             }
             let mut name = first.to_string();
@@ -1610,6 +1622,17 @@ mod no_comma_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_card_name_never_runs_across_a_comma() {
+        // "Gold, Mine" is a Gold and a Mine; "Gold Mine" (no comma) is Rising Sun's Gold Mine.
+        let c = parse_counts("Copper, Silver, Gold, Mine, River Shrine").unwrap();
+        assert_eq!((c.get(id::GOLD), c.get(id::MINE), c.get(id::GOLD_MINE)), (1, 1, 0));
+        let c = parse_counts("2 Gold Mine, Gold").unwrap();
+        assert_eq!((c.get(id::GOLD), c.get(id::MINE), c.get(id::GOLD_MINE)), (1, 0, 2));
+        let c = parse_counts("3 Copper 2 Silver").unwrap();
+        assert_eq!((c.get(id::COPPER), c.get(id::SILVER)), (3, 2), "entries separated by spaces only still parse");
+    }
     use crate::cards::id;
 
     #[test]

@@ -1011,7 +1011,9 @@ pub fn add_random_prophecy(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mu
     if !kingdom.iter().any(|&c| is(c, OMEN)) || kingdom.iter().any(|&c| is_prophecy(c)) {
         return;
     }
-    let prophecy = FIRST_PROPHECY + rng.below(NUM_PROPHECIES as u32) as CardId;
+    // Dealt among the Prophecies that are implemented (Divine Wind is disabled for now).
+    let ready: Vec<CardId> = (FIRST_PROPHECY..FIRST_PROPHECY + NUM_PROPHECIES as CardId).filter(|&p| is_ready(p)).collect();
+    let prophecy = ready[rng.below(ready.len() as u32) as usize];
     kingdom.push(prophecy);
     if prophecy == id::APPROACHING_ARMY {
         let pool: Vec<CardId> = kingdom_cards().filter(|c| sets.contains(&set_of(*c)) && is(*c, ATTACK) && !kingdom.contains(c)).collect();

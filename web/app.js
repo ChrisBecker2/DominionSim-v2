@@ -120,6 +120,13 @@
     setSeat(player, bot) {
       ok(wasm.set_seat(player >>> 0, bot >>> 0));
     },
+    getSeatSearch() {
+      ok(wasm.get_seat_search());
+      return JSON.parse(readResult());
+    },
+    setSeatSearch(player, on) {
+      ok(wasm.set_seat_search(player >>> 0, on ? 1 : 0));
+    },
     runBots() {
       ok(wasm.run_bots());
     },
@@ -466,6 +473,18 @@
         });
       });
       h.appendChild(sel);
+      // A strategy seat searches its turns by default; unchecked, it plays by its rules alone (the Strategy Lab's fast bot).
+      if ((seats[p.index] ?? 0) > 0) {
+        const lab = el("label", "seat-search");
+        lab.title = "Checked: the strategy searches each turn (play order, choices) as in single games and Simulate. Unchecked: it follows its rules alone, as the Strategy Lab's fast bots do while evolving.";
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.checked = seatSearch[p.index] !== false;
+        cb.addEventListener("change", () => doAction(() => api.setSeatSearch(p.index, cb.checked)));
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(" search"));
+        h.appendChild(lab);
+      }
       h.appendChild(vpSpan);
       panel.appendChild(h);
 
@@ -739,6 +758,7 @@
 
 
   let seats = [];
+  let seatSearch = []; // per seat: whether its strategy searches its turns (unchecked: its rules alone, like the Lab's fast bots)
 
   // ---- parallel analysis in Web Workers -------------------------------------------
   //
@@ -771,6 +791,7 @@
       }
       if (m.type === "sim") {
         m.seats.forEach((seat, p) => w.set_seat(p, seat));
+        (m.search || []).forEach((on, p) => w.set_seat_search(p, on ? 1 : 0));
         const b = m.state, sp = w.alloc(b.length);
         new Uint8Array(w.memory.buffer, sp, b.length).set(b);
         let okSim, out;
@@ -1792,6 +1813,7 @@
 
   function renderInner() {
     seats = api.getSeats();
+    seatSearch = api.getSeatSearch();
     lastStateText = api.getStateText();
     const view = api.getView();
     lastView = view;
@@ -1965,7 +1987,7 @@
           // Distinct shuffle seeds per worker; the same inputs give the same results.
           // Worker i plays games [first, first + n) of one seeded sequence, so the merged result
           // does not depend on how many workers there are.
-          p.worker.postMessage({ type: "sim", id: i, state, seats: seatsNow, games: n, seed: 1000, first: assigned - n, flags });
+          p.worker.postMessage({ type: "sim", id: i, state, seats: seatsNow, search: api.getSeatSearch(), games: n, seed: 1000, first: assigned - n, flags });
         }));
       });
       let done = 0;

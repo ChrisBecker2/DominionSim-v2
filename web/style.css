@@ -322,6 +322,7 @@ section, .panel {
 
 /* seat selector + analysis */
 .seat-select { font: inherit; font-size: 12px; margin-left: 8px; max-width: 170px; }
+.seat-search { font-size: 12px; font-weight: normal; margin-left: 6px; white-space: nowrap; cursor: pointer; }
 #analysis-panel { margin: 10px 0; }
 #analysis-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #analysis-table th, #analysis-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border, #8884); vertical-align: top; }

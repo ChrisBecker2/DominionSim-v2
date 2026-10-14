@@ -285,6 +285,11 @@ struct App {
     result: Vec<u8>,
     seats: [u32; MAX_PLAYERS],
     strategies: Vec<Strategy>,
+    /// Per strategy, the same strategy with its turn search off (`search_play = false`): the rules alone, as the Strategy Lab's fast bots
+    /// play during evolution. Used by the seats in `rules_only`.
+    fast_strategies: Vec<Strategy>,
+    /// Seats whose strategy plays by its rules alone (the game page's "search" box unchecked).
+    rules_only: [bool; MAX_PLAYERS],
     searcher: Searcher,
     search_cfg: SearchConfig,
     /// (event tag, player, log line) of the run the last event started, for condensing.
@@ -314,7 +319,8 @@ impl App {
         let start_text = dominion_engine::format_state(&state);
         // Wait before the deal ("Deal"): Simulate from here deals fresh opening hands per game.
         state.pause_at_turn_start = true;
-        let strategies = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
+        let strategies: Vec<Strategy> = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
+        let fast_strategies = strategies.iter().map(rules_only_copy).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
         let mut seats = [DEFAULT_BOT; MAX_PLAYERS];
         seats[0] = DEFAULT_P1;
@@ -326,6 +332,8 @@ impl App {
             result: Vec::new(),
             seats,
             strategies,
+            fast_strategies,
+            rules_only: [false; MAX_PLAYERS],
             searcher: Searcher::new(search_cfg.tt_bits),
             search_cfg,
             log_group: None,
@@ -888,7 +896,8 @@ pub extern "C" fn resume() -> i32 {
 fn bot_choice(app: &mut App) -> Result<Choice, String> {
     let d = app.state.pending_decision().ok_or("no decision is pending")?;
     let state = app.state;
-    Ok(controller_choice(&app.seats, &app.strategies, &mut app.searcher, &app.search_cfg, &state, &d))
+    let pool = if app.rules_only[d.player as usize] { &app.fast_strategies } else { &app.strategies };
+    Ok(controller_choice(&app.seats, pool, &mut app.searcher, &app.search_cfg, &state, &d))
 }
 
 /// What `state`'s deciding seat's controller chooses for decision `d`.
@@ -1038,6 +1047,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
                 }
             }
             let seats: [u32; MAX_PLAYERS] = std::array::from_fn(|i| app.seats[order[i]]);
+            let rules_only: [bool; MAX_PLAYERS] = std::array::from_fn(|i| app.rules_only[order[i]]);
             let first = order[s.turn.player as usize];
             first_games[first] += 1.0;
             for h in vp_hist.iter_mut() {
@@ -1089,7 +1099,8 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
                     Step::GameOver => break,
                     Step::TurnStart { .. } | Step::Chance { .. } => {}
                     Step::Decision(d) => {
-                        let c = controller_choice(&seats, &app.strategies, &mut app.searcher, &search_cfg, &s, &d);
+                        let pool = if rules_only[d.player as usize] { &app.fast_strategies } else { &app.strategies };
+                        let c = controller_choice(&seats, pool, &mut app.searcher, &search_cfg, &s, &d);
                         if s.apply(c, &mut tally).is_err() {
                             break;
                         }
@@ -1681,6 +1692,38 @@ pub extern "C" fn set_seat(player: u32, bot: u32) -> i32 {
     result_of(r)
 }
 
+/// Whether `player`'s strategy searches its turns (`on`, the default) or plays by its rules alone. Ignored by the Search seat.
+#[no_mangle]
+pub extern "C" fn set_seat_search(player: u32, on: u32) -> i32 {
+    let r = APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        if player as usize >= MAX_PLAYERS {
+            return Err("bad seat".to_string());
+        }
+        app.rules_only[player as usize] = on == 0;
+        Ok(String::new())
+    });
+    result_of(r)
+}
+
+/// JSON array: per seat of the current game, whether its strategy searches its turns.
+#[no_mangle]
+pub extern "C" fn get_seat_search() -> i32 {
+    let s = APP.with(|cell| {
+        let app = cell.borrow();
+        let n = app.state.num_players as usize;
+        format!("[{}]", app.rules_only[..n].iter().map(|&r| if r { "false" } else { "true" }).collect::<Vec<_>>().join(","))
+    });
+    result_of(Ok(s))
+}
+
+/// `s` with its turn search off: the rules alone.
+fn rules_only_copy(s: &Strategy) -> Strategy {
+    let mut f = s.clone();
+    f.search_play = false;
+    f
+}
+
 /// Add a strategy from TOML text as a new seat controller, or replace an earlier added one
 /// with the same name (shipped strategies are never replaced). Writes JSON {id, name, replaced}.
 #[no_mangle]
@@ -1693,10 +1736,12 @@ pub extern "C" fn add_strategy(ptr: u32, len: u32) -> i32 {
         let existing = (STRATEGY_SOURCES.len()..app.strategies.len()).find(|&i| app.strategies[i].name == name);
         let (index, replaced) = match existing {
             Some(i) => {
+                app.fast_strategies[i] = rules_only_copy(&strategy);
                 app.strategies[i] = strategy;
                 (i, true)
             }
             None => {
+                app.fast_strategies.push(rules_only_copy(&strategy));
                 app.strategies.push(strategy);
                 (app.strategies.len() - 1, false)
             }
@@ -2883,7 +2928,9 @@ mod run_game_tests {
                 app.history.clear();
                 app.log.clear();
                 if app.strategies.len() == STRATEGY_SOURCES.len() {
-                    app.strategies.push(Strategy::parse(text).unwrap());
+                    let s = Strategy::parse(text).unwrap();
+                    app.fast_strategies.push(rules_only_copy(&s));
+                    app.strategies.push(s);
                 }
                 let id = FIRST_STRATEGY_SEAT + STRATEGY_SOURCES.len() as u32;
                 app.seats[0] = id;

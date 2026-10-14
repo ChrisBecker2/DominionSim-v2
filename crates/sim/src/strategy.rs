@@ -250,7 +250,7 @@ enum Guard {
     Penultimate,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Strategy {
     pub name: String,
     pub description: String,

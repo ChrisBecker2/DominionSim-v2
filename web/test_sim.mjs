@@ -151,4 +151,31 @@ check("no Curses without a Curse giver in the kingdom", r.players.every((q) => q
   check("at most 10 Curses per game in a 2-player game", sum(c.players.map((q) => sum(q.curseEnd))) <= 10 * 200);
 }
 
+console.log("search per seat");
+{
+  // Chapel/Witch (seat 10) against itself: what Chapel trashes is searched, so search on and off play differently.
+  const vk = new TextEncoder().encode("Chapel, Witch, Village, Smithy, Cellar, Moat, Market, Militia, Laboratory, Festival");
+  const vp = w.alloc(vk.length);
+  new Uint8Array(w.memory.buffer, vp, vk.length).set(vk);
+  w.new_game(2, vp, vk.length, 9n, 0);
+  w.set_seat(0, 10);
+  w.set_seat(1, 10);
+  w.get_seat_search();
+  check("every seat searches by default", text() === "[true,true]");
+  w.state_bytes_current();
+  const st = new Uint8Array(w.memory.buffer, w.result_ptr(), w.result_len()).slice();
+  const p3 = w.alloc(st.length);
+  new Uint8Array(w.memory.buffer, p3, st.length).set(st);
+  const run = () => { if (!w.simulate(p3, 300, 5, 0, 0)) throw new Error(text()); return text(); };
+  const both = run();
+  w.set_seat_search(1, 0);
+  w.get_seat_search();
+  check("the flag is per seat", text() === "[true,false]");
+  const mixed = run();
+  check("a rules-only seat plays differently", mixed !== both);
+  check("and the same inputs give the same results", run() === mixed);
+  w.set_seat_search(1, 1);
+  check("switching back restores the results", run() === both);
+}
+
 if (failed) { console.log(`${failed} FAILED`); process.exit(1); } else console.log("ALL PASSED (sim)");

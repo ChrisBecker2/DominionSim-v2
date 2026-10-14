@@ -391,7 +391,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
           <span id="play-count" class="muted"></span>
           <a href="#" id="play-clear">uncheck all</a>
         </div>
-        <div class="hint">Opens the game page on this league's kingdom with the checked strategies seated as the players (2 to 6; one checked plays against the game's default Player 1).</div>
+        <div class="hint">Opens the game page on this league's kingdom with the checked strategies seated as the players (2 to 6; one checked plays against the best other strategy of this run). The niche, ranking and challenger tables share the checks: the same strategy is checked everywhere.</div>
         <div id="play-msg" class="error-msg"></div>
       </section>
 
@@ -1438,10 +1438,13 @@ function openInGame(tomls, msgEl) {
 
 var picked = []; // checked strategies in the order they were checked: {key, toml, name}
 
+// A strategy's identity: its rules only. The same strategy appears in the niche, ranking and challenger tables with different comment
+// headers, names and descriptions, and must be one check box state.
 function pickKey(toml) {
+  var body = toml.split(/\r?\n/).filter(function (l) { return l.trim() && !/^\s*(#|name\s*=|description\s*=)/.test(l); }).join("\n");
   var h = 5381;
-  for (var i = 0; i < toml.length; i++) h = (((h << 5) + h) + toml.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36) + "-" + toml.length;
+  for (var i = 0; i < body.length; i++) h = (((h << 5) + h) + body.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + "-" + body.length;
 }
 
 // A checkbox choosing `toml` for the game; every box for the same strategy (niche, ranking and challenger tables) shows the same state.
@@ -1465,9 +1468,28 @@ function pickBox(toml, name) {
 function openButton(entry) {
   var b = document.createElement("button");
   b.textContent = "Open";
-  b.title = "Open the game page on this league's kingdom with just this strategy (as Player 2)";
-  b.addEventListener("click", function (ev) { ev.stopPropagation(); openInGame([entry.toml], $("play-msg")); });
+  b.title = "Open the game page on this league's kingdom with this strategy and every checked one; alone, it plays the best other ranked strategy";
+  b.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    var key = pickKey(entry.toml);
+    var tomls = picked.map(function (p) { return p.toml; });
+    if (!picked.some(function (p) { return p.key === key; })) tomls.push(entry.toml);
+    openInGame(withOpponent(tomls), $("play-msg"));
+  });
   return b;
+}
+
+// One strategy alone gets an opponent from this run: the best-ranked other strategy of the final ranking, else the fittest other niche
+// champion (the game page's default Player 1 only when the run has neither).
+function withOpponent(tomls) {
+  if (tomls.length !== 1) return tomls;
+  var L = state.status && state.status.progress && state.status.progress.league;
+  var key = pickKey(tomls[0]);
+  var pool = [];
+  if (L && L.top && L.strategies) L.top.forEach(function (r) { if (L.strategies[r.index]) pool.push(L.strategies[r.index].toml); });
+  if (L && L.niches) L.niches.forEach(function (r) { pool.push(r.entry.toml); });
+  for (var i = 0; i < pool.length; i++) if (pickKey(pool[i]) !== key) return [pool[i], tomls[0]];
+  return tomls;
 }
 
 // The cell of a results table: check box, Open and Save for one strategy.
@@ -1497,7 +1519,7 @@ function updatePlayPanel() {
 function playChecked() {
   var msg = $("play-msg");
   if (!picked.length) { msg.textContent = "Check at least one strategy first."; return; }
-  openInGame(picked.map(function (p) { return p.toml; }), msg);
+  openInGame(withOpponent(picked.map(function (p) { return p.toml; })), msg);
 }
 
 function showEntry(entry) {

@@ -50,7 +50,7 @@ fn pillage_trashing_itself_is_not_a_loss() {
 
 #[test]
 fn trashers_are_played_when_the_trash_is_junk() {
-    plays("Chapel", id::CHAPEL, "hand: Copper, Silver, Silver, Estate, Chapel\ndeck: 6 Copper, Silver, 2 Estate");
+    plays("Chapel", id::CHAPEL, "hand: Copper, Estate, Estate, Estate, Chapel\ndeck: 3 Copper, 3 Silver, 2 Gold, 2 Estate");
     plays("Temple", id::TEMPLE, "hand: Copper, Silver, Silver, Estate, Temple\ndeck: 6 Copper, Silver, 2 Estate");
 }
 

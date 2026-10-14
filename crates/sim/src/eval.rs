@@ -41,6 +41,10 @@ const TIERS: usize = 16;
 /// with an effect of its own (priced separately), and taken in full it overrates trashing in a few cards (Count 64 -> 53% against the rules at 1.0, 56 at 0.3).
 const THINNING_SHARE: f64 = 0.3;
 
+/// No more than this many of the gain list's last (cheapest) entries for each card thinned: a thinner deck is worth about a Silver at most, so a
+/// trash that comes with a better choice (Amulet's Silver, Count's gains) is not preferred by it (Amulet 50 -> 47% against the rules without the cap).
+const THINNING_CAP: f64 = 0.7;
+
 /// The gain list's price of $m of hand (`RootCache::tiers`, interpolated between whole dollars).
 fn tier_price(tiers: &[f64; TIERS], m: f64) -> f64 {
     let m = m.clamp(0.0, (TIERS - 1) as f64);
@@ -116,7 +120,7 @@ impl GainListEvaluator<'_> {
             }
         }
         let mut thinned = dominion_engine::Counts::EMPTY;
-        let mut lost_any = !leaf.turn.used_up.is_empty();
+        let mut lost_any = !leaf.turn.used_up.is_empty() || leaf.trash.total() > root.trash.total();
         for (c, _) in before.iter() {
             // A card that trashed itself as part of its effect was used, not lost.
             let gone = before.get(c) as i32 - after.get(c) as i32 - leaf.turn.used_up.get(c) as i32;
@@ -161,7 +165,7 @@ impl GainListEvaluator<'_> {
         let mut with = *after;
         with.add_all(thinned);
         // Never a charge: a card the rules want trashed is not a loss, and the average hand ignores that a thinner deck cycles faster.
-        (THINNING_SHARE * turns * (price(dominion_search::average_hand_money(after)) - price(dominion_search::average_hand_money(&with)))).max(0.0)
+        (THINNING_SHARE * turns * (price(dominion_search::average_hand_money(after)) - price(dominion_search::average_hand_money(&with)))).max(0.0).min(thinned.total() as f64 * THINNING_CAP * self.strategy.rank_weight(self.strategy.gain_list_len().saturating_sub(1)))
     }
 
     /// Debt is money owed out of a later hand: each token is the opposite of a Coffers token, `vp_per_coin` while the game has turns left to pay it
@@ -285,7 +289,7 @@ impl GainListEvaluator<'_> {
         let tokens = leaf.players[me as usize].vp_tokens as f64 - root.players[me as usize].vp_tokens as f64;
         let mut v = tokens;
         let m = dominion_search::average_hand_money(&root.players[me as usize].all_cards());
-        let slope = ((tier_price(tiers, m + 1.0) - tier_price(tiers, m - 1.0)) / 2.0).max(0.0);
+        let slope = ((tier_price(tiers, m + 2.0) - tier_price(tiers, m - 2.0)) / 4.0).max(0.0);
         // Tokens given for a card (Bishop, Temple, Investment) are weighed against the card's worth; tokens that cost nothing (Monument) stay a plain
         // preference, so that when to play them never outweighs a buy.
         if tokens > 0.0 && traded {

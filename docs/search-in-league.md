@@ -52,13 +52,9 @@ Findings:
   are very expensive (Overlord 2100x, Captain 1800x, Band of Misfits 870x, Root Cellar 740x, Royal Blacksmith 650x,
   Crystal Ball 620x). Many cards have **no gap at all and still cost 20-100x** (table 3: Cellar, Library, Shanty Town,
   Wishing Well, Page, Dungeon...): searching them is pure waste, and they are the ones selective search skips.
-- **Search can be worse than the rules.** Miser (5.6%), Pillage (25.8%), Bishop (28.7%), Temple (34.8%), Tactician (35.2%),
-  Haven (36.9%), Sacrifice (40.9%), Chapel (42.2%), Native Village (43.8%), Wild Hunt (45.8%): the full bot loses to the fast bot
-  playing the same strategy.
-  The search values a trash or an investment only by what the gain list scores at the end of the turn, so it
-  undervalues cards whose payoff is a better deck. **The league's final round robin and validation use full bots, so
-  they under-rate trashing strategies** such as Chapel, Temple, Sacrifice and Bishop. This is a separate finding with a
-  direct consequence (see the recommendation); it is not fixed here.
+- **Search could be worse than the rules** (fixed, see the table in section 6): Miser (5.6%), Pillage (25.8%), Bishop (28.7%), Temple (34.8%), Tactician (35.2%),
+  Haven (36.9%), Sacrifice (40.9%), Chapel (42.2%, 38.2% once the fast bots' trash rules improved) lost to the fast bot playing the same strategy,
+  because the leaf score only saw what the gain list scores this turn. Native Village (43.8%) and Wild Hunt (45.8%) are still below 50.
 - Search cost is highest where the turn has many chance nodes (Storyteller 76000x, Fool 27000x, Minion 10000x, Leprechaun,
   Druid, Catacombs, Pixie, Rebuild, Idol, Shepherd: thousands of times a fast game). A fast game is about 1-4 us of wall
   time on all cores; a full game on these cards is 3-100 ms. Such cards cannot be searched at the default budget in a league.
@@ -192,8 +188,7 @@ measured with the mirror BM+X, where the evolved strategy has no play rules for 
    last stages, or for a single kingdom with one such card.
 4. The final round robin keeps full bots, which is right for human-usable strategies, but note the negative cards: Miser,
    Pillage, Bishop, Temple, Tactician, Haven, Sacrifice, Chapel play *worse* when searched. A full-bot round robin
-   under-rates strategies built on them. Either improve the evaluator (value trashing by deck quality), or let the
-   round robin use the fast bot for those cards. That is the largest finding for the league's correctness and is open.
+   under-rates strategies built on them. This was fixed in the evaluator (table in section 6); the round robin can keep full bots.
 5. Other cost cleanups the table suggests: many cards with no gap cost 20-130x as full bots (Cellar, Library, Shanty Town,
    Wishing Well, Page, Dungeon, Diplomat, Lurker, Masquerade...). The single-game bot could skip search for them
    (a "never search" list) and get faster at no cost.
@@ -269,20 +264,27 @@ that searches only decisions involving the card; costs are CPU time per game rel
 | Idol | choice | 53.5 | 53.5 | 5349.5x | 3613.2x |
 | Infirmary | order | 53.2 | 53.2 | 17.3x | 17.2x |
 
-### Cards where the full bot is worse than the fast one
+### Cards where the full bot was worse than the fast one (fixed)
 
-| card | class | full v fast % | only-this-card v fast % | full cost | only-this-card cost |
-|---|---|---|---|---|---|
-| Miser | choice | 5.6 | 5.6 | 14.9x | 15.2x |
-| Pillage | choice | 25.8 | 25.8 | 4.7x | 4.7x |
-| Bishop | order | 28.7 | 28.7 | 5.5x | 5.8x |
-| Temple | order | 34.8 | 34.8 | 6.1x | 6.4x |
-| Tactician | choice | 35.2 | 35.2 | 5.6x | 5.6x |
-| Haven | order | 36.9 | 36.9 | 15.2x | 15.6x |
-| Sacrifice | order | 40.9 | 40.9 | 6.4x | 6.2x |
-| Chapel | order | 42.2 | 42.2 | 6.8x | 6.6x |
-| Native Village | order | 43.8 | 43.8 | 37.4x | 36.1x |
-| Wild Hunt | choice | 45.8 | 45.8 | 169.2x | 167.8x |
+Before: measured on the code before this work. Master: the same strategy against the fast bots after the fast-bot trash rules landed (they raised the
+fast bot, so the gaps of the trashers shrank; Chapel fell to 38.2). After: this branch on top of that master. 4000 games each.
+
+| card | before | master | after | cause and fix |
+|---|---|---|---|---|
+| Miser | 5.6 | 5.6 | 48.2 | A Copper on the Tavern mat was worth nothing, so the search never built a mat. A mat Copper is now worth $1 in every future hand that plays a Miser, priced by the gain list's tiers (`mat_copper_value`). |
+| Pillage | 25.8 | 25.8 | 47.8 | Trashing itself through a selection was not recorded as "used up", so the search charged the whole gain-list weight of Pillage. Engine: a card that trashes itself from play for its effect is used up. |
+| Bishop | 28.7 | 30.4 | 50.7 | VP tokens were worth 1.0 against gain-list weights of 1000 and up. Tokens given for a card are now priced as the strategy rates VP in Victory cards or as money (`1 / vp_per_coin` coins of hand, priced by the tiers), whichever is more. |
+| Temple | 34.8 | 35.0 | 55.2 | The same tokens, and the thinner deck (below). Search now helps. |
+| Tactician | 35.2 | 35.2 | 59.0 | The next turn's ten cards counted for nothing, only the hand lost this turn. Durations with a choice (Tactician, Haven) now add their next-turn cards and $ to the score as money priced by the tiers (`next_turn_value`). Search now helps. |
+| Haven | 36.9 | 36.9 | 49.7 | The set-aside pick was Secret Passage's ("the most valuable card"), which put a Silver aside and lost the buy. Haven now sets aside a Treasure the buy does not need, else a dead card, else the cheapest (`haven_pick`); its returning Treasure counts for next turn. |
+| Sacrifice | 40.9 | 46.4 | 52.0 | Thinning (below). |
+| Chapel | 42.2 | 38.2 | 49.0 | Thinning: a trash the rules want was a +0.3 preference, nothing next to the buy it costs. `thinning_value` prices the better deck (average hand money of the deck without the trashed cards, over the turns left, in gain-list units), 30% of it, never a charge, only when the deck ends smaller, and at most 0.7 of the cheapest gain-list entry per card (without the cap Amulet and Count lose 3 to 8 points). |
+
+Money is priced by the gain list's tiers: the weight of the best entry affordable with $m, for m = 0..15, smoothed over a standard deviation of $1.5 of
+hand money (`RootCache::tiers`). Controls after the change (4000 games, against the master numbers): Smithy, Witch, Militia, Throne Room,
+Moneylender, Mine 50.0 (unchanged); Remodel 51.8 (51.8), Develop 51.6 (51.6), Stonemason 53.8 (53.8), Courtier 52.5 (52.5), Steward 67.4 (61.0),
+Investment 56.6 (54.4), Count 56.4 (55.0), Counterfeit 52.7 (52.8), Amulet 50.3 (50.3), Trader 49.9 (49.9). Cost per game relative to a fast game is
+unchanged within noise (Smithy 1.1x, Chapel 7.2x, Remodel 15.0x). Still below 50 and not in scope: Native Village 43.8, Wild Hunt 45.8.
 
 ### No gap, but searching costs 20x or more (search is pure waste here)
 
@@ -448,3 +450,10 @@ Salvager, Junk Dealer, Raze, Replace, Butcher, Altar, Pawn, Gold Mine, Squire (a
 Kitsune, Spice Merchant and the rest of the table; and Overlord/Band of Misfits remain 14-25 points behind (the search sees the follow-up play
 that the pick score does not). What the rules cannot see: conditions on the deck size inside the gain list (`total_cards >= 14` for a second
 terminal) change after the trash or the gain, so Develop and Tanuki still differ from the search in a few positions.
+
+## 8. Diagnosing a card where search loses to the rules
+
+`cargo run --release -p dominion-evolve --example search_diff -- <card> [games] [details]` plays "BM + card" as a full bot against the fast bot and
+lists the decisions where the search overrides the rules (with `ANALYZE=1`, the value of every option and its best line, from
+`eval::analyze_play`; `DUMP=1` prints the strategy). The usual cause is a payoff the leaf score cannot see (look for a line whose value
+differs by exactly a gain-list weight). Positions that were wrong are tests in `crates/sim/tests/search_vs_rules.rs`.

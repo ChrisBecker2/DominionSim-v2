@@ -1408,6 +1408,28 @@ fn farmhands_cards_and_durations_resolve_in_an_order_the_player_chooses() {
     assert_eq!(g.players[0].hand.total(), 2, "Village's card and Caravan's card");
 }
 
+#[test]
+fn farmhands_set_aside_cards_are_separate_effects_and_equal_ones_are_one_choice() {
+    let mut g = new_state(&[id::FARMHANDS, id::SMITHY, id::VILLAGE], 2);
+    g.players[0].farm_cards.add(id::VILLAGE, 2);
+    g.players[0].farm_cards.add(id::SMITHY, 1);
+    set_deck_known(&mut g, 0, &junk(10));
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    let mut offered = choices(&g);
+    offered.sort_by_key(|c| format!("{c:?}"));
+    assert_eq!(offered.len(), 2, "two Villages are one choice: {offered:?}");
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    // One Village and the Smithy are still to come: still a question.
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    choose(&mut g, Choice::Card(id::SMITHY));
+    // The last Village is alone, so it is played without a question.
+    assert_eq!(g.players[0].farm_cards.total(), 0);
+    assert_eq!((g.players[0].in_play.get(id::VILLAGE), g.players[0].in_play.get(id::SMITHY)), (2, 1));
+    assert_eq!(g.turn.actions, 1 + 2 + 2);
+}
+
 fn state_push_pending(g: &mut GameState, card: CardId) {
     let i = g.players[0].pending_durations_len as usize;
     g.players[0].pending_durations[i] = state::PendingDuration { card, times: 1, arg: 0, used: 0 };

@@ -190,10 +190,12 @@ impl SetRules for Promo {
                 g.stack.push(Frame { depth: 1, ..captain_pick(p, e.card) });
             }
         }
-        // Church: the oldest batch comes into the hand, then the player may trash a card from the hand (one entry per Church play, so the
-        // batches go in one at a time, each followed by its trash).
+        // Church: a batch comes into the hand, then the player may trash a card from the hand (one entry per Church play, so the
+        // batches go in one at a time, each followed by its trash). `arg` is the index of the batch the player chose to go first
+        // (`Choice::Position`), or the card Church itself when nothing was asked: the oldest.
         if e.card == id::CHURCH {
-            let (batch, n) = g.players[p as usize].church.take_oldest();
+            let which = if e.arg == id::CHURCH { 0 } else { e.arg as usize };
+            let (batch, n) = g.players[p as usize].church.take(which);
             let ps = &mut g.players[p as usize];
             for &c in &batch[..n] {
                 ps.hand.add(c, 1);

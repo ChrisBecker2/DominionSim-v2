@@ -50,7 +50,9 @@ fn random_rising_sun_games_conserve_cards_and_terminate() {
             let i = rng.below(evs.len() as u32) as usize;
             kingdom.push(evs.swap_remove(i));
         }
-        let prophecy = cards::FIRST_PROPHECY + (game % cards::NUM_PROPHECIES as u64) as CardId;
+        // The Prophecies that are available (Divine Wind is disabled for now; its own test sets it up directly).
+        let ready: Vec<CardId> = (0..cards::NUM_PROPHECIES as CardId).map(|i| cards::FIRST_PROPHECY + i).filter(|&p| cards::is_ready(p)).collect();
+        let prophecy = ready[(game % ready.len() as u64) as usize];
         kingdom.push(prophecy);
         if prophecy == id::APPROACHING_ARMY {
             kingdom.push(id::WITCH);
@@ -93,7 +95,10 @@ fn random_rising_sun_games_conserve_cards_and_terminate() {
         let back = parse_state(&text).unwrap_or_else(|e| panic!("game {game}: {e}\n{text}"));
         assert_eq!(strip_seed(&format_state(&back)), strip_seed(&text), "game {game}");
     }
-    assert!(seen_active.iter().all(|&b| b), "every Prophecy should have happened in some game: {seen_active:?}");
+    assert!(
+        seen_active.iter().enumerate().all(|(i, &b)| b || !cards::is_ready(cards::FIRST_PROPHECY + i as CardId)),
+        "every available Prophecy should have happened in some game: {seen_active:?}"
+    );
     assert!(shadow_plays > 0);
 }
 
@@ -1415,4 +1420,18 @@ fn sea_trade_draws_a_card_per_action_in_play_and_trashes_up_to_that_many() {
     pick(&mut g, id::ESTATE);
     pick(&mut g, id::CURSE);
     assert_eq!(g.trash.total(), 2);
+}
+
+#[test]
+fn divine_wind_is_disabled_for_now() {
+    // Not dealt by the set-up rule, and a kingdom may not name it.
+    assert!(!cards::is_ready(id::DIVINE_WIND));
+    let mut rng = dominion_engine::rng::Rng::new(5);
+    for _ in 0..2000 {
+        let mut k = vec![id::KITSUNE, id::SMITHY, id::VILLAGE, id::MARKET, id::MOAT, id::CELLAR, id::WORKSHOP, id::REMODEL, id::MINE, id::MILITIA];
+        cards::add_random_prophecy(&mut k, &[cards::CardSet::Base, cards::CardSet::RisingSun], &mut rng);
+        assert!(!k.contains(&id::DIVINE_WIND));
+    }
+    let text = "players: 2\nkingdom: Kitsune, Smithy, Village, Market, Moat, Cellar, Workshop, Remodel, Mine, Militia, Divine Wind\n";
+    assert!(parse_state(text).is_err());
 }

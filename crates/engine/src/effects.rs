@@ -1143,7 +1143,7 @@ impl GameState {
             (K::ReceiveBoon, _) => self.answer_receive_boon(f, false),
             (K::PickBoon, Choice::Card(b)) => self.apply_pick_boon(f, b),
             (K::Select, _) => self.finish_select(f, sink),
-            (K::StartOrder, Choice::Card(c)) => self.take_start_effect(c, sink),
+            (K::StartOrder, c) => self.take_start_choice(c, sink),
             (K::Bid, Choice::Bid(n)) => self.apply_bid(f, n),
             (K::Token, Choice::Card(pile)) => {
                 self.stack.pop();
@@ -2078,11 +2078,16 @@ impl GameState {
         let mut distinct = 0;
         for (i, e) in list.iter().enumerate() {
             sensitive |= cards::start_order_sensitive(e.card);
+            // Church plays are told apart by the batch each takes (below), not by name.
+            if e.card == id::CHURCH {
+                continue;
+            }
             let name = Self::start_effect_name(e);
-            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name) {
+            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name && x.card != id::CHURCH) {
                 distinct += 1;
             }
         }
+        distinct += self.church_distinct_batches();
         if sensitive && distinct >= 2 {
             return Run::Decide(DecisionKind::StartOrder, 0);
         }
@@ -2090,16 +2095,59 @@ impl GameState {
         Run::Continue
     }
 
-    /// Legal choices of `DecisionKind::StartOrder`: each distinct pending effect, by name.
+    /// Legal choices of `DecisionKind::StartOrder`: each distinct pending effect, by name. The pending Church plays are offered as
+    /// `Choice::Position(i)`, one per different batch among the batches they set aside (`i` counts from the oldest, 0): the batch to put
+    /// into the hand next.
     #[inline(never)]
     fn start_order_choices(&self, out: &mut ChoiceBuf) {
         let list = self.turn.start_pending.as_slice();
         for (i, e) in list.iter().enumerate() {
+            if e.card == id::CHURCH {
+                continue;
+            }
             let name = Self::start_effect_name(e);
-            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name) {
+            if !list[..i].iter().any(|x| Self::start_effect_name(x) == name && x.card != id::CHURCH) {
                 out.push(Choice::Card(name));
             }
         }
+        let church = &self.players[self.turn.player as usize].church;
+        for i in 0..self.church_pending() {
+            if !(0..i).any(|j| church.same(i, j)) {
+                out.push(Choice::Position(i as u8));
+            }
+        }
+    }
+
+    /// How many Church plays are waiting in the start-of-turn list. Their batches are the oldest ones in `PlayerState::church` (a Church
+    /// played during the start of the turn, by Summon, adds a newer batch that waits for the next turn).
+    fn church_pending(&self) -> usize {
+        let n = self.turn.start_pending.as_slice().iter().filter(|e| e.card == id::CHURCH).count();
+        n.min(self.players[self.turn.player as usize].church.len())
+    }
+
+    /// The number of different batches among the pending Church plays'.
+    fn church_distinct_batches(&self) -> usize {
+        let church = &self.players[self.turn.player as usize].church;
+        let n = self.church_pending();
+        (0..n).filter(|&i| !(0..i).any(|j| church.same(i, j))).count()
+    }
+
+    /// The answer to `DecisionKind::StartOrder`: a card names an effect, a position a Church batch.
+    #[inline(never)]
+    fn take_start_choice<S: EventSink>(&mut self, c: Choice, sink: &mut S) {
+        match c {
+            Choice::Card(name) => self.take_start_effect(name, sink),
+            Choice::Position(i) => self.take_church_batch(i, sink),
+            _ => unreachable!("start-of-turn choice"),
+        }
+    }
+
+    /// Resolve a pending Church play with batch `i` going into the hand first.
+    #[inline(never)]
+    fn take_church_batch<S: EventSink>(&mut self, i: u8, sink: &mut S) {
+        let j = self.turn.start_pending.as_slice().iter().position(|e| e.card == id::CHURCH).expect("pending Church play");
+        self.turn.start_pending.as_mut_slice()[j].arg = i as CardId;
+        self.take_start_effect_at(j, sink);
     }
 
     /// Resolve the pending effect named `name` (the first one with that name).

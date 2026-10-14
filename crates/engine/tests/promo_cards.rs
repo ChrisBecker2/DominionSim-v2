@@ -1561,6 +1561,11 @@ fn two_church_plays_are_two_batches_each_followed_by_its_own_trash() {
     assert_eq!(g.players[0].church.len(), 2, "{:?}", g.pending_decision());
     to_next_own_turn(&mut g);
     assert!(g.players[0].in_play.has(id::THRONE_ROOM) && g.players[0].in_play.has(id::CHURCH), "the Throne Room stays with the Duration");
+    // The two batches differ: the player chooses which goes first (here the older one).
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    assert_eq!(choices(&g), vec![Choice::Position(0), Choice::Position(1)]);
+    choose(&mut g, Choice::Position(0));
     // Batch 1: the Gold; the Silver is not in the hand yet.
     assert!(hand_of(&g, 0).has(id::GOLD) && !hand_of(&g, 0).has(id::SILVER));
     choose(&mut g, Choice::Card(id::GOLD));
@@ -1587,13 +1592,88 @@ fn church_is_ordered_against_other_start_of_turn_effects() {
     set_deck_known(&mut g, 0, &junk());
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::StartOrder);
-    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Card(id::CHURCH), Choice::Card(id::SMITHY)]));
+    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Card(id::SMITHY)]));
     choose(&mut g, Choice::Card(id::SMITHY));
     // Smithy first: 3 cards drawn, then the Church batch and its trash.
     let d = g.pending_decision().unwrap();
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
     assert_eq!(hand_of(&g, 0).total(), 1 + 3 + 1);
     assert!(hand_of(&g, 0).has(id::GOLD));
+}
+
+/// A start of turn with Church batches `batches` (oldest first), one Church entry each, and a junk deck.
+fn church_batches_state(batches: &[&[CardId]]) -> GameState {
+    let mut g = new_state(&church_kingdom(), 2);
+    g.players[0].in_play.add(id::CHURCH, 1);
+    for (i, b) in batches.iter().enumerate() {
+        assert!(g.players[0].church.begin());
+        for &c in b.iter() {
+            assert!(g.players[0].church.add(c));
+        }
+        g.players[0].pending_durations[i] = PendingDuration { card: id::CHURCH, times: 1, arg: id::CHURCH, used: 0 };
+    }
+    g.players[0].pending_durations_len = batches.len() as u8;
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    g
+}
+
+#[test]
+fn the_player_chooses_which_church_batch_goes_into_the_hand_first() {
+    // The newer batch (Gold) first: it arrives, its trash is decided (Gold can go), then the older batch (Silver) arrives with its own trash.
+    let mut g = church_batches_state(&[&[id::SILVER], &[id::GOLD]]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    assert_eq!(choices(&g), vec![Choice::Position(0), Choice::Position(1)]);
+    choose(&mut g, Choice::Position(1));
+    assert!(hand_of(&g, 0).has(id::GOLD) && !hand_of(&g, 0).has(id::SILVER));
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::GOLD));
+    assert!(g.trash.has(id::GOLD));
+    // The one batch left needs no question: it comes in, with its trash.
+    let d = g.pending_decision().unwrap();
+    assert!(hand_of(&g, 0).has(id::SILVER), "{d:?}");
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    pass(&mut g);
+    assert!(g.players[0].church.is_empty());
+}
+
+#[test]
+fn equal_church_batches_are_one_choice_and_a_single_church_is_not_asked() {
+    // Two batches of the same cards: nothing to decide.
+    let mut g = church_batches_state(&[&[id::GOLD], &[id::GOLD]]);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    assert_eq!(hand_of(&g, 0).get(id::GOLD), 1);
+    // Three batches, two alike: two choices, each batch named by its first (oldest) index.
+    let mut g = church_batches_state(&[&[id::GOLD], &[id::SILVER], &[id::GOLD]]);
+    expect_decision(&mut g);
+    assert_eq!(choices(&g), vec![Choice::Position(0), Choice::Position(1)]);
+    choose(&mut g, Choice::Position(1));
+    assert!(hand_of(&g, 0).has(id::SILVER) && !hand_of(&g, 0).has(id::GOLD));
+    // A lone Church batch: no question.
+    let mut g = church_batches_state(&[&[id::GOLD]]);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+}
+
+#[test]
+fn church_batches_and_another_effect_are_all_ordered_by_the_player() {
+    // A Prince's Smithy with two different Church batches: Smithy can come between the batches.
+    let mut g = church_batches_state(&[&[id::SILVER], &[id::GOLD]]);
+    g.players[0].in_play.add(id::PRINCE, 1);
+    g.players[0].stays.add(id::PRINCE, 1);
+    g.players[0].prince_cards.add(id::SMITHY, 1);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Position(1), Choice::Card(id::SMITHY)]));
+    choose(&mut g, Choice::Position(1));
+    choose(&mut g, Choice::Card(id::GOLD)); // trash the Gold
+    // The older batch and the Smithy are still to come.
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Card(id::SMITHY)]));
 }
 
 #[test]
@@ -1879,9 +1959,9 @@ fn the_summoned_card_and_a_church_batch_are_ordered_by_the_player() {
     set_deck_known(&mut g, 0, &junk());
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::StartOrder);
-    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Card(id::CHURCH), Choice::Card(id::SMITHY)]));
+    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Card(id::SMITHY)]));
     // Church first: the Gold arrives and may be trashed before the Smithy draws.
-    choose(&mut g, Choice::Card(id::CHURCH));
+    choose(&mut g, Choice::Position(0));
     let d = g.pending_decision().unwrap();
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
     choose(&mut g, Choice::Card(id::GOLD));

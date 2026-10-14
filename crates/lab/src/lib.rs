@@ -227,6 +227,7 @@ fn cards_response() -> serde_json::Value {
         cards::kingdom_cards()
             .chain(cards::FIRST_EVENT..cards::FIRST_EVENT + (cards::NUM_EVENTS + cards::NUM_LANDMARKS) as CardId)
             .chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
+            .filter(|&c| cards::is_ready(c))
             .map(card_info)
             .collect();
     let basic: Vec<CardInfo> = (0..cards::FIRST_KINGDOM).map(card_info).collect();

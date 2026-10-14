@@ -2298,6 +2298,12 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                 DecisionKind::Bid { .. } => name.to_string(),
             }
         }
+        // Start of turn: which Church batch goes into the hand first.
+        Choice::Position(k) if d.kind == DecisionKind::StartOrder => {
+            let (batch, n) = state.players[state.turn.player as usize].church.batch(k as usize);
+            let names: Vec<&str> = batch[..n].iter().map(|&c| cards::name(c)).collect();
+            if names.is_empty() { "Church: an empty batch".to_string() } else { format!("Church: put {} into your hand", names.join(", ")) }
+        }
         Choice::Position(255) => "Bottom".to_string(),
         Choice::Position(0) => "Top".to_string(),
         Choice::Position(k) => {

@@ -374,3 +374,77 @@ that searches only decisions involving the card; costs are CPU time per game rel
 ### No gap and cheap (133 cards)
 
 Armory, Artisan, Artist, Astrolabe, Baker, Bandit, Bandit Camp, Bank, Baron, Bazaar, Beggar, Berserker, Blockade, Border Village, Bridge, Bridge Troll, Bureaucrat, Candlestick Maker, Capital, Caravan, Caravan Guard, Catapult, Change, Chariot Race, Charlatan, Church, City, City Quarter, Clerk, Coin of the Realm, Collection, Conclave, Conspirator, Corsair, Council Room, Cutpurse, Duplicate, Enchantress, Engineer, Faithful Hound, Farmers' Market, Farmhands, Festival, Fishing Village, Fishmonger, Fool's Gold, Footpad, Fortress, Giant, Gladiator, Grand Market, Groundskeeper, Guide, Haggler, Harbinger, Harem, Haunted Woods, Herbalist, Hermit, Highway, Hireling, Hoard, Horn of Plenty, Hunting Grounds, Ironworks, Jester, King's Court, Laboratory, Legionary, Lighthouse, Lost City, Lurker, Margrave, Market, Merchant, Merchant Guild, Merchant Ship, Messenger, Militia, Mine, Mint, Moat, Moneylender, Monkey, Monument, Mountain Shrine, Mystic, Ninja, Nomads, Outpost, Peddler, Pirate, Poor House, Port, Prince, Procession, Quarry, Rabble, Ranger, Ratcatcher, Rice, Rogue, Royal Carriage, Sailor, Samurai, Scavenger, Sea Witch, Shop, Skulk, Smithy, Smugglers, Soothsayer, Souk, Swamp Hag, Tea House, Throne Room, Tide Pools, Torturer, Trail, Transmogrify, Treasury, Vassal, Villa, Village, Walled Village, Weaver, Werewolf, Wharf, Wheelwright, Wine Merchant, Witch, Worker's Village, Workshop.
+
+## 7. Closing the gap: fast-bot defaults taken from what the search does
+
+Method: `examples/fast_diff.rs <card>` plays fast-vs-fast games on the section 6 mirror and, at every decision of one seat, also asks the full
+bot; it prints the disagreements grouped by (decision, card, fast choice, full choice), and with `DETAIL=1` the search's value and best line for
+each option. `examples/fast_ab.rs <games> <cards>` plays the new fast bot against the old one (`Strategy::legacy_defaults`, a measurement switch
+that restores the earlier defaults) and the full bot against each. `examples/fast_speed.rs` times them.
+
+What the search does differently, in nearly every case: **it passes on a card that must trash something (or draw at a price) when the
+play would only lose**. The baseline strategies carry an unconditional `[[play]]` rule, so the old fast bot played Remodel for a Silver swap,
+Rats trashing a Gold, Lookout in a good deck, Root Cellar into a poor deck. Rules adopted (all on the scale of the search's own scoring: the gain list's
+rank weights, `Strategy::weight_of` / `buy_weight` / `trash_value`; no search, no allocation):
+
+| rule | cards |
+|---|---|
+| `SetDefaults::useless_play` (new): the card is not played, even when a `[[play]]` rule names it, if the best card of the hand to give up costs more (its own place in the gain list, plus the buy its coins pay for) than the effect gains (Remodel: the best listed card costing up to +$2; Remake/Upgrade: exactly +$1; Tanuki +$2; Expand +$3; Stonemason: two cheaper cards, none listed counts as a loss; Develop: +$1 and -$1; Trader: a Silver per $1; Dismantle: a Gold and a cheaper card; Rats/Forager: nothing, Forager counts the $ for the Treasures in the trash; Trading Post: the best pair against a Silver and its $2) | Remodel, Remake, Develop, Stonemason, Trading Post, Trader, Forager, Rats, Tanuki, Upgrade, Expand, Dismantle |
+| the same sum picks the card to trash (Develop, Stonemason, Trader, Forager, Dismantle, the "trash a card, gain a card" frames); a forced trash takes the card that costs least to lose instead of the cheapest card; the built-in Estate-trashing is off while the gain list buys Estates (endgame) | all forced trashes |
+| Crown needs another Action in hand to play twice (stated rules too), and does not pick a second Crown; a lone Treasure Map is not played | Crown, Treasure Map |
+| Root Cellar and Royal Blacksmith: played when the $ of the hand plus the expected $ of the cards drawn (average $ per card of the deck, Coppers not counted for Royal Blacksmith) still buy as much as the hand does now (Root Cellar pays 3 Debt) | Root Cellar, Royal Blacksmith |
+| Lookout: not played once the chance that all three cards it looks at are cards the strategy lists exceeds 2% | Lookout |
+| Amulet: of +$1, a Silver and the best trash, the option the buy values most | Amulet |
+| Anvil: discards the Treasure whose $ the best card up to $4 pays for; Investment: +$1 if it reaches a better buy, else trash for VP with two Treasure types in hand; Crystal Ball plays a Treasure it reveals, and is played after the plain Treasures | Anvil, Investment, Crystal Ball |
+| Counterfeit: the Treasure whose second play brings more than losing it costs | Counterfeit |
+| Courtier, Count (second pick): the mode the buy values most (+$ by the buy reached, a gain by its list weight) | Courtier, Count |
+| Overlord, Band of Misfits: the Action worth most in this hand (its $, its cards at the deck's average $, +Actions for the Actions in hand, an Attack a little; nothing for $ and cards when the hand already reaches the best listed buy). Searched as before when the bot searches | Overlord, Band of Misfits |
+
+Results (mirror "BM + X", 4000 games unless noted; win rate of the first bot, 95% intervals about +-1.5 at 4000 and +-3 at 1000 games; the first
+column is new fast against old fast, then the full bot against the old and against the new fast bot; `gap before` is the section 6 figure):
+
+| card | new fast v old fast | gap before (full v old fast) | gap after (full v new fast) | full(new) v full(old) |
+|---|---|---|---|---|
+| Rats | 98.9 | 99.9 | 30.5 (the new fast bot beats the full bot) | 49.8 |
+| Overlord (1000) | 96.4 | 99.2 | 75.0 | 49.6 |
+| Band of Misfits (1000) | 83.4 | 89.0 | 63.9 | 50.0 |
+| Amulet | 87.0 | 89.3 | 50.3 | 50.0 |
+| Stonemason | 89.5 | 88.6 | 53.8 | 64.0 |
+| Anvil | 86.9 | 87.5 | 51.3 | 50.0 |
+| Crown | 84.6 | 84.6 | 50.0 | 50.0 |
+| Root Cellar | 79.9 | 83.8 | 57.0 | 50.0 |
+| Remake | 82.3 | 80.1 | 52.6 | 51.4 |
+| Royal Blacksmith | 78.8 | 78.5 | 50.9 | 50.0 |
+| Develop | 77.8 | 77.1 | 51.6 | 54.7 |
+| Investment | 72.1 | 76.7 | 54.4 | 50.2 |
+| Tanuki | 78.7 | 76.3 | 54.5 | 57.7 |
+| Lookout | 78.3 | 76.0 | 47.6 | 50.1 |
+| Crystal Ball | 69.5 | 73.0 | 52.6 | 50.0 |
+| Trader | 62.4 | 61.9 | 49.9 | 50.0 |
+| Forager | 64.2 | 69.3 | 54.9 | 47.3 |
+| Trading Post | 69.0 | 67.5 | 49.8 | 51.3 |
+| Remodel | 67.2 | 65.6 | 51.6 | 52.1 |
+| Captain (1000) | 47.5 (not adopted: the hand-aware pick did not help) | 65.0 | 68.1 | 50.0 |
+| Dismantle (2000) | 73.6 | 66.2 | 50.8 | 57.5 |
+| Count (2000) | 59.5 | 63.4 | 55.0 | 50.0 |
+| Courtier (2000) | 62.0 | 63.8 | 51.8 | 50.0 |
+| Counterfeit (2000) | 58.0 | 60.6 | 53.1 | 50.0 |
+| Treasure Map (2000) | 67.6 | 59.2 | 40.4 (fast bot better) | 50.0 |
+| Upgrade | 53.7 | 56.3 | 54.6 | 51.7 |
+| Expand | 57.6 | 53.6 | 51.6 | 55.0 |
+
+Control cards (BM + Smithy, Witch, Militia, Moneylender, Throne Room, Village, Laboratory): identical to the old bots (50.0 in every column: the
+new rules never fire). BM + Chapel: the new fast bot beats the old one 54.4% (the Estate default is off in the endgame); the full-bot columns for
+Chapel (full 42.2 / 38.2 against old / new fast) still show the search playing Chapel worse than the rules, the case the evaluator work addresses.
+The full bot (which follows the rules in its playouts) changed by 50% except Stonemason (64.0), Tanuki (57.7), Expand (55.0), Develop (54.7)
+and Replace/Junk Dealer-like small cards, where it improved; Forager (47.3) is the one that may have lost a little (about 2 sigma).
+
+Speed (`fast_speed`, 20000 fast games): the ordinary Base kingdom is unchanged within noise (-6% to +8%, 0.02-0.04 s per run); a
+kingdom full of the trasher cards above is slower in the games that play them (+30-70%) because the fast bot now evaluates the hand at a play decision
+(a few gain-list lookups per candidate card, no allocation).
+
+Not done (still 55-65 points): Captain, Tormentor, Steward, Encampment, Apprentice, Graverobber, Craftsman, Tiara, Rice Broker, Necromancer, Forge,
+Salvager, Junk Dealer, Raze, Replace, Butcher, Altar, Pawn, Gold Mine, Squire (a mode rule by buy value lost to the old default, 47.8: not adopted),
+Kitsune, Spice Merchant and the rest of the table; and Overlord/Band of Misfits remain 14-25 points behind (the search sees the follow-up play
+that the pick score does not). What the rules cannot see: conditions on the deck size inside the gain list (`total_cards >= 14` for a second
+terminal) change after the trash or the gain, so Develop and Tanuki still differ from the search in a few positions.

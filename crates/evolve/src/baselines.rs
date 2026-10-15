@@ -235,6 +235,28 @@ const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
     ("Practice", At::End, &[], None),
     ("Receive Tribute", At::End, &[], None),
     ("Sea Trade", At::End, &[], None),
+    // Renaissance Projects (bought once, the engine does not offer an owned one again; a cube is scarce, two per player).
+    // Pageant and Canal are good with plain money, the rest are small and wait behind the Silvers.
+    ("Academy", At::End, &[], None),
+    ("Barracks", At::Silver, &[], None),
+    ("Canal", At::Gold, &[], None),
+    ("Capitalism", At::End, &[], None),
+    ("Cathedral", At::End, &[], None),
+    ("Citadel", At::End, &[], None),
+    ("City Gate", At::End, &[], None),
+    ("Crop Rotation", At::End, &[], None),
+    ("Exploration", At::Silver, &[], None),
+    ("Fair", At::Silver, &[], None),
+    ("Fleet", At::End, &[Cond::ProvincesLeft(3)], None),
+    ("Guildhall", At::End, &[], None),
+    ("Innovation", At::End, &[], None),
+    ("Pageant", At::Gold, &[], None),
+    ("Piazza", At::End, &[], None),
+    ("Road Network", At::End, &[], None),
+    ("Sewers", At::End, &[], None),
+    ("Silos", At::End, &[], None),
+    ("Sinister Plot", At::Silver, &[], None),
+    ("Star Chart", At::End, &[], None),
 ];
 
 fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {

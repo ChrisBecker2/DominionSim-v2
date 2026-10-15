@@ -515,5 +515,39 @@ deck: 7 Copper, 3 Estate
   }
 }
 
+// --- Renaissance: Villagers, Projects and Artifacts in the view ---------------------------
+{
+  const text = `players: 2
+kingdom: Border Guard, Flag Bearer, Silk Merchant, Smithy, Village, Market, Moat, Cellar, Militia, Chapel
+projects: Fair, Pageant
+artifacts: Flag=2
+turn: 3  player: 1  phase: buy  actions: 1  buys: 1  coins: 4
+
+[player 1]
+hand: 3 Copper, Estate
+deck: 4 Copper, 3 Estate, Silver
+villagers: 3
+owned projects: Fair
+
+[player 2]
+hand: 5 Copper
+deck: 2 Copper, 3 Estate
+`;
+  const I = await instance();
+  I.load(text);
+  const v = I.view();
+  check("the Projects of the game are listed", (v.projects || []).map((p) => p.name).sort().join() === "Fair,Pageant", JSON.stringify(v.projects));
+  const fair = (v.projects || []).find((p) => p.name === "Fair");
+  const pageant = (v.projects || []).find((p) => p.name === "Pageant");
+  check("a Project bought shows its owner and is not buyable again", fair && fair.owners.join() === "0" && !fair.buyable, JSON.stringify(fair));
+  check("the other Project is buyable with the $ in hand", pageant && pageant.buyable && pageant.costLabel === "$3", JSON.stringify(pageant));
+  check("the Flag shows its holder", (v.artifacts || []).some((a) => a.name === "Flag" && a.holder === 1), JSON.stringify(v.artifacts));
+  check("Villagers and owned Projects are reported per player", v.players[0].villagers === 3 && v.players[0].ownedProjects.join() === "Fair" && v.players[1].villagers === 0, JSON.stringify(v.players[0].ownedProjects));
+  check("the loaded Buy phase is paused as loaded", v.pending && v.pending.paused, JSON.stringify(v.pending && v.pending.choices.map((c) => c.label)));
+  I.w.get_state_text();
+  const back = I.rd();
+  check("the state text keeps Villagers, Projects and the Artifact", /villagers: 3/.test(back) && /owned projects: Fair/.test(back) && /Flag=2/.test(back), back);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

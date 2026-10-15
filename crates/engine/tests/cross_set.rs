@@ -122,3 +122,58 @@ fn corsair_trashes_a_silver_that_crystal_ball_plays() {
 // ===========================================================================
 
 
+
+
+// ===========================================================================
+// Renaissance with the other sets
+// ===========================================================================
+
+fn own_project(g: &mut GameState, p: usize, project: CardId) {
+    let bit = 1u32 << (project - dominion_engine::cards::FIRST_PROJECT);
+    g.players[p].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+}
+
+#[test]
+fn throne_room_on_seer_plays_it_twice_and_each_play_reveals_three_cards() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::SEER, id::VILLAGE, id::SMITHY], 2);
+    g.turn.actions = 1;
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SEER]);
+    // First Seer: +1 Card (Gold), reveals Estate, Village, Smithy: the Village and the Smithy (cost $3 and $4) come to the hand.
+    // Second Seer: +1 Card (Duchy), reveals three Golds: nothing costs $2 to $4, all three go back.
+    set_deck_known(&mut g, 0, &[id::GOLD, id::ESTATE, id::VILLAGE, id::SMITHY, id::DUCHY, id::GOLD, id::GOLD, id::GOLD]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::SEER));
+    assert_eq!(g.players[0].hand.get(id::VILLAGE) + g.players[0].hand.get(id::SMITHY), 2);
+    assert_eq!(g.players[0].hand.get(id::GOLD) + g.players[0].hand.get(id::DUCHY), 2, "one card from each play");
+    assert_eq!(g.turn.actions, 2, "two plays, each +1 Action");
+}
+
+#[test]
+fn citadel_replays_a_throne_room_which_plays_its_action_twice_again() {
+    let mut g = new_state(&[id::CITADEL, id::THRONE_ROOM, id::SMITHY], 2);
+    own_project(&mut g, 0, id::CITADEL);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::SMITHY, id::SMITHY]);
+    set_deck_known(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::SMITHY));
+    // Throne Room's two plays of the first Smithy: +6; the Citadel replays the Throne Room, which asks again (the second Smithy): +6.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::SMITHY));
+    assert_eq!(g.players[0].hand.total(), 12);
+    assert_eq!(g.players[0].in_play.total(), 3);
+}
+
+#[test]
+fn capitalism_treasures_are_gold_for_counting_and_scepter_replays_them_as_actions() {
+    // A Market is a Treasure on the owner's turn under Capitalism but is still an Action: a Scepter can replay it,
+    // and Hoard-like Treasure triggers use is_treasure.
+    let mut g = new_state(&[id::MARKET, id::SCEPTER, id::MINE], 2);
+    own_project(&mut g, 0, id::CAPITALISM);
+    assert!(g.is_treasure(id::MARKET));
+    assert!(g.is_action(id::MARKET));
+    reset_turn(&mut g, 1);
+    assert!(!g.is_treasure(id::MARKET), "only on its owner's turns");
+}

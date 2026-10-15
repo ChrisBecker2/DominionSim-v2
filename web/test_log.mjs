@@ -109,6 +109,33 @@ async function play(text, label) {
   check("Merchant: its own +1 Action under it", log.includes(IND + "+1 Action"), log.join(" | "));
   check("Merchant's +$1 appears under the first Silver, once", log.filter((l) => l === IND + "Merchant: +$1").length === 1, log.join(" | "));
   check("Silver's printed value is not printed as a bonus", !log.some((l) => /^ *\+\$2/.test(l)));
+  // Treasures other than Copper, Silver, Gold, Platinum and Potion show their $ under the play; two Fool's Golds: +$1, then +$4.
+  {
+    const text = `players: 2
+kingdom: Fool's Gold, Harem, Village, Smithy, Market, Moat, Cellar, Festival, Laboratory, Mine
+turn: 3  player: 1  phase: buy  actions: 0  buys: 1  coins: 0
+
+[player 1]
+hand: 2 Fool's Gold, Harem, Copper, Silver
+deck: 5 Copper
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+`;
+    const F = await instance();
+    F.load(text);
+    if (F.view().pending.paused) F.w.resume();
+    const pick = (label) => { const c = F.view().pending.choices.find((x) => x.label === label); if (!c) throw new Error(label + ": " + JSON.stringify(F.view().pending.choices.map((x) => x.label))); F.w.choose(c.index); };
+    pick("Play Copper"); pick("Play Fool's Gold"); pick("Play Fool's Gold"); pick("Play Harem"); pick("Play Silver");
+    const flog = F.view().log;
+    const plays = flog.map((l, i) => [l, i]).filter(([l]) => l === "Player 1 plays Fool's Gold").map(([, i]) => i);
+    check("two Fool's Gold plays, each on its own line", plays.length === 2, flog.join(" | "));
+    check("the first Fool's Gold shows +$1, the second +$4", flog[plays[0] + 1] === IND + "+$1" && flog[plays[1] + 1] === IND + "+$4", flog.join(" | "));
+    check("Harem shows +$2", flog.some((l, i) => l === "Player 1 plays Harem" && flog[i + 1] === IND + "+$2"), flog.join(" | "));
+    check("Copper and Silver show no bonus", !flog.some((l, i) => /plays (Copper|Silver)$/.test(l) && /^ *\+\$/.test(flog[i + 1] || "")), flog.join(" | "));
+    check("the $ add up", F.view().turn.coins === 1 + 1 + 4 + 2 + 2, String(F.view().turn.coins));
+  }
 
   // Three Collections in play, then an Action bought: one line naming them and the count.
   {

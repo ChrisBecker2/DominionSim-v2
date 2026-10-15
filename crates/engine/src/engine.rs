@@ -1045,6 +1045,7 @@ impl GameState {
         if self.rs.active != 0 {
             self.rs_treasure_plays(c, n, sink);
         }
+        let coins_before = self.turn.coins;
         let ps = &mut self.players[p as usize];
         if fresh {
             ps.hand.set(c, ps.hand.get(c) - n);
@@ -1090,9 +1091,10 @@ impl GameState {
             self.give_coffers(p, c, n as u16, sink);
         }
         self.turn.coins += stone;
-        // A Treasure's own printed value is not repeated; its extras (+Buy, Duration "now"
-        // bonus, Merchant's +$1) are, indented under the play.
-        let own_coins = if cards::is(c, cards::DURATION) { cards::def(c).coins as u16 * n as u16 } else { 0 } + stone;
+        // The $ the play made, indented under it ("+$1", "+$4" for a second Fool's Gold), and its extras (+Buy, Merchant's +$1); not for the
+        // basic Treasures, whose value everyone knows (Copper, Silver, Gold, Platinum, Potion).
+        let basic = matches!(c, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION);
+        let own_coins = if basic { 0 } else { self.turn.coins - coins_before };
         let merchant = if c == id::SILVER && self.turn.silvers_played == 0 { self.turn.merchants as u16 } else { 0 };
         sink.depth(1);
         sink.bonus(p, c, 0, cards::def(c).buys * n, own_coins, 0);

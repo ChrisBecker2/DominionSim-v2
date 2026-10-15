@@ -192,7 +192,10 @@ impl GameState {
             }
         }
         // A Treasure's printed value is shown by its own play line; Action cards' +$ is a bonus.
-        let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) { 0 } else { def.coins as u16 };
+        // A Treasure's $ is reported as a bonus too (the log prints it under the play: "+$1" for Fool's Gold), except the basic Treasures', whose
+        // value everyone knows (Copper, Silver, Gold, Platinum, Potion).
+        let basic = matches!(card, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION);
+        let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) && basic { 0 } else { def.coins as u16 };
         sink.bonus(p, card, def.actions, def.buys, shown_coins, 0);
 
         // An Attack opens a reaction window first: each other player may reveal Moat (and Diplomat)

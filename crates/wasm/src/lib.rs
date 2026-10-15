@@ -408,9 +408,18 @@ impl App {
                 return;
             }
             Event::Bonus { player, source, actions, buys, coins, vp } => {
-                let unit = (actions as u16, buys as u16, coins, vp);
+                let mut unit = (actions as u16, buys as u16, coins, vp);
+                // A Treasure's bonuses from one play add up on one line (Fool's Gold's $1 and its $3 more: "+$4").
+                let treasure_sum = match last_bonus {
+                    Some((pl, src, d, u, n, at)) if cards::is(source, cards::TREASURE) && pl == player && src == source && d == depth && at + 1 == self.log.len() && self.last_played == Some(source) => {
+                        unit = (u.0 * n + unit.0, u.1 * n + unit.1, u.2 * n + unit.2, u.3 * n + unit.3);
+                        Some(at)
+                    }
+                    _ => None,
+                };
                 // The same bonus again from another copy of the same card: merge into its line.
                 let (copies, at) = match last_bonus {
+                    _ if treasure_sum.is_some() => (1, treasure_sum),
                     Some((pl, src, d, u, n, at)) if pl == player && src == source && d == depth && u == unit && at + 1 == self.log.len() => {
                         (n + 1, Some(at))
                     }
@@ -471,7 +480,8 @@ impl App {
             // Runs only condense at the same depth.
             let tag = tag * 16 + depth.min(15);
             if let Some((t, p, line)) = self.log_group {
-                if t == tag && p == player && line + 1 == self.log.len() {
+                let same_card = tag / 16 != 6 || self.log.last().is_some_and(|l| l.ends_with(cards::name(card)));
+                if t == tag && p == player && line + 1 == self.log.len() && same_card {
                     let last = self.log.last_mut().unwrap();
                     last.push_str(", ");
                     last.push_str(cards::name(card));
@@ -1959,7 +1969,12 @@ fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
 fn groupable(e: &Event) -> Option<(u8, u8, CardId)> {
     match *e {
         Event::Draw { player, card } => Some((0, player, card)),
-        Event::Play { player, card } if cards::is(card, cards::TREASURE) => Some((1, player, card)),
+        // The basic Treasures share a line ("plays Copper, Copper, Silver"); another Treasure shows its $ under its play, so it starts its
+        // own line and shares it only with more copies of itself.
+        Event::Play { player, card } if cards::is(card, cards::TREASURE) && matches!(card, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION) => {
+            Some((1, player, card))
+        }
+        Event::Play { player, card } if cards::is(card, cards::TREASURE) => Some((6, player, card)),
         Event::Discard { player, card } => Some((2, player, card)),
         Event::Reveal { player, card } => Some((3, player, card)),
         Event::Trash { player, card } => Some((4, player, card)),

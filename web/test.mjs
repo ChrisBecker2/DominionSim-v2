@@ -452,8 +452,12 @@ async function main() {
     const startTurn = view().turn.number;
     ok(wasm.run_to_end_of_turn());
     const v = view();
-    check(v.turn.number === startTurn + 1 || v.gameOver, `run_to_end_of_turn advances the turn (was ${startTurn}, now ${v.turn.number})`);
+    // The shown turn number is the round's: Player 2's first turn is Turn 1 too.
+    check(v.turn.number === startTurn || v.gameOver, `run_to_end_of_turn keeps the round's number for player 2 (was ${startTurn}, now ${v.turn.number})`);
     check(v.turn.player === 1, "turn passed to player 2");
+    ok(wasm.run_to_end_of_turn());
+    const w = view();
+    check(w.turn.number === startTurn + 1 || w.gameOver, `the next round is Turn ${startTurn + 1} (now ${w.turn.number})`);
   }
 
   section("play to completion with step_auto (bounded, must terminate)");

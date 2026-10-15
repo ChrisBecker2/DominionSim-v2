@@ -1006,6 +1006,13 @@ impl dominion_engine::EventSink for BuyTally {
     }
 }
 
+/// The turn number shown to people: the round, the same for every player in it (the turn player's own turn count, as the log's
+/// "--- Turn 41: Player 2 ---"), not the engine's count of every player's turns.
+fn round_number(state: &GameState) -> u32 {
+    let ps = &state.players[state.turn.player as usize];
+    ps.turns_taken as u32 + if state.turn.is_extra_turn { 0 } else { 1 }
+}
+
 /// Raw bytes of the current game's start (phase setup, before the deal; from `get_start_text`): Simulate uses it once the game is over,
 /// so that a finished game simulates fresh games on the same kingdom and seats.
 #[no_mangle]
@@ -2837,7 +2844,7 @@ fn pending_json(state: &GameState) -> String {
         return format!(
             "{{\"player\":{},\"source\":null,\"paused\":true,\"description\":{},\"choices\":[{{\"index\":-1,\"label\":\"{label}\"}}]}}",
             state.turn.player,
-            jstr(&format!("Turn {}: Player {} is up. {what}", state.turn.number, state.turn.player + 1).trim_end())
+            jstr(&format!("Turn {}: Player {} is up. {what}", round_number(state), state.turn.player + 1).trim_end())
         );
     }
     let d = match state.pending_decision() {
@@ -2981,7 +2988,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         ),
         n = n,
         cur = state.turn.player,
-        tn = state.turn.number,
+        tn = round_number(state),
         tp = state.turn.player,
         phase = jstr(phase_json(state.turn.phase)),
         ta = state.turn.actions,

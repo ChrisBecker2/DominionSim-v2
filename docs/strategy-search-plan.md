@@ -35,6 +35,7 @@ A candidate is exactly what `Strategy::parse` accepts:
   - `supply(C) <= N` (cards left in a pile), `low_piles >= N` (piles with 2 or fewer cards left), `empty_piles >= N`: pile endings
   - `coins >= N`
   - `count_type(action) < N`
+  - `count_line(Page) < N` (Traveller line starters only: Page and Peasant gains; every card owned of the line, Champion included)
   - `money >= N`
   - `vp_lead >= N`
   - `turn >= N`

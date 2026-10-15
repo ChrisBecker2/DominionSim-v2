@@ -208,8 +208,15 @@ choice and are accepted only for forward compatibility (a rule for them is an er
 ### 3.4 Calls and exchanges
 
 `[[call]] card = "Royal Carriage" if = "..."`: the first rule for the card whose condition holds decides yes; with rules stated for the card and none holding, no. Calls with no rule use the defaults below. Conditions are
-evaluated for the call being asked (`hand(...)`, `coins`, `actions`, `count(...)`). `[[exchange]] card = "Page" if = "..."` (the card being exchanged) decides the cleanup exchange; the default is always exchange. A condition-only
+evaluated for the call being asked (`hand(...)`, `coins`, `actions`, `count(...)`). `[[exchange]] card = "Page" if = "..."` (the card being exchanged) decides the cleanup exchange; the default is to exchange, except a Hero for a second Champion
+(its +1 Action does not stack with the first, and the Hero keeps gaining Treasures). A condition-only
 form `[[exchange]] card = "Page" if = "false"` keeps the Page.
+
+`count_line(Page)` (any card of the line names it) is the number of cards owned of the whole Traveller line: Page, Treasure Hunter, Warrior, Hero and Champion (or Peasant, Soldier, Fugitive, Disciple
+and Teacher). `count(Page)` still counts Pages only. `[[gain]] card = "Page" if = "count_line(Page) < 3"` caps the line; the evolved genomes use it as a condition template for Page and Peasant.
+
+Forced discards (Militia, Samurai, Cellar...) rank cards by dead weight first (Curses, Victory cards that are neither Action nor Treasure, Ruins), then cheapest first; Distant Lands (an Action-Reserve-Victory
+card, worth 4 VP once played onto the Tavern mat) ranks above its cost, so it is kept to play.
 
 ### 3.5 Searched decisions
 

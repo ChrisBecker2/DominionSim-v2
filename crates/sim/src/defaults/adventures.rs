@@ -53,7 +53,9 @@ impl SetDefaults for Adventures {
             DecisionKind::YesNo { act: Act::Call } => default_call(s, view, decision, source),
             // Wine Merchant: discarded from the mat whenever the rules allow it (the card goes back into the deck cycle).
             DecisionKind::YesNo { act: Act::Discard } if source == id::WINE_MERCHANT => Choice::Yes,
-            // An exchange is always taken, unless a rule says otherwise (rules are read first, by the caller).
+            // An exchange is taken, unless a rule says otherwise (rules are read first, by the caller). A second Champion adds almost nothing
+            // (its +1 Action is the same whether one or two are in play) while the Hero keeps gaining a Treasure each turn it is played.
+            DecisionKind::YesNo { act: Act::Exchange } if decision.subject == id::HERO && view.my_cards().get(id::CHAMPION) > 0 => Choice::No,
             DecisionKind::YesNo { act: Act::Exchange } => Choice::Yes,
             // Travelling Fair: a gained card goes onto the deck when it is worth drawing again soon, not a card that is dead weight.
             DecisionKind::YesNo { act: Act::Topdeck } if source == id::TRAVELLING_FAIR => {

@@ -89,6 +89,12 @@ pub enum Var {
     /// Sun tokens left on the Prophecy (Rising Sun; 0 once it has happened or with no Prophecy), and 1 once the Prophecy has happened.
     SunTokens,
     ProphecyActive,
+    /// Villagers I have (Renaissance): each is +1 Action in the Action phase. `opp_villagers`: the most any opponent has.
+    Villagers,
+    OppVillagers,
+    /// Projects I own (0 to 2), and the tokens I have on Sinister Plot.
+    Projects,
+    PlotTokens,
 }
 
 impl Var {
@@ -130,6 +136,10 @@ impl Var {
             Var::GainsThisTurn => view.gains_this_turn() as i64,
             Var::SunTokens => view.sun_tokens() as i64,
             Var::ProphecyActive => view.prophecy_active() as i64,
+            Var::Villagers => view.villagers() as i64,
+            Var::OppVillagers => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.villagers_of(p)).max().unwrap_or(0) as i64,
+            Var::Projects => view.projects_owned_by(view.me()) as i64,
+            Var::PlotTokens => view.plot_tokens_of(view.me()) as i64,
         }
     }
 
@@ -167,6 +177,10 @@ impl Var {
             "gains_this_turn" => Var::GainsThisTurn,
             "sun_tokens" | "suns" => Var::SunTokens,
             "prophecy_active" => Var::ProphecyActive,
+            "villagers" => Var::Villagers,
+            "opp_villagers" | "opponent_villagers" => Var::OppVillagers,
+            "projects" => Var::Projects,
+            "plot_tokens" => Var::PlotTokens,
             _ => return None,
         })
     }
@@ -209,6 +223,13 @@ pub enum Expr {
     LandmarkVp(CardId),
     /// `prophecy(Name)`: 1 if the Prophecy is in this game (Rising Sun; it may not have happened yet: see `prophecy_active`).
     Prophecy(CardId),
+    /// `has_project(Name)` / `opp_has_project(Name)`: 1 if I (any opponent) have put a cube on the Project (Renaissance); `project(Name)`: 1 if it is in this game.
+    HasProject(CardId),
+    OppHasProject(CardId),
+    ProjectInGame(CardId),
+    /// `has_artifact(Name)` / `opp_has_artifact(Name)`: 1 if I (another player) hold the Artifact.
+    HasArtifact(CardId),
+    OppHasArtifact(CardId),
     /// `supply(Card)`: copies left in the supply pile.
     Supply(CardId),
     /// `mat(Card)`: copies of `Card` on my Tavern mat (Adventures).
@@ -279,10 +300,15 @@ impl Expr {
             Landmark(l) => view.has_landmark(*l) as i64,
             LandmarkVp(l) => view.landmark_vp(*l) as i64,
             Prophecy(p) => (view.prophecy() == *p) as i64,
+            HasProject(p) => view.has_project(view.me(), *p) as i64,
+            OppHasProject(p) => (0..view.num_players()).any(|q| q != view.me() && view.has_project(q, *p)) as i64,
+            ProjectInGame(p) => view.has_project_in_game(*p) as i64,
+            HasArtifact(a) => view.has_artifact(view.me(), *a) as i64,
+            OppHasArtifact(a) => view.artifact_holder(*a).is_some_and(|h| h != view.me()) as i64,
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
             Supply(c) => view.supply(*c) as i64,
             Mat(c) => view.tavern_of(view.me()).get(*c) as i64,
-            Bought(e) => view.event_bought_by(view.me(), *e) as i64,
+            Bought(e) => (view.event_bought_by(view.me(), *e) || view.has_project(view.me(), *e)) as i64,
             BoughtTurn(e) => view.event_bought_this_turn(*e) as i64,
             TokenOn(tok, pile) => {
                 let t = view.tokens_of(view.me());
@@ -352,6 +378,8 @@ impl Expr {
             CountPair(a, _) => f(*a),
             CountLine(c) => f(*c),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
+            HasProject(c) | OppHasProject(c) | ProjectInGame(c) => f(*c),
+            HasArtifact(_) | OppHasArtifact(_) => {}
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
                 a.for_each_card_ref(f);
@@ -606,7 +634,7 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
     // or mat lane (reading one would index past the zone ids).
     let zone_card = |c: CardId, what: &str| {
         if cards::is_pseudo(c) {
-            Err(format!("{arg:?} is not a card that can be {what} (an Event, Landmark or Prophecy), in condition {src:?}; for an Event use bought({arg})"))
+            Err(format!("{arg:?} is not a card that can be {what} (an Event, Landmark, Prophecy, Project or Artifact), in condition {src:?}; for an Event use bought({arg}), for a Project has_project({arg}), for an Artifact has_artifact({arg})"))
         } else {
             Ok(c)
         }
@@ -643,6 +671,18 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
             let p = cards::by_name(arg).filter(|&p| cards::is_prophecy(p)).ok_or_else(|| format!("{arg:?} is not a Prophecy, in condition {src:?}"))?;
             Ok(Expr::Prophecy(p))
         }
+        "has_project" | "opp_has_project" | "project" => {
+            let p = cards::by_name(arg).filter(|&p| cards::is_project(p)).ok_or_else(|| format!("{arg:?} is not a Project, in condition {src:?}"))?;
+            Ok(match func.to_ascii_lowercase().as_str() {
+                "has_project" => Expr::HasProject(p),
+                "opp_has_project" => Expr::OppHasProject(p),
+                _ => Expr::ProjectInGame(p),
+            })
+        }
+        "has_artifact" | "opp_has_artifact" => {
+            let a = cards::by_name(arg).filter(|&a| cards::is_artifact(a)).ok_or_else(|| format!("{arg:?} is not an Artifact, in condition {src:?}"))?;
+            Ok(if func.eq_ignore_ascii_case("has_artifact") { Expr::HasArtifact(a) } else { Expr::OppHasArtifact(a) })
+        }
         "has_state" | "opp_has_state" => {
             let s = cards::by_name(arg).filter(|&s| cards::is_state(s)).ok_or_else(|| format!("{arg:?} is not a State, in condition {src:?}"))?;
             Ok(if func.eq_ignore_ascii_case("has_state") { Expr::HasState(s) } else { Expr::OppHasState(s) })
@@ -664,8 +704,12 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
             Ok(Expr::Mat(zone_card(c, "on a mat")?))
         }
         "bought" | "bought_turn" => {
-            let e = cards::by_name(arg).filter(|&e| cards::is_event(e)).ok_or_else(|| format!("{arg:?} is not an Event, in condition {src:?}"))?;
-            Ok(if func.eq_ignore_ascii_case("bought") { Expr::Bought(e) } else { Expr::BoughtTurn(e) })
+            // A Project is "bought" once its cube is on it (`has_project` says the same); only Events can be bought this turn.
+            let project_ok = func.eq_ignore_ascii_case("bought");
+            let e = cards::by_name(arg)
+                .filter(|&e| cards::is_event(e) || (project_ok && cards::is_project(e)))
+                .ok_or_else(|| format!("{arg:?} is not an Event{}, in condition {src:?}", if project_ok { " or Project" } else { "" }))?;
+            Ok(if project_ok { Expr::Bought(e) } else { Expr::BoughtTurn(e) })
         }
         "token_on" => {
             let (tok, pile) = arg.split_once(',').ok_or_else(|| format!("token_on needs a token and a pile, e.g. token_on(+1 Card, Smithy), in condition {src:?}"))?;

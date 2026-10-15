@@ -109,7 +109,7 @@ impl SetRules for Hinterlands {
                 let hand = g.players[pi].hand;
                 for (c, n) in hand.iter() {
                     for _ in 0..n {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                 }
                 let victory = hand.count_type(cards::VICTORY).min(u8::MAX as u32) as u8;

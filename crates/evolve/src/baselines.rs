@@ -294,7 +294,7 @@ fn plain_name(c: CardId) -> &'static str {
 /// `colonies` says whether Colony/Platinum are in the supply, and `forbidden` cards are never used.
 pub fn baselines(kingdom: &[CardId], colonies: bool, forbidden: &[CardId]) -> Vec<Baseline> {
     let cards_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_kingdom(c) && !forbidden.contains(&c)).collect();
-    let events_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_event(c) && !forbidden.contains(&c)).collect();
+    let events_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_bought_pseudo(c) && !forbidden.contains(&c)).collect();
     let mut out: Vec<Baseline> = vec![Baseline {
         name: "Big Money Ultimate".into(),
         genome: big_money_ultimate(colonies),

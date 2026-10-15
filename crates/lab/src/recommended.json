@@ -505,6 +505,49 @@
   "shelters": false
  },
  {
+  "name": "It Takes a Villager",
+  "set": "Base",
+  "cards": [
+   "Market",
+   "Merchant",
+   "Mine",
+   "Smithy",
+   "Vassal",
+   "Acting Troupe",
+   "Cargo Ship",
+   "Recruiter",
+   "Seer",
+   "Treasurer"
+  ],
+  "extras": [
+   "Road Network"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Capture the Flag",
+  "set": "Base",
+  "cards": [
+   "Cellar",
+   "Festival",
+   "Harbinger",
+   "Remodel",
+   "Workshop",
+   "Flag Bearer",
+   "Lackeys",
+   "Scholar",
+   "Swashbuckler",
+   "Villain"
+  ],
+  "extras": [
+   "Barracks",
+   "Pageant"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Money to Burn",
   "set": "Base",
   "cards": [
@@ -1759,6 +1802,49 @@
   "shelters": false
  },
  {
+  "name": "Memento Mori",
+  "set": "Intrigue",
+  "cards": [
+   "Ironworks",
+   "Lurker",
+   "Patrol",
+   "Swindler",
+   "Upgrade",
+   "Experiment",
+   "Flag Bearer",
+   "Patron",
+   "Recruiter",
+   "Silk Merchant"
+  ],
+  "extras": [
+   "Citadel"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clockwork Court",
+  "set": "Intrigue",
+  "cards": [
+   "Courtier",
+   "Mining Village",
+   "Nobles",
+   "Replace",
+   "Steward",
+   "Acting Troupe",
+   "Inventor",
+   "Research",
+   "Scepter",
+   "Scholar"
+  ],
+  "extras": [
+   "Fleet",
+   "Sinister Plot"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Cold Calculation",
   "set": "Intrigue",
   "cards": [
@@ -2804,6 +2890,49 @@
   "shelters": false
  },
  {
+  "name": "Free Shipping",
+  "set": "Seaside",
+  "cards": [
+   "Blockade",
+   "Island",
+   "Outpost",
+   "Smugglers",
+   "Wharf",
+   "Acting Troupe",
+   "Cargo Ship",
+   "Lackeys",
+   "Research",
+   "Spices"
+  ],
+  "extras": [
+   "Innovation"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Digging for Treasure",
+  "set": "Seaside",
+  "cards": [
+   "Astrolabe",
+   "Caravan",
+   "Native Village",
+   "Salvager",
+   "Treasure Map",
+   "Border Guard",
+   "Flag Bearer",
+   "Inventor",
+   "Sculptor",
+   "Swashbuckler"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Island People",
   "set": "Seaside",
   "cards": [
@@ -3426,6 +3555,49 @@
   "shelters": false
  },
  {
+  "name": "Free Shipping",
+  "set": "Seaside",
+  "cards": [
+   "Embargo",
+   "Island",
+   "Outpost",
+   "Smugglers",
+   "Wharf",
+   "Acting Troupe",
+   "Cargo Ship",
+   "Lackeys",
+   "Research",
+   "Spices"
+  ],
+  "extras": [
+   "Innovation"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Digging for Treasure",
+  "set": "Seaside",
+  "cards": [
+   "Caravan",
+   "Native Village",
+   "Salvager",
+   "Tactician",
+   "Treasure Map",
+   "Border Guard",
+   "Flag Bearer",
+   "Inventor",
+   "Sculptor",
+   "Swashbuckler"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Beginners",
   "set": "Prosperity",
   "cards": [
@@ -3832,6 +4004,49 @@
    "Tragic Hero"
   ],
   "extras": [],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Dreamers of Dreams",
+  "set": "Prosperity",
+  "cards": [
+   "Charlatan",
+   "Monument",
+   "Vault",
+   "Watchtower",
+   "Worker's Village",
+   "Cargo Ship",
+   "Old Witch",
+   "Priest",
+   "Scepter",
+   "Scholar"
+  ],
+  "extras": [
+   "Academy"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Movers and Shakers",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "City",
+   "Grand Market",
+   "Investment",
+   "Rabble",
+   "Hideout",
+   "Patron",
+   "Research",
+   "Treasurer",
+   "Villain"
+  ],
+  "extras": [
+   "Capitalism",
+   "Citadel"
+  ],
   "colony": true,
   "shelters": false
  },
@@ -4534,6 +4749,49 @@
   "shelters": false
  },
  {
+  "name": "Dreamers of Dreams",
+  "set": "Prosperity",
+  "cards": [
+   "Expand",
+   "Monument",
+   "Vault",
+   "Watchtower",
+   "Worker's Village",
+   "Cargo Ship",
+   "Old Witch",
+   "Priest",
+   "Scepter",
+   "Scholar"
+  ],
+  "extras": [
+   "Academy"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Movers and Shakers",
+  "set": "Prosperity",
+  "cards": [
+   "Bank",
+   "City",
+   "Grand Market",
+   "Investment",
+   "Rabble",
+   "Hideout",
+   "Patron",
+   "Research",
+   "Treasurer",
+   "Villain"
+  ],
+  "extras": [
+   "Capitalism",
+   "Citadel"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
   "name": "Forbidden Arts",
   "set": "Alchemy",
   "cards": [
@@ -4823,6 +5081,27 @@
    "Tracker"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Peek-a-boo",
+  "set": "Alchemy",
+  "cards": [
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Scrying Pool",
+   "Cargo Ship",
+   "Improve",
+   "Lackeys",
+   "Patron",
+   "Sculptor",
+   "Silk Merchant"
+  ],
+  "extras": [
+   "Cathedral"
+  ],
   "colony": false,
   "shelters": false
  },
@@ -5344,6 +5623,28 @@
    "Shepherd"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Filling the Coffers",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Farrier",
+   "Merchant Guild",
+   "Plaza",
+   "Priest",
+   "Recruiter",
+   "Spices",
+   "Swashbuckler",
+   "Treasurer"
+  ],
+  "extras": [
+   "City Gate",
+   "Star Chart"
+  ],
   "colony": false,
   "shelters": false
  },
@@ -6373,6 +6674,49 @@
   "shelters": false
  },
  {
+  "name": "Combo Corner",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Herald",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Stonemason",
+   "Ducat",
+   "Experiment",
+   "Hideout",
+   "Sculptor",
+   "Seer"
+  ],
+  "extras": [
+   "Canal"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Filling the Coffers",
+  "set": "Cornucopia & Guilds",
+  "cards": [
+   "Baker",
+   "Butcher",
+   "Menagerie",
+   "Merchant Guild",
+   "Plaza",
+   "Priest",
+   "Recruiter",
+   "Spices",
+   "Swashbuckler",
+   "Treasurer"
+  ],
+  "extras": [
+   "City Gate",
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Grim Parade",
   "set": "Dark Ages",
   "cards": [
@@ -6801,6 +7145,49 @@
    "Vampire"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Stargazing",
+  "set": "Dark Ages",
+  "cards": [
+   "Hermit",
+   "Mystic",
+   "Procession",
+   "Sage",
+   "Wandering Minstrel",
+   "Border Guard",
+   "Patron",
+   "Seer",
+   "Silk Merchant",
+   "Swashbuckler"
+  ],
+  "extras": [
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Sewer Rats",
+  "set": "Dark Ages",
+  "cards": [
+   "Count",
+   "Counterfeit",
+   "Cultist",
+   "Graverobber",
+   "Rats",
+   "Flag Bearer",
+   "Improve",
+   "Lackeys",
+   "Mountain Village",
+   "Research"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Sewers"
+  ],
   "colony": false,
   "shelters": true
  },
@@ -7500,6 +7887,50 @@
   ],
   "extras": [
    "Pilgrimage"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Progress",
+  "set": "Adventures",
+  "cards": [
+   "Hireling",
+   "Ranger",
+   "Raze",
+   "Swamp Hag",
+   "Transmogrify",
+   "Experiment",
+   "Improve",
+   "Recruiter",
+   "Seer",
+   "Silk Merchant"
+  ],
+  "extras": [
+   "Training",
+   "Piazza"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Once Upon a Time",
+  "set": "Adventures",
+  "cards": [
+   "Distant Lands",
+   "Duplicate",
+   "Haunted Woods",
+   "Royal Carriage",
+   "Storyteller",
+   "Acting Troupe",
+   "Lackeys",
+   "Priest",
+   "Sculptor",
+   "Spices"
+  ],
+  "extras": [
+   "Ferry",
+   "Innovation"
   ],
   "colony": false,
   "shelters": false
@@ -8310,6 +8741,50 @@
   "shelters": false
  },
  {
+  "name": "Exploring the City",
+  "set": "Empires",
+  "cards": [
+   "City Quarter",
+   "Farmers' Market",
+   "Groundskeeper",
+   "Sacrifice",
+   "Wild Hunt",
+   "Cargo Ship",
+   "Experiment",
+   "Mountain Village",
+   "Priest",
+   "Sculptor"
+  ],
+  "extras": [
+   "Battlefield",
+   "Exploration"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Navigating the Sewers",
+  "set": "Empires",
+  "cards": [
+   "Chariot Race",
+   "Enchantress",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Villa",
+   "Acting Troupe",
+   "Flag Bearer",
+   "Improve",
+   "Old Witch",
+   "Scepter"
+  ],
+  "extras": [
+   "Ritual",
+   "Sewers"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Detours and Shortcuts",
   "set": "Empires",
   "cards": [
@@ -8935,6 +9410,49 @@
   ],
   "extras": [
    "Banquet"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Becoming a Monster",
+  "set": "Nocturne",
+  "cards": [
+   "Devil's Workshop",
+   "Monastery",
+   "Shepherd",
+   "Skulk",
+   "Tragic Hero",
+   "Experiment",
+   "Mountain Village",
+   "Old Witch",
+   "Research",
+   "Spices"
+  ],
+  "extras": [
+   "Exploration"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "True Believers",
+  "set": "Nocturne",
+  "cards": [
+   "Blessed Village",
+   "Crypt",
+   "Faithful Hound",
+   "Sacred Grove",
+   "Secret Cave",
+   "Border Guard",
+   "Cargo Ship",
+   "Scholar",
+   "Sculptor",
+   "Villain"
+  ],
+  "extras": [
+   "Cathedral",
+   "Piazza"
   ],
   "colony": false,
   "shelters": false
@@ -9986,6 +10504,49 @@
   "shelters": false
  },
  {
+  "name": "Sweetened Deals",
+  "set": "Hinterlands",
+  "cards": [
+   "Develop",
+   "Guard Dog",
+   "Haggler",
+   "Spice Merchant",
+   "Witch's Hut",
+   "Flag Bearer",
+   "Lackeys",
+   "Mountain Village",
+   "Silk Merchant",
+   "Spices"
+  ],
+  "extras": [
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Penny Saved",
+  "set": "Hinterlands",
+  "cards": [
+   "Berserker",
+   "Border Village",
+   "Oasis",
+   "Souk",
+   "Trader",
+   "Ducat",
+   "Patron",
+   "Scepter",
+   "Seer",
+   "Swashbuckler"
+  ],
+  "extras": [
+   "Barracks",
+   "Guildhall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
   "name": "Swift Hands",
   "set": "Hinterlands",
   "cards": [
@@ -10622,6 +11183,740 @@
    "Shepherd"
   ],
   "extras": [],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Sweetened Deals",
+  "set": "Hinterlands",
+  "cards": [
+   "Cartographer",
+   "Develop",
+   "Farmland",
+   "Haggler",
+   "Spice Merchant",
+   "Flag Bearer",
+   "Lackeys",
+   "Mountain Village",
+   "Silk Merchant",
+   "Spices"
+  ],
+  "extras": [
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Penny Saved",
+  "set": "Hinterlands",
+  "cards": [
+   "Cache",
+   "Crossroads",
+   "Noble Brigand",
+   "Oasis",
+   "Trader",
+   "Ducat",
+   "Patron",
+   "Scepter",
+   "Seer",
+   "Swashbuckler"
+  ],
+  "extras": [
+   "Barracks",
+   "Guildhall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Overture",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Experiment",
+   "Flag Bearer",
+   "Hideout",
+   "Improve",
+   "Inventor",
+   "Lackeys",
+   "Old Witch",
+   "Seer",
+   "Treasurer"
+  ],
+  "extras": [
+   "Fair"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Prelude",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Cargo Ship",
+   "Ducat",
+   "Mountain Village",
+   "Priest",
+   "Recruiter",
+   "Sculptor",
+   "Silk Merchant",
+   "Swashbuckler",
+   "Villain"
+  ],
+  "extras": [
+   "Citadel",
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "It Takes a Villager",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Cargo Ship",
+   "Recruiter",
+   "Seer",
+   "Treasurer",
+   "Market",
+   "Merchant",
+   "Mine",
+   "Smithy",
+   "Vassal"
+  ],
+  "extras": [
+   "Road Network"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Capture the Flag",
+  "set": "Renaissance",
+  "cards": [
+   "Flag Bearer",
+   "Lackeys",
+   "Scholar",
+   "Swashbuckler",
+   "Villain",
+   "Cellar",
+   "Festival",
+   "Harbinger",
+   "Remodel",
+   "Workshop"
+  ],
+  "extras": [
+   "Barracks",
+   "Pageant"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Memento Mori",
+  "set": "Renaissance",
+  "cards": [
+   "Experiment",
+   "Flag Bearer",
+   "Patron",
+   "Recruiter",
+   "Silk Merchant",
+   "Ironworks",
+   "Lurker",
+   "Patrol",
+   "Swindler",
+   "Upgrade"
+  ],
+  "extras": [
+   "Citadel"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Clockwork Court",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Inventor",
+   "Research",
+   "Scepter",
+   "Scholar",
+   "Courtier",
+   "Mining Village",
+   "Nobles",
+   "Replace",
+   "Steward"
+  ],
+  "extras": [
+   "Fleet",
+   "Sinister Plot"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Free Shipping",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Cargo Ship",
+   "Lackeys",
+   "Research",
+   "Spices",
+   "Blockade",
+   "Island",
+   "Outpost",
+   "Smugglers",
+   "Wharf"
+  ],
+  "extras": [
+   "Innovation"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Digging for Treasure",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Flag Bearer",
+   "Inventor",
+   "Sculptor",
+   "Swashbuckler",
+   "Astrolabe",
+   "Caravan",
+   "Native Village",
+   "Salvager",
+   "Treasure Map"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Peek-a-boo",
+  "set": "Renaissance",
+  "cards": [
+   "Cargo Ship",
+   "Improve",
+   "Lackeys",
+   "Patron",
+   "Sculptor",
+   "Silk Merchant",
+   "Alchemist",
+   "Apothecary",
+   "Golem",
+   "Scrying Pool"
+  ],
+  "extras": [
+   "Cathedral"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dreamers of Dreams",
+  "set": "Renaissance",
+  "cards": [
+   "Cargo Ship",
+   "Old Witch",
+   "Priest",
+   "Scepter",
+   "Scholar",
+   "Charlatan",
+   "Monument",
+   "Vault",
+   "Watchtower",
+   "Worker's Village"
+  ],
+  "extras": [
+   "Academy"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Movers and Shakers",
+  "set": "Renaissance",
+  "cards": [
+   "Hideout",
+   "Patron",
+   "Research",
+   "Treasurer",
+   "Villain",
+   "Bank",
+   "City",
+   "Grand Market",
+   "Investment",
+   "Rabble"
+  ],
+  "extras": [
+   "Capitalism",
+   "Citadel"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Filling the Coffers",
+  "set": "Renaissance",
+  "cards": [
+   "Priest",
+   "Recruiter",
+   "Spices",
+   "Swashbuckler",
+   "Treasurer",
+   "Baker",
+   "Butcher",
+   "Farrier",
+   "Merchant Guild",
+   "Plaza"
+  ],
+  "extras": [
+   "City Gate",
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Sweetened Deals",
+  "set": "Renaissance",
+  "cards": [
+   "Flag Bearer",
+   "Lackeys",
+   "Mountain Village",
+   "Silk Merchant",
+   "Spices",
+   "Develop",
+   "Guard Dog",
+   "Haggler",
+   "Spice Merchant",
+   "Witch's Hut"
+  ],
+  "extras": [
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Penny Saved",
+  "set": "Renaissance",
+  "cards": [
+   "Ducat",
+   "Patron",
+   "Scepter",
+   "Seer",
+   "Swashbuckler",
+   "Berserker",
+   "Border Village",
+   "Oasis",
+   "Souk",
+   "Trader"
+  ],
+  "extras": [
+   "Barracks",
+   "Guildhall"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Stargazing",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Patron",
+   "Seer",
+   "Silk Merchant",
+   "Swashbuckler",
+   "Hermit",
+   "Mystic",
+   "Procession",
+   "Sage",
+   "Wandering Minstrel"
+  ],
+  "extras": [
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Sewer Rats",
+  "set": "Renaissance",
+  "cards": [
+   "Flag Bearer",
+   "Improve",
+   "Lackeys",
+   "Mountain Village",
+   "Research",
+   "Count",
+   "Counterfeit",
+   "Cultist",
+   "Graverobber",
+   "Rats"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Sewers"
+  ],
+  "colony": false,
+  "shelters": true
+ },
+ {
+  "name": "Progress",
+  "set": "Renaissance",
+  "cards": [
+   "Experiment",
+   "Improve",
+   "Recruiter",
+   "Seer",
+   "Silk Merchant",
+   "Hireling",
+   "Ranger",
+   "Raze",
+   "Swamp Hag",
+   "Transmogrify"
+  ],
+  "extras": [
+   "Training",
+   "Piazza"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Once Upon a Time",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Lackeys",
+   "Priest",
+   "Sculptor",
+   "Spices",
+   "Distant Lands",
+   "Duplicate",
+   "Haunted Woods",
+   "Royal Carriage",
+   "Storyteller"
+  ],
+  "extras": [
+   "Ferry",
+   "Innovation"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Exploring the City",
+  "set": "Renaissance",
+  "cards": [
+   "Cargo Ship",
+   "Experiment",
+   "Mountain Village",
+   "Priest",
+   "Sculptor",
+   "City Quarter",
+   "Farmers' Market",
+   "Groundskeeper",
+   "Sacrifice",
+   "Wild Hunt"
+  ],
+  "extras": [
+   "Battlefield",
+   "Exploration"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Navigating the Sewers",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Flag Bearer",
+   "Improve",
+   "Old Witch",
+   "Scepter",
+   "Chariot Race",
+   "Enchantress",
+   "Gladiator/Fortune",
+   "Patrician/Emporium",
+   "Villa"
+  ],
+  "extras": [
+   "Ritual",
+   "Sewers"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Becoming a Monster",
+  "set": "Renaissance",
+  "cards": [
+   "Experiment",
+   "Mountain Village",
+   "Old Witch",
+   "Research",
+   "Spices",
+   "Devil's Workshop",
+   "Monastery",
+   "Shepherd",
+   "Skulk",
+   "Tragic Hero"
+  ],
+  "extras": [
+   "Exploration"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "True Believers",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Cargo Ship",
+   "Scholar",
+   "Sculptor",
+   "Villain",
+   "Blessed Village",
+   "Crypt",
+   "Faithful Hound",
+   "Sacred Grove",
+   "Secret Cave"
+  ],
+  "extras": [
+   "Cathedral",
+   "Piazza"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Villager Madness",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Flag Bearer",
+   "Patron",
+   "Silk Merchant",
+   "Spices",
+   "Cardinal",
+   "Groom",
+   "Kiln",
+   "Livery",
+   "Wayfarer"
+  ],
+  "extras": [
+   "Demand",
+   "Academy"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Fresh Start",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Cargo Ship",
+   "Inventor",
+   "Patron",
+   "Sculptor",
+   "Change",
+   "Daimyo",
+   "Ninja",
+   "Poet",
+   "Tea House"
+  ],
+  "extras": [
+   "Receive Tribute",
+   "Divine Wind"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Free Shipping",
+  "set": "Renaissance",
+  "cards": [
+   "Acting Troupe",
+   "Cargo Ship",
+   "Lackeys",
+   "Research",
+   "Spices",
+   "Embargo",
+   "Island",
+   "Outpost",
+   "Smugglers",
+   "Wharf"
+  ],
+  "extras": [
+   "Innovation"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Digging for Treasure",
+  "set": "Renaissance",
+  "cards": [
+   "Border Guard",
+   "Flag Bearer",
+   "Inventor",
+   "Sculptor",
+   "Swashbuckler",
+   "Caravan",
+   "Native Village",
+   "Salvager",
+   "Tactician",
+   "Treasure Map"
+  ],
+  "extras": [
+   "Crop Rotation",
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Dreamers of Dreams",
+  "set": "Renaissance",
+  "cards": [
+   "Cargo Ship",
+   "Old Witch",
+   "Priest",
+   "Scepter",
+   "Scholar",
+   "Expand",
+   "Monument",
+   "Vault",
+   "Watchtower",
+   "Worker's Village"
+  ],
+  "extras": [
+   "Academy"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Movers and Shakers",
+  "set": "Renaissance",
+  "cards": [
+   "Hideout",
+   "Patron",
+   "Research",
+   "Treasurer",
+   "Villain",
+   "Bank",
+   "City",
+   "Grand Market",
+   "Investment",
+   "Rabble"
+  ],
+  "extras": [
+   "Capitalism",
+   "Citadel"
+  ],
+  "colony": true,
+  "shelters": false
+ },
+ {
+  "name": "Combo Corner",
+  "set": "Renaissance",
+  "cards": [
+   "Ducat",
+   "Experiment",
+   "Hideout",
+   "Sculptor",
+   "Seer",
+   "Herald",
+   "Horn of Plenty",
+   "Horse Traders",
+   "Jester",
+   "Stonemason"
+  ],
+  "extras": [
+   "Canal"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Filling the Coffers",
+  "set": "Renaissance",
+  "cards": [
+   "Priest",
+   "Recruiter",
+   "Spices",
+   "Swashbuckler",
+   "Treasurer",
+   "Baker",
+   "Butcher",
+   "Menagerie",
+   "Merchant Guild",
+   "Plaza"
+  ],
+  "extras": [
+   "City Gate",
+   "Star Chart"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "Sweetened Deals",
+  "set": "Renaissance",
+  "cards": [
+   "Flag Bearer",
+   "Lackeys",
+   "Mountain Village",
+   "Silk Merchant",
+   "Spices",
+   "Cartographer",
+   "Develop",
+   "Farmland",
+   "Haggler",
+   "Spice Merchant"
+  ],
+  "extras": [
+   "Silos"
+  ],
+  "colony": false,
+  "shelters": false
+ },
+ {
+  "name": "A Penny Saved",
+  "set": "Renaissance",
+  "cards": [
+   "Ducat",
+   "Patron",
+   "Scepter",
+   "Seer",
+   "Swashbuckler",
+   "Cache",
+   "Crossroads",
+   "Noble Brigand",
+   "Oasis",
+   "Trader"
+  ],
+  "extras": [
+   "Barracks",
+   "Guildhall"
+  ],
   "colony": false,
   "shelters": false
  }

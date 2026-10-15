@@ -638,6 +638,7 @@ fn verb(act: Act) -> &'static str {
         Act::Return => "Return",
         Act::Archive => "Set aside",
         Act::ShuffleIn => "Shuffle into the deck",
+        Act::Choose => "Choose",
     }
 }
 
@@ -725,6 +726,7 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::PlayAction | DecisionKind::Buy, Choice::PayDebt) => "Pay off Debt".to_string(),
         (DecisionKind::Buy, Choice::PayDebtKeep(n)) => format!("Pay off Debt, keeping {n}"),
         (DecisionKind::PlayAction, Choice::Card(c)) => format!("Play {}", cards::name(c)),
+        (DecisionKind::PlayAction, Choice::Villager) => "Spend a Villager (+1 Action)".to_string(),
         (DecisionKind::PlayAction, _) => "End actions".to_string(),
         (DecisionKind::PlayNight, Choice::Card(c)) => format!("Play {} (Night)", cards::name(c)),
         (DecisionKind::PlayNight, _) => "End Night".to_string(),

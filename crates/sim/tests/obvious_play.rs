@@ -79,6 +79,9 @@ fn free_actions_of(adventures: bool) -> Vec<CardId> {
     all.into_iter()
         .filter(|&c| (cards::set_of(c) == cards::CardSet::Adventures) == adventures)
         .filter(|&c| cards::def(c).on_play == OnPlay::ChoiceFree && c != id::PHILOSOPHERS_STONE)
+        // Werewolf is an Action and a Night card: by day it draws 3, at night it hands out a Hex, which the scoring values (a Curse for the opponent),
+        // so whether to play it as an Action is a real choice that the shortcut does not claim to solve (a strategy that plays it states a rule).
+        .filter(|&c| c != id::WEREWOLF)
         .collect()
 }
 
@@ -240,7 +243,8 @@ fn cantrip_first_is_as_good_as_searching_inner(adventures: bool) {
     let cfg = SearchConfig::default();
     let mut rng = Rng::new(if adventures { 888 } else { 777 });
     let (mut checked, mut cases) = (0, 0);
-    for _ in 0..1500 {
+    // (Renaissance's cards draw and gain more than the older ones: fewer positions are solved exactly, so more are tried.)
+    for _ in 0..2600 {
         let pick = |rng: &mut Rng, xs: &[CardId]| xs[rng.below(xs.len() as u32) as usize];
         let mut hand: Vec<CardId> = (0..1 + rng.below(2)).map(|_| pick(&mut rng, &cantrip)).collect();
         let c = pick(&mut rng, &choice);

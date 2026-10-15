@@ -38,32 +38,32 @@ pub mod ids {
     pub const SAMURAI: CardId = 380;
     pub const RICE: CardId = 381;
     // The Events, after Summon.
-    pub const AMASS: CardId = 432;
-    pub const ASCETICISM: CardId = 433;
-    pub const CONTINUE: CardId = 434;
-    pub const CREDIT: CardId = 435;
-    pub const FORESIGHT: CardId = 436;
-    pub const GATHER: CardId = 437;
-    pub const KINTSUGI: CardId = 438;
-    pub const PRACTICE: CardId = 439;
-    pub const RECEIVE_TRIBUTE: CardId = 440;
-    pub const SEA_TRADE: CardId = 441;
+    pub const AMASS: CardId = 457;
+    pub const ASCETICISM: CardId = 458;
+    pub const CONTINUE: CardId = 459;
+    pub const CREDIT: CardId = 460;
+    pub const FORESIGHT: CardId = 461;
+    pub const GATHER: CardId = 462;
+    pub const KINTSUGI: CardId = 463;
+    pub const PRACTICE: CardId = 464;
+    pub const RECEIVE_TRIBUTE: CardId = 465;
+    pub const SEA_TRADE: CardId = 466;
     // The Prophecies, the highest ids.
-    pub const APPROACHING_ARMY: CardId = 492;
-    pub const BIDING_TIME: CardId = 493;
-    pub const BUREAUCRACY: CardId = 494;
-    pub const DIVINE_WIND: CardId = 495;
-    pub const ENLIGHTENMENT: CardId = 496;
-    pub const FLOURISHING_TRADE: CardId = 497;
-    pub const GOOD_HARVEST: CardId = 498;
-    pub const GREAT_LEADER: CardId = 499;
-    pub const GROWTH: CardId = 500;
-    pub const HARSH_WINTER: CardId = 501;
-    pub const KIND_EMPEROR: CardId = 502;
-    pub const PANIC: CardId = 503;
-    pub const PROGRESS: CardId = 504;
-    pub const RAPID_EXPANSION: CardId = 505;
-    pub const SICKNESS: CardId = 506;
+    pub const APPROACHING_ARMY: CardId = 517;
+    pub const BIDING_TIME: CardId = 518;
+    pub const BUREAUCRACY: CardId = 519;
+    pub const DIVINE_WIND: CardId = 520;
+    pub const ENLIGHTENMENT: CardId = 521;
+    pub const FLOURISHING_TRADE: CardId = 522;
+    pub const GOOD_HARVEST: CardId = 523;
+    pub const GREAT_LEADER: CardId = 524;
+    pub const GROWTH: CardId = 525;
+    pub const HARSH_WINTER: CardId = 526;
+    pub const KIND_EMPEROR: CardId = 527;
+    pub const PANIC: CardId = 528;
+    pub const PROGRESS: CardId = 529;
+    pub const RAPID_EXPANSION: CardId = 530;
+    pub const SICKNESS: CardId = 531;
 }
 
 /// The Shadow cards (playable from the deck).
@@ -937,7 +937,7 @@ impl GameState {
         let mut old = [0 as CardId; 64];
         let mut used = [0 as CardId; 64];
         let (mut n_old, mut n_used) = (0, 0);
-        let mut sets = [false; 13];
+        let mut sets = [false; 14];
         for c in self.supply_cards() {
             if c <= id::CURSE || cards::is_optional_basic(c) || RUINS_PILE.members().contains(&c) || n_old >= old.len() {
                 continue;
@@ -1198,7 +1198,7 @@ impl GameState {
                 let hand = self.players[p as usize].hand;
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        self.reveal_card(p, c, sink);
                     }
                 }
                 if self.players[p as usize].in_play.remove(f.source) {

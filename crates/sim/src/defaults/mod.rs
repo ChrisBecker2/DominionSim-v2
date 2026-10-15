@@ -27,6 +27,7 @@ mod intrigue;
 mod nocturne;
 mod promo;
 mod prosperity;
+mod renaissance;
 mod rising_sun;
 mod seaside;
 mod trashers;
@@ -85,6 +86,10 @@ macro_rules! with_set {
             }
             CardSet::Hinterlands => {
                 type $S = hinterlands::Hinterlands;
+                $body
+            }
+            CardSet::Renaissance => {
+                type $S = renaissance::Renaissance;
                 $body
             }
         }

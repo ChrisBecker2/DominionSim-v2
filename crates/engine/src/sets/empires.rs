@@ -50,41 +50,41 @@ pub mod ids {
     pub const GRAND_CASTLE: CardId = 270;
     pub const KINGS_CASTLE: CardId = 271;
     // The Events.
-    pub const ADVANCE: CardId = 418;
-    pub const ANNEX: CardId = 419;
-    pub const BANQUET: CardId = 420;
-    pub const CONQUEST: CardId = 421;
-    pub const DELVE: CardId = 422;
-    pub const DOMINATE: CardId = 423;
-    pub const DONATE: CardId = 424;
-    pub const RITUAL: CardId = 425;
-    pub const SALT_THE_EARTH: CardId = 426;
-    pub const TAX: CardId = 427;
-    pub const TRIUMPH: CardId = 428;
-    pub const WEDDING: CardId = 429;
-    pub const WINDFALL: CardId = 430;
+    pub const ADVANCE: CardId = 443;
+    pub const ANNEX: CardId = 444;
+    pub const BANQUET: CardId = 445;
+    pub const CONQUEST: CardId = 446;
+    pub const DELVE: CardId = 447;
+    pub const DOMINATE: CardId = 448;
+    pub const DONATE: CardId = 449;
+    pub const RITUAL: CardId = 450;
+    pub const SALT_THE_EARTH: CardId = 451;
+    pub const TAX: CardId = 452;
+    pub const TRIUMPH: CardId = 453;
+    pub const WEDDING: CardId = 454;
+    pub const WINDFALL: CardId = 455;
     // The Landmarks.
-    pub const AQUEDUCT: CardId = 442;
-    pub const ARENA: CardId = 443;
-    pub const BANDIT_FORT: CardId = 444;
-    pub const BASILICA: CardId = 445;
-    pub const BATHS: CardId = 446;
-    pub const BATTLEFIELD: CardId = 447;
-    pub const COLONNADE: CardId = 448;
-    pub const DEFILED_SHRINE: CardId = 449;
-    pub const FOUNTAIN: CardId = 450;
-    pub const KEEP: CardId = 451;
-    pub const LABYRINTH: CardId = 452;
-    pub const MOUNTAIN_PASS: CardId = 453;
-    pub const MUSEUM: CardId = 454;
-    pub const OBELISK: CardId = 455;
-    pub const ORCHARD: CardId = 456;
-    pub const PALACE: CardId = 457;
-    pub const TOMB: CardId = 458;
-    pub const TOWER: CardId = 459;
-    pub const TRIUMPHAL_ARCH: CardId = 460;
-    pub const WALL: CardId = 461;
-    pub const WOLF_DEN: CardId = 462;
+    pub const AQUEDUCT: CardId = 467;
+    pub const ARENA: CardId = 468;
+    pub const BANDIT_FORT: CardId = 469;
+    pub const BASILICA: CardId = 470;
+    pub const BATHS: CardId = 471;
+    pub const BATTLEFIELD: CardId = 472;
+    pub const COLONNADE: CardId = 473;
+    pub const DEFILED_SHRINE: CardId = 474;
+    pub const FOUNTAIN: CardId = 475;
+    pub const KEEP: CardId = 476;
+    pub const LABYRINTH: CardId = 477;
+    pub const MOUNTAIN_PASS: CardId = 478;
+    pub const MUSEUM: CardId = 479;
+    pub const OBELISK: CardId = 480;
+    pub const ORCHARD: CardId = 481;
+    pub const PALACE: CardId = 482;
+    pub const TOMB: CardId = 483;
+    pub const TOWER: CardId = 484;
+    pub const TRIUMPHAL_ARCH: CardId = 485;
+    pub const WALL: CardId = 486;
+    pub const WOLF_DEN: CardId = 487;
 }
 
 /// An Event: no types, no bonuses; its cost is the cost to buy it (`with_debt` adds the Debt part).
@@ -383,7 +383,7 @@ impl SetRules for Empires {
                 let hand = g.players[pi].hand;
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                 }
                 let n = hand.count_type(ACT).min(u8::MAX as u32) as u8;
@@ -554,9 +554,10 @@ impl SetRules for Empires {
                 // Reveal the hand: +1 VP token per Victory card in the hand and in play.
                 let ps = &g.players[pi];
                 let n = (ps.hand.count_type(VIC) + ps.in_play.count_type(VIC)) as u16;
-                for (card, k) in ps.hand.iter() {
+                let hand = ps.hand;
+                for (card, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card });
+                        g.reveal_card(p, card, sink);
                     }
                 }
                 if n > 0 {
@@ -1237,7 +1238,7 @@ impl GameState {
                 Some(c) => {
                     self.players[pi].hand.add(c, 1);
                     sink.event(Event::Draw { player: p, card: c });
-                    sink.event(Event::Reveal { player: p, card: c });
+                    self.reveal_card(p, c, sink);
                     f.count = 1;
                     f.subject = c;
                     self.stack.set_top(f);
@@ -1253,7 +1254,7 @@ impl GameState {
             Some(c2) => {
                 self.stack.pop();
                 self.players[left as usize].deck_known.push_top(c2);
-                sink.event(Event::Reveal { player: left, card: c2 });
+                self.reveal_card(left, c2, sink);
                 if self.costs_more(f.subject, c2) {
                     self.turn.coins += 1;
                     self.gain_vp_tokens(p, f.source, 1, sink);

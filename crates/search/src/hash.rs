@@ -127,6 +127,9 @@ fn finish_turn_hash(state: &GameState, ps: &PlayerState, mut h: FxHasher) -> u64
     // Adventures: the Tavern mat (calls), tokens, the Journey and -1 Card / -$1 flags, Inheritance, Save.
     ps.tavern.hash(&mut h);
     (ps.tok, ps.adv, ps.inherit, ps.saved).hash(&mut h);
+    // Renaissance: Villagers, Projects, what is set aside, the Artifacts (nothing is hashed while all of it is zero).
+    ps.ren.hash(&mut h);
+    state.ren.hash(&mut h);
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
     (state.spoils, state.madman, state.mercenary, state.trav, state.adv).hash(&mut h);

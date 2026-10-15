@@ -79,7 +79,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, RenTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, SUMMON_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -285,7 +285,7 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         // Either half of a split pile names the pile.
         let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
         // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) {
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -357,6 +357,8 @@ struct TurnFields {
     noc: NocTurn,
     /// Rising Sun per-turn state.
     rs: RsTurn,
+    /// Renaissance per-turn state (Priests played, Cargo Ship plays left, Innovation used, an Action played).
+    ren: RenTurn,
 }
 
 impl Default for TurnFields {
@@ -364,7 +366,7 @@ impl Default for TurnFields {
         TurnFields {
             number: 1, player: 0, phase: Phase::Action, actions: 1, buys: 1, coins: 0, potions: 0, cost_reduction: 0,
             extra_turn: false, corsair_trashed: false, extra_draw: 0, guilds: 0, gained_in_buy: 0, adv: AdvTurn::default(), emp: EmpTurn::default(),
-            noc: NocTurn::default(), rs: RsTurn::default(),
+            noc: NocTurn::default(), rs: RsTurn::default(), ren: RenTurn::default(),
         }
     }
 }
@@ -428,6 +430,10 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "tracker" => f.noc.tracker = val.parse().map_err(|_| format!("line {lineno}: invalid tracker '{val}'"))?,
             "daimyo" => f.rs.daimyo = val.parse().map_err(|_| format!("line {lineno}: invalid daimyo '{val}'"))?,
             "rs_gains" => f.rs.gains = val.parse().map_err(|_| format!("line {lineno}: invalid rs_gains '{val}'"))?,
+            "priests" => f.ren.priests = val.parse().map_err(|_| format!("line {lineno}: invalid priests '{val}'"))?,
+            "cargo_uses" => f.ren.cargo = val.parse().map_err(|_| format!("line {lineno}: invalid cargo_uses '{val}'"))?,
+            "innovation" => f.ren.innovation = val.parse().map_err(|_| format!("line {lineno}: invalid innovation '{val}'"))?,
+            "ren_acted" => f.ren.acted = val.parse().map_err(|_| format!("line {lineno}: invalid ren_acted '{val}'"))?,
             other => return Err(format!("line {lineno}: unknown turn field '{other}'")),
         }
         i += 2;
@@ -470,6 +476,25 @@ pub fn format_state(state: &GameState) -> String {
     }
     if state.rs.riverboat != 0 {
         out.push_str(&format!("riverboat: {}\n", cards::name(state.rs.riverboat)));
+    }
+    // Renaissance: the Projects of the game, who holds each Artifact (by seat), the Fleet round.
+    if state.ren.projects != 0 {
+        let names: Vec<&str> = (0..cards::NUM_PROJECTS as CardId)
+            .filter(|i| state.ren.projects & (1u32 << i) != 0)
+            .map(|i| cards::name(cards::FIRST_PROJECT + i))
+            .collect();
+        out.push_str(&format!("projects: {}\n", names.join(", ")));
+    }
+    if state.ren.holder.iter().any(|&h| h != 0) {
+        let held: Vec<String> = (0..cards::NUM_ARTIFACTS)
+            .filter(|&i| state.ren.holder[i] != 0)
+            .map(|i| format!("{}={}", cards::name(cards::FIRST_ARTIFACT + i as CardId), state.ren.holder[i]))
+            .collect();
+        out.push_str(&format!("artifacts: {}\n", held.join(", ")));
+    }
+    if state.ren.flags & crate::state::REN_FLEET_ROUND != 0 {
+        let seats: Vec<String> = (0..state.num_players).filter(|q| state.ren.fleet & (1 << q) != 0).map(|q| (q + 1).to_string()).collect();
+        out.push_str(&format!("fleet round: {}\n", seats.join(" ")));
     }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
@@ -622,6 +647,18 @@ pub fn format_state(state: &GameState) -> String {
             out.push_str(&format!("  {name}: {v}"));
         }
     }
+    // Renaissance: only while nonzero.
+    let rt = &state.turn.ren;
+    for (name, v) in [("priests", rt.priests), ("cargo_uses", rt.cargo)] {
+        if v > 0 {
+            out.push_str(&format!("  {name}: {v}"));
+        }
+    }
+    for (name, v) in [("innovation", rt.innovation), ("ren_acted", rt.acted)] {
+        if v {
+            out.push_str(&format!("  {name}: true"));
+        }
+    }
     out.push('\n');
 
     // See module docs: this is not the original construction seed, just a deterministic
@@ -653,6 +690,25 @@ pub fn format_state(state: &GameState) -> String {
         out.push_str(&format!("turns: {}\n", ps.turns_taken));
         if ps.vp_tokens > 0 {
             out.push_str(&format!("vp tokens: {}\n", ps.vp_tokens));
+        }
+        if ps.ren.villagers > 0 {
+            out.push_str(&format!("villagers: {}\n", ps.ren.villagers));
+        }
+        if ps.ren.projects != 0 {
+            let names: Vec<&str> = (0..cards::NUM_PROJECTS as CardId)
+                .filter(|i| ps.ren.projects & (1u32 << i) != 0)
+                .map(|i| cards::name(cards::FIRST_PROJECT + i))
+                .collect();
+            out.push_str(&format!("owned projects: {}\n", names.join(", ")));
+        }
+        if state.ren.plot[p] > 0 {
+            out.push_str(&format!("plot: {}\n", state.ren.plot[p]));
+        }
+        if !ps.ren.cargo.is_empty() {
+            out.push_str(&format!("cargo: {}\n", format_counts(&ps.ren.cargo.counts())));
+        }
+        if !ps.ren.research.is_empty() {
+            out.push_str(&format!("research: {}\n", format_counts(&ps.ren.research.counts())));
         }
         if ps.coffers > 0 {
             out.push_str(&format!("coffers: {}\n", ps.coffers));
@@ -973,6 +1029,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut pile_debt_val: Option<(usize, String)> = None;
     let mut obelisk_val: Option<(usize, String)> = None;
     let mut prophecy_val: Option<(usize, String)> = None;
+    let mut projects_val: Option<(usize, String)> = None;
+    let mut artifacts_val: Option<(usize, String)> = None;
+    let mut fleet_val: Option<(usize, String)> = None;
     let mut suns_val: Option<(usize, String)> = None;
     let mut riverboat_val: Option<(usize, String)> = None;
     let mut pass_done = false;
@@ -1018,6 +1077,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "pile debt" => pile_debt_val = Some((lineno, rest.to_string())),
             "obelisk" => obelisk_val = Some((lineno, rest.to_string())),
             "prophecy" => prophecy_val = Some((lineno, rest.to_string())),
+            "projects" => projects_val = Some((lineno, rest.to_string())),
+            "artifacts" => artifacts_val = Some((lineno, rest.to_string())),
+            "fleet round" => fleet_val = Some((lineno, rest.to_string())),
             "suns" => suns_val = Some((lineno, rest.to_string())),
             "riverboat" => riverboat_val = Some((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
@@ -1070,6 +1132,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 return Err(format!("line {ln}: '{}' is not a Landmark", cards::name(l)));
             }
             kingdom.push(l);
+        }
+    }
+    if let Some((ln, s)) = &projects_val {
+        for pr in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_project(pr) {
+                return Err(format!("line {ln}: '{}' is not a Project", cards::name(pr)));
+            }
+            kingdom.push(pr);
         }
     }
     if let Some((ln, s)) = &prophecy_val {
@@ -1182,6 +1252,26 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         state.rs.suns = n;
         state.rs.active = if n == 0 { state.rs.prophecy } else { 0 };
         state.rs_update_hooks();
+    }
+
+    // Renaissance: the Artifacts' holders (seats, 1-based) and the Fleet round.
+    if let Some((ln, s)) = &artifacts_val {
+        for (name, n) in parse_pairs(s, *ln)? {
+            let a = cards::by_name(&name).filter(|&a| cards::is_artifact(a)).ok_or_else(|| format!("line {ln}: '{name}' is not an Artifact"))?;
+            if n == 0 || n as usize > num_players {
+                return Err(format!("line {ln}: the {name} is held by seat {n}, but there are {num_players} players"));
+            }
+            state.ren.holder[(a - cards::FIRST_ARTIFACT) as usize] = n;
+        }
+    }
+    if let Some((ln, s)) = &fleet_val {
+        state.ren.flags |= crate::state::REN_FLEET_ROUND;
+        for w in s.split_whitespace() {
+            match w.parse::<u8>() {
+                Ok(q) if (1..=num_players as u8).contains(&q) => state.ren.fleet |= 1 << (q - 1),
+                _ => return Err(format!("line {ln}: invalid seat '{w}' in fleet round")),
+            }
+        }
     }
 
     if let Some((ln, s)) = &side_val {
@@ -1311,6 +1401,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // Per-turn bookkeeping, reset on load (the Cauldrons in play are counted below).
         hint: Default::default(),
         rs: tf.rs,
+        ren: tf.ren,
     };
 
     // Player blocks.
@@ -1342,6 +1433,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         i += 1;
 
         let mut ps = PlayerState::default();
+        let mut plot_tokens = 0u8;
         while i < lines.len() {
             let ln2 = i + 1;
             let l2 = lines[i].trim();
@@ -1392,6 +1484,18 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                     ps.vp_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid vp tokens '{val}'"))?
                 }
                 "coffers" => ps.coffers = val.parse().map_err(|_| format!("line {ln2}: invalid coffers '{val}'"))?,
+                "villagers" => ps.ren.villagers = val.parse().map_err(|_| format!("line {ln2}: invalid villagers '{val}'"))?,
+                "owned projects" => {
+                    for pr in parse_kingdom_list(val).map_err(|e| format!("line {ln2}: {e}"))? {
+                        if !cards::is_project(pr) {
+                            return Err(format!("line {ln2}: '{}' is not a Project", cards::name(pr)));
+                        }
+                        ps.ren.projects |= 1u32 << (pr - cards::FIRST_PROJECT);
+                    }
+                }
+                "plot" => plot_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid plot '{val}'"))?,
+                "cargo" => ps.ren.cargo = parse_small_multiset::<{ crate::state::CARGO_CAP }>(val, "cargo").map_err(|e| format!("line {ln2}: {e}"))?,
+                "research" => ps.ren.research = parse_small_multiset::<{ crate::state::RESEARCH_CAP }>(val, "research").map_err(|e| format!("line {ln2}: {e}"))?,
                 "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
                 "summoned" => ps.summon_cards = parse_small_multiset::<SUMMON_CAP>(val, "summoned").map_err(|e| format!("line {ln2}: {e}"))?,
                 "church" => ps.church = parse_church(val).map_err(|e| format!("line {ln2}: {e}"))?,
@@ -1494,11 +1598,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             i += 1;
         }
         state.players[p] = ps;
+        state.ren.plot[p] = plot_tokens;
     }
     if seen != num_players {
         return Err(format!("expected {num_players} '[player N]' blocks, found {seen}"));
     }
 
+    // Renaissance: which Projects some player owns decides which hooks are live.
+    state.ren_update_hooks();
     // Shelters were in the starting decks if any player holds one anywhere.
     state.shelters = state.players.iter().any(|ps| {
         let all = ps.all_cards();

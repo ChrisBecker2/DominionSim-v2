@@ -355,6 +355,8 @@ section, .panel {
 /* Nocturne: Night cards are dark, Heirlooms get a yellow underline, Boons are gold, Hexes purple, States grey. */
 .card.night { background: var(--c-night); color: var(--c-night-text); }
 .card.prophecy { background: var(--c-night); color: var(--c-night-text); box-shadow: inset 0 -3px 0 #e0a030; }
+.card.project { background: #e8b4c8; color: #3a1a28; }
+.card.artifact { background: #d8b98a; color: #3a2a12; }
 .card.heirloom { box-shadow: inset 0 -3px 0 var(--c-heirloom); }
 .card.boon { background: var(--c-boon); }
 .card.hex { background: var(--c-hex); color: var(--c-hex-text); }

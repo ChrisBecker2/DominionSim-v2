@@ -138,6 +138,7 @@ impl GainListEvaluator<'_> {
         p + self.thinning_value(root, before.total(), after, &thinned, tiers)
             + self.vp_token_value(root, leaf, me, tiers, lost_any)
             + self.coffers_value(root, leaf, me)
+            + self.villagers_value(root, leaf, me)
             + self.mat_return_value(root, leaf, me)
             + self.mat_copper_value(root, leaf, me, tiers)
             + self.next_turn_value(root, leaf, me, tiers)
@@ -280,6 +281,16 @@ impl GainListEvaluator<'_> {
         delta * w.vp_per_coin
     }
 
+    /// Villagers gained this turn, net of those spent: a Villager is +1 Action in a later turn, worth a little while the game has turns left to use it
+    /// (0.05, a twentieth of a play of an Action: spending one to play a card always beats keeping it, and a card that gives one beats nothing).
+    fn villagers_value(&self, root: &GameState, leaf: &GameState, me: u8) -> f64 {
+        let delta = leaf.players[me as usize].ren.villagers as f64 - root.players[me as usize].ren.villagers as f64;
+        if delta == 0.0 || dominion_search::estimated_turns_left(root, &self.tie_break.weights) - 1.0 <= 0.0 {
+            return 0.0;
+        }
+        delta * 0.05
+    }
+
     /// VP tokens gained this turn (Investment, Monument, Bishop), in VP, on the preference scale
     /// (1 VP = 1.0: above the play preferences, far below any gain-list difference), net of what
     /// a card that trashed itself for them gives up: Investment's +$1 in every future hand it
@@ -405,6 +416,15 @@ impl Evaluator for GainListEvaluator<'_> {
             for i in 0..dominion_engine::cards::NUM_EVENTS as CardId {
                 if bought & (1 << i) != 0 {
                     v += self.weight(&view, dominion_engine::cards::FIRST_EVENT + i);
+                }
+            }
+        }
+        // Projects bought: each is worth its place in the gain list, like an Event (a Project is permanent, so the comparison with the root is enough).
+        let new_projects = leaf.players[me as usize].ren.projects & !root.players[me as usize].ren.projects;
+        if new_projects != 0 {
+            for i in 0..dominion_engine::cards::NUM_PROJECTS as CardId {
+                if new_projects & (1 << i) != 0 {
+                    v += self.weight(&view, dominion_engine::cards::FIRST_PROJECT + i);
                 }
             }
         }

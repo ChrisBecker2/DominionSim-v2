@@ -143,6 +143,8 @@ pub enum Choice {
     PayDebtKeep(u8),
     /// A Mountain Pass bid of this many Debt (`DecisionKind::Bid`); 0 = no bid.
     Bid(u8),
+    /// Action phase, with no Action left: remove one Villager token for +1 Action (Renaissance).
+    Villager,
 }
 
 /// `==` written out and inlined: the derived one is an out-of-line call, and the bots look for a choice in the list (`contains`) several
@@ -153,7 +155,7 @@ impl PartialEq for Choice {
         use Choice::*;
         match (self, other) {
             (Card(a), Card(b)) => a == b,
-            (Pass, Pass) | (Yes, Yes) | (No, No) | (Coffers, Coffers) | (PayDebt, PayDebt) => true,
+            (Pass, Pass) | (Yes, Yes) | (No, No) | (Coffers, Coffers) | (PayDebt, PayDebt) | (Villager, Villager) => true,
             (Mode(a), Mode(b))
             | (Position(a), Position(b))
             | (Overpay(a), Overpay(b))
@@ -279,6 +281,14 @@ pub enum Event {
     Coffers { player: u8, source: CardId, n: u16 },
     /// `player` removes `n` Coffers tokens for +$n.
     SpendCoffers { player: u8, n: u16 },
+    /// `source` gives `player` `n` Villagers.
+    Villagers { player: u8, source: CardId, n: u16 },
+    /// `player` removes a Villager for +1 Action.
+    SpendVillager { player: u8 },
+    /// `player` takes the Artifact `artifact`, from the seat `from` (255: nobody had it).
+    Artifact { player: u8, artifact: CardId, from: u8 },
+    /// `player` has `tokens` tokens on Sinister Plot now.
+    Plot { player: u8, tokens: u8 },
     /// `player` overpays `coins` (and a Potion) for `card`, which they have just bought.
     Overpay { player: u8, card: CardId, coins: u8, potion: bool },
     /// `player` takes `n` Debt tokens (`source` is the card or Event that caused it).
@@ -559,7 +569,7 @@ impl GameState {
                         return Run::Continue;
                     }
                 }
-                if self.turn.actions > 0
+                if (self.turn.actions > 0 || self.players[p].ren.villagers > 0)
                     && (self.players[p].hand.any_type(ACTION)
                         || (self.players[p].inherit != 0 && self.players[p].hand.has(id::ESTATE))
                         || self.rs_can_play_extra(p as u8))
@@ -610,21 +620,32 @@ impl GameState {
                 if !self.turn.is_extra_turn {
                     self.players[p].turns_taken += 1;
                 }
-                if self.end_condition_met() {
+                // Renaissance: with Projects in the game, Fleet's extra round decides whether the game is over (and who plays next in it).
+                let mut fleet_next = None;
+                let over = if self.ren.projects == 0 { self.end_condition_met() } else { self.ren_game_over(p as u8, &mut fleet_next) };
+                if over {
                     self.turn.phase = Phase::GameOver;
                     sink.event(Event::GameOver);
                 } else {
                     // Outpost: an extra turn keeps the same player instead of advancing; the new
                     // turn's own `is_extra_turn` is set so a 2nd Outpost played during it can't
                     // grant a 3rd turn in a row (see `cleanup`, which computed this).
-                    let extra = self.turn.outpost_grants_extra;
+                    let extra = self.turn.outpost_grants_extra && fleet_next.is_none();
                     let no_buy = self.turn.adv.next_no_buy;
-                    let next = if extra { p as u8 } else { ((p + 1) % self.num_players as usize) as u8 };
+                    let next = match fleet_next {
+                        Some(q) => q,
+                        None if extra => p as u8,
+                        None => ((p + 1) % self.num_players as usize) as u8,
+                    };
                     self.turn = TurnState::start(next, self.turn.number + 1);
                     self.turn.is_extra_turn = extra;
                     // Flourishing Trade: cards cost $1 less (a reduction that every turn starts with).
                     if self.rs.active == id::FLOURISHING_TRADE {
                         self.turn.cost_reduction = 1;
+                    }
+                    // Renaissance: Canal makes every card cost $1 less on its owner's turns.
+                    if self.ren.projects != 0 && self.has_project(next, id::CANAL) {
+                        self.turn.cost_reduction = self.turn.cost_reduction.saturating_add(1);
                     }
                     // Adventures: a Mission turn buys no cards; the -$1 token takes $1 from the first $ of the turn.
                     self.turn.adv.no_buy = no_buy;
@@ -644,6 +665,13 @@ impl GameState {
     fn phase_choices(&self, kind: DecisionKind, out: &mut ChoiceBuf) {
         let p = self.turn.player as usize;
         match kind {
+            DecisionKind::PlayAction if self.turn.actions == 0 => {
+                // Out of Actions: a Villager buys one (spending one earlier would be no better).
+                if self.players[p].ren.villagers > 0 {
+                    out.push(Choice::Villager);
+                }
+                out.push(Choice::Pass);
+            }
             DecisionKind::PlayAction => {
                 let estates = self.estates_are_actions(p as u8);
                 for (c, _) in self.players[p].hand.iter() {
@@ -715,6 +743,17 @@ impl GameState {
                     for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
                         if crate::sets::adventures::event_buyable(self, e) {
                             out.push(Choice::Card(e));
+                        }
+                    }
+                }
+                // Projects (Renaissance): bought like Events, for their cost and a Buy.
+                if self.ren.projects != 0 && self.can_buy() {
+                    let mut m = self.ren.projects;
+                    while m != 0 {
+                        let pr = cards::FIRST_PROJECT + m.trailing_zeros() as CardId;
+                        m &= m - 1;
+                        if self.project_buyable(pr) {
+                            out.push(Choice::Card(pr));
                         }
                     }
                 }
@@ -803,6 +842,7 @@ impl GameState {
                 sink.event(Event::Play { player: p, card: c });
                 self.resolve_effects(c, p, 0, sink);
             }
+            (Phase::Action, Choice::Villager) => self.spend_villager(p, sink),
             (Phase::Action, _) => self.enter_buy(sink),
             // Nocturne: a Night card played in the Night phase costs no Action.
             (Phase::Night, Choice::Card(c)) => {
@@ -821,7 +861,8 @@ impl GameState {
             }
             // An Event offered with the Treasures (Alms, before they are played).
             (Phase::Buy, Choice::Card(e)) if cards::is_event(e) => self.buy_event(e, p, sink),
-            (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && cards::is_choice_free(c) => {
+            (Phase::Buy, Choice::Card(pr)) if cards::is_project(pr) => self.buy_project(pr, p, sink),
+            (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && self.plain_treasure(c) => {
                 self.play_free_treasure(c, 1, sink);
             }
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure => {
@@ -882,6 +923,10 @@ impl GameState {
         if self.emp.landmarks != 0 {
             self.start_of_buy_landmarks();
         }
+        // Renaissance: the Treasure Chest gains a Gold at the start of each Buy phase.
+        if self.ren.holder[(id::TREASURE_CHEST - cards::FIRST_ARTIFACT) as usize] == self.turn.player + 1 {
+            self.gain(self.turn.player, id::GOLD, Dest::Discard, false, id::TREASURE_CHEST, sink);
+        }
     }
 
     /// Start of (or return to) the Buy phase. Choice-free Treasures (Copper, Silver, Gold, ...;
@@ -903,7 +948,7 @@ impl GameState {
     /// Treasure with a choice is in the hand, or a Sauna makes the Silvers' order matter.
     fn treasure_order_matters(&self) -> bool {
         let hand = &self.players[self.turn.player as usize].hand;
-        if hand.iter().any(|(c, _)| self.is_treasure(c) && !cards::is_choice_free(c)) {
+        if hand.iter().any(|(c, _)| self.is_treasure(c) && !self.plain_treasure(c)) {
             return true;
         }
         // Sauna: each Silver played may trash a card from the hand, so the order of the plays matters (a Copper trashed before it is played).
@@ -928,7 +973,7 @@ impl GameState {
         for (c, n) in hand.iter() {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);
-            } else if self.is_treasure(c) && cards::is_choice_free(c) {
+            } else if self.is_treasure(c) && self.plain_treasure(c) {
                 self.play_free_treasure(c, n, sink);
             }
         }
@@ -1039,6 +1084,10 @@ impl GameState {
                 self.give_coffers(p, c, 2, sink);
                 stone += self.players[p as usize].coffers;
             }
+        }
+        // Ducat (Renaissance): +1 Coffers each time.
+        if c == id::DUCAT {
+            self.give_coffers(p, c, n as u16, sink);
         }
         self.turn.coins += stone;
         // A Treasure's own printed value is not repeated; its extras (+Buy, Duration "now"
@@ -1180,6 +1229,8 @@ impl GameState {
         self.turn.outpost_grants_extra = grant_extra || mission;
         // Farrier's overpay adds to the hand drawn now.
         let draw_n = (if outpost_played { 3u8 } else { 5 }).saturating_add(self.turn.extra_draw);
+        // The Flag: +1 Card when drawing the hand.
+        let draw_n = draw_n + (self.ren.holder[(id::FLAG - cards::FIRST_ARTIFACT) as usize] == p as u8 + 1) as u8;
         // Other players' failed Outposts from the previous turn are discarded now.
         for q in 0..self.num_players as usize {
             if q != p && !self.players[q].discard_next_cleanup.is_empty() {
@@ -1273,10 +1324,17 @@ impl GameState {
     /// Remove the top card of `p`'s deck, shuffling the discard in if the deck is empty.
     /// `Ok(None)` when deck and discard are both empty.
     pub(crate) fn take_top<S: EventSink>(&mut self, p: u8, sink: &mut S) -> Result<Option<CardId>, NeedChance> {
-        let ps = &mut self.players[p as usize];
-        if let Some(c) = ps.deck_known.pop_top() {
+        if let Some(c) = self.players[p as usize].deck_known.pop_top() {
             return Ok(Some(c));
         }
+        // Star Chart: the owner picks a card to go on top of the shuffled deck (a frame does the shuffle once they have).
+        if self.ren.hook & crate::state::REN_STAR != 0 {
+            let ps = &self.players[p as usize];
+            if ps.deck_unknown.is_empty() && ps.deck_known_bottom.len == 0 && !ps.discard.is_empty() && self.star_chart_shuffle(p) {
+                return Err(NeedChance(crate::state::STAR_STOP));
+            }
+        }
+        let ps = &mut self.players[p as usize];
         // Nothing known on top: the unknown multiset is the deck; once it is empty the discard
         // pile is shuffled in (an idempotent change, so a chance step can redo this).
         let mut total = ps.deck_unknown.total();

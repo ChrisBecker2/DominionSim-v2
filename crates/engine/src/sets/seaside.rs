@@ -136,7 +136,7 @@ impl SetRules for Seaside {
                     } else {
                         for (c, k) in hand.iter() {
                             for _ in 0..k {
-                                sink.event(Event::Reveal { player: v, card: c });
+                                g.reveal_card(v, c, sink);
                             }
                         }
                     }

@@ -475,7 +475,7 @@ impl Strategy {
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c) || cards::is_project(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -616,7 +616,7 @@ impl Strategy {
                     Act::Reveal => self.choose_reveal(choices),
                     Act::Pass => self.choose_pass(view, choices),
                     // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
-                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn => {
+                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn | Act::Choose => {
                         iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)
                     }
                     // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
@@ -748,6 +748,8 @@ impl Strategy {
         self.buy.iter().position(|(card, cond)| {
             (if cards::is_event(*card) {
                 view.event_available(*card) && view.event_cost(*card) as u32 <= money && !self.useless_buy(view, *card)
+            } else if cards::is_project(*card) {
+                view.project_open(*card) && cards::cost(*card) as u32 <= money
             } else {
                 view.in_supply(*card)
                     && view.supply(*card) > 0
@@ -1065,6 +1067,7 @@ impl Strategy {
         self.buy.iter().find_map(|(x, cond)| {
             (*x != last
                 && !cards::is_event(*x)
+                && !cards::is_project(*x)
                 && has_card(choices, *x)
                 && cards::debt_cost(*x) == 0
                 && !cards::potion_cost(*x)
@@ -1190,6 +1193,9 @@ impl Strategy {
     /// the best line; a single playable card is simply played. The rule order in `best_play` is
     /// only a fallback if the search can't run.
     fn play_decision(&self, view: &PlayerView, decision: &Decision, choices: &[Choice], for_multiplier: bool) -> Choice {
+        if let Some(c) = self.villager_choice(view, decision, choices) {
+            return c;
+        }
         let searching = self.searches(decision, choices);
         // A stated `[[debt]] pay = "all"` rule pays the Debt off before a Change is played (so that it remodels).
         if matches!(decision.kind, DecisionKind::PlayAction) && choices.contains(&Choice::PayDebt) && self.stated_debt_choice(view, choices) == Some(Choice::PayDebt) {
@@ -1226,9 +1232,24 @@ impl Strategy {
         self.best_play(view, choices, for_multiplier).map(Choice::Card).unwrap_or(Choice::Pass)
     }
 
+    /// The Action phase with no Action left (the only choices are a Villager and Pass): spend a Villager when the hand holds an Action worth playing
+    /// (a Villager is +1 Action, banked until it buys a play), else keep them. `None` for any other decision.
+    fn villager_choice(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        if decision.kind != DecisionKind::PlayAction || !choices.contains(&Choice::Villager) {
+            return None;
+        }
+        let worth = view.hand().iter().any(|(c, _)| {
+            cards::is(c, ACTION) && (self.play.iter().any(|(x, cond)| *x == c && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, c))) || (self.default_worth_playing(view, c) && !self.useless_play(view, c)))
+        });
+        Some(if worth { Choice::Villager } else { Choice::Pass })
+    }
+
     /// The play choice by rule order alone (stated [[play]] rules, then the default order), without
     /// searching. Used in search playouts.
     pub fn rule_play(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+        if let Some(c) = self.villager_choice(view, decision, choices) {
+            return c;
+        }
         if let Some(c) = defaults::rule_play(self, view, decision, choices) {
             return c;
         }

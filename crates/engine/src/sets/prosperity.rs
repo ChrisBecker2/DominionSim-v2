@@ -109,7 +109,7 @@ impl SetRules for Prosperity {
                 let hand = g.players[p as usize].hand;
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                 }
                 let treasures = hand.iter().filter(|&(c, _)| g.is_treasure(c)).map(|(_, n)| n as u32).sum::<u32>() as u8;
@@ -403,7 +403,7 @@ impl GameState {
             if self.is_treasure(c) {
                 distinct += 1;
                 for _ in 0..n {
-                    sink.event(Event::Reveal { player: p, card: c });
+                    self.reveal_card(p, c, sink);
                 }
             }
         }

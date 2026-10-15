@@ -1589,7 +1589,14 @@ pub extern "C" fn card_info() -> i32 {
     let items: Vec<String> = (0..cards::NUM_CARDS as CardId).chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
         .map(|c| {
             let mut types: Vec<String> = flags.iter().filter(|(f, _)| cards::is(c, *f)).map(|(_, n)| jstr(n)).collect();
-            for (yes, name) in [(cards::is_boon(c), "boon"), (cards::is_hex(c), "hex"), (cards::is_state(c), "state"), (cards::is_prophecy(c), "prophecy")] {
+            for (yes, name) in [
+                (cards::is_boon(c), "boon"),
+                (cards::is_hex(c), "hex"),
+                (cards::is_state(c), "state"),
+                (cards::is_prophecy(c), "prophecy"),
+                (cards::is_project(c), "project"),
+                (cards::is_artifact(c), "artifact"),
+            ] {
                 if yes {
                     types.push(jstr(name));
                 }
@@ -1696,12 +1703,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 4096 != 0 {
         v.push(cards::CardSet::Hinterlands);
     }
+    if sets_mask & 8192 != 0 {
+        v.push(cards::CardSet::Renaissance);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -2015,6 +2025,16 @@ fn render_event(e: &Event) -> String {
         Event::Sun { player, source, left } => {
             format!("Player {} removes a Sun token ({}): {left} left on {}", player + 1, cards::name(source), "the Prophecy")
         }
+        Event::Villagers { player, source, n } => format!("Player {} gets +{n} Villager{} ({})", player + 1, if n == 1 { "" } else { "s" }, cards::name(source)),
+        Event::SpendVillager { player } => format!("Player {} spends a Villager (+1 Action)", player + 1),
+        Event::Artifact { player, artifact, from } => {
+            if from == 255 {
+                format!("Player {} takes the {}", player + 1, cards::name(artifact))
+            } else {
+                format!("Player {} takes the {} from Player {}", player + 1, cards::name(artifact), from + 1)
+            }
+        }
+        Event::Plot { player, tokens } => format!("Player {} has {tokens} token{} on Sinister Plot", player + 1, if tokens == 1 { "" } else { "s" }),
         Event::Prophecy { prophecy, .. } => {
             format!("*** The last Sun token is gone: {} is in effect ***", cards::name(prophecy))
         }
@@ -2112,6 +2132,7 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::InheritCard => ("a non-Duration, non-Command Action card costing up to $4".into(), "such Action cards".into()),
         Filter::NonVictory => ("a non-Victory card".into(), "non-Victory cards".into()),
         Filter::ActionToDiscard => ("an Action card".into(), "Action cards".into()),
+        Filter::ReplayTarget => ("an Action card you played this turn".into(), "Action cards you played this turn".into()),
         Filter::CommandCostUpTo(n) => (
             format!("a non-Duration, non-Command Action card costing up to ${n}"),
             format!("non-Duration, non-Command Action cards costing up to ${n}"),
@@ -2229,6 +2250,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Return => ("return", " to its pile".to_string()),
                 Act::Archive => ("set aside", " face down under this".to_string()),
                 Act::ShuffleIn => ("shuffle", " into your deck".to_string()),
+                Act::Choose => ("choose", String::new()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -2269,6 +2291,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Return => format!("Return {card} to its pile?"),
                 Act::Archive => format!("Set aside {card}?"),
                 Act::ShuffleIn => format!("Shuffle {card} into your deck?"),
+                Act::Choose => format!("Choose {card}?"),
             }
         }
         DecisionKind::Token { token } if token as usize == dominion_engine::sets::empires::TOK_TAX => "Put 2 Debt on a Supply pile.".to_string(),
@@ -2356,6 +2379,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
     }
     match c {
         Choice::Coffers => "Spend a Coffers token (+$1)".to_string(),
+        Choice::Villager => "Spend a Villager (+1 Action)".to_string(),
         Choice::PayDebt => "Pay off Debt".to_string(),
         Choice::PayDebtKeep(n) => format!("Pay off Debt, keeping {n}"),
         Choice::Bid(0) => "No bid".to_string(),
@@ -2399,6 +2423,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                     Act::Return => format!("Return {name}"),
                     Act::Archive => format!("Set aside {name}"),
                     Act::ShuffleIn => format!("Shuffle {name} into the deck"),
+                    Act::Choose => format!("Replay {name}"),
                 },
                 DecisionKind::PlayNight => format!("Play {name} (Night)"),
                 DecisionKind::PickBoon => format!("Receive {name}"),
@@ -2475,6 +2500,49 @@ fn events_json(state: &GameState) -> String {
             let e = cards::FIRST_EVENT + i;
             let buyable = state.turn.phase == Phase::Buy && dominion_engine::sets::adventures::event_buyable(state, e) && state.turn.buys > 0;
             format!("{{\"name\":{},\"cost\":{},\"costLabel\":{},\"buyable\":{buyable}}}", jstr(cards::name(e)), cards::cost(e), jstr(&cards::cost_string(e)))
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `[{"name":"Fair","cost":4,"costLabel":"$4","buyable":false,"owners":[0]},...]`: the Projects of the game (Renaissance); `owners` are the seats with a cube on
+/// it, `buyable` for the turn's player right now (their cost, a Buy, a cube left).
+fn projects_json(state: &GameState) -> String {
+    let items: Vec<String> = (0..cards::NUM_PROJECTS as CardId)
+        .filter(|i| state.ren.projects & (1u32 << i) != 0)
+        .map(|i| {
+            let pr = cards::FIRST_PROJECT + i;
+            let owners: Vec<String> = (0..state.num_players as usize).filter(|&p| state.players[p].ren.projects & (1u32 << i) != 0).map(|p| p.to_string()).collect();
+            let buyable = state.turn.phase == Phase::Buy && state.project_buyable(pr) && state.can_buy() && state.players[state.turn.player as usize].debt == 0;
+            format!(
+                "{{\"name\":{},\"cost\":{},\"costLabel\":{},\"buyable\":{buyable},\"owners\":[{}]}}",
+                jstr(cards::name(pr)),
+                cards::cost(pr),
+                jstr(&cards::cost_string(pr)),
+                owners.join(",")
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `[{"name":"Flag","holder":0},...]`: the Artifacts that cards of the game can give (Renaissance), `holder` the seat holding it or `null`.
+fn artifacts_json(state: &GameState) -> String {
+    let in_game = |card: CardId| state.in_supply(card);
+    let items: Vec<String> = (0..cards::NUM_ARTIFACTS)
+        .filter(|&i| {
+            let a = cards::FIRST_ARTIFACT + i as CardId;
+            state.ren.holder[i] != 0
+                || match a {
+                    id::FLAG => in_game(id::FLAG_BEARER),
+                    id::HORN | id::LANTERN => in_game(id::BORDER_GUARD),
+                    id::KEY => in_game(id::TREASURER),
+                    _ => in_game(id::SWASHBUCKLER),
+                }
+        })
+        .map(|i| {
+            let holder = if state.ren.holder[i] == 0 { "null".to_string() } else { (state.ren.holder[i] - 1).to_string() };
+            format!("{{\"name\":{},\"holder\":{holder}}}", jstr(cards::name(cards::FIRST_ARTIFACT + i as CardId)))
         })
         .collect();
     format!("[{}]", items.join(","))
@@ -2662,6 +2730,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"summonCards\":{summon_cards},\"churchCards\":{church_cards},\"cleanupAside\":{cleanup_aside},",
             "\"tavern\":{tavern},\"tokens\":{tokens},\"journeyDown\":{journey},\"minusCard\":{mcard},\"minusCoin\":{mcoin},\"inherit\":{inherit},",
             "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
+            "\"villagers\":{villagers},\"ownedProjects\":{owned_projects},\"plotTokens\":{plot},\"cargo\":{cargo},\"research\":{research},",
             "\"states\":{states},\"hounds\":{hounds},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
@@ -2704,6 +2773,17 @@ fn player_json(state: &GameState, p: usize) -> String {
         island_mat = counts_json(&ps.island_mat.counts()),
         prince_cards = counts_json(&ps.prince_cards.counts()),
         coffers = ps.coffers,
+        villagers = ps.ren.villagers,
+        owned_projects = {
+            let items: Vec<String> = (0..cards::NUM_PROJECTS as CardId)
+                .filter(|i| ps.ren.projects & (1u32 << i) != 0)
+                .map(|i| jstr(cards::name(cards::FIRST_PROJECT + i)))
+                .collect();
+            format!("[{}]", items.join(","))
+        },
+        plot = state.ren.plot[p],
+        cargo = counts_json(&ps.ren.cargo.counts()),
+        research = counts_json(&ps.ren.research.counts()),
         farm_cards = counts_json(&ps.farm_cards.counts()),
         summon_cards = counts_json(&ps.summon_cards.counts()),
         church_cards = {
@@ -2876,7 +2956,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -2891,6 +2971,8 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         tpot = state.turn.potions,
         supply = supply_json(state),
         events = events_json(state),
+        projects = projects_json(state),
+        artifacts = artifacts_json(state),
         landmarks = landmarks_json(state),
         prophecy = prophecy_json(state),
         nocturne = nocturne_json(state),

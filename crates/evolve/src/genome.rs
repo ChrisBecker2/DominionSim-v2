@@ -186,7 +186,7 @@ impl Var {
         }
         if let Some(inner) = lower.strip_prefix("bought(").and_then(|r| r.strip_suffix(')')) {
             let _ = inner;
-            return cards::by_name(&s[7..s.len() - 1]).filter(|&c| cards::is_event(c)).map(Var::Bought);
+            return cards::by_name(&s[7..s.len() - 1]).filter(|&c| cards::is_bought_pseudo(c)).map(Var::Bought);
         }
         if lower.replace(' ', "") == "count_type(action)" {
             return Some(Var::CountActions);

@@ -65,7 +65,8 @@ macro_rules! take_top {
     ($s:expr, $p:expr, $sink:expr) => {
         match $s.take_top($p, $sink) {
             Ok(c) => c,
-            Err(NeedChance(p)) => return Run::Chance(p),
+            // Star Chart: a frame was pushed to pick the card that goes on top; the caller runs again once it is done.
+            Err(NeedChance(p)) => return if p == $crate::state::STAR_STOP { Run::Continue } else { Run::Chance(p) },
         }
     };
 }
@@ -136,6 +137,10 @@ impl GameState {
         // Daimyo: the next non-Command Action played this turn is replayed afterwards (once per Daimyo played); the replays wait under its effects.
         if self.turn.rs.daimyo > 0 {
             self.push_daimyo_replays(card, player);
+        }
+        // Renaissance: Citadel plays the turn's first Action twice.
+        if self.ren.projects != 0 {
+            self.ren_on_action_play(card, player);
         }
         // Adventures: the calls that follow an Action's play (Coin of the Realm, Royal Carriage) wait under its effects.
         if self.after_play_possible(player) && cards::is(card, ACTION) {
@@ -472,6 +477,8 @@ impl GameState {
                 let ps = &self.players[p as usize];
                 cards::is(c, ACTION) && ps.in_play.get(c) > self.turn.duration_held.get(c).saturating_add(ps.stays.get(c))
             }
+            // Scepter: an Action (not a Command card) played this turn that is still in play.
+            Filter::ReplayTarget => self.is_action(c) && !cards::is(c, cards::COMMAND) && self.turn.played.has(c) && self.players[p as usize].in_play.has(c),
             filter => filter.matches(c),
         }
     }
@@ -529,6 +536,14 @@ impl GameState {
                 loop {
                     match self.take_top(p, sink) {
                         Err(NeedChance(q)) => {
+                            if q == crate::state::STAR_STOP {
+                                // Star Chart's pick sits above this frame now.
+                                if drew {
+                                    let i = self.stack.len as usize - 2;
+                                    self.stack.frames[i] = f;
+                                }
+                                return Run::Continue;
+                            }
                             if drew {
                                 self.stack.set_top(f);
                             }
@@ -567,7 +582,7 @@ impl GameState {
                     None => self.finish_reveal_top(f, sink),
                     Some(c) => {
                         self.players[pi].set_aside.add(c, 1);
-                        sink.event(Event::Reveal { player: p, card: c });
+                        self.reveal_card(p, c, sink);
                         if self.filter_ok(p, f.filter, c) {
                             f.count += 1;
                             f.last = c;
@@ -589,7 +604,7 @@ impl GameState {
                     }
                     Some(c) => {
                         self.players[pi].set_aside.add(c, 1);
-                        sink.event(Event::Reveal { player: p, card: c });
+                        self.reveal_card(p, c, sink);
                         f.max -= 1;
                         if f.max == 0 { self.finish_reveal_top(f, sink); } else { self.stack.set_top(f); }
                     }
@@ -680,6 +695,7 @@ impl GameState {
                     || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
                     || (f.act == Act::Exchange && !self.exchange_possible(f.subject))
                     || (matches!(f.then, Then::TraderSwap | Then::BerserkerPlay) && !self.hint_yesno_possible(&f))
+                    || (matches!(f.then, Then::CargoAside | Then::InnovationPlay) && self.ren_yesno_pointless(&f))
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
@@ -707,6 +723,7 @@ impl GameState {
                     Then::DeckToDiscard => self.players[pi].deck_size() == 0,
                     Then::DiscardRevealedAsk => self.players[pi].set_aside.is_empty(),
                     Then::SnakeWitch | Then::GoldMine => self.rs_ask_pointless(&f),
+                    Then::PageantPay | Then::SinisterPlot => self.ren_ask_pointless(&f),
                     _ => false,
                 };
                 if pointless {
@@ -776,7 +793,7 @@ impl GameState {
                     }
                     Some(c) => {
                         self.stack.pop();
-                        sink.event(Event::Reveal { player: p, card: c });
+                        self.reveal_card(p, c, sink);
                         if c == f.subject {
                             self.players[pi].hand.add(c, 1);
                             sink.event(Event::Draw { player: p, card: c });
@@ -1056,6 +1073,7 @@ impl GameState {
                             self.empires_gained(&f, c, sink)
                         }
                         Then::CreditDebt | Then::TributeGain => self.rs_gained(&f, c, sink),
+                        Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1097,8 +1115,8 @@ impl GameState {
                 // Storyteller's Treasure is played from the hand by its own path.
                 let storyteller = f.then == Then::StorytellerPlay;
                 // Crown in the Buy phase: a choice-free Treasure is played from the hand by the usual path, twice.
-                let crown = f.then == Then::CrownTreasure && cards::is_choice_free(c);
-                let in_place = f.act == Act::Reveal || (f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) || storyteller || crown;
+                let crown = f.then == Then::CrownTreasure && self.plain_treasure(c);
+                let in_place = f.act == Act::Reveal || f.act == Act::Choose || (f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) || storyteller || crown;
                 // Necromancer: the Action is turned face down in the trash for the rest of the turn.
                 if f.act == Act::Play && f.zone == Zone::Trash {
                     self.turn.noc.necro.add_or_drop(c, 1);
@@ -1158,6 +1176,10 @@ impl GameState {
             (K::Overpay, Choice::Overpay(_) | Choice::OverpayPotion(_)) => self.apply_overpay(f, choice, sink),
             (K::YesNo, Choice::Yes) => {
                 self.stack.pop();
+                // Innovation is used up as the card is played (what it does may gain more Actions).
+                if f.then == Then::InnovationPlay {
+                    self.turn.ren.innovation = true;
+                }
                 if f.then == Then::BlockAttack {
                     // Revealed to an Attack: unaffected by it (nothing moves).
                     sink.event(Event::Reaction { player: p, card: f.subject });
@@ -1199,6 +1221,7 @@ impl GameState {
                         self.gain_side(p, id::MERCENARY, Dest::Discard, f.subject, sink);
                     }
                     Then::Called => self.call_effect(&f, sink),
+                    Then::CargoAside => self.ren_yes(&f, sink),
                     Then::HoundAside | Then::PixieTrash | Then::ChangelingSwap => self.noc_yes(&f, sink),
                     Then::TunnelGold | Then::FoolsGoldGain | Then::TraderSwap => self.hint_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
@@ -1231,6 +1254,9 @@ impl GameState {
             }
             (K::Ask, _) => {
                 self.stack.pop();
+                if f.then == Then::SinisterPlot {
+                    self.ren_ask_no(f, sink);
+                }
             }
             (K::Library, Choice::Yes) => self.library_set_aside(f, sink),
             (K::Library, _) => self.library_take(f, sink),
@@ -1281,7 +1307,14 @@ impl GameState {
             Act::Return => self.return_to_pile(p, c, sink),
             Act::Archive => ps.archive.add(c, 1),
             // Queued for its "when you trash this" effects, which go on the stack when the effect that trashed it is done picking.
-            Act::Trash => self.trash_card(p, c, true, sink),
+            Act::Trash => {
+                // Sewers' own trash does not set Sewers off again.
+                let sewers = source == crate::sets::renaissance::ids::SEWERS;
+                self.turn.ren.no_sewers = sewers;
+                self.trash_card(p, c, true, sink);
+                self.turn.ren.no_sewers = false;
+            }
+            Act::Choose => {}
             Act::Topdeck => {
                 ps.deck_known.push_top(c);
                 sink.event(Event::Topdeck { player: p, card: c });
@@ -1306,7 +1339,7 @@ impl GameState {
             Act::Pass => ps.passed.add(c, 1),
             Act::ShuffleIn => {
                 ps.deck_unknown.add(c, 1);
-                sink.event(Event::Reveal { player: p, card: c });
+                self.reveal_card(p, c, sink);
             }
             Act::Tavern => {
                 ps.tavern.add(c, 1);
@@ -1366,7 +1399,7 @@ impl GameState {
             }
             // Crown's Treasure: a choice-free one was played twice as it was picked; any other is played twice like an Action.
             Then::CrownTreasure => {
-                if f.count > 0 && !cards::is_choice_free(f.last) {
+                if f.count > 0 && !self.plain_treasure(f.last) {
                     self.push_plays(&f, 2);
                 }
             }
@@ -1644,6 +1677,15 @@ impl GameState {
             | Then::DevelopGain
             | Then::GainPerCost { .. } => self.finish_hint_select(&f, sink),
             Then::DismantleGain | Then::SummonAside => self.finish_promo_select(&f, sink),
+            Then::BorderGuardPick
+            | Then::HideoutCurse
+            | Then::CostLess
+            | Then::PriestSetup
+            | Then::RecruiterVillagers
+            | Then::ResearchTrash
+            | Then::Swashbuckler
+            | Then::ScepterReplay
+            | Then::StarChart => self.finish_ren_select(&f, sink),
             Then::MountainShrine
             | Then::RiceBroker
             | Then::KintsugiGain
@@ -1742,6 +1784,14 @@ impl GameState {
             | Then::ContinueGain
             | Then::ForesightSet
             | Then::TributeGain
+            | Then::BorderGuardReveal
+            | Then::ResearchSet
+            | Then::VillagerIfTreasure
+            | Then::CargoAside
+            | Then::InnovationPlay
+            | Then::PageantPay
+            | Then::SinisterPlot
+            | Then::PiazzaPlay
             | Then::BerserkerPlay => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
@@ -1804,7 +1854,10 @@ impl GameState {
                 ModeOpt::GainUpToCost(n) => self.stack.push(gain_frame(p, f.source, n, Filter::Any, Dest::Discard)),
                 ModeOpt::CardsActions(n, _) => self.stack.push(draw_frame(p, f.source, n)),
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => self.governor_frames(&f, table[i as usize]),
-                ModeOpt::CoinsPerTavernCopper
+                ModeOpt::TrashFiltered(filt) => self.stack.push(select(p, f.source, Zone::Hand, Act::Trash, filt, 1, 1, Then::Nothing)),
+                ModeOpt::ReplayAction => self.stack.push(select(p, f.source, Zone::InPlay, Act::Choose, Filter::ReplayTarget, 1, 1, Then::ScepterReplay)),
+                ModeOpt::TakeArtifact(_)
+                | ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
                 | ModeOpt::BuysCoins(..)
                 | ModeOpt::NextGainDouble
@@ -1896,6 +1949,8 @@ impl GameState {
                 }
                 ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
                 ModeOpt::CurseOthers => self.curse_others(f.source, f.depth, sink),
+                ModeOpt::TakeArtifact(a) => self.take_artifact(p, a, sink),
+                ModeOpt::TrashFiltered(_) | ModeOpt::ReplayAction => {}
                 ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => {}
                 ModeOpt::Cards(_)
@@ -2219,6 +2274,7 @@ impl GameState {
             Then::PatricianCheck | Then::ArchiveSet => self.empires_reveal_done(&f, sink),
             Then::WispCheck | Then::FamineSort | Then::GhostSet => self.finish_noc_reveal(&f, sink),
             Then::PoetCheck | Then::ForesightSet => self.finish_rs_reveal(&f, sink),
+            Then::BorderGuardReveal | Then::ResearchSet | Then::PiazzaPlay => self.finish_ren_reveal(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

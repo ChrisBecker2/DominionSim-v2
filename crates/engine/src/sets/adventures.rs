@@ -56,26 +56,26 @@ pub mod ids {
     pub const DISCIPLE: CardId = 278;
     pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 398;
-    pub const BALL: CardId = 399;
-    pub const BONFIRE: CardId = 400;
-    pub const BORROW: CardId = 401;
-    pub const EXPEDITION: CardId = 402;
-    pub const FERRY: CardId = 403;
-    pub const INHERITANCE: CardId = 404;
-    pub const LOST_ARTS: CardId = 405;
-    pub const MISSION: CardId = 406;
-    pub const PATHFINDING: CardId = 407;
-    pub const PILGRIMAGE: CardId = 408;
-    pub const PLAN: CardId = 409;
-    pub const QUEST: CardId = 410;
-    pub const RAID: CardId = 411;
-    pub const SAVE: CardId = 412;
-    pub const SCOUTING_PARTY: CardId = 413;
-    pub const SEAWAY: CardId = 414;
-    pub const TRADE: CardId = 415;
-    pub const TRAINING: CardId = 416;
-    pub const TRAVELLING_FAIR: CardId = 417;
+    pub const ALMS: CardId = 423;
+    pub const BALL: CardId = 424;
+    pub const BONFIRE: CardId = 425;
+    pub const BORROW: CardId = 426;
+    pub const EXPEDITION: CardId = 427;
+    pub const FERRY: CardId = 428;
+    pub const INHERITANCE: CardId = 429;
+    pub const LOST_ARTS: CardId = 430;
+    pub const MISSION: CardId = 431;
+    pub const PATHFINDING: CardId = 432;
+    pub const PILGRIMAGE: CardId = 433;
+    pub const PLAN: CardId = 434;
+    pub const QUEST: CardId = 435;
+    pub const RAID: CardId = 436;
+    pub const SAVE: CardId = 437;
+    pub const SCOUTING_PARTY: CardId = 438;
+    pub const SEAWAY: CardId = 439;
+    pub const TRADE: CardId = 440;
+    pub const TRAINING: CardId = 441;
+    pub const TRAVELLING_FAIR: CardId = 442;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -977,7 +977,7 @@ impl GameState {
                     if f.then == Then::GiantReveal { (3..=6).contains(&k) } else { k == 3 || k == 4 }
                 };
                 if f.then == Then::GiantReveal {
-                    sink.event(Event::Reveal { player: p, card: c });
+                    self.reveal_card(p, c, sink);
                     if trash_range {
                         self.trash_card(p, c, true, sink);
                     } else {
@@ -1001,7 +1001,7 @@ impl GameState {
     #[inline(never)]
     pub(crate) fn storyteller_play<S: EventSink>(&mut self, f: &Frame, c: CardId, sink: &mut S) {
         let p = f.player;
-        if cards::is_choice_free(c) {
+        if self.plain_treasure(c) {
             // Still in the hand: the usual path moves it.
             self.play_free_treasure(c, 1, sink);
         } else {

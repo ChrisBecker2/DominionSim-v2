@@ -76,6 +76,7 @@ pub mod id {
     pub use crate::sets::nocturne::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
+    pub use crate::sets::renaissance::ids::*;
     pub use crate::sets::rising_sun::ids::*;
     pub use crate::sets::seaside::ids::*;
 }
@@ -114,6 +115,31 @@ pub fn traveller_upgrade(card: CardId) -> Option<CardId> {
         id::DISCIPLE => Some(id::TEACHER),
         _ => None,
     }
+}
+
+/// The first of the 20 Projects (Renaissance): pseudo-cards that are bought for their cost and a Buy and then belong to the buyer for the rest of the game
+/// (a cube on them; each player has two cubes). Never in a zone, a pile or a supply mask. The 5 Artifacts follow the Prophecies.
+pub const FIRST_PROJECT: CardId = id::CATHEDRAL;
+pub const NUM_PROJECTS: usize = 20;
+pub const FIRST_ARTIFACT: CardId = id::FLAG;
+pub const NUM_ARTIFACTS: usize = 5;
+
+/// Whether `card` is one of the 20 Projects.
+#[inline(always)]
+pub fn is_project(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_PROJECT) < NUM_PROJECTS as CardId
+}
+
+/// Whether `card` is bought in the Buy phase and then not in any zone: an Event or a Project (the strategies write `bought(Name)` for both).
+#[inline(always)]
+pub fn is_bought_pseudo(card: CardId) -> bool {
+    is_event(card) || is_project(card)
+}
+
+/// Whether `card` is one of the 5 Artifacts (Flag, Horn, Key, Lantern, Treasure Chest).
+#[inline(always)]
+pub fn is_artifact(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_ARTIFACT) < NUM_ARTIFACTS as CardId
 }
 
 /// Whether `card` is one of the Adventures Events (not a card at all: never in a zone or a pile; bought for its cost in the Buy phase).
@@ -286,13 +312,15 @@ pub enum CardSet {
     Nocturne,
     /// Hinterlands 2nd edition ("when you gain / buy / discard" triggers: Reactions to gains and discards, Haggler, Trader, Inn, ...).
     Hinterlands,
+    /// Renaissance (Villagers, Artifacts, Projects; see `sets::renaissance`).
+    Renaissance,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 13] = [
+    pub const ALL: [CardSet; 14] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
         CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
-        CardSet::Hinterlands,
+        CardSet::Hinterlands, CardSet::Renaissance,
     ];
 
     pub fn name(self) -> &'static str {
@@ -310,6 +338,7 @@ impl CardSet {
             CardSet::RisingSun => "Rising Sun",
             CardSet::Nocturne => "Nocturne",
             CardSet::Hinterlands => "Hinterlands",
+            CardSet::Renaissance => "Renaissance",
         }
     }
 }
@@ -443,6 +472,11 @@ pub(crate) const fn noc(d: CardDef) -> CardDef {
 /// A Hinterlands card.
 pub(crate) const fn hl(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Hinterlands, ..d }
+}
+
+/// A Renaissance card.
+pub(crate) const fn ren(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Renaissance, ..d }
 }
 
 /// A Rising Sun card.
@@ -694,6 +728,12 @@ pub enum ModeOpt {
     EachGain(CardId, CardId),
     /// Kitsune: each other player (not protected from the Attack) gains a Curse.
     CurseOthers,
+    /// Treasurer, Border Guard: take the Artifact.
+    TakeArtifact(CardId),
+    /// Treasurer: trash a card matching `Filter` from the hand (as many as you can).
+    TrashFiltered(Filter),
+    /// Scepter: replay a non-Command Action played this turn that is still in play.
+    ReplayAction,
     /// Governor: each player in turn order, starting with the chooser, may trash a card from the hand and gain one costing exactly
     /// `.0` more (the chooser) or `.1` more (the others).
     EachTrashGain(u8, u8),
@@ -761,6 +801,7 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::NecroTarget => ("an", "Action"),
         Filter::SharesTypeWith(_) => ("a", "card"),
         Filter::ActionToDiscard => ("an", "Action"),
+        Filter::ReplayTarget => ("an", "Action"),
     }
 }
 
@@ -843,6 +884,12 @@ impl ModeOpt {
             ModeOpt::EachGain(a, b) => format!("Gain a {} (others a {})", name(a), name(b)),
             ModeOpt::EachTrashGain(a, b) => format!("Trash a card, gain one costing exactly ${a} more (others ${b} more)"),
             ModeOpt::CurseOthers => "Each other player gains a Curse".to_string(),
+            ModeOpt::TakeArtifact(a) => format!("Take the {}", name(a)),
+            ModeOpt::TrashFiltered(f) => {
+                let (a, noun) = filter_words(f);
+                format!("Trash {a} {noun} from your hand")
+            }
+            ModeOpt::ReplayAction => "Replay an Action you played".to_string(),
         }
     }
 }
@@ -880,7 +927,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::RICE;
+pub const LAST_KINGDOM: CardId = id::VILLAIN;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -951,6 +998,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "rising sun" | "risingsun" | "rising_sun" | "rs" => Some(CardSet::RisingSun),
         "nocturne" | "noc" => Some(CardSet::Nocturne),
         "hinterlands" | "hint" | "hl" => Some(CardSet::Hinterlands),
+        "renaissance" | "ren" => Some(CardSet::Renaissance),
         _ => None,
     }
 }
@@ -1023,9 +1071,11 @@ pub fn add_random_prophecy(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mu
     }
 }
 
-/// The Events and Landmarks of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks).
+/// The Events, Landmarks and Projects of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks; Renaissance: 20 Projects).
 pub fn pseudo_cards_of(set: CardSet) -> impl Iterator<Item = CardId> {
-    (FIRST_EVENT..FIRST_EVENT + (NUM_EVENTS + NUM_LANDMARKS) as CardId).filter(move |&c| set_of(c) == set)
+    (FIRST_EVENT..FIRST_EVENT + (NUM_EVENTS + NUM_LANDMARKS) as CardId)
+        .chain(FIRST_PROJECT..FIRST_PROJECT + NUM_PROJECTS as CardId)
+        .filter(move |&c| set_of(c) == set)
 }
 
 /// Choosing Events for a randomized kingdom, after the rulebook's randomizer: the Events are shuffled in with the kingdom cards of `sets`,

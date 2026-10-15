@@ -37,7 +37,7 @@ pub fn big_money_with(xs: &[(CardId, i16)]) -> Genome {
     for (k, &(c, n)) in xs.iter().enumerate() {
         // An Event is never owned, and `bought(E)` is only 0 or 1: one copy means "once per game";
         // more means no cap (buy it whenever the rule is reached).
-        let conds = if cards::is_event(c) {
+        let conds = if cards::is_bought_pseudo(c) {
             if n <= 1 { vec![cond(Var::Bought(c), Op::Lt, 1)] } else { vec![] }
         } else {
             vec![cond(Var::Count(c), Op::Lt, n)]
@@ -78,7 +78,7 @@ pub fn random_pair(space: &SearchSpace, rng: &mut Rng) -> Genome {
 pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     let r = rng.below(100);
     let (var, op) = match r {
-        0..=39 if cards::is_event(card) => (Var::Bought(card), Op::Lt),
+        0..=39 if cards::is_bought_pseudo(card) => (Var::Bought(card), Op::Lt),
         // Province and Colony can end the game: "unless it loses the game".
         0..=24 if card == id::PROVINCE || card == id::COLONY => (Var::LosesGame, Op::Lt),
         // A Traveller line starter (Page, Peasant): half the time a cap on the whole line (Page + Treasure Hunter + ... + Champion).
@@ -100,7 +100,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         _ => {
             let other = pick(rng, &space.gainable);
             // An Event is never owned: "have I bought it" instead.
-            if cards::is_event(other) {
+            if cards::is_bought_pseudo(other) {
                 (Var::Bought(other), Op::Lt)
             } else {
                 (Var::Count(other), if rng.chance(0.5) { Op::Lt } else { Op::Ge })
@@ -242,11 +242,11 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
                 rule.opt = r.opt;
                 // Conditions on the rule's own count follow the card (an Event's: whether it was
                 // bought, since an Event is never owned).
-                let own = |c: CardId| if cards::is_event(c) { Var::Bought(c) } else { Var::Count(c) };
+                let own = |c: CardId| if cards::is_bought_pseudo(c) { Var::Bought(c) } else { Var::Count(c) };
                 for a in rule.conds.iter_mut() {
                     if a.var == own(old) {
                         a.var = own(r.card);
-                        if cards::is_event(r.card) {
+                        if cards::is_bought_pseudo(r.card) {
                             a.op = Op::Lt;
                             a.n = 1;
                         }

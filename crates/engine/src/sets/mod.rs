@@ -39,6 +39,7 @@ pub mod intrigue;
 pub mod nocturne;
 pub mod promo;
 pub mod prosperity;
+pub mod renaissance;
 pub mod rising_sun;
 pub mod seaside;
 
@@ -53,6 +54,7 @@ use intrigue::Intrigue;
 use nocturne::Nocturne;
 use promo::Promo;
 use prosperity::Prosperity;
+use renaissance::Renaissance;
 use rising_sun::RisingSun;
 use seaside::Seaside;
 
@@ -128,6 +130,10 @@ macro_rules! with_set {
                 type $S = $crate::sets::hinterlands::Hinterlands;
                 $body
             }
+            $crate::cards::CardSet::Renaissance => {
+                type $S = $crate::sets::renaissance::Renaissance;
+                $body
+            }
         }
     };
 }
@@ -147,6 +153,8 @@ pub(crate) trait SetRules {
     const GAIN_HI: u128 = 0;
     /// The same for ids from 256 (bits of `in_supply.top`).
     const GAIN_TOP: u128 = 0;
+    /// The same for ids from 384 (bits of `in_supply.ext`).
+    const GAIN_EXT: u128 = 0;
     /// The cards of this set whose `may_buy` can say no (Grand Market, Avanto): every other card is buyable whenever it is affordable,
     /// and the Buy choices skip the call for it.
     const MAY_BUY_CARDS: &'static [CardId] = &[];
@@ -262,10 +270,10 @@ pub(crate) trait SetRules {
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
         + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len()
-        + Hinterlands::CARDS.len();
+        + Hinterlands::CARDS.len() + Renaissance::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 13] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 14] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -279,6 +287,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::RisingSun, RisingSun::CARDS),
         (CardSet::Nocturne, Nocturne::CARDS),
         (CardSet::Hinterlands, Hinterlands::CARDS),
+        (CardSet::Renaissance, Renaissance::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -340,11 +349,13 @@ macro_rules! concat_sets {
             + Empires::$name.len()
             + RisingSun::$name.len()
             + Nocturne::$name.len()
-            + Hinterlands::$name.len();
+            + Hinterlands::$name.len()
+            + Renaissance::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
                 DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name, Hinterlands::$name,
+                Renaissance::$name,
             ],
             $zero,
         );
@@ -367,8 +378,14 @@ pub const GAIN_LO: u128 = Base::GAIN_LO | Intrigue::GAIN_LO | Seaside::GAIN_LO |
     | CornucopiaGuilds::GAIN_LO | DarkAges::GAIN_LO | Adventures::GAIN_LO;
 pub const GAIN_HI: u128 = Base::GAIN_HI | Intrigue::GAIN_HI | Seaside::GAIN_HI | Prosperity::GAIN_HI | Alchemy::GAIN_HI | Promo::GAIN_HI
     | CornucopiaGuilds::GAIN_HI | DarkAges::GAIN_HI | Adventures::GAIN_HI | Empires::GAIN_HI | RisingSun::GAIN_HI;
-pub const GAIN_TOP: u128 =
-    Empires::GAIN_TOP | RisingSun::GAIN_TOP | Adventures::GAIN_TOP | Nocturne::GAIN_TOP | Hinterlands::GAIN_TOP | Promo::GAIN_TOP;
+pub const GAIN_TOP: u128 = Empires::GAIN_TOP
+    | RisingSun::GAIN_TOP
+    | Adventures::GAIN_TOP
+    | Nocturne::GAIN_TOP
+    | Hinterlands::GAIN_TOP
+    | Promo::GAIN_TOP
+    | Renaissance::GAIN_TOP;
+pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -485,12 +502,14 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     Adventures::turn_start_entries(g);
     Nocturne::turn_start_entries(g);
     RisingSun::turn_start_entries(g);
+    Renaissance::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
-    g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP)
+    g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP, GAIN_EXT)
+        || Renaissance::gain_live_extra(g)
         || CornucopiaGuilds::gain_live_extra(g)
         || DarkAges::gain_live_extra(g)
         || Adventures::gain_live_extra(g)
@@ -529,6 +548,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     if g.in_supply.top & Hinterlands::GAIN_TOP != 0 {
         Hinterlands::gain_triggers(g, p, c, to, on_buy, sink);
     }
+    // Renaissance: the card's own effect, Cargo Ship's set-aside, and the Projects that answer gains.
+    if g.in_supply.top & Renaissance::GAIN_TOP != 0 || g.in_supply.ext & Renaissance::GAIN_EXT != 0 || Renaissance::gain_live_extra(g) {
+        Renaissance::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     // Last, so that its offers are asked first: a card may be exchanged for a Changeling before the rest of its gain happens.
     if g.in_supply.top & Nocturne::GAIN_TOP != 0 || Nocturne::gain_live_extra(g) {
         Nocturne::gain_triggers(g, p, c, to, on_buy, sink);
@@ -540,6 +563,7 @@ pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
     CornucopiaGuilds::end_of_buy(g, sink);
     DarkAges::end_of_buy(g, sink);
     Adventures::end_of_buy(g, sink);
+    Renaissance::end_of_buy(g, sink);
 }
 
 /// The offers made at the end of the Buy phase, pushed in the order below: the stack pops the last first, so
@@ -550,6 +574,8 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Seaside::offers_on_discard(g);
     Adventures::offers_on_discard(g);
     Hinterlands::offers_on_discard(g);
+    Renaissance::offers_on_discard(g);
+    Renaissance::offers_at_cleanup(g);
     Promo::offers_at_cleanup(g);
     RisingSun::offers_at_cleanup(g);
     Alchemy::offers_at_cleanup(g);

@@ -106,7 +106,7 @@ impl SetRules for Base {
                     } else {
                         for (c, k) in hand.iter() {
                             for _ in 0..k {
-                                sink.event(Event::Reveal { player: v, card: c });
+                                g.reveal_card(v, c, sink);
                             }
                         }
                     }
@@ -243,7 +243,7 @@ impl GameState {
                 if cards::is(c, ACTION) {
                     // Held in set_aside until the player decides.
                     self.players[pi].set_aside.add(c, 1);
-                    sink.event(Event::Reveal { player: p, card: c });
+                    self.reveal_card(p, c, sink);
                     f.count = 1;
                     f.subject = c;
                     self.stack.set_top(f);

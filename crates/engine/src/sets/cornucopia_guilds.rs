@@ -109,7 +109,7 @@ impl SetRules for CornucopiaGuilds {
                 let hand = g.players[p as usize].hand;
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                 }
                 let all_different = hand.iter().count() as u32 == hand.total();

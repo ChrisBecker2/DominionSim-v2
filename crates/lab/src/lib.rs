@@ -192,7 +192,7 @@ struct CardInfo {
     #[serde(rename = "costLabel")]
     cost_label: String,
     types: Vec<&'static str>,
-    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne" or "Hinterlands".
+    /// "Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne", "Hinterlands" or "Renaissance".
     set: &'static str,
 }
 
@@ -211,6 +211,9 @@ fn card_info(c: CardId) -> CardInfo {
     if cards::is_event(c) {
         types.push("Event");
     }
+    if cards::is_project(c) {
+        types.push("Project");
+    }
     if cards::is_landmark(c) {
         types.push("Landmark");
     }
@@ -226,6 +229,7 @@ fn cards_response() -> serde_json::Value {
     let kingdom: Vec<CardInfo> =
         cards::kingdom_cards()
             .chain(cards::FIRST_EVENT..cards::FIRST_EVENT + (cards::NUM_EVENTS + cards::NUM_LANDMARKS) as CardId)
+            .chain(cards::FIRST_PROJECT..cards::FIRST_PROJECT + cards::NUM_PROJECTS as CardId)
             .chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
             .filter(|&c| cards::is_ready(c))
             .map(card_info)

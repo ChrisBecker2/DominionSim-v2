@@ -241,6 +241,9 @@
       : "";
     // Nocturne: a card that is only a Night card is dark; a Night-Duration card is split orange/dark.
     const prophecyOnly = has("prophecy");
+    // Renaissance: Projects (pink) and Artifacts (light brown) are landscape cards, not cards of the deck.
+    if (has("project")) return "card project";
+    if (has("artifact")) return "card artifact";
     const nightOnly = has("night") && !has("action") && !has("duration") && !has("treasure");
     const dualNight = has("night") && has("duration") ? " dual-duration-night" : "";
     return "card " + (prophecyOnly ? "prophecy" : nightOnly ? "night" : primary + dual + dualNight) + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "") + (has("heirloom") ? " heirloom" : "");
@@ -383,6 +386,8 @@
     // Cornucopia & Guilds: the turn player's Coffers (spend them with the Buy phase's button).
     const cur = view.players[t.player];
     if (cur && cur.coffers) add("Coffers", String(cur.coffers));
+    // Renaissance: the turn player's Villagers (spent in the Action phase when no Action is left).
+    if (cur && cur.villagers) add("Villagers", String(cur.villagers));
     // Empires: the turn player's Debt (nothing can be bought until it is paid).
     if (cur && cur.debt) add("Debt", String(cur.debt));
     if (view.gameOver) {
@@ -515,6 +520,21 @@
       if (p.princeCards.length) panel.appendChild(zoneRow("Set aside by Prince", p.princeCards));
       // Cornucopia & Guilds: Coffers tokens, cards a Farmhands set aside, a Province Joust set aside.
       if (p.coffers) panel.appendChild(el("div", "zone coffers", `Coffers: ${p.coffers}`));
+      // Renaissance: Villagers, the Projects with a cube of this player (each player has two cubes), the tokens on Sinister Plot, and what the Cargo Ships
+      // (face up) and Researches (face down) have set aside for the next turn.
+      if (p.villagers) panel.appendChild(el("div", "zone villagers", `Villagers: ${p.villagers}`));
+      if (p.ownedProjects && p.ownedProjects.length) {
+        const row = el("div", "zone");
+        row.appendChild(el("span", "zone-label", "Projects:"));
+        for (const n of p.ownedProjects) {
+          row.appendChild(document.createTextNode(" "));
+          row.appendChild(cardChip(n));
+        }
+        panel.appendChild(row);
+      }
+      if (p.plotTokens) panel.appendChild(el("div", "zone", `Tokens on Sinister Plot: ${p.plotTokens}`));
+      if (p.cargo && p.cargo.length) panel.appendChild(zoneRow("Set aside by Cargo Ship", p.cargo));
+      if (p.research && p.research.length) panel.appendChild(zoneRow("Set aside by Research (face down)", p.research));
       // Empires: Debt tokens, and the cards set aside under Archives.
       if (p.debt) panel.appendChild(el("div", "zone debt", `Debt: ${p.debt}`));
       if (p.archive && p.archive.length) panel.appendChild(zoneRow("Archive", p.archive));
@@ -588,7 +608,28 @@
     const list = $("landscape-list");
     list.innerHTML = "";
     const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
-    $("landscape-panel").hidden = !events.length && !landmarks.length && !p;
+    const projects = view.projects || [], artifacts = view.artifacts || [];
+    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length;
+    // Renaissance: the Artifacts (held by one player at a time) and the Projects (bought like Events; the cubes show who has each).
+    for (const a of artifacts) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Artifact"));
+      row.appendChild(cardChip(a.name));
+      row.appendChild(el("span", "cost", a.holder === null ? " (nobody has it)" : ` held by P${a.holder + 1}`));
+      list.appendChild(row);
+    }
+    for (const pr of projects) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Project"));
+      row.appendChild(cardChip(pr.name));
+      row.appendChild(el("span", "cost", " " + (pr.costLabel || "$" + pr.cost) + (pr.owners.length ? " [" + pr.owners.map((o) => "P" + (o + 1)).join(", ") + "] " : " ")));
+      const b = el("button", null, "Buy");
+      const choice = view.pending ? view.pending.choices.find((c) => c.label === pr.name) : null;
+      b.disabled = !choice;
+      if (choice) b.addEventListener("click", () => doAction(() => api.choose(choice.index), "Buy " + pr.name));
+      row.appendChild(b);
+      list.appendChild(row);
+    }
     if (p) {
       const row = el("div", "event-row");
       row.appendChild(el("span", "kind", "Prophecy"));
@@ -959,7 +1000,7 @@
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
   // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096 };
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

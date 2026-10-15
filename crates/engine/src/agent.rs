@@ -240,6 +240,72 @@ impl<'a> PlayerView<'a> {
         crate::cards::is_event(e) && crate::sets::adventures::event_available(self.state, e)
     }
 
+    // --- Renaissance ---
+    /// My Villagers: each is +1 Action when spent in the Action phase.
+    pub fn villagers(&self) -> u16 {
+        self.state.players[self.me as usize].ren.villagers
+    }
+    /// `p`'s Villagers (public: the mat is face up).
+    pub fn villagers_of(&self, p: u8) -> u16 {
+        self.state.players[p as usize].ren.villagers
+    }
+    /// Whether the Project `pr` is in this game.
+    pub fn has_project_in_game(&self, pr: CardId) -> bool {
+        crate::cards::is_project(pr) && self.state.ren.projects & crate::sets::renaissance::project_bit(pr) != 0
+    }
+    /// The Projects of this game (card ids), in id order.
+    pub fn projects(&self) -> impl Iterator<Item = CardId> + '_ {
+        (0..crate::cards::NUM_PROJECTS as CardId).filter(|i| self.state.ren.projects & (1u32 << i) != 0).map(|i| crate::cards::FIRST_PROJECT + i)
+    }
+    /// Whether `p` has put a cube on the Project `pr`.
+    pub fn has_project(&self, p: u8, pr: CardId) -> bool {
+        crate::cards::is_project(pr) && self.state.has_project(p, pr)
+    }
+    /// How many cubes `p` has put on Projects (at most two).
+    pub fn projects_owned_by(&self, p: u8) -> u32 {
+        self.state.players[p as usize].ren.projects.count_ones()
+    }
+    /// Whether the Project `pr` is on offer to the turn's player (in the game, not owned, a cube left), apart from its cost.
+    pub fn project_open(&self, pr: CardId) -> bool {
+        crate::cards::is_project(pr) && self.state.project_open(pr)
+    }
+    /// Whether the Project `pr` could be bought now: open, and the turn's $ pay for it (the Buy is the caller's check).
+    pub fn project_buyable(&self, pr: CardId) -> bool {
+        crate::cards::is_project(pr) && self.state.project_buyable(pr)
+    }
+    /// Whether `p` holds the Artifact `a`.
+    pub fn has_artifact(&self, p: u8, a: CardId) -> bool {
+        crate::cards::is_artifact(a) && self.state.has_artifact(p, a)
+    }
+    /// The seat holding the Artifact `a`.
+    pub fn artifact_holder(&self, a: CardId) -> Option<u8> {
+        if crate::cards::is_artifact(a) { self.state.artifact_holder(a) } else { None }
+    }
+    /// The tokens `p` has on Sinister Plot.
+    pub fn plot_tokens_of(&self, p: u8) -> u8 {
+        self.state.ren.plot[p as usize]
+    }
+    /// The cards `p`'s Cargo Ships have set aside (face up, public).
+    pub fn cargo_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].ren.cargo.counts()
+    }
+    /// The cards my Researches set aside face down (private to me).
+    pub fn research(&self) -> Counts {
+        self.state.players[self.me as usize].ren.research.counts()
+    }
+    /// How many cards `p`'s Researches have set aside (public; only their owner sees which).
+    pub fn research_count_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].ren.research.total()
+    }
+    /// Whether some player has Fleet (the game gives them an extra round of turns after it would end).
+    pub fn fleet_in_game(&self) -> bool {
+        self.state.ren.projects != 0 && self.state.fleet_in_game()
+    }
+    /// Whether the Fleet round (the extra turns after the game would have ended) is under way.
+    pub fn fleet_round(&self) -> bool {
+        self.state.ren.flags & crate::state::REN_FLEET_ROUND != 0
+    }
+
     // --- Rising Sun ---
     /// The Buys the turn's player can use: the Buys, and under Flourishing Trade the Actions too.
     pub fn buys_left(&self) -> u16 {
@@ -415,8 +481,11 @@ impl<'a> PlayerView<'a> {
             self.state.trav[(c - crate::cards::FIRST_TRAV) as usize]
         } else if (crate::cards::id::WILL_O_WISP..=crate::cards::id::GHOST).contains(&c) {
             self.state.noc.piles[(c - crate::cards::id::WILL_O_WISP) as usize]
-        } else {
+        } else if (c as usize) < crate::cards::NUM_ZONE_IDS {
             self.state.supply.get(c)
+        } else {
+            // An Event, a Project...: no pile.
+            0
         }
     }
     pub fn in_supply(&self, c: CardId) -> bool {
@@ -661,6 +730,9 @@ impl<'a> PlayerView<'a> {
             }
             let archive_size = ps.archive.total();
             ps.archive.add_into(&mut pool);
+            // Research (Renaissance): the cards set aside face down are as hidden as the deck they came from.
+            let research_size = ps.ren.research.total();
+            ps.ren.research.add_into(&mut pool);
             // Church (Promo): the cards set aside face down are as hidden as the hand they came from; only the sizes of the batches are public.
             let church_sizes = ps.church.sizes();
             let church_batches = ps.church.len();
@@ -720,6 +792,12 @@ impl<'a> PlayerView<'a> {
                 let c = pool.nth(rng.below(pool.total()));
                 pool.remove(c);
                 ps.native_village_mat.add(c, 1);
+            }
+            ps.ren.research.clear();
+            for _ in 0..research_size {
+                let c = pool.nth(rng.below(pool.total()));
+                pool.remove(c);
+                ps.ren.research.add(c, 1);
             }
             // Cards set aside under an Archive are face down: as hidden as the deck they came from (only their number is public).
             ps.archive.clear();

@@ -127,7 +127,7 @@ fn strip_seed(s: &str) -> String {
 fn the_ids_line_up() {
     assert!(cards::is_event(id::ADVANCE) && cards::is_event(id::WINDFALL) && cards::is_event(id::ALMS) && !cards::is_event(id::AQUEDUCT));
     assert!(cards::is_landmark(id::AQUEDUCT) && cards::is_landmark(id::WOLF_DEN) && !cards::is_landmark(id::WINDFALL));
-    assert_eq!(id::SICKNESS as usize + 1, cards::NUM_CARDS);
+    assert_eq!(id::TREASURE_CHEST as usize + 1, cards::NUM_CARDS);
     assert_eq!(cards::NUM_EVENTS, 44, "20 Adventures, 13 Empires, Summon and 10 Rising Sun");
     assert_eq!(cards::kingdom_cards_in(CardSet::Empires).count(), 24);
     assert_eq!(cards::kingdom_cards_in(CardSet::RisingSun).count(), 25);

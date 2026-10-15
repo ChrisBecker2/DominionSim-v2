@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 382;
+    pub const RUINS: CardId = 407;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 383;
-    pub const RUINED_LIBRARY: CardId = 384;
-    pub const RUINED_MARKET: CardId = 385;
-    pub const RUINED_VILLAGE: CardId = 386;
-    pub const SURVIVORS: CardId = 387;
-    pub const DAME_ANNA: CardId = 388;
-    pub const DAME_JOSEPHINE: CardId = 389;
-    pub const DAME_MOLLY: CardId = 390;
-    pub const DAME_NATALIE: CardId = 391;
-    pub const DAME_SYLVIA: CardId = 392;
-    pub const SIR_BAILEY: CardId = 393;
-    pub const SIR_DESTRY: CardId = 394;
-    pub const SIR_MARTIN: CardId = 395;
-    pub const SIR_MICHAEL: CardId = 396;
-    pub const SIR_VANDER: CardId = 397;
+    pub const ABANDONED_MINE: CardId = 408;
+    pub const RUINED_LIBRARY: CardId = 409;
+    pub const RUINED_MARKET: CardId = 410;
+    pub const RUINED_VILLAGE: CardId = 411;
+    pub const SURVIVORS: CardId = 412;
+    pub const DAME_ANNA: CardId = 413;
+    pub const DAME_JOSEPHINE: CardId = 414;
+    pub const DAME_MOLLY: CardId = 415;
+    pub const DAME_NATALIE: CardId = 416;
+    pub const DAME_SYLVIA: CardId = 417;
+    pub const SIR_BAILEY: CardId = 418;
+    pub const SIR_DESTRY: CardId = 419;
+    pub const SIR_MARTIN: CardId = 420;
+    pub const SIR_MICHAEL: CardId = 421;
+    pub const SIR_VANDER: CardId = 422;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -321,7 +321,7 @@ impl SetRules for DarkAges {
                 let mut treasures = 0u16;
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                     if g.is_treasure(c) {
                         treasures += k as u16;
@@ -613,6 +613,12 @@ impl GameState {
     pub(crate) fn trash_card<S: EventSink>(&mut self, p: u8, c: CardId, owned: bool, sink: &mut S) {
         self.trash.add(c, 1);
         sink.event(Event::Trash { player: p, card: c });
+        // Renaissance: Priest's $2 for each card trashed, and Sewers' extra trash (queued below the card's own effects).
+        let sewers = if self.turn.ren.priests > 0 || self.ren.hook & crate::state::REN_TRASH != 0 {
+            self.ren_trashed(p, c, sink)
+        } else {
+            false
+        };
         // Tomb (Empires): +1 VP token for each card trashed.
         if self.emp.flags & crate::state::E_TOMB != 0 {
             self.gain_vp_tokens(p, id::TOMB, 1, sink);
@@ -623,6 +629,14 @@ impl GameState {
             }
             let q = &mut self.trash_queue;
             q.items[q.len as usize] = (p, c, if owned { crate::state::Q_TRASHED_OWN } else { crate::state::Q_TRASHED });
+            q.len += 1;
+        }
+        if sewers {
+            if self.trash_queue.len as usize == crate::state::TRASH_QUEUE_CAP {
+                self.flush_trash_triggers(0, sink);
+            }
+            let q = &mut self.trash_queue;
+            q.items[q.len as usize] = (p, c, crate::state::Q_SEWERS);
             q.len += 1;
         }
     }
@@ -637,6 +651,10 @@ impl GameState {
         let base = self.stack.len as usize;
         for i in (0..q.len as usize).rev() {
             let (p, c, kind) = q.items[i];
+            if kind == crate::state::Q_SEWERS {
+                self.sewers_frame(p);
+                continue;
+            }
             // A discard that a card reacts to: the reaction is asked now that everything discarded together is in the discard pile.
             if kind == crate::state::Q_DISCARDED {
                 self.discard_reaction(p, c);
@@ -721,7 +739,7 @@ impl GameState {
             if hand.total() >= 5 {
                 for (c, k) in hand.iter() {
                     for _ in 0..k {
-                        sink.event(Event::Reveal { player: v, card: c });
+                        self.reveal_card(v, c, sink);
                     }
                 }
             }
@@ -762,6 +780,7 @@ impl GameState {
             }
             Then::DiscardRevealedAsk => self.discard_revealed(p, sink),
             Then::SnakeWitch | Then::GoldMine => self.rs_ask_yes(f, sink),
+            Then::PageantPay | Then::SinisterPlot => self.ren_ask_yes(f, sink),
             _ => {}
         }
     }

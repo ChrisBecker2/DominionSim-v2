@@ -270,6 +270,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
           <label class="checkbox-row"><input type="checkbox" id="set-risingsun"> Rising Sun</label>
           <label class="checkbox-row"><input type="checkbox" id="set-nocturne"> Nocturne</label>
           <label class="checkbox-row"><input type="checkbox" id="set-hinterlands"> Hinterlands</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-renaissance"> Renaissance</label>
         </div>
         <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
 
@@ -479,10 +480,10 @@ function renderChips(container, cardsList, selected) {
 // Form state
 // ---------------------------------------------------------------------------------------------
 
-var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne", "Hinterlands"];
+var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne", "Hinterlands", "Renaissance"];
 // The checkbox id of a set: "set-" and its name's letters ("Cornucopia & Guilds" is set-cornucopiaguilds).
 function setBoxId(s) { return "set-" + s.toLowerCase().replace(/[^a-z]/g, ""); }
-// Alchemy, Promo, Cornucopia & Guilds, Dark Ages, Adventures, Empires, Rising Sun, Nocturne and Hinterlands are opt-in: the shipped strategies know nothing about Potions, Coffers, Ruins, Events, tokens, Debt, Night or Boons.
+// Alchemy, Promo, Cornucopia & Guilds, Dark Ages, Adventures, Empires, Rising Sun, Nocturne, Hinterlands and Renaissance are opt-in: the shipped strategies know nothing about Potions, Coffers, Ruins, Events, tokens, Debt, Night, Boons, Villagers or Projects.
 var DEFAULT_SETS = ["Base", "Intrigue", "Seaside", "Prosperity"];
 
 var form = {

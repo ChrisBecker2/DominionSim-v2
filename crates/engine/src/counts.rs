@@ -4,7 +4,7 @@ use crate::cards::{CardId, NUM_ZONE_IDS};
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
 /// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
 /// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
-pub const LANES: usize = 416;
+pub const LANES: usize = 448;
 /// The last four lanes are bookkeeping, not card lanes (`NUM_ZONE_IDS` leaves them free): a little-endian `u16` bitmap of the 32-lane blocks that
 /// may hold a card (bit `b` clear means block `b` is all zero), then the multiset's total count (`u16`). Every mutation keeps them up to date, so
 /// `total` and `is_empty` are a load and `iter`, `add_all` and `clear` visit only the blocks that can have cards (a hand or a discard pile has
@@ -385,8 +385,9 @@ mod tests {
             }
         }
         fn check(c: &Counts) {
-            let mut lanes = c.0;
-            lanes[BLOCKS_LANE..].fill(0);
+            // (Blocks past the legacy 13 are hashed only when they hold a card, by index: `upper_blocks_are_hashed_only_when_they_hold_a_card`.)
+            let mut lanes = [0u8; LEGACY_BLOCKS * 32];
+            lanes.copy_from_slice(&c.0[..LEGACY_BLOCKS * 32]);
             let (mut a, mut b) = (std::collections::hash_map::DefaultHasher::new(), std::collections::hash_map::DefaultHasher::new());
             c.hash(&mut a);
             lanes.hash(&mut b);
@@ -398,7 +399,7 @@ mod tests {
         }
         let mut c = Counts::EMPTY;
         check(&c);
-        for id in [0, 5, 31, 32, 100, 351, 352, BLOCKS_LANE - 1] {
+        for id in [0, 5, 31, 32, 100, 351, 352, LEGACY_BLOCKS * 32 - 1] {
             c.add(id as CardId, 3);
             check(&c);
         }
@@ -525,7 +526,7 @@ mod tests {
         use std::hash::{Hash, Hasher};
         let mut h1 = std::collections::hash_map::DefaultHasher::new();
         x.hash(&mut h1);
-        let mut plain = [0u8; LANES];
+        let mut plain = [0u8; LEGACY_BLOCKS * 32];
         plain[10] = 3;
         plain[11] = 1;
         let mut h2 = std::collections::hash_map::DefaultHasher::new();

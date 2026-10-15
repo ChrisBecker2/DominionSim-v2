@@ -103,6 +103,9 @@ pub const P_RS_GOLD: u8 = 1;
 pub const ASIDE_CAP: usize = 16;
 /// Max distinct cards Foresight sets aside in one turn (`PlayerState::foresight`).
 pub const FORESIGHT_CAP: usize = 4;
+/// Distinct cards set aside on a player's Cargo Ships (Renaissance), and under their Researches.
+pub const CARGO_CAP: usize = 4;
+pub const RESEARCH_CAP: usize = 12;
 
 /// `PlayerState::tok` indices: the pile each of a player's pile tokens is on (Adventures).
 pub const TOK_CARD: usize = 0;
@@ -196,7 +199,8 @@ impl SupplyMask {
         } else if c < 384 {
             self.top & (1u128 << (c - 256)) != 0
         } else {
-            self.ext & (1u128 << (c - 384)) != 0
+            // (Ids from 512 are Projects and Artifacts: never in the Supply.)
+            c < 512 && self.ext & (1u128 << ((c - 384) & 127)) != 0
         }
     }
     #[inline]
@@ -224,10 +228,10 @@ impl SupplyMask {
             self.ext &= !(1u128 << (c - 384));
         }
     }
-    /// Whether any card of the mask words is in the Supply (the gain-trigger gates). No card with a gain trigger has an id from 384.
+    /// Whether any card of the mask words is in the Supply (the gain-trigger gates).
     #[inline(always)]
-    pub fn any(&self, lo: u128, hi: u128, top: u128) -> bool {
-        (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0
+    pub fn any(&self, lo: u128, hi: u128, top: u128, ext: u128) -> bool {
+        (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0 || (self.ext & ext) != 0
     }
 }
 
@@ -841,6 +845,34 @@ pub struct PlayerState {
     pub foresight: SmallMultiset<FORESIGHT_CAP>,
     /// Rising Sun: `P_RS_*` flags.
     pub rs: u8,
+    /// Renaissance: the Villagers, Projects and set-aside cards (`RenPlayer`).
+    pub ren: RenPlayer,
+}
+
+/// The Renaissance state of one player. It hashes as nothing while it is all zero, so that the hash of a state in a game without Renaissance (the seed of a
+/// bot's search, the transposition table's key) is the one it was before the set existed.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct RenPlayer {
+    /// The Villagers on the player's mat (each is +1 Action when spent in the Action phase).
+    pub villagers: u16,
+    /// The Projects the player has put a cube on (bit `project - cards::FIRST_PROJECT`; at most two).
+    pub projects: u32,
+    /// Cargo Ship: the cards set aside (face up) on the player's Cargo Ships, put into the hand at the start of their next turn. Counts as owned.
+    pub cargo: SmallMultiset<CARGO_CAP>,
+    /// Research: the cards set aside face down on the player's Researches, put into the hand at the start of their next turn (private to the owner;
+    /// `determinize` pools them for the others). Counts as owned.
+    pub research: SmallMultiset<RESEARCH_CAP>,
+}
+
+impl std::hash::Hash for RenPlayer {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != RenPlayer::default() {
+            self.villagers.hash(h);
+            self.projects.hash(h);
+            self.cargo.hash(h);
+            self.research.hash(h);
+        }
+    }
 }
 
 impl PlayerState {
@@ -876,6 +908,8 @@ impl PlayerState {
             + self.archive.get(card) as u32
             + self.aside.get(card) as u32
             + self.foresight.get(card) as u32
+            + self.ren.cargo.get(card) as u32
+            + self.ren.research.get(card) as u32
             + (self.saved == card && card != 0) as u32
             + (self.inherit == card && card != 0) as u32;
         if card == id::FAITHFUL_HOUND {
@@ -912,6 +946,8 @@ impl PlayerState {
         self.archive.add_into(&mut c);
         self.aside.add_into(&mut c);
         self.foresight.add_into(&mut c);
+        self.ren.cargo.add_into(&mut c);
+        self.ren.research.add_into(&mut c);
         // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
         if self.inherit != 0 {
             c.add(self.inherit, 1);
@@ -1086,6 +1122,8 @@ pub struct TurnState {
     pub hint: HintTurn,
     /// Rising Sun per-turn bookkeeping.
     pub rs: RsTurn,
+    /// Renaissance per-turn bookkeeping.
+    pub ren: RenTurn,
 }
 
 /// The per-turn bookkeeping of Rising Sun.
@@ -1124,6 +1162,67 @@ pub fn sun_tokens_for(n: usize) -> u8 {
         4 => 10,
         5 => 12,
         _ => 13,
+    }
+}
+
+/// `RenState::hook` bits: which Projects some player owns that a hot path has to look at (one byte test in a gain, a trash, a shuffle).
+pub const REN_GAIN: u8 = 1;
+pub const REN_TRASH: u8 = 2;
+pub const REN_STAR: u8 = 4;
+pub const REN_CAPITAL: u8 = 8;
+/// `RenState::flags`: the Fleet round (after the game would end, one more turn for each player with Fleet) is under way.
+pub const REN_FLEET_ROUND: u8 = 1;
+/// The number of Artifacts (Flag, Horn, Key, Lantern, Treasure Chest).
+pub const NUM_ARTIFACTS: usize = 5;
+
+/// The per-game state of Renaissance: the Projects in the game, who holds each Artifact, the tokens on Sinister Plot, and the Fleet round. (Hashes as
+/// nothing while it is all zero, like `RenPlayer`.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct RenState {
+    /// `REN_*` flags.
+    pub flags: u8,
+    /// `REN_*` hooks: the Projects some player owns that act on gains, trashes, shuffles and the types of cards (kept up to date by `ren_update_hooks`).
+    pub hook: u8,
+    /// Bit `project - cards::FIRST_PROJECT`: the Projects in this game (public).
+    pub projects: u32,
+    /// The seat (+ 1) holding each Artifact (`artifact - cards::FIRST_ARTIFACT`), 0 = nobody.
+    pub holder: [u8; NUM_ARTIFACTS],
+    /// The tokens each seat has on Sinister Plot.
+    pub plot: [u8; MAX_PLAYERS],
+    /// The Fleet round: the seats (bit per seat) that still have a turn to take in it.
+    pub fleet: u8,
+}
+
+impl std::hash::Hash for RenState {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != RenState::default() {
+            (self.flags, self.hook, self.projects, self.holder, self.plot, self.fleet).hash(h);
+        }
+    }
+}
+
+/// The per-turn bookkeeping of Renaissance (hashes as nothing while it is all zero).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct RenTurn {
+    /// Priest plays this turn: each card the turn's player trashes is worth $2 for each.
+    pub priests: u8,
+    /// Cargo Ship plays this turn that have not set a card aside yet (each does it once).
+    pub cargo: u8,
+    /// Innovation has been used this turn.
+    pub innovation: bool,
+    /// An Action has been played this turn (Citadel replays only the first).
+    pub acted: bool,
+    /// The Experiment being gained is the second of a pair: it does not come with another.
+    pub no_chain: bool,
+    /// The cards Sewers trashes do not set Sewers off again.
+    pub no_sewers: bool,
+}
+
+impl std::hash::Hash for RenTurn {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != RenTurn::default() {
+            (self.priests, self.cargo, self.innovation, self.acted, self.no_chain, self.no_sewers).hash(h);
+        }
     }
 }
 
@@ -1263,6 +1362,7 @@ impl TurnState {
             noc: NocTurn::default(),
             hint: HintTurn::default(),
             rs: RsTurn::default(),
+            ren: RenTurn::default(),
         }
     }
 }
@@ -1310,6 +1410,8 @@ pub enum Act {
     Pass,
     /// Shuffle it into the deck (Inn): it joins the unknown part of the deck, and the whole deck is shuffled when the selection finishes (`Then::InnShuffle`).
     ShuffleIn,
+    /// Pick it and leave it where it is, no event (Scepter's Action to play again).
+    Choose,
     /// Put it onto the player's Tavern mat (Miser's Copper, a Reserve card played).
     Tavern,
     /// Call it: from the Tavern mat into play (a `YesNo` on a Reserve card; what the call does is the frame's `then`, `Then::Called`).
@@ -1395,6 +1497,8 @@ pub enum Filter {
     NecroTarget,
     /// A card that shares a type with the named card (Locusts: "a cheaper card that shares a type with it").
     SharesTypeWith(CardId),
+    /// A non-Command Action the turn's player played this turn that is still in play (Scepter). Decided against the live game (`filter_ok`).
+    ReplayTarget,
     /// An Action in play that this Clean-up discards (Scheme): not one that stays in play (a Duration held for the next turn, a Prince's).
     /// Decided against the live game (`filter_ok`); `matches` can only say "an Action".
     ActionToDiscard,
@@ -1487,6 +1591,7 @@ impl Filter {
             Filter::NecroTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION),
             Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0,
             Filter::ActionToDiscard => cards::is(c, cards::ACTION),
+            Filter::ReplayTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::COMMAND),
         }
     }
 }
@@ -1871,6 +1976,38 @@ pub enum Then {
     ForesightSet,
     /// Select (a zero-pick frame under the Clean-up draw): the cards Foresight set aside go into the hand.
     ForesightToHand,
+    /// RevealTop (Border Guard): one of the cards revealed goes to the hand (`BorderGuardPick`), the rest are discarded; all Actions take an Artifact.
+    BorderGuardReveal,
+    BorderGuardPick,
+    /// Select (Hideout, trash from the hand): a Victory card gives a Curse.
+    HideoutCurse,
+    /// Select (a zero-pick frame under Inventor's gain): cards cost $1 less this turn.
+    CostLess,
+    /// Select (Priest, trash from the hand): for the rest of the turn each card trashed is +$2.
+    PriestSetup,
+    /// Select (Recruiter, trash from the hand): +1 Villager per $1 the card cost.
+    RecruiterVillagers,
+    /// Select (Research, trash from the hand): reveal that many cards from the deck to set aside (`ResearchSet`).
+    ResearchTrash,
+    ResearchSet,
+    /// Select (a zero-pick frame under Swashbuckler's draw): with a card in the discard pile +1 Coffers, and the Treasure Chest with 4 Coffers.
+    Swashbuckler,
+    /// Select (Scepter, `Act::Choose` on an Action in play): the Action is played again.
+    ScepterReplay,
+    /// Select (Star Chart): the card picked goes on top of the deck, the rest of the discard pile is shuffled into it.
+    StarChart,
+    /// Gain (Sculptor): +1 Villager if the card gained is a Treasure.
+    VillagerIfTreasure,
+    /// YesNo (Cargo Ship, the card gained): set it aside on the Cargo Ship.
+    CargoAside,
+    /// YesNo (Innovation, an Action gained): play it.
+    InnovationPlay,
+    /// Ask (Pageant): pay $1 for +1 Coffers.
+    PageantPay,
+    /// Ask (Sinister Plot): Yes puts a token on it, No removes the tokens for +1 Card each.
+    SinisterPlot,
+    /// RevealTop (Piazza, the top card): played if it is an Action, else back on the deck.
+    PiazzaPlay,
     /// Gain (Receive Tribute): up to `count - 1` more Actions follow, each with a name no gain before it had (`Frame::subject` and `last`).
     TributeGain,
     /// Select (a zero-pick frame under a gain's reactions, Rapid Expansion): the card gained is set aside if it is still where it was gained.
@@ -2319,6 +2456,10 @@ pub const TRASH_QUEUE_CAP: usize = 12;
 pub const Q_TRASHED: u8 = 0;
 pub const Q_TRASHED_OWN: u8 = 1;
 pub const Q_DISCARDED: u8 = 2;
+/// A card trashed by a player with Sewers: they may trash another from their hand (the entry's card is not used).
+pub const Q_SEWERS: u8 = 3;
+/// `NeedChance` payload of a draw that stopped because Star Chart's owner picks the card that goes on top of the shuffled deck (a frame was pushed).
+pub const STAR_STOP: u8 = 253;
 
 /// Cards trashed (or discarded) whose effects have not been put on the stack yet: `(player told to trash or discard, card, kind `Q_*`)`.
 /// A selection that trashes several cards trashes them all first and then resolves what they do (`Dark Ages`, "Count"); the same goes for
@@ -2451,6 +2592,8 @@ pub struct GameState {
     pub noc: NocState,
     /// Rising Sun: the Prophecy and its Sun tokens, Riverboat's card, `R_*` flags.
     pub rs: RsState,
+    /// Renaissance: the Projects in the game, the holders of the Artifacts, the tokens on Sinister Plot, the Fleet round.
+    pub ren: RenState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -2601,6 +2744,7 @@ impl GameState {
             emp: EmpState::default(),
             noc: NocState::default(),
             rs: RsState::default(),
+            ren: RenState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -2642,6 +2786,8 @@ impl GameState {
         crate::sets::hinterlands::setup(&mut s);
         // Rising Sun: the Prophecy and its Sun tokens, Riverboat's card.
         crate::sets::rising_sun::setup(&mut s, cfg, n);
+        // Renaissance: the Projects of the game.
+        crate::sets::renaissance::setup(&mut s, cfg, n);
         s.push_opening_deal();
         // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
         s.dup()
@@ -2697,7 +2843,22 @@ impl GameState {
     /// `cards::is(c, TREASURE)`) wherever the engine asks "is this a Treasure" at game time.
     #[inline(always)]
     pub fn is_treasure(&self, c: CardId) -> bool {
-        cards::is(c, cards::TREASURE) || (c == id::CURSE && self.in_supply(id::CHARLATAN))
+        cards::is(c, cards::TREASURE)
+            || (c == id::CURSE && self.in_supply(id::CHARLATAN))
+            || (self.ren.hook & REN_CAPITAL != 0 && self.capitalism_treasure(c))
+    }
+
+    /// Capitalism: on its owner's turns the Actions with a "+$" amount in their text are Treasures too.
+    #[inline(never)]
+    fn capitalism_treasure(&self, c: CardId) -> bool {
+        self.has_project(self.turn.player, id::CAPITALISM) && crate::sets::renaissance::capitalism_card(c)
+    }
+
+    /// Whether the Treasure `c` is played by the short path of the Buy phase (its coins and Buys, in one go): a Treasure whose play has no choice. An Action
+    /// that Capitalism turns into a Treasure is played like any Action (with its effects), one at a time.
+    #[inline(always)]
+    pub fn plain_treasure(&self, c: CardId) -> bool {
+        cards::is_choice_free(c) && (!cards::is(c, cards::ACTION) || cards::is(c, cards::TREASURE))
     }
 
     /// The `Filter` to use for a Select/Gain that should match Treasures, extended to Curse when
@@ -2885,6 +3046,10 @@ impl GameState {
     /// If the game would end when the current turn ends (Provinces or piles; not the turn cap),
     /// the winners bitmask it would end with, counting the current player's turn as taken.
     pub fn result_if_turn_ends(&self) -> Option<u8> {
+        // Fleet: the players who have it take one more turn, so the game does not end with this one.
+        if self.ren.projects != 0 && (self.ren.flags & REN_FLEET_ROUND != 0 || self.fleet_in_game()) {
+            return None;
+        }
         match self.end_reason() {
             Some(EndReason::ProvincesGone) | Some(EndReason::ColoniesGone) | Some(EndReason::PilesEmpty) => {}
             _ => return None,

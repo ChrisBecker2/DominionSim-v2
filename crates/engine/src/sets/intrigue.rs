@@ -94,7 +94,7 @@ impl SetRules for Intrigue {
                 let hand = g.players[p as usize].hand;
                 for (c, n) in hand.iter() {
                     for _ in 0..n {
-                        sink.event(Event::Reveal { player: p, card: c });
+                        g.reveal_card(p, c, sink);
                     }
                 }
                 if !hand.any_type(ACTION) {

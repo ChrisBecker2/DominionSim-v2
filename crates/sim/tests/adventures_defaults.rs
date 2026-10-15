@@ -359,3 +359,84 @@ card = "Teacher"
     let stats = run_match(&[&rules, &bmu], &cfg);
     assert_eq!(stats[0].games, 300);
 }
+
+// --- Discarding down to 3 (Samurai) ------------------------------------------------------------------------
+
+/// Player 1 plays Samurai; player 2 holds `hand` and must discard down to 3. Returns what the strategy discards, sorted.
+fn samurai_discards(strat: &Strategy, hand: &str) -> Vec<u16> {
+    let mut g = parse_state(&format!(
+        "players: 2\nkingdom: Samurai, Artificer, Distant Lands, Page, Kitsune, Root Cellar, Aristocrat, Artist, Dungeon, Duplicate\n\
+         turn: 5  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: Samurai\ndeck: 5 Copper\n\n[player 2]\nhand: {hand}\ndeck: 5 Estate\n"
+    ))
+    .unwrap();
+    next_decision(&mut g);
+    g.apply(Choice::Card(id::SAMURAI), &mut NoEvents).unwrap();
+    let mut out = vec![];
+    for _ in 0..6 {
+        let (d, ch) = next_decision(&mut g);
+        assert_eq!(d.player, 1, "expected the victim's discard, got {d:?}");
+        let c = decide(strat, &g, &d, &ch);
+        if let Choice::Card(x) = c {
+            out.push(x);
+        }
+        g.apply(c, &mut NoEvents).unwrap();
+        if g.players[1].hand.total() <= 3 {
+            break;
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn discarding_down_to_three_keeps_distant_lands_to_play() {
+    let hand = "Artificer, Distant Lands, 3 Copper";
+    let full = std::fs::read_to_string(format!("{}/../../strategies/kitsune_bm.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    for strat in [money("search_play = false"), money("search_play = true"), Strategy::parse(&full).unwrap()] {
+        assert_eq!(samurai_discards(&strat, hand), vec![id::COPPER, id::COPPER], "search={}", strat.search_play);
+    }
+}
+
+// --- Exchanging a Hero for a Champion ----------------------------------------------------------------------
+
+/// The answer to the exchange of a Hero discarded from play at cleanup, with `deck` as the rest of player 1's cards.
+fn hero_exchange(strat: &Strategy, deck: &str) -> Choice {
+    let mut g = parse_state(&format!(
+        "players: 2\nkingdom: {KINGDOM}\nturn: 5  player: 1  phase: buy  actions: 0  buys: 1  coins: 0\n\n[player 1]\nhand: Copper\nin play: Hero\ndeck: {deck}\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n"
+    ))
+    .unwrap();
+    let (_, _) = until(&mut g, |d| d.kind == (DecisionKind::YesNo { act: Act::Exchange }));
+    let (d, ch) = next_decision(&mut g);
+    decide(strat, &g, &d, &ch)
+}
+
+#[test]
+fn a_hero_is_not_exchanged_for_a_second_champion() {
+    for strat in [money("search_play = false"), money("search_play = true")] {
+        assert_eq!(hero_exchange(&strat, "5 Copper, 5 Estate"), Choice::Yes, "the first Champion");
+        assert_eq!(hero_exchange(&strat, "Champion, 5 Copper"), Choice::No, "a Champion is owned already");
+        let rule = strategy("search_play = false\n[[exchange]]\ncard = \"Hero\"\n", &["Province", "Gold", "Silver"]);
+        assert_eq!(hero_exchange(&rule, "Champion, 5 Copper"), Choice::Yes, "a stated rule overrides the default");
+    }
+}
+
+// --- count_line(..) ----------------------------------------------------------------------------------------
+
+#[test]
+fn count_line_counts_every_card_of_a_traveller_line() {
+    use dominion_sim::expr::Expr;
+    let g = state("buy", 0, 1, "hand: Page, Warrior\nin play: Treasure Hunter\ndiscard: Page, Peasant, Soldier\ndeck: Champion, 5 Copper");
+    let view = PlayerView::new(&g, 0);
+    let eval = |s: &str| Expr::parse(s).unwrap().eval(&view);
+    assert_eq!(eval("count_line(Page)"), 5, "2 Pages + Treasure Hunter + Warrior + Champion");
+    assert_eq!(eval("count_line(Hero)"), 5, "named by any card of the line");
+    assert_eq!(eval("count_line(Peasant)"), 2, "the other line: Peasant + Soldier");
+    assert_eq!(eval("count_line(Teacher)"), 2);
+    assert_eq!(eval("count(Page)"), 2, "count(Page) is unchanged: Pages only");
+    assert_eq!(eval("count_line(Page) < 6 and count(Page) < 3"), 1);
+    assert!(Expr::parse("count_line(Silver)").is_err(), "not a Traveller");
+    assert!(Expr::parse("count_line(Nonsense)").is_err());
+    // A strategy file takes it in a gain condition, and it names the line's first card for the kingdom.
+    let capped = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\nif = \"count_line(Peasant) < 3\"\n[[gain]]\ncard = \"Gold\"\n").unwrap();
+    assert!(capped.kingdom_refs().contains(&id::PEASANT));
+}

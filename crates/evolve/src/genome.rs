@@ -12,6 +12,9 @@ use serde::Deserialize;
 pub enum Var {
     /// Copies of a card I own.
     Count(CardId),
+    /// Every card of a Traveller line I own (Page, Treasure Hunter, Warrior, Hero, Champion; or the Peasant line): the card is the
+    /// line's first (`Page` or `Peasant`). Caps how many Travellers a strategy collects.
+    CountLine(CardId),
     /// Action cards I own.
     CountActions,
     ProvincesLeft,
@@ -121,6 +124,7 @@ impl Var {
     pub fn range(self) -> (i16, i16) {
         match self {
             Var::Count(_) => (1, 12),
+            Var::CountLine(_) => (2, 8),
             Var::CountActions => (1, 15),
             Var::ProvincesLeft => (1, 8),
             Var::ColoniesLeft => (1, 8),
@@ -149,6 +153,7 @@ impl Var {
     fn text(self) -> String {
         match self {
             Var::Count(c) => format!("count({})", cards::name(c).replace([' ', '\''], "")),
+            Var::CountLine(c) => format!("count_line({})", cards::name(c)),
             Var::CountActions => "count_type(action)".into(),
             Var::ProvincesLeft => "provinces_left".into(),
             Var::ColoniesLeft => "colonies_left".into(),
@@ -171,6 +176,9 @@ impl Var {
         if let Some(inner) = lower.strip_prefix("count(").and_then(|r| r.strip_suffix(')')) {
             let inner_orig = &s[6..s.len() - 1];
             return cards::by_name(inner_orig).filter(|&c| !cards::is_pseudo(c)).map(Var::Count).or_else(|| (inner.trim() == "action").then_some(Var::CountActions));
+        }
+        if lower.starts_with("count_line(") && lower.ends_with(')') {
+            return cards::by_name(&s[11..s.len() - 1]).filter(|&c| dominion_sim::expr::traveller_line(c).contains(&c)).map(|c| Var::CountLine(dominion_sim::expr::traveller_line(c)[0]));
         }
         if let Some(inner) = lower.strip_prefix("supply(").and_then(|r| r.strip_suffix(')')) {
             let _ = inner;
@@ -605,6 +613,23 @@ card = \"Gold\"
 ";
         let g = Genome::from_toml(text).unwrap();
         assert_eq!(g.gain[0].conds, vec![a, b]);
+        let out = g.to_toml(&TomlMeta::default());
+        dominion_sim::Strategy::parse(&out).unwrap();
+        assert_eq!(Genome::from_toml(&out).unwrap(), g);
+    }
+
+    #[test]
+    fn a_traveller_line_cap_round_trips() {
+        let a = Atom::parse("count_line(Page) < 4").unwrap();
+        assert_eq!(a, Atom { var: Var::CountLine(id::PAGE), op: Op::Lt, n: 4 });
+        assert_eq!(a.text(), "count_line(Page) < 4");
+        // Any card of the line names it; the genome keeps the first.
+        assert_eq!(Atom::parse("count_line(Hero) < 4").unwrap(), a);
+        assert_eq!(Atom::parse("count_line(Teacher) >= 3").unwrap().text(), "count_line(Peasant) >= 3");
+        assert!(Atom::parse("count_line(Silver) < 4").is_err());
+        let text = "name = \"L\"\n[[gain]]\ncard = \"Page\"\nif = \"count_line(Page) < 4 and count(Page) < 2\"\n[[gain]]\ncard = \"Gold\"\n";
+        let g = Genome::from_toml(text).unwrap();
+        assert_eq!(g.gain[0].conds.len(), 2);
         let out = g.to_toml(&TomlMeta::default());
         dominion_sim::Strategy::parse(&out).unwrap();
         assert_eq!(Genome::from_toml(&out).unwrap(), g);

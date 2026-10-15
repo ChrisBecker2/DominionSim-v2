@@ -177,6 +177,15 @@ fn money_value(c: &Counts) -> i64 {
     c.iter().filter(|&(card, _)| cards::is(card, cards::TREASURE)).map(|(card, n)| cards::def(card).coins as i64 * n as i64).sum()
 }
 
+/// The five cards of the Traveller line `card` belongs to, first card first (the Page line for a card of neither line: callers check
+/// membership).
+pub fn traveller_line(card: CardId) -> &'static [CardId] {
+    use id::*;
+    const PAGE_LINE: [CardId; 5] = [PAGE, TREASURE_HUNTER, WARRIOR, HERO, CHAMPION];
+    const PEASANT_LINE: [CardId; 5] = [PEASANT, SOLDIER, FUGITIVE, DISCIPLE, TEACHER];
+    if PEASANT_LINE.contains(&card) { &PEASANT_LINE } else { &PAGE_LINE }
+}
+
 /// A parsed condition. `Box`-allocated once at load time; `eval` never allocates.
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -188,6 +197,9 @@ pub enum Expr {
     CountType(u32),
     /// `count(Settlers/Bustling Village)`: copies of either half of a split pile.
     CountPair(CardId, CardId),
+    /// `count_line(Page)`: copies owned of every card of a Traveller line (Page, Treasure Hunter, Warrior, Hero and Champion; or Peasant,
+    /// Soldier, Fugitive, Disciple and Teacher), named by any card of the line. Holds the line's first card.
+    CountLine(CardId),
     /// `pile_vp(Card)`: VP tokens on the card's Supply pile (Farmers' Market, Temple, Wild Hunt, Aqueduct and Defiled Shrine's piles).
     PileVp(CardId),
     /// `debt_cost`: the Debt in the cost of the gain-list entry's card (0 for most cards).
@@ -254,6 +266,10 @@ impl Expr {
                 None if *c == id::CASTLES => view.my_cards().count_type(cards::CASTLE) as i64,
                 None => view.my_cards().get(*c) as i64,
             },
+            CountLine(first) => {
+                let mine = view.my_cards();
+                traveller_line(*first).iter().map(|&c| mine.get(c) as i64).sum()
+            }
             CountPair(a, b) => {
                 let mine = view.my_cards();
                 mine.get(*a) as i64 + mine.get(*b) as i64
@@ -334,6 +350,7 @@ impl Expr {
         match self {
             Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost | HasState(_) | OppHasState(_) | InPile(..) => {}
             CountPair(a, _) => f(*a),
+            CountLine(c) => f(*c),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
@@ -605,6 +622,14 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 }
             }
             Ok(Expr::Count(c))
+        }
+        "count_line" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            let first = traveller_line(c)[0];
+            if !traveller_line(c).contains(&c) {
+                return Err(format!("{arg:?} is not a Traveller or a card of a Traveller line (Page, Peasant, ...), in condition {src:?}"));
+            }
+            Ok(Expr::CountLine(first))
         }
         "pile_vp" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;

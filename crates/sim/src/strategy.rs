@@ -1282,10 +1282,14 @@ impl Strategy {
     fn discard_rank(card: CardId) -> i32 {
         if card == id::CURSE {
             -1000
-        } else if cards::is(card, VICTORY) {
+        } else if cards::is(card, VICTORY) && !cards::is(card, ACTION) && !cards::is(card, TREASURE) {
             -500
         } else if cards::is(card, cards::RUINS) || card == id::HOVEL {
             -400
+        } else if cards::is(card, VICTORY) && cards::is(card, cards::RESERVE) {
+            // A Reserve card that is also a Victory card (Distant Lands) is worth its points once it is played onto the Tavern mat:
+            // far more to keep than a Copper, and no Gold either.
+            cards::cost(card) as i32 + 4
         } else {
             cards::cost(card) as i32
         }

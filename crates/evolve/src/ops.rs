@@ -81,6 +81,8 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         0..=39 if cards::is_event(card) => (Var::Bought(card), Op::Lt),
         // Province and Colony can end the game: "unless it loses the game".
         0..=24 if card == id::PROVINCE || card == id::COLONY => (Var::LosesGame, Op::Lt),
+        // A Traveller line starter (Page, Peasant): half the time a cap on the whole line (Page + Treasure Hunter + ... + Champion).
+        20..=39 if card == id::PAGE || card == id::PEASANT => (Var::CountLine(card), Op::Lt),
         0..=39 if card >= cards::FIRST_KINGDOM || card == id::GOLD || card == id::SILVER => (Var::Count(card), Op::Lt),
         0..=39 | 40..=59 => (Var::ProvincesLeft, if rng.chance(0.7) { Op::Lt } else { Op::Ge }),
         60..=67 => (Var::Money, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
@@ -109,6 +111,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     // Small thresholds are far more common for counts and provinces.
     let n = match var {
         Var::Count(_) => 1 + rng.below(3) as i16,
+        Var::CountLine(_) => 2 + rng.below(4) as i16,
         Var::Bought(_) | Var::LosesGame => 1,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,
         // "supply(X) <= 1 .. 4", "low_piles >= 1 .. 3", "empty_piles >= 1 .. 2".
@@ -412,6 +415,32 @@ mod tests {
             assert_eq!(crate::genome::Atom::parse(&a.text()).unwrap(), a, "{}", a.text());
         }
         assert!(supply > 20 && low > 20 && empty > 20, "{supply} {low} {empty}");
+    }
+
+    #[test]
+    fn a_traveller_line_starter_gets_line_caps_among_its_conditions() {
+        let pool: Vec<CardId> = cards::kingdom_cards().take(8).chain([id::PAGE, id::PEASANT]).collect();
+        let space = SearchSpace::new(&pool, &[]);
+        let mut rng = Rng::new(5);
+        for card in [id::PAGE, id::PEASANT] {
+            let (mut own, mut line) = (0, 0);
+            for _ in 0..2000 {
+                let a = random_atom(&space, &mut rng, card);
+                match a.var {
+                    Var::Count(c) if c == card => own += 1,
+                    Var::CountLine(c) => {
+                        line += 1;
+                        assert_eq!(c, card, "the cap names the line of the card being gained");
+                        assert!((2..=8).contains(&a.n));
+                    }
+                    _ => {}
+                }
+                assert_eq!(crate::genome::Atom::parse(&a.text()).unwrap(), a, "{}", a.text());
+            }
+            assert!(own > 100 && line > 100, "{own} {line}");
+        }
+        // No other card gets one.
+        assert!((0..2000).all(|_| !matches!(random_atom(&space, &mut rng, id::SMITHY).var, Var::CountLine(_))));
     }
 
     #[test]

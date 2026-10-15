@@ -1,0 +1,25 @@
+# Pageant BM
+
+name = "Pageant BM"
+description = "Big Money Ultimate that buys the Pageant Project: a leftover dollar becomes a Coffers."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Pageant"
+if = "coins >= 3"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

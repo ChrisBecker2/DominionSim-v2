@@ -1,0 +1,28 @@
+# Silk Merchant BM
+
+name = "Silk Merchant BM"
+description = "Big Money Ultimate with two Silk Merchants: Coffers and Villagers when gained, and when trashed."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Silk Merchant"
+if = "count(Silk Merchant) < 2"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Silk Merchant"

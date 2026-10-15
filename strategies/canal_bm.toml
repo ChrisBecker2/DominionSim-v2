@@ -1,0 +1,25 @@
+# Canal BM
+
+name = "Canal BM"
+description = "Big Money Ultimate with the Canal Project (every card costs $1 less on your turns)."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Canal"
+if = "coins >= 7"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"

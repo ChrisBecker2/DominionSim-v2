@@ -1,0 +1,28 @@
+# Seer BM
+
+name = "Seer BM"
+description = "Big Money Ultimate with Seers: a cantrip that keeps the cards costing 2 to 4."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Seer"
+if = "count(Seer) < 3"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Silver"
+
+[[play]]
+card = "Seer"

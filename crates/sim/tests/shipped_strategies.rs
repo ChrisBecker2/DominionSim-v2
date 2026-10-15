@@ -136,3 +136,27 @@ fn credit_bm_beats_big_money_ultimate() {
     // The Credit Event: a Gold for 6 Debt early (~53%).
     beats_big_money_ultimate("credit_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Credit", 3000, 0.5);
 }
+
+#[test]
+fn pageant_bm_beats_big_money_ultimate() {
+    // Renaissance: the Pageant Project turns a leftover dollar into a Coffers every turn (~88%).
+    beats_big_money_ultimate("pageant_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Pageant", 2000, 0.7);
+}
+
+#[test]
+fn silk_merchant_bm_beats_big_money_ultimate() {
+    // Renaissance: two Silk Merchants, Coffers and Villagers when gained or trashed (~77%).
+    beats_big_money_ultimate("silk_merchant_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Silk Merchant", 2000, 0.65);
+}
+
+#[test]
+fn seer_bm_beats_big_money_ultimate() {
+    // Renaissance: Seer is a cantrip that finds the cheap cards (~57%; the searching bot is slow, so few games).
+    beats_big_money_ultimate("seer_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Seer", 800, 0.5);
+}
+
+#[test]
+fn canal_bm_beats_big_money_ultimate() {
+    // Renaissance: the Canal Project, every card costs $1 less on your turns (~72%).
+    beats_big_money_ultimate("canal_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Canal", 2000, 0.6);
+}

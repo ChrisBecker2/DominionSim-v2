@@ -95,3 +95,40 @@ fn the_bot_buys_a_project_when_its_gain_list_says_so() {
                 turn: 5  player: 1  phase: buy  actions: 1  buys: 1  coins: 3\n\n[player 1]\nhand: Estate\ndeck: 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
     assert_eq!(decide(text, &strat), Choice::Card(id::PAGEANT));
 }
+
+#[test]
+fn a_lone_seer_is_played_without_a_search() {
+    // Seer is order-sensitive (it looks at the deck) but never worse to play alone: the bot plays it straight away, and searching it was
+    // thousands of times slower for the same choices.
+    use dominion_engine::{Choice, ChoiceBuf, NoEvents, PlayerView, Step};
+    assert!(dominion_engine::cards::safe_alone(dominion_engine::cards::id::SEER));
+    let strat = dominion_sim::Strategy::parse("name = \"S\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Seer\"
+[[gain]]
+card = \"Silver\"
+").unwrap();
+    assert!(strat.search_play);
+    let text = "players: 2
+kingdom: Seer, Village, Smithy, Market, Militia, Moat, Cellar, Workshop, Mine, Laboratory
+                turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+[player 1]
+hand: Seer, 3 Copper, Estate
+deck: 5 Copper, Silver, Estate
+
+                [player 2]
+hand: 5 Copper
+deck: 5 Copper
+";
+    let mut g = dominion_engine::text::parse_state(text).unwrap();
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Card(dominion_engine::cards::id::SEER));
+}

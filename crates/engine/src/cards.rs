@@ -539,6 +539,12 @@ pub fn reads_empty_piles(card: CardId) -> bool {
     crate::sets::reads_empty_piles(card)
 }
 
+/// Whether playing `card` alone is never worse than not playing it (see `SetRules::safe_alone`): bots play a lone one without a search.
+#[inline]
+pub fn safe_alone(card: CardId) -> bool {
+    crate::sets::safe_alone(card)
+}
+
 /// Whether `card` is an [`OnPlay::OrderSensitive`] action: while it's in hand, choice-free
 /// +Actions cards are not simply played first.
 #[inline]

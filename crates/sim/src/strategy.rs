@@ -1221,7 +1221,7 @@ impl Strategy {
         let lone_risky = cards_offered == 1
             && choices.contains(&Choice::Pass)
             && matches!(decision.kind, DecisionKind::PlayAction)
-            && iter_cards(choices).all(|c| !cards::is_choice_free(c));
+            && iter_cards(choices).all(|c| !cards::is_choice_free(c) && !cards::safe_alone(c));
         if searching && (cards_offered >= 2 || lone_risky) && decision.player == view.me() {
             if let Some(c) = crate::eval::search_play_choice(self, view) {
                 if choices.contains(&c) {

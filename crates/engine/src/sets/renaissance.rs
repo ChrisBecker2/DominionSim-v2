@@ -179,6 +179,11 @@ pub fn capitalism_card(c: CardId) -> bool {
 pub struct Renaissance;
 
 impl SetRules for Renaissance {
+    /// Seer alone: +1 Card +1 Action, and the cards costing $2-$4 it reveals go to the hand; never worse than not playing it.
+    fn safe_alone(card: CardId) -> bool {
+        card == ids::SEER
+    }
+
     const CARDS: &'static [(CardId, CardDef)] = CARDS;
     /// Ducat (id 383), Lackeys, Experiment, Flag Bearer, Silk Merchant and Spices have a "when you gain" effect.
     const GAIN_TOP: u128 = 1u128 << (ids::DUCAT - 256);

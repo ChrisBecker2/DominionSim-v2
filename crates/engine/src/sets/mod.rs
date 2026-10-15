@@ -199,6 +199,12 @@ pub(crate) trait SetRules {
     fn reads_empty_piles(_card: CardId) -> bool {
         false
     }
+    /// Whether playing `card` is never worse than not playing it, when it is the only Action to play: it is not choice-free (its
+    /// effect depends on the deck or the order of plays), but it has no downside on its own (Seer: +1 Card +1 Action, the cheap
+    /// cards it reveals go to the hand). Bots play such a lone card without searching the turn.
+    fn safe_alone(_card: CardId) -> bool {
+        false
+    }
     /// The card's victory points in a collection `all` of `total` cards, for cards whose score is not a fixed
     /// number (Gardens, Duke, ...). The default is the printed VP.
     fn vp(card: CardId, _all: &Counts, _total: i32) -> i32 {
@@ -423,6 +429,10 @@ pub(crate) fn has_overpay(card: CardId) -> bool {
 
 pub(crate) fn reads_empty_piles(card: CardId) -> bool {
     with_set!(set_of(card), S => S::reads_empty_piles(card))
+}
+
+pub(crate) fn safe_alone(card: CardId) -> bool {
+    with_set!(set_of(card), S => S::safe_alone(card))
 }
 
 pub(crate) fn vp(card: CardId, all: &Counts, total: i32) -> i32 {

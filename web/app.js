@@ -551,6 +551,19 @@
         if (flags.length) panel.appendChild(el("div", "zone", flags.join("; ")));
       }
       if (p.boughtEvents && p.boughtEvents.length) panel.appendChild(el("div", "zone", "Events bought: " + p.boughtEvents.join(", ")));
+      // Renaissance: the Artifacts this player holds (taken from the row above the Supply, or from another player).
+      {
+        const held = (view.artifacts || []).filter((a) => a.holder === p.index);
+        if (held.length) {
+          const row = el("div", "zone");
+          row.appendChild(el("span", "zone-label", "Artifacts:"));
+          held.forEach((a) => {
+            row.appendChild(document.createTextNode(" "));
+            row.appendChild(cardChip(a.name));
+          });
+          panel.appendChild(row);
+        }
+      }
       // Nocturne: the States in front of the player, and Faithful Hounds set aside until the end of the turn.
       if (p.states && p.states.length) panel.appendChild(el("div", "zone", "States: " + p.states.join(", ")));
       if (p.hounds) panel.appendChild(el("div", "zone", `Faithful Hounds set aside until the end of the turn: ${p.hounds}`));
@@ -608,14 +621,14 @@
     const list = $("landscape-list");
     list.innerHTML = "";
     const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
-    const projects = view.projects || [], artifacts = view.artifacts || [];
+    // An Artifact someone holds is shown in that player's box instead (renderPlayers).
+    const projects = view.projects || [], artifacts = (view.artifacts || []).filter((a) => a.holder === null);
     $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length;
     // Renaissance: the Artifacts (held by one player at a time) and the Projects (bought like Events; the cubes show who has each).
     for (const a of artifacts) {
       const row = el("div", "event-row");
       row.appendChild(el("span", "kind", "Artifact"));
       row.appendChild(cardChip(a.name));
-      row.appendChild(el("span", "cost", a.holder === null ? " (nobody has it)" : ` held by P${a.holder + 1}`));
       list.appendChild(row);
     }
     for (const pr of projects) {

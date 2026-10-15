@@ -177,3 +177,18 @@ fn capitalism_treasures_are_gold_for_counting_and_scepter_replays_them_as_action
     reset_turn(&mut g, 1);
     assert!(!g.is_treasure(id::MARKET), "only on its owner's turns");
 }
+
+#[test]
+fn replace_into_skulk_gains_a_gold_and_still_puts_the_skulk_on_the_deck() {
+    // The stop-moving rule (2019): "Gained cards are expected to be where they were gained to"; "cards in discard piles can be moved even if
+    // covered up". Replacing an Estate into a Skulk: the Skulk's gain covers it with a Gold, and Replace still puts the Skulk onto the deck.
+    let mut g = new_state(&[id::REPLACE, id::SKULK], 2);
+    set_hand(&mut g, 0, &[id::REPLACE, id::ESTATE, id::DUCHY]);
+    play(&mut g, id::REPLACE);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    choose(&mut g, Choice::Card(id::SKULK));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SKULK), "the Skulk went onto the deck");
+    assert_eq!(g.players[0].discard, counts_of(&[id::GOLD]), "its Gold stays in the discard pile");
+    assert_eq!(g.trash, counts_of(&[id::ESTATE]));
+}
+

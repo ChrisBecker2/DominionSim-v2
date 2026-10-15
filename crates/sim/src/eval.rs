@@ -568,7 +568,9 @@ pub fn is_call_decision(turn_player: u8, d: &Decision) -> bool {
     use dominion_engine::cards::id;
     d.player == turn_player
         && match d.kind {
-            DecisionKind::YesNo { act: dominion_engine::Act::Call } => matches!(d.subject, id::DUPLICATE | id::ROYAL_CARRIAGE | id::COIN_OF_THE_REALM),
+            // Royal Carriage's call follows its rule (replay an Action that draws, pays or attacks): searching each call was 27x slower in a
+            // deck of Royal Carriages and Bridges and lost to the rule (51% against 88% for the same strategy facing Samurai/Kintsugi).
+            DecisionKind::YesNo { act: dominion_engine::Act::Call } => matches!(d.subject, id::DUPLICATE | id::COIN_OF_THE_REALM),
             DecisionKind::YesNo { act: dominion_engine::Act::Discard } => d.subject == id::WINE_MERCHANT,
             _ => false,
         }

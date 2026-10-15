@@ -416,6 +416,24 @@ fn royal_carriage_replays_the_action_it_follows() {
 }
 
 #[test]
+fn royal_carriage_is_not_offered_for_a_reserve_that_went_to_the_mat() {
+    // A Royal Carriage called earlier stays in play with the Duration it replayed. Playing another Royal Carriage from the hand puts that one
+    // on the mat: it is not in play, and the copy in play is not it. Offering the call there looped forever (each replay of a Royal Carriage
+    // put one back on the mat as the call took one off).
+    let mut g = new_state(&[id::ROYAL_CARRIAGE, id::SMITHY], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    g.players[0].in_play.add(id::ROYAL_CARRIAGE, 1);
+    set_hand(&mut g, 0, &[id::ROYAL_CARRIAGE, id::SMITHY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::ROYAL_CARRIAGE);
+    assert!(!call_decision(&g), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].tavern.get(id::ROYAL_CARRIAGE), 2);
+    // A non-Reserve Action still gets its offer.
+    play(&mut g, id::SMITHY);
+    assert!(call_decision(&g));
+}
+
+#[test]
 fn royal_carriage_cannot_replay_a_card_that_left_play() {
     // Raze trashing itself: nothing to replay.
     let mut g = new_state(&[id::ROYAL_CARRIAGE, id::RAZE], 2);

@@ -533,7 +533,7 @@ impl Strategy {
                 }
             }
         }
-        // Calls that shape the turn (Duplicate on a gain, Royal Carriage, Coin of the Realm, Wine Merchant's discard) are searched like the
+        // Calls that shape the turn (Duplicate on a gain, Coin of the Realm, Wine Merchant's discard) are searched like the
         // play order, unless a `[[call]]` rule has spoken (above).
         if searching && view.is_my_turn() && crate::eval::is_call_decision(view.me(), decision) && choices.len() > 1 {
             if let Some(c) = crate::eval::search_play_choice(self, view) {

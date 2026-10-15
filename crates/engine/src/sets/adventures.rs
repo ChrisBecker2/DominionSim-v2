@@ -818,7 +818,10 @@ impl GameState {
         self.stack.pop();
         let p = f.player;
         let ps = &self.players[p as usize];
-        if ps.tavern.has(ids::ROYAL_CARRIAGE) && ps.in_play.has(f.subject) {
+        // A Reserve card goes to the Tavern mat when played, so it is no longer in play: another copy in play (a Royal Carriage called
+        // earlier, kept in play by the Duration it replayed) is not it (FAQ: a called Reserve card cannot be replayed either). Offering the
+        // call there would loop forever: each replay of a Royal Carriage puts one back on the mat as the call takes one off.
+        if ps.tavern.has(ids::ROYAL_CARRIAGE) && ps.in_play.has(f.subject) && !cards::is(f.subject, RES) {
             self.stack.push(Frame {
                 zone: Zone::Tavern, act: Act::Call, subject: ids::ROYAL_CARRIAGE, then: Then::Called, last: f.subject, depth: f.depth,
                 ..Frame::new(K::YesNo, p, ids::ROYAL_CARRIAGE)

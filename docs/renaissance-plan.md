@@ -92,7 +92,8 @@ Mark: `free` = choice-free, `choice`, `order` = order-sensitive (see `CLAUDE.md`
   Ship sets aside Treasures and Actions (not Coppers, Victory cards, Curses); Scepter replays the Action with the best draw/$/attack value; Treasurer trashes
   Coppers, regains a Gold, else takes the Key; Sinister Plot cashes in at 3-4 tokens (any near the end); the Lantern over the Horn.
 * Expression variables: `villagers`, `opp_villagers`, `projects`, `has_project(Name)`, `has_artifact(Name)`, `plot_tokens`.
-* Evolve: the Projects of the game are gain-list entries (`Var::Bought`-style condition `has_project(Name)`), Villagers and Coffers conditions are templates.
+* Evolve: Projects of the game are gain-list entries capped with `bought(Name)` like Events (`is_bought_pseudo`); `EVENT_HINTS` has a placement for each of the 20; no new condition templates.
+* Shipped strategies: `pageant_bm`, `silk_merchant_bm`, `seer_bm`, `canal_bm` (all beat Big Money Ultimate in `shipped_strategies.rs`).
 
 ## 6. Deferred / gaps
 

@@ -132,8 +132,8 @@ When each limit is crossed, in the order the sets are likely to come (Renaissanc
 
 | After | Zone ids | `LANES` needed | `SupplyMask` | Block bitmap |
 |---|---|---|---|---|
-| now | 398 | 416 | 4 words | `u16` |
-| Renaissance | 423 | 448 | 4 | `u16` |
+| Rising Sun, Nocturne, Hinterlands | 398 | 416 | 4 words | `u16` |
+| Renaissance (done: 25 kingdom ids at 382..=406, Ruins/Knights moved up, 20 Projects and 5 Artifacts after the Prophecies) | 423 | 448 (now) | 4 | `u16` |
 | Menagerie | 454 | 480 | 4 | `u16` |
 | Allies | 503 | 512 (ids below 508: the last that fit with a `u16` bitmap) | 4 (ids below 512) | `u16` (16 blocks) |
 | Plunder | 558 | 576 | 5 words | `u32` (18 blocks) |

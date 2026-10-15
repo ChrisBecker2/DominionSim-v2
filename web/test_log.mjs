@@ -51,7 +51,9 @@ deck: 2 Copper, 3 Estate
   check("loaded Buy phase: nothing auto-played (hand and coins as loaded)",
     v.players[0].hand.reduce((n, c) => n + c.count, 0) === 5 && v.turn.coins === 0 && v.players[0].inPlay.length === 0,
     JSON.stringify(v.turn));
-  check("loaded Buy phase: paused at Continue", v.pending && v.pending.paused && v.pending.choices[0].label === "Continue");
+  // The page asks which Treasures to play (one by one, or Done for the rest): the loaded Buy phase is that decision, not a pause.
+  check("loaded Buy phase: the Treasures are offered one by one", v.pending && !v.pending.paused && v.pending.choices.some((c) => c.label === "Play Copper") && v.pending.choices.some((c) => c.label === "Play Silver"),
+    JSON.stringify(v.pending && v.pending.choices.map((c) => c.label)));
   I.w.get_state_text();
   check("state text unchanged by loading", I.rd().includes("hand: 3 Copper, Silver, Estate"));
   I.w.run_to_end_of_turn();
@@ -63,18 +65,13 @@ deck: 2 Copper, 3 Estate
   S.load(text); S.w.step_auto();
   check("Auto-step from the loaded state plays the Treasures first", S.view().log.some((l) => /plays Copper/.test(l)) && !S.view().pending.paused);
   const U = await instance();
-  U.load(text); U.w.resume(); U.w.undo();
-  check("Undo after Continue returns to the loaded position", U.view().pending.paused && U.view().players[0].hand.reduce((n, c) => n + c.count, 0) === 5);
+  U.load(text); U.w.step_auto(); U.w.undo();
+  check("Undo after the first step returns to the loaded position", U.view().players[0].hand.reduce((n, c) => n + c.count, 0) === 5 && U.view().pending.choices.some((c) => c.label === "Play Copper"));
 
-  // Analyze: the page continues first, then analyzes the decision that follows.
-  const A = await instance(), B = await instance();
-  A.load(text); A.w.resume(); A.w.analyze(); const ra = JSON.parse(A.rd());
-  B.load(text); B.w.step_auto(); B.w.analyze(); const rb = JSON.parse(B.rd());
-  check("Analyze from the loaded state = analyze after advancing",
-    ra.options.length > 0 && JSON.stringify(ra.options.map((o) => [o.label, o.ev])) === JSON.stringify(rb.options.map((o) => [o.label, o.ev])));
-  const C = await instance();
-  C.load(text);
-  check("Analyze refuses to run while paused (the page continues first)", !C.w.analyze());
+  // Analyze runs on the Treasure decision as loaded.
+  const A = await instance();
+  A.load(text);
+  check("Analyze runs on the loaded Treasure decision", !!A.w.analyze() && JSON.parse(A.rd()).options.length > 0);
 
   const D = await instance();
   D.load(state("action", "hand: Village, Smithy, 3 Copper\ndeck: 4 Copper, 2 Silver, 3 Estate, Gold"));
@@ -103,7 +100,12 @@ async function play(text, label) {
   ({ log } = await play(state("action", `hand: Market, Smithy, 3 Copper\n${filler}`), "Play Market"));
   check("Market shows one combined line", log.includes(IND + "+1 Action, +1 Buy, +$1"), log.join(" | "));
 
-  ({ log } = await play(state("action", `hand: Merchant, Silver, Silver, Estate\n${filler}`), "Play Merchant"));
+  {
+    // The Buy phase then asks for the Treasures: Done plays them (Auto-step's choice).
+    const r = await play(state("action", `hand: Merchant, Silver, Silver, Estate\n${filler}`), "Play Merchant");
+    r.I.w.step_auto();
+    log = r.I.view().log;
+  }
   check("Merchant: its own +1 Action under it", log.includes(IND + "+1 Action"), log.join(" | "));
   check("Merchant's +$1 appears under the first Silver, once", log.filter((l) => l === IND + "Merchant: +$1").length === 1, log.join(" | "));
   check("Silver's printed value is not printed as a bonus", !log.some((l) => /^ *\+\$2/.test(l)));
@@ -125,6 +127,9 @@ deck: 5 Estate
     const C = await instance();
     C.load(text);
     if (C.view().pending.paused) C.w.resume();
+    // The page asks for the Treasures first: Done plays them.
+    const done = C.view().pending.choices.find((x) => /^Done/.test(x.label));
+    if (done && C.view().pending.choices.some((x) => /^Play /.test(x.label))) C.w.choose(done.index);
     const buy = C.view().pending.choices.find((x) => x.label === "Buy Witch");
     C.w.choose(buy.index);
     const clog = C.view().log;
@@ -218,6 +223,8 @@ deck: 5 Copper, 3 Estate, 2 Copper
   check("Caravan: solid orange", cls("Caravan").includes("duration") && !cls("Caravan").some((x) => x.startsWith("dual")), chipClass(types["Caravan"]));
   check("Moat: solid blue", cls("Moat").includes("reaction") && !cls("Moat").some((x) => x.startsWith("dual")), chipClass(types["Moat"]));
   check("Harem still treasure/victory", cls("Harem").includes("dual-treasure-victory"));
+  check("Fool's Gold: split gold/blue (Treasure-Reaction)", cls("Fool's Gold").includes("dual-treasure-reaction") && cls("Fool's Gold").includes("treasure"), chipClass(types["Fool's Gold"]));
+  check("Tunnel: split green/blue (Victory-Reaction)", cls("Tunnel").includes("dual-victory-reaction"), chipClass(types["Tunnel"]));
   // Prince is an Action-Duration-Command since the 2022 errata: orange like the other Durations.
   check("Prince: solid orange (a Duration)", cls("Prince").includes("duration") && !cls("Prince").some((x) => x.startsWith("dual")), chipClass(types["Prince"]));
   check("card_info carries the Reward and Command types", types["Courser"].includes("reward") && types["Prince"].includes("command"));
@@ -543,7 +550,7 @@ deck: 2 Copper, 3 Estate
   check("the other Project is buyable with the $ in hand", pageant && pageant.buyable && pageant.costLabel === "$3", JSON.stringify(pageant));
   check("the Flag shows its holder", (v.artifacts || []).some((a) => a.name === "Flag" && a.holder === 1), JSON.stringify(v.artifacts));
   check("Villagers and owned Projects are reported per player", v.players[0].villagers === 3 && v.players[0].ownedProjects.join() === "Fair" && v.players[1].villagers === 0, JSON.stringify(v.players[0].ownedProjects));
-  check("the loaded Buy phase is paused as loaded", v.pending && v.pending.paused, JSON.stringify(v.pending && v.pending.choices.map((c) => c.label)));
+  check("the loaded Buy phase is shown as loaded (its Treasures not played)", v.pending && v.players[0].inPlay.length === 0 && v.pending.choices.some((c) => c.label === "Play Copper"), JSON.stringify(v.pending && v.pending.choices.map((c) => c.label)));
   I.w.get_state_text();
   const back = I.rd();
   check("the state text keeps Villagers, Projects and the Artifact", /villagers: 3/.test(back) && /owned projects: Fair/.test(back) && /Flag=2/.test(back), back);

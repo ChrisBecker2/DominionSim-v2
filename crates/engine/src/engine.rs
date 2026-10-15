@@ -948,7 +948,7 @@ impl GameState {
     /// Treasure with a choice is in the hand, or a Sauna makes the Silvers' order matter.
     fn treasure_order_matters(&self) -> bool {
         let hand = &self.players[self.turn.player as usize].hand;
-        if hand.iter().any(|(c, _)| self.is_treasure(c) && !self.plain_treasure(c)) {
+        if hand.iter().any(|(c, _)| self.is_treasure(c) && (self.ask_treasures || !self.plain_treasure(c))) {
             return true;
         }
         // Sauna: each Silver played may trash a card from the hand, so the order of the plays matters (a Copper trashed before it is played).

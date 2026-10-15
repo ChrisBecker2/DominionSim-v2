@@ -114,6 +114,7 @@ impl Searcher {
         let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
+        root.ask_treasures = false;
 
         let mut nodes: Vec<GraphNode> = Vec::new();
         let mut edges: Vec<GraphEdge> = Vec::new();

@@ -2615,6 +2615,9 @@ pub struct GameState {
     /// When true, `advance` stops with `Step::TurnStart` each time a new turn begins (for
     /// stepping through a game turn by turn). Simulation and search leave it off.
     pub pause_at_turn_start: bool,
+    /// When true, the Buy phase starts with the `PlayTreasure` decision whenever the hand holds a Treasure (the game page: a person
+    /// chooses which Treasures to play), not only when their order matters. Simulation and search leave it off.
+    pub ask_treasures: bool,
     pub pending: Pending,
     pub num_players: u8,
     pub players: Seats,
@@ -2757,6 +2760,7 @@ impl GameState {
             auto_single: true,
             max_turns: cfg.max_turns,
             pause_at_turn_start: false,
+            ask_treasures: false,
             pending: Pending::None,
         };
         s.players.init();

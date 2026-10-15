@@ -51,6 +51,7 @@ impl Plan {
         let mut root = root.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
+        root.ask_treasures = false;
         let d = root.pending_decision().expect("Plan::build: root has no pending decision");
         assert_eq!(d.player, me, "Plan::build: decision belongs to player {}, not {me}", d.player);
 

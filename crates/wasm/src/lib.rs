@@ -325,6 +325,7 @@ impl App {
         let start_text = dominion_engine::format_state(&state);
         // Wait before the deal ("Deal"): Simulate from here deals fresh opening hands per game.
         state.pause_at_turn_start = true;
+        state.ask_treasures = true;
         let strategies: Vec<Strategy> = STRATEGY_SOURCES.iter().map(|src| Strategy::parse(src).expect("bundled strategy parses")).collect();
         let fast_strategies = strategies.iter().map(rules_only_copy).collect();
         let search_cfg = SearchConfig { tt_bits: 17, ..SearchConfig::default() };
@@ -606,6 +607,7 @@ pub extern "C" fn new_game(players: u32, kingdom_ptr: u32, kingdom_len: u32, see
         // Simulate from here deals fresh ones in every game (not one fixed 5/2 or 4/3 split).
         app.start_text = dominion_engine::format_state(&state);
         state.pause_at_turn_start = true;
+        state.ask_treasures = true;
         app.state = state;
         app.history.clear();
         app.record = GameRecord::new(&app.state);
@@ -641,6 +643,7 @@ pub extern "C" fn load_state(ptr: u32, len: u32) -> i32 {
                 // ("Continue", like a turn boundary) and let the first user action advance.
                 // Already at a real decision (nothing automatic pending): show it.
                 app.state.pause_at_turn_start = true;
+                app.state.ask_treasures = true;
                 let mut probe = app.state;
                 let mut sink = LogSink::default();
                 probe.advance(&mut sink);
@@ -804,6 +807,7 @@ pub extern "C" fn can_redo() -> i32 {
 fn advance_and_log(app: &mut App) {
     // The page steps turn by turn: stop at each turn boundary (see `resume`).
     app.state.pause_at_turn_start = true;
+    app.state.ask_treasures = true;
     let mut sink = LogSink::default();
     match app.state.advance(&mut sink) {
         Step::Decision(_) | Step::GameOver | Step::TurnStart { .. } => {}
@@ -1115,6 +1119,7 @@ pub extern "C" fn simulate(state_ptr: u32, games: u32, seed: u32, flags: u32, fi
             let mut s = start;
             s.chance_mode = false;
             s.pause_at_turn_start = false;
+            s.ask_treasures = false;
             s.rng = Rng::derive(seed as u64, g as u64);
             // A new game's Knights and Ruins piles are dealt again for each simulated game (the opening hands are drawn fresh below).
             if start.turn.phase == Phase::Setup {
@@ -3087,6 +3092,7 @@ mod run_game_tests {
                 let cfg = GameConfig { num_players: 2, kingdom: kingdom.clone(), seed, max_turns: 200, ..Default::default() };
                 let mut state = GameState::new(&cfg);
                 state.pause_at_turn_start = true;
+                state.ask_treasures = true;
                 app.state = state;
                 app.record = GameRecord::new(&app.state);
                 app.history.clear();

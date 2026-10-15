@@ -665,6 +665,7 @@ impl<'a> PlayerView<'a> {
         let mut s = self.state.dup();
         s.chance_mode = true;
         s.pause_at_turn_start = false;
+        s.ask_treasures = false;
         // The state's own RNG stream is the real game's: it would give the same Boons, Hexes and draws exactly as they will be, so a
         // determinization has a stream of its own.
         s.rng = Rng::new(rng.next_u64());

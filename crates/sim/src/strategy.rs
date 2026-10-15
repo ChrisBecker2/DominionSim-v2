@@ -1588,7 +1588,9 @@ impl Strategy {
         if let Some(c) = iter_cards(choices).find(|&c| !plays_last(c) && !cards::is_choice_free(c) && !cards::is_event(c) && !hand_dependent(c)) {
             return Choice::Card(c);
         }
-        if plain_left {
+        // Only plain Treasures left (the game page offers them one by one): Done plays them all at once, the same as playing each.
+        let all_plain = iter_cards(choices).all(|c| cards::is_choice_free(c) && !plays_last(c));
+        if plain_left && !all_plain {
             if let Some(c) = iter_cards(choices).find(|&c| cards::is_choice_free(c) && !plays_last(c)) {
                 return Choice::Card(c);
             }

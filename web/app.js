@@ -227,7 +227,7 @@
       : "action";
     // Two-type cards get a split chip: Treasure-Victory (Harem), Action-Victory (Mill, Nobles,
     // Island), Duration-Treasure (Astrolabe: orange/gold), Duration-Reaction (Pirate:
-    // orange/blue). A Duration that is only an Action (Caravan) stays solid orange, a Reaction
+    // orange/blue), Treasure-Reaction (Fool's Gold: gold/blue), Victory-Reaction (Tunnel: green/blue). A Duration that is only an Action (Caravan) stays solid orange, a Reaction
     // that is only an Action (Moat) solid blue.
     const has = (x) => t.includes(x);
     const dual = has("treasure") && has("victory")
@@ -238,6 +238,10 @@
       ? " dual-duration-treasure"
       : has("duration") && has("reaction")
       ? " dual-duration-reaction"
+      : has("treasure") && has("reaction")
+      ? " dual-treasure-reaction"
+      : has("victory") && has("reaction")
+      ? " dual-victory-reaction"
       : "";
     // Nocturne: a card that is only a Night card is dark; a Night-Duration card is split orange/dark.
     const prophecyOnly = has("prophecy");

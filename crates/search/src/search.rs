@@ -202,6 +202,7 @@ impl Searcher {
         let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
+        root.ask_treasures = false;
         let d = root.pending_decision().expect("analyze: root state has no pending decision");
         assert_eq!(d.player, me, "analyze: pending decision belongs to player {}, not {me}", d.player);
 
@@ -279,6 +280,7 @@ impl Searcher {
         let mut root = state.dup();
         root.chance_mode = true;
         root.pause_at_turn_start = false;
+        root.ask_treasures = false;
         let d = root.pending_decision()?;
         if d.player != me {
             return None;

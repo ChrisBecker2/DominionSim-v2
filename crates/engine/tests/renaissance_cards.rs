@@ -923,6 +923,54 @@ fn scepter_cannot_replay_a_card_that_is_not_in_play_or_a_duration_of_an_earlier_
 }
 
 #[test]
+fn scepter_replaying_a_duration_played_this_turn_stays_in_play_until_the_duration_leaves() {
+    // "It can replay a Duration played the same turn (in which case Scepter stays in play until the Duration card leaves play)."
+    let mut g = new_state(&[id::SCEPTER, id::FISHING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::FISHING_VILLAGE, id::SCEPTER]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 12]);
+    play(&mut g, id::FISHING_VILLAGE);
+    // Leave the Action phase, then the Scepter replays the Fishing Village.
+    while expect_decision(&mut g).kind == DecisionKind::PlayAction {
+        choose(&mut g, Choice::Pass);
+    }
+    play_treasure(&mut g, id::SCEPTER);
+    choose(&mut g, Choice::Mode(1));
+    assert_eq!(g.turn.coins, 2, "+$1 twice");
+    // Finish this turn and the opponent's: everything passes.
+    let pass_turn = |g: &mut GameState| {
+        let me = g.turn.player;
+        while g.turn.player == me {
+            let d = expect_decision(g);
+            let cs = choices(g);
+            choose(g, if cs.contains(&Choice::Pass) { Choice::Pass } else { cs[0] });
+            let _ = d;
+        }
+    };
+    pass_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::SCEPTER) && g.players[0].in_play.has(id::FISHING_VILLAGE), "both stay out through the Clean-up");
+    pass_turn(&mut g);
+    // The next turn: the Fishing Village's duration effect happened twice (+1 Action each), then both leave play at its Clean-up.
+    expect_decision(&mut g);
+    assert_eq!((g.turn.player, g.turn.actions), (0, 3), "1 + 1 + 1 Actions");
+    pass_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::SCEPTER) && !g.players[0].in_play.has(id::FISHING_VILLAGE));
+    assert!(g.players[0].discard.has(id::SCEPTER) && g.players[0].discard.has(id::FISHING_VILLAGE));
+
+    // A Scepter that replays a non-Duration is discarded as usual at the end of the turn.
+    let mut g = new_state(&[id::SCEPTER, id::MARKET], 2);
+    set_hand(&mut g, 0, &[id::MARKET, id::SCEPTER]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 12]);
+    play(&mut g, id::MARKET);
+    while expect_decision(&mut g).kind == DecisionKind::PlayAction {
+        choose(&mut g, Choice::Pass);
+    }
+    play_treasure(&mut g, id::SCEPTER);
+    choose(&mut g, Choice::Mode(1));
+    pass_turn(&mut g);
+    assert!(!g.players[0].in_play.has(id::SCEPTER));
+}
+
+#[test]
 fn scholar_discards_the_hand_and_draws_seven() {
     let mut g = new_state(&[id::SCHOLAR], 2);
     set_hand(&mut g, 0, &[id::SCHOLAR, id::COPPER, id::ESTATE]);

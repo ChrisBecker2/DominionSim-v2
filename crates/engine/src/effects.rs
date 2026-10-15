@@ -182,6 +182,8 @@ impl GameState {
             if self.adv & G_CHAMPION != 0 && cards::is(card, ACTION) {
                 let champions = self.players[p as usize].in_play.get(id::CHAMPION).saturating_sub((card == id::CHAMPION) as u8);
                 self.turn.actions += champions;
+                // Shown as its own bonus ("Champion: +1 Action" under the card played).
+                sink.bonus(p, id::CHAMPION, champions, 0, 0, 0);
             }
         }
         // A Treasure's printed value is shown by its own play line; Action cards' +$ is a bonus.

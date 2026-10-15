@@ -1434,6 +1434,21 @@ fn champion_stays_in_play_protects_from_attacks_and_gives_an_action_per_action()
 }
 
 #[test]
+fn champions_action_is_reported_as_a_bonus() {
+    // The +1 Action a Champion in play gives for each Action played shows in the events (the game log prints "Champion: +1 Action").
+    let mut g = new_state(&[id::PAGE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::CHAMPION, id::SMITHY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::CHAMPION);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayAction);
+    let mut log: Vec<Event> = Vec::new();
+    g.apply(Choice::Card(id::SMITHY), &mut log).unwrap();
+    g.advance(&mut log);
+    assert!(log.contains(&Event::Bonus { player: 0, source: id::CHAMPION, actions: 1, buys: 0, coins: 0, vp: 0 }), "{log:?}");
+}
+
+#[test]
 fn champion_ignores_attacks_played_earlier() {
     // Swamp Hag's curses still arrive if it was played before the Champion.
     let mut g = new_state(&[id::PAGE, id::SWAMP_HAG], 2);

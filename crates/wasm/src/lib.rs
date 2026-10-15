@@ -384,7 +384,18 @@ impl App {
             }
         }
         match *e {
-            Event::TurnStart { .. } => self.last_played = None,
+            // "--- Turn 41: Player 2 ---": every player's turn of a round has the round's number (their own turn count, as in the rules'
+            // tie-break); an extra turn (Outpost, Mission) has no number of its own.
+            Event::TurnStart { player, .. } => {
+                self.last_played = None;
+                let ps = &self.state.players[player as usize];
+                let extra = self.state.turn.player == player && self.state.turn.is_extra_turn;
+                let n = ps.turns_taken as u32 + if extra { 0 } else { 1 };
+                let line = if extra { format!("--- Turn {n} (extra turn): Player {} ---", player + 1) } else { format!("--- Turn {n}: Player {} ---", player + 1) };
+                self.log.push(line);
+                self.log_group = None;
+                return;
+            }
             Event::Play { card, .. } | Event::PlayAgain { card, .. } | Event::StartPlay { card, .. } => self.last_played = Some(card),
             // A buy (and what it triggers) isn't the last played card's doing.
             Event::Buy { player, card } => {
@@ -2991,6 +3002,10 @@ mod run_game_tests {
                 assert!(!app.log.iter().any(|l| l.contains("Player 2 gains Curse to their discard pile (Kitsune)")), "the gain sits under Kitsune: no source");
                 assert!(!app.log.iter().any(|l| l.contains("Player 1 gains Province") || l.contains("Player 2 gains Province")), "a bought card's own gain is the buy");
                 assert!(app.log.iter().any(|l| l.contains("buys Province")));
+                // Both players' first turns are Turn 1, the second ones Turn 2: the round's number.
+                for h in ["--- Turn 1: Player 1 ---", "--- Turn 1: Player 2 ---", "--- Turn 2: Player 1 ---", "--- Turn 2: Player 2 ---"] {
+                    assert!(app.log.iter().any(|l| l == h), "{h}");
+                }
                 assert!(!app.log.iter().any(|l| l.contains("Biding Time (duration)")));
             });
         }

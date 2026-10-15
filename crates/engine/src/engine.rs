@@ -974,7 +974,14 @@ impl GameState {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);
             } else if self.is_treasure(c) && self.plain_treasure(c) {
-                self.play_free_treasure(c, n, sink);
+                if matches!(c, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION) {
+                    self.play_free_treasure(c, n, sink);
+                } else {
+                    // One copy at a time: each play reports its own $ (the first Fool's Gold $1, the next $4).
+                    for _ in 0..n {
+                        self.play_free_treasure(c, 1, sink);
+                    }
+                }
             }
         }
     }

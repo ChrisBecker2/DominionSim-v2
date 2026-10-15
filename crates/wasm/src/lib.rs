@@ -480,8 +480,7 @@ impl App {
             // Runs only condense at the same depth.
             let tag = tag * 16 + depth.min(15);
             if let Some((t, p, line)) = self.log_group {
-                let same_card = tag / 16 != 6 || self.log.last().is_some_and(|l| l.ends_with(cards::name(card)));
-                if t == tag && p == player && line + 1 == self.log.len() && same_card {
+                if t == tag && p == player && line + 1 == self.log.len() {
                     let last = self.log.last_mut().unwrap();
                     last.push_str(", ");
                     last.push_str(cards::name(card));
@@ -1969,12 +1968,12 @@ fn run_to_end_of_turn_impl(app: &mut App) -> Result<(), String> {
 fn groupable(e: &Event) -> Option<(u8, u8, CardId)> {
     match *e {
         Event::Draw { player, card } => Some((0, player, card)),
-        // The basic Treasures share a line ("plays Copper, Copper, Silver"); another Treasure shows its $ under its play, so it starts its
-        // own line and shares it only with more copies of itself.
+        // The basic Treasures share a line ("plays Copper, Copper, Silver"); another Treasure shows its $ under its play, so each play has a
+        // line of its own (two Fool's Golds: "+$1", then "+$4").
         Event::Play { player, card } if cards::is(card, cards::TREASURE) && matches!(card, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION) => {
             Some((1, player, card))
         }
-        Event::Play { player, card } if cards::is(card, cards::TREASURE) => Some((6, player, card)),
+
         Event::Discard { player, card } => Some((2, player, card)),
         Event::Reveal { player, card } => Some((3, player, card)),
         Event::Trash { player, card } => Some((4, player, card)),

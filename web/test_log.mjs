@@ -135,6 +135,14 @@ deck: 5 Estate
     check("Harem shows +$2", flog.some((l, i) => l === "Player 1 plays Harem" && flog[i + 1] === IND + "+$2"), flog.join(" | "));
     check("Copper and Silver show no bonus", !flog.some((l, i) => /plays (Copper|Silver)$/.test(l) && /^ *\+\$/.test(flog[i + 1] || "")), flog.join(" | "));
     check("the $ add up", F.view().turn.coins === 1 + 1 + 4 + 2 + 2, String(F.view().turn.coins));
+    // Done plays the rest at once: still one line per Fool's Gold, each with its own $.
+    const G = await instance();
+    G.load(text);
+    if (G.view().pending.paused) G.w.resume();
+    G.w.choose(G.view().pending.choices.find((x) => /^Done/.test(x.label)).index);
+    const glog = G.view().log;
+    const gplays = glog.map((l, i) => [l, i]).filter(([l]) => l === "Player 1 plays Fool's Gold").map(([, i]) => i);
+    check("Done: each Fool's Gold on its own line, +$1 then +$4", gplays.length === 2 && glog[gplays[0] + 1] === IND + "+$1" && glog[gplays[1] + 1] === IND + "+$4", glog.join(" | "));
   }
 
   // Three Collections in play, then an Action bought: one line naming them and the count.

@@ -1869,6 +1869,7 @@
     // At a turn boundary ("Start turn") Analyze starts the turn and analyzes its first decision.
     $("btn-analyze").disabled = !view.pending || view.gameOver;
     $("btn-search-graph").disabled = !view.pending || view.gameOver;
+    if (!cancelSim) setSimButton(false);
     if (!stopRunGame) $("btn-run-bots").textContent = view.gameOver ? "New Game" : "Run Game";
     $("btn-undo").disabled = !api.canUndo();
     $("btn-redo").disabled = !api.canRedo();
@@ -1946,9 +1947,22 @@
 
   function setSimButton(running) {
     const b = $("btn-simulate");
-    b.textContent = running ? "Cancel" : "Simulate from here";
+    const over = !!(lastView && lastView.gameOver);
+    b.textContent = running ? "Cancel" : over ? "Simulate new games" : "Simulate from here";
     b.classList.toggle("primary", !running);
-    b.title = running ? "Stop the simulation" : "Play this many games from the current position with each seat's controller";
+    b.title = running
+      ? "Stop the simulation"
+      : over
+        ? "The game is over: play this many fresh games of this kingdom from the start (new deals) with each seat's controller"
+        : "Play this many games from the current position with each seat's controller";
+  }
+
+  // The position Simulate starts from: the current one, or the game's start (before the deal) once the game is over, so a finished
+  // game (Run Game) simulates fresh games on the same kingdom and seats. Leaves the bytes in the result buffer.
+  function simStartBytes() {
+    if (lastView && lastView.gameOver) ok(wasm.state_bytes_start());
+    else wasm.state_bytes_current();
+    return resultBytes();
   }
 
   // Same-thread fallback (no Web Workers): run the games in the page's own engine instance.
@@ -1970,8 +1984,7 @@
   }
 
   function simulateHere(games) {
-    wasm.state_bytes_current();
-    const state = resultBytes();
+    const state = simStartBytes();
     const seatsNow = api.getSeats();
     const p = wasm.alloc(state.length);
     new Uint8Array(wasm.memory.buffer, p, state.length).set(state);
@@ -2003,8 +2016,7 @@
     setSimButton(true);
     try {
       await Promise.race([Promise.all(workers.map((p) => p.ready)), cancelled]);
-      wasm.state_bytes_current();
-      const state = resultBytes();
+      const state = simStartBytes();
       const seatsNow = api.getSeats();
       const players = seatsNow.length;
       const per = Math.ceil(games / workers.length);

@@ -1006,6 +1006,25 @@ impl dominion_engine::EventSink for BuyTally {
     }
 }
 
+/// Raw bytes of the current game's start (phase setup, before the deal; from `get_start_text`): Simulate uses it once the game is over,
+/// so that a finished game simulates fresh games on the same kingdom and seats.
+#[no_mangle]
+pub extern "C" fn state_bytes_start() -> i32 {
+    APP.with(|cell| {
+        let mut app = cell.borrow_mut();
+        match dominion_engine::parse_state(&app.start_text) {
+            Ok(s) => {
+                app.result = state_bytes(&s);
+                1
+            }
+            Err(e) => {
+                app.set_result(e);
+                0
+            }
+        }
+    })
+}
+
 /// Raw bytes of the current position (for workers).
 #[no_mangle]
 pub extern "C" fn state_bytes_current() -> i32 {

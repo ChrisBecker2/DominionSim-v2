@@ -509,7 +509,7 @@ impl GameState {
     }
 
     /// `p` takes the Artifact `a`, from whoever has it.
-    pub(crate) fn take_artifact<S: EventSink>(&mut self, p: u8, a: CardId, sink: &mut S) {
+    pub fn take_artifact<S: EventSink>(&mut self, p: u8, a: CardId, sink: &mut S) {
         let slot = &mut self.ren.holder[(a - crate::cards::FIRST_ARTIFACT) as usize];
         let from = std::mem::replace(slot, p + 1);
         sink.event(Event::Artifact { player: p, artifact: a, from: from.wrapping_sub(1) });
@@ -533,7 +533,7 @@ impl GameState {
     }
 
     /// Recomputes `RenState::hook` from the Projects the players own (after one is bought).
-    pub(crate) fn ren_update_hooks(&mut self) {
+    pub fn ren_update_hooks(&mut self) {
         let owned = self.players.iter().fold(0u32, |m, ps| m | ps.ren.projects);
         let mut hook = 0;
         if owned & (project_bit(ids::ACADEMY) | project_bit(ids::GUILDHALL) | project_bit(ids::ROAD_NETWORK) | project_bit(ids::INNOVATION)) != 0 {

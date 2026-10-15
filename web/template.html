@@ -17,7 +17,7 @@
         <input id="ng-players" type="number" min="2" max="6" value="2">
       </label>
       <label>Seed
-        <input id="ng-seed" type="number" value="1" step="1">
+        <input id="ng-seed" type="number" step="1" placeholder="random" title="Empty: a new random seed for every new game. A number: the same kingdom and shuffles every time (to replay a game).">
       </label>
       <div class="newgame-field">
         <span class="field-caption">Cards</span>
@@ -132,19 +132,14 @@
       <div id="supply-trash-row">
         <div id="supply-panel">
           <h2>Supply</h2>
-          <div id="events-panel" hidden>
-            <h3>Events</h3>
-            <div id="events-list"></div>
+          <div id="landscape-panel" hidden>
+            <div id="landscape-list"></div>
           </div>
-          <div id="landmarks-panel" hidden>
-            <h3>Landmarks</h3>
-            <div id="landmarks-list"></div>
+          <table id="supply-table" class="supply-grid"><tbody></tbody></table>
+          <div id="side-panel" hidden>
+            <h3>Not in the Supply</h3>
+            <table id="side-table" class="supply-grid"><tbody></tbody></table>
           </div>
-          <div id="prophecy-panel" hidden>
-            <h3>Prophecy</h3>
-            <div id="prophecy-list"></div>
-          </div>
-          <table id="supply-table"><tbody></tbody></table>
           <details id="piles-panel" hidden>
             <summary>Piles</summary>
             <div id="pile-order-list"></div>

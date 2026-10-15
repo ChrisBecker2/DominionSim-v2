@@ -274,12 +274,12 @@ section, .panel {
   border-radius: 6px;
   padding: 8px 10px;
 }
-#supply-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-#supply-table th, #supply-table td { text-align: left; padding: 2px 6px; }
-#supply-table th { color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); }
-#supply-table .cost { color: var(--text-dim); font-size: 11.5px; }
-#supply-table td.count-0 { color: var(--danger); font-weight: 700; }
-#supply-table tr:nth-child(even) td { background: var(--panel-2); }
+.supply-grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.supply-grid th, .supply-grid td { text-align: left; padding: 2px 6px; }
+.supply-grid th { color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); }
+.supply-grid .cost { color: var(--text-dim); font-size: 11.5px; }
+.supply-grid td.count-0 { color: var(--danger); font-weight: 700; }
+.supply-grid tr:nth-child(even) td { background: var(--panel-2); }
 
 .card-list { font-size: 12.5px; }
 
@@ -371,10 +371,10 @@ section, .panel {
 #analysis-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
 
 /* supply: two columns of card + count, filled top to bottom */
-#supply-table tbody { display: grid; grid-template-columns: 1fr 1fr; grid-auto-flow: column; grid-template-rows: repeat(var(--supply-rows, 9), auto); column-gap: 18px; }
-#supply-table tr { display: flex; justify-content: space-between; align-items: center; }
-#supply-table td { border: none; padding: 1px 4px; }
-#supply-table tr, #supply-table td { background: none !important; }
+.supply-grid tbody { display: grid; grid-template-columns: 1fr 1fr; grid-auto-flow: column; grid-template-rows: repeat(var(--supply-rows, 9), auto); column-gap: 18px; }
+.supply-grid tr { display: flex; justify-content: space-between; align-items: center; }
+.supply-grid td { border: none; padding: 1px 4px; }
+.supply-grid tr, .supply-grid td { background: none !important; }
 
 /* Decision choices: fixed two rows tall so nothing below moves; scrolls when longer. */
 .decision-choices {
@@ -575,5 +575,8 @@ section, .panel {
 #piles-panel[open] > summary { margin-bottom: 4px; }
 .card.face-down { opacity: 0.5; cursor: help; }
 .pile-row { line-height: 1.9; }
-#events-panel, #landmarks-panel { margin-bottom: 8px; }
-#events-panel h3, #landmarks-panel h3 { margin: 4px 0; font-size: 13px; }
+#landscape-panel { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+#landscape-list { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+#landscape-list .kind { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-right: 4px; }
+#side-panel { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); }
+#side-panel h3 { margin: 0 0 4px; font-size: 13px; color: var(--text-dim); font-weight: 500; }

@@ -544,11 +544,19 @@
     }
   }
 
+  // The Supply piles, then (after a gap) the piles outside the Supply: Travellers, Spoils, Madman, Rewards, Ferryman's pile, Nocturne's Spirits.
   function renderSupply(view) {
-    const tbody = $("supply-table").querySelector("tbody");
+    const side = view.supply.filter((c) => c.side);
+    fillPiles($("supply-table"), view.supply.filter((c) => !c.side));
+    fillPiles($("side-table"), side);
+    $("side-panel").hidden = side.length === 0;
+  }
+
+  function fillPiles(table, piles) {
+    const tbody = table.querySelector("tbody");
     tbody.innerHTML = "";
-    tbody.style.setProperty("--supply-rows", Math.ceil(view.supply.length / 2));
-    for (const c of view.supply) {
+    tbody.style.setProperty("--supply-rows", Math.ceil(piles.length / 2));
+    for (const c of piles) {
       const tr = document.createElement("tr");
       const tdName = document.createElement("td");
       tdName.appendChild(cardChip(c.name));
@@ -558,7 +566,6 @@
       if (c.bane) tdName.appendChild(el("span", "cost", " Bane"));
       // The Knights and Ruins piles: one entry, showing the top card (the only one that can be bought) and how many are left.
       if (c.pile) tdName.appendChild(el("span", "cost", ` (${c.pile} pile, top card)`));
-      if (c.side) tdName.appendChild(el("span", "cost", " (not in the Supply)"));
       // Adventures tokens on the pile, by owner.
       if (c.tokens) tdName.appendChild(el("span", "cost", " [" + c.tokens.join(", ") + "]"));
       // Empires: the halves of a split pile, and the VP and Debt tokens on a pile.
@@ -574,14 +581,31 @@
     }
   }
 
-  // Adventures Events: bought in the Buy phase for their cost and a Buy; the button picks the matching choice of the pending decision.
-  function renderEvents(view) {
-    const panel = $("events-panel");
-    const list = $("events-list");
+  // The horizontal cards, one row above the Supply: Events (bought in the Buy phase for their cost and a Buy; the button picks the matching
+  // choice of the pending decision), Landmarks (always in effect; those holding VP tokens show how many are left) and the Prophecy (with the
+  // Sun tokens left on it; it happens when the last one is removed).
+  function renderLandscape(view) {
+    const list = $("landscape-list");
     list.innerHTML = "";
-    panel.hidden = !view.events || view.events.length === 0;
-    for (const ev of view.events || []) {
+    const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
+    $("landscape-panel").hidden = !events.length && !landmarks.length && !p;
+    if (p) {
       const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Prophecy"));
+      row.appendChild(cardChip(p.name));
+      row.appendChild(el("span", "cost", p.active ? " in effect" : ` ${p.suns} Sun token${p.suns === 1 ? "" : "s"}`));
+      list.appendChild(row);
+    }
+    for (const lm of landmarks) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Landmark"));
+      row.appendChild(cardChip(lm.name));
+      if (lm.vp) row.appendChild(el("span", "cost", ` ${lm.vp} VP`));
+      list.appendChild(row);
+    }
+    for (const ev of events) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Event"));
       row.appendChild(cardChip(ev.name));
       row.appendChild(el("span", "cost", " " + (ev.costLabel || "$" + ev.cost) + " "));
       const b = el("button", null, "Buy");
@@ -591,34 +615,6 @@
       row.appendChild(b);
       list.appendChild(row);
     }
-  }
-
-  // Empires Landmarks: always in effect; the ones that hold VP tokens show how many are left.
-  function renderLandmarks(view) {
-    const panel = $("landmarks-panel");
-    const list = $("landmarks-list");
-    list.innerHTML = "";
-    panel.hidden = !view.landmarks || view.landmarks.length === 0;
-    for (const lm of view.landmarks || []) {
-      const row = el("div", "event-row");
-      row.appendChild(cardChip(lm.name));
-      if (lm.vp) row.appendChild(el("span", "cost", ` ${lm.vp} VP`));
-      list.appendChild(row);
-    }
-  }
-
-  // Rising Sun: the Prophecy of the game, with the Sun tokens left on it (it happens when the last one is removed).
-  function renderProphecy(view) {
-    const panel = $("prophecy-panel");
-    const list = $("prophecy-list");
-    list.innerHTML = "";
-    const p = view.prophecy;
-    panel.hidden = !p;
-    if (!p) return;
-    const row = el("div", "event-row");
-    row.appendChild(cardChip(p.name));
-    row.appendChild(el("span", "cost", p.active ? " in effect" : ` ${p.suns} Sun token${p.suns === 1 ? "" : "s"}`));
-    list.appendChild(row);
   }
 
   // Nocturne: the Boons and Hexes decks (which are still to come, which are in the discard piles, which are set aside for Druid or kept in front of a
@@ -1069,7 +1065,11 @@
   function startNewGame() {
     if (stopRunGame) stopRunGame();
     const players = parseInt($("ng-players").value, 10) || 2;
-    const seed = parseInt($("ng-seed").value, 10) || 0;
+    // An empty Seed box: a fresh random seed for every game (shown in the box's tooltip, so a game can be replayed); a number: that seed.
+    const typed = parseInt($("ng-seed").value, 10);
+    const seed = Number.isFinite(typed) ? typed : 1 + Math.floor(Math.random() * 2147483646);
+    $("ng-seed").title = (Number.isFinite(typed) ? "Seed " : "This game's random seed: ") + seed +
+      ". Empty: a new random seed for every new game. A number: the same kingdom and shuffles every time (to replay a game).";
     cancelAnalysis();
     gameRequiredKingdom = seatsKingdom();
     let kingdom;
@@ -1820,9 +1820,7 @@
     renderTurnBar(view);
     renderPlayers(view);
     renderSupply(view);
-    renderEvents(view);
-    renderLandmarks(view);
-    renderProphecy(view);
+    renderLandscape(view);
     renderNocturne(view);
     renderTrash(view);
     renderDecision(view);

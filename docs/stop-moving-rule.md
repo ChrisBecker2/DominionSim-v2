@@ -173,6 +173,12 @@ is in the same place, so a count of copies is exact) and are only *tested*.
   Supply (`NIP`); **Summon** (Event): the gained Action is set aside if it is still in the discard pile (gain mark);
   **Walled Village**, **Church**, **Sauna/Avanto**: per copy (counts).
 
+## Cost, measured
+
+`bench/perf.sh` against the commit before the mechanism, plain bots: within about 2% (the benches are layout-sensitive: the first version of the
+turn-start bookkeeping for Scepter's `carried` cost 3% in a Big Money game by being inlined into `advance`; it is now a cold function, called only
+in games with a Scepter, and `finish_gain` computes `gain_triggers_possible` once). Keep per-turn and per-draw hooks to one compare and cold bodies.
+
 ## What stays approximate
 
 * Two marks for the *same* copy (an outer play and a Scepter replay of it) are reconciled by sharing the outer token

@@ -639,12 +639,9 @@ impl GameState {
                     };
                     self.turn = TurnState::start(next, self.turn.number + 1);
                     self.turn.is_extra_turn = extra;
-                    // What is in play now was played on an earlier turn (Durations held over): `ledger.carried`, for Scepter.
-                    let held = &self.players[next as usize];
-                    if held.pending_durations_len != 0 || !held.stays.is_empty() || !held.discard_next_cleanup.is_empty() {
-                        for (c, n) in self.players[next as usize].in_play.iter() {
-                            self.turn.led.carried.add_or_drop(c, n);
-                        }
+                    // What is in play now was played on an earlier turn (Durations held over): `ledger.carried`, for Scepter (the only card that reads it, so only games with a Scepter pay).
+                    if self.in_supply(crate::sets::renaissance::ids::SCEPTER) {
+                        self.note_carried(next);
                     }
                     // Flourishing Trade: cards cost $1 less (a reduction that every turn starts with).
                     if self.rs.active == id::FLOURISHING_TRADE {
@@ -1337,6 +1334,18 @@ impl GameState {
     // Primitives used by card effects
     // ------------------------------------------------------------------
 
+    /// The Durations held over into the turn `p` is starting are not "played this turn" (`Ledger::carried`, read by Scepter).
+    #[cold]
+    #[inline(never)]
+    fn note_carried(&mut self, p: u8) {
+        let held = &self.players[p as usize];
+        if held.pending_durations_len != 0 || !held.stays.is_empty() || !held.discard_next_cleanup.is_empty() {
+            for (c, n) in self.players[p as usize].in_play.iter() {
+                self.turn.led.carried.add_or_drop(c, n);
+            }
+        }
+    }
+
     /// Remove the top card of `p`'s deck, shuffling the discard in if the deck is empty.
     /// `Ok(None)` when deck and discard are both empty.
     pub(crate) fn take_top<S: EventSink>(&mut self, p: u8, sink: &mut S) -> Result<Option<CardId>, NeedChance> {
@@ -1507,8 +1516,10 @@ impl GameState {
         if self.rs.hook != 0 {
             self.rs_gain_pre(p, c, to);
         }
+        // Every "when you gain" trigger (`sets::gain_triggers`, in the order it fixes; a bonus gain a trigger causes runs its own triggers first,
+        // so this gain's own reactions are asked first); `possible` is the cheap test for a game with no gain-watcher card at all.
         if possible {
-            self.run_gain_triggers(p, c, to, on_buy, sink);
+            crate::sets::gain_triggers(self, p, c, to, on_buy, sink);
         }
         if tracked {
             self.gain_track_end(p, c, to, track);
@@ -1564,19 +1575,6 @@ impl GameState {
             Dest::Hand => Zone::Hand,
             Dest::DeckTop => Zone::DeckTop,
         }
-    }
-
-    /// Run every "when you gain" trigger for `p` gaining `c` (already moved to `to`): each set's `SetRules::gain_triggers`
-    /// (Watchtower, Hoard, Collection, Tiara and Mint; Monkey, Blockade, Pirate and Sailor; Footpad, Ferryman and
-    /// Farmhands), in the order `sets::gain_triggers` fixes. A bonus gain a trigger causes runs its own triggers first, so
-    /// this gain's own reactions are asked first.
-    fn run_gain_triggers<S: EventSink>(&mut self, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
-        // Cheap fast path for the overwhelmingly common case (no gain-watcher card in this game at all): one bitwise
-        // AND against the supply mask, instead of probing hand/in-play for every gain of every game.
-        if !crate::sets::gain_triggers_possible(self) {
-            return;
-        }
-        crate::sets::gain_triggers(self, p, c, to, on_buy, sink);
     }
 
     /// Card-specific effects that happen specifically because a card was *bought* (not gained

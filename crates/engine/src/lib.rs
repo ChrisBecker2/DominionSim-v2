@@ -17,6 +17,7 @@ pub mod rng;
 pub mod sets;
 pub mod state;
 pub mod text;
+pub mod track;
 
 pub use agent::{play_game, Agent, GameResult, PlayerView};
 pub use cards::{id, CardId};

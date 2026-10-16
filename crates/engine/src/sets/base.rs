@@ -210,15 +210,34 @@ impl GameState {
             Some(c) => {
                 self.players[pi].discard.add(c, 1);
                 sink.event(Event::Discard { player: p, card: c });
+                // The stop-moving rule: a card that reacts to being discarded (a Hound, a Trail) may move this very copy before Vassal
+                // plays it, and then Vassal can't, whatever else of that name is in the discard pile. The token names the copy (a Release
+                // frame lets it go); the reactions below carry it.
+                let hook = self.adv & crate::state::G_DISCARD_HOOK != 0;
+                let tok = if hook && cards::is(c, ACTION) { self.track(p, Zone::Discard, c) } else { 0 };
+                let mut base = 0;
                 if cards::is(c, ACTION) {
-                    self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source) });
+                    if tok != 0 {
+                        self.stack.set_top(Frame { tok, depth: f.depth, ..Frame::new(K::Release, p, f.source) });
+                        self.stack.push(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, tok, ..Frame::new(K::YesNo, p, f.source) });
+                    } else {
+                        self.stack.set_top(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source) });
+                    }
+                    base = self.stack.len as usize;
                 } else {
                     self.stack.pop();
                 }
                 // Reactions to the discard (a Hound set aside, a Tunnel revealed) are asked before the offer to play it.
-                if self.adv & crate::state::G_DISCARD_HOOK != 0 {
+                if hook {
                     self.discard_hook(p, c, 1);
                     self.flush_trash_triggers(f.depth, sink);
+                    if tok != 0 {
+                        for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+                            if fr.tok == 0 && fr.zone == Zone::Discard && fr.subject == c && fr.kind == K::YesNo {
+                                fr.tok = tok;
+                            }
+                        }
+                    }
                 }
             }
         }

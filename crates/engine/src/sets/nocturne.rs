@@ -373,7 +373,7 @@ impl SetRules for Nocturne {
             }
             ids::CHANGELING => {
                 // Trash this, then gain a copy of a card in play (this one is no longer there).
-                if !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+                if g.leave_play_self_now(p, card) {
                     g.trash_card(p, card, true, sink);
                 }
                 g.stack.push(Frame { distinct: true, ..select(p, card, Zone::InPlay, Reveal, Filter::GainableCopy, 1, 1, Then::GainCopyEachPick) });
@@ -427,8 +427,8 @@ impl SetRules for Nocturne {
             ids::POOKA => g.stack.push(select(p, card, Zone::Hand, Trash, Filter::TreasureNot(ids::CURSED_GOLD), 0, 1, Then::DrawIfCount { count: 1, draw: 4 })),
             ids::SACRED_GROVE => g.stack.push(Frame { then: Then::GroveBoon, ..Frame::new(K::ReceiveBoon, p, card) }),
             ids::TORMENTOR => {
-                let in_play = &g.players[pi].in_play;
-                let others = in_play.total().saturating_sub(u32::from(in_play.has(card) && !g.turn.prince_play));
+                let own = u32::from(g.self_in_play_now(p, card));
+                let others = g.players[pi].in_play.total().saturating_sub(own);
                 if others == 0 {
                     g.gain_side(p, ids::IMP, Dest::Discard, card, sink);
                 } else {
@@ -461,7 +461,7 @@ impl SetRules for Nocturne {
             ids::MAGIC_LAMP => {
                 // 6 or more cards of which exactly one copy is in play (this one counts): trash it, gain 3 Wishes.
                 let singles = g.players[pi].in_play.iter().filter(|&(_, n)| n == 1).count();
-                if singles >= 6 && !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+                if singles >= 6 && g.leave_play_self_now(p, card) {
                     g.trash_card(p, card, true, sink);
                     for _ in 0..3 {
                         g.gain_side(p, ids::WISH, Dest::Discard, card, sink);
@@ -478,7 +478,7 @@ impl SetRules for Nocturne {
             // The cards outside the Supply.
             ids::WILL_O_WISP => g.stack.push(Frame { max: 1, then: Then::WispCheck, ..Frame::new(K::RevealTop, p, card) }),
             ids::WISH => {
-                if !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+                if g.leave_play_self_now(p, card) {
                     g.return_to_pile(p, card, sink);
                     g.stack.push(gain_frame(p, card, 6, Filter::Any, Dest::Hand));
                 }
@@ -680,9 +680,9 @@ impl GameState {
             if f.then == Then::PixieDraw {
                 self.stack.pop();
                 self.place_boon(f.subject);
-                if !self.turn.prince_play && self.players[p as usize].in_play.has(ids::PIXIE) {
+                if self.self_in_play(p, ids::PIXIE, f.tok) {
                     self.stack.push(Frame {
-                        zone: Zone::InPlay, act: Act::Trash, subject: ids::PIXIE, then: Then::PixieTrash, last: f.subject, depth: f.depth,
+                        zone: Zone::InPlay, act: Act::Trash, subject: ids::PIXIE, then: Then::PixieTrash, last: f.subject, depth: f.depth, tok: f.tok,
                         ..Frame::new(K::YesNo, p, ids::PIXIE)
                     });
                 }
@@ -896,6 +896,7 @@ impl GameState {
                 ps.discard.add_all(&deck);
                 sink.event(Event::DeckToDiscard { player: v, n: n as u16 });
                 for _ in 0..2 {
+                    self.cover_deck(v);
                     let ps = &mut self.players[vi];
                     if ps.discard.remove(id::COPPER) {
                         ps.deck_known.push_top(id::COPPER);
@@ -1245,7 +1246,7 @@ impl GameState {
                     self.stack.push(Frame {
                         potion: true, depth: f.depth, ..gain_frame(p, f.source, u8::MAX, self.treasure_filter(), Dest::Discard)
                     });
-                    if !self.turn.prince_play && self.players[pi].in_play.remove(f.source) {
+                    if self.leave_play_self(p, f.source, f.tok) {
                         self.trash_card(p, f.source, true, sink);
                     }
                 }
@@ -1256,13 +1257,13 @@ impl GameState {
                 }
             }
             Then::BatExchange => {
-                if f.count > 0 && self.supply.get(ids::VAMPIRE) > 0 && self.in_supply(ids::VAMPIRE) && !self.turn.prince_play {
-                    self.exchange_in_play(p, ids::BAT, ids::VAMPIRE, sink);
+                if f.count > 0 && self.supply.get(ids::VAMPIRE) > 0 && self.in_supply(ids::VAMPIRE) && self.self_in_play(p, ids::BAT, f.tok) {
+                    self.exchange_in_play(p, ids::BAT, ids::VAMPIRE, f.tok, sink);
                 }
             }
             Then::VampireBat => {
-                if self.noc.piles[crate::state::NOC_BAT] > 0 && !self.turn.prince_play {
-                    self.exchange_in_play(p, ids::VAMPIRE, ids::BAT, sink);
+                if self.noc.piles[crate::state::NOC_BAT] > 0 && self.self_in_play(p, ids::VAMPIRE, f.tok) {
+                    self.exchange_in_play(p, ids::VAMPIRE, ids::BAT, f.tok, sink);
                 }
             }
             Then::LostBoon => {
@@ -1289,8 +1290,8 @@ impl GameState {
 
     /// The exchange of the card `from` in play for `to` from its pile: `from` returns to its pile, `to` goes to the discard pile. Not a gain.
     #[inline(never)]
-    fn exchange_in_play<S: EventSink>(&mut self, p: u8, from: CardId, to: CardId, sink: &mut S) {
-        if !self.players[p as usize].in_play.remove(from) {
+    fn exchange_in_play<S: EventSink>(&mut self, p: u8, from: CardId, to: CardId, tok: u8, sink: &mut S) {
+        if !self.leave_play_self(p, from, tok) {
             return;
         }
         let taken = match to {

@@ -192,3 +192,137 @@ fn replace_into_skulk_gains_a_gold_and_still_puts_the_skulk_on_the_deck() {
     assert_eq!(g.trash, counts_of(&[id::ESTATE]));
 }
 
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md): effects that move a card they put somewhere, across expansions
+// ===========================================================================
+
+#[test]
+fn vassal_cannot_play_a_discarded_hound_that_its_own_reaction_set_aside() {
+    // Vassal discards a Faithful Hound; the Hound sets itself aside. Another Hound lies in the discard pile, but it is not the card Vassal
+    // discarded: Vassal can't play it.
+    let mut g = new_state(&[id::VASSAL, id::FAITHFUL_HOUND], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_discard(&mut g, 0, &[id::FAITHFUL_HOUND]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER]);
+    play(&mut g, id::VASSAL);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::SetAside });
+    choose(&mut g, Choice::Yes);
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { act: Act::Play })), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].hounds, 1);
+    assert_eq!(g.players[0].discard.get(id::FAITHFUL_HOUND), 1, "the older Hound stays");
+    assert_eq!(g.players[0].in_play.get(id::FAITHFUL_HOUND), 0);
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn vassal_plays_the_hound_it_discarded_when_the_hound_stays() {
+    let mut g = new_state(&[id::VASSAL, id::FAITHFUL_HOUND], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_discard(&mut g, 0, &[id::FAITHFUL_HOUND]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::VASSAL);
+    choose(&mut g, Choice::No); // leave the Hound
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Play });
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[0].in_play.get(id::FAITHFUL_HOUND), 1);
+    assert_eq!(g.players[0].discard.get(id::FAITHFUL_HOUND), 1, "the older Hound stays");
+}
+
+#[test]
+fn royal_carriage_is_not_offered_for_a_mining_village_that_trashed_itself_with_another_in_play() {
+    let mut g = new_state(&[id::ROYAL_CARRIAGE, id::MINING_VILLAGE], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_hand(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::Yes); // trash it
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { act: Act::Call })), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn royal_carriage_is_offered_for_a_mining_village_that_stayed() {
+    let mut g = new_state(&[id::ROYAL_CARRIAGE, id::MINING_VILLAGE], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_hand(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::No);
+    assert!(matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { act: Act::Call })));
+    choose(&mut g, Choice::Yes);
+    // Played again: the same copy, still in play, may be trashed now.
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash });
+}
+
+#[test]
+fn a_kings_courted_mining_village_trashes_itself_once() {
+    let mut g = new_state(&[id::KINGS_COURT, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::KINGS_COURT, id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::KINGS_COURT);
+    choose(&mut g, Choice::Card(id::MINING_VILLAGE));
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+}
+
+#[test]
+fn scepter_does_not_replay_a_duration_held_over_from_an_earlier_turn_when_this_turns_copy_has_left_play() {
+    // A Caravan played on an earlier turn is in play. This turn another Caravan was played and has left play again (state set up directly):
+    // the Caravan in play is not one that was played this turn, so Scepter has nothing to replay.
+    let mut g = new_state(&[id::SCEPTER, id::CARAVAN], 2);
+    set_in_play(&mut g, 0, &[id::CARAVAN]);
+    g.turn.led.carried.add(id::CARAVAN, 1);
+    g.turn.played.add(id::CARAVAN, 1);
+    set_hand(&mut g, 0, &[id::SCEPTER]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::SCEPTER);
+    choose(&mut g, Choice::Mode(1));
+    assert_eq!(expect_decision(&mut g).kind, DecisionKind::Buy, "nothing to replay");
+}
+
+#[test]
+fn scepter_replays_this_turns_duration_even_with_one_held_over_from_an_earlier_turn() {
+    let mut g = new_state(&[id::SCEPTER, id::CARAVAN], 2);
+    set_in_play(&mut g, 0, &[id::CARAVAN, id::CARAVAN]);
+    g.turn.led.carried.add(id::CARAVAN, 1);
+    g.turn.played.add(id::CARAVAN, 1);
+    set_hand(&mut g, 0, &[id::SCEPTER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::SCEPTER);
+    choose(&mut g, Choice::Mode(1));
+    // The Caravan played this turn was replayed (+1 Card): one Copper is drawn.
+    assert_eq!(g.players[0].deck_known.len, 1, "{:?}", g.pending_decision());
+}
+
+#[test]
+fn scheme_putting_a_traveller_on_the_deck_stops_its_exchange() {
+    let mut g = new_state(&[id::SCHEME, id::PAGE], 2);
+    set_in_play(&mut g, 0, &[id::PAGE, id::SCHEME]);
+    g.turn.played.add(id::SCHEME, 1);
+    g.turn.played.add(id::PAGE, 1);
+    let hunters = g.trav[0];
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    let mut step = pass(&mut g);
+    let mut topdecked = false;
+    for _ in 0..6 {
+        let Step::Decision(d) = step else { break };
+        match d.kind {
+            DecisionKind::Select { act: Act::Topdeck, .. } => {
+                step = choose(&mut g, Choice::Card(id::PAGE));
+                topdecked = true;
+            }
+            DecisionKind::YesNo { act: Act::Exchange } => panic!("Page offered for an exchange after Scheme put it on the deck"),
+            _ => break,
+        }
+    }
+    assert!(topdecked);
+    assert_eq!(g.trav[0], hunters, "no Treasure Hunter was taken");
+}

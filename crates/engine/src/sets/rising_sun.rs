@@ -612,12 +612,12 @@ impl GameState {
     /// effects: the replays are pushed under them.
     #[cold]
     #[inline(never)]
-    pub(crate) fn push_daimyo_replays(&mut self, card: CardId, player: u8) {
+    pub(crate) fn push_daimyo_replays(&mut self, card: CardId, player: u8, tok: u8) {
         if player == self.turn.player && self.is_action(card) && !cards::is(card, COMMAND) {
             let d = std::mem::take(&mut self.turn.rs.daimyo);
-            let zone = if self.turn.prince_play { Zone::Supply } else { Zone::Hand };
+            let zone = if tok == crate::track::NIP { Zone::Supply } else { Zone::Hand };
             for nth in (2..=d.saturating_add(1)).rev() {
-                self.stack.push(Frame { subject: card, count: nth, zone, ..Frame::new(K::PlayEffects, player, ids::DAIMYO) });
+                self.stack.push(Frame { subject: card, count: nth, zone, tok, ..Frame::new(K::PlayEffects, player, ids::DAIMYO) });
             }
         }
     }
@@ -804,13 +804,13 @@ impl GameState {
             }
             // An Action or Treasure is set aside (once the gain's reactions have run, if it is still where it was gained).
             ids::RAPID_EXPANSION if cards::is(c, ACTION) || self.is_treasure(c) => {
-                let (zone, here) = match to {
-                    Dest::Discard => (Zone::Discard, self.players[p as usize].discard.get(c)),
-                    Dest::Hand => (Zone::Hand, self.players[p as usize].hand.get(c)),
-                    Dest::DeckTop => (Zone::DeckTop, 1),
-                };
+                let zone = Self::gain_dest_zone(to);
+                // The gained copy's token (made by the gain, which tracks every gain while a Prophecy hooks them): the set-aside finds it gone
+                // if a reaction moved it, or covered it on the deck.
+                let tok = self.turn.led.ingain;
+                self.turn.led.hold(tok);
                 self.stack.push(Frame {
-                    zone, subject: c, min: here, ..select(p, ids::RAPID_EXPANSION, zone, Act::SetAside, Filter::Any, 0, 0, Then::RapidAside)
+                    zone, subject: c, tok, ..select(p, ids::RAPID_EXPANSION, zone, Act::SetAside, Filter::Any, 0, 0, Then::RapidAside)
                 });
             }
             _ => {}
@@ -1087,12 +1087,15 @@ impl GameState {
                     sink.bonus(p, f.source, 1, 1, 0, 0);
                 }
                 let c = f.subject;
+                let here = c != 0 && f.tok != 0 && self.tok_valid(f.tok);
+                self.tok_moved(f.tok, p, Zone::Discard, c);
                 let ps = &mut self.players[pi];
-                if c != 0 && ps.discard.get(c) >= f.min && ps.discard.remove(c) {
+                if here && ps.discard.remove(c) {
                     ps.in_play.add(c, 1);
                     sink.event(Event::Play { player: p, card: c });
                     self.resolve_effects(c, p, f.depth, sink);
                 }
+                self.release_tok(f.tok);
             }
             // Foresight: the cards set aside join the hand once the new hand is drawn.
             Then::ForesightToHand => {
@@ -1110,16 +1113,20 @@ impl GameState {
                 let c = f.subject;
                 let ps = &mut self.players[pi];
                 let room = ps.aside.has(c) || ps.aside.iter().count() < crate::state::ASIDE_CAP;
-                let taken = room
+                let here = room && f.tok != 0 && self.tok_valid(f.tok);
+                self.tok_moved(f.tok, p, f.zone, c);
+                let ps = &mut self.players[pi];
+                let taken = here
                     && match f.zone {
-                        Zone::Discard => ps.discard.get(c) >= f.min && ps.discard.remove(c),
-                        Zone::Hand => ps.hand.get(c) >= f.min && ps.hand.remove(c),
-                        _ => ps.deck_known.peek_top() == Some(c) && ps.deck_known.pop_top().is_some(),
+                        Zone::Discard => ps.discard.remove(c),
+                        Zone::Hand => ps.hand.remove(c),
+                        _ => ps.deck_known.pop_top().is_some(),
                     };
                 if taken {
                     ps.aside.add(c, 1);
                     sink.event(Event::SetAside { player: p, card: c });
                 }
+                self.release_tok(f.tok);
             }
             _ => {}
         }
@@ -1179,7 +1186,7 @@ impl GameState {
         match f.then {
             Then::SnakeWitch => {
                 let ps = &self.players[f.player as usize];
-                self.turn.prince_play || !ps.in_play.has(f.source) || ps.hand.iter().any(|(_, n)| n > 1)
+                !self.self_in_play(f.player, f.source, f.tok) || ps.hand.iter().any(|(_, n)| n > 1)
             }
             Then::GoldMine => self.supply.get(id::GOLD) == 0,
             _ => false,
@@ -1201,7 +1208,7 @@ impl GameState {
                         self.reveal_card(p, c, sink);
                     }
                 }
-                if self.players[p as usize].in_play.remove(f.source) {
+                if self.leave_play_self(p, f.source, f.tok) {
                     self.return_to_pile(p, f.source, sink);
                     self.curse_others(f.source, f.depth, sink);
                 }
@@ -1241,7 +1248,7 @@ impl GameState {
     pub(crate) fn push_continue_guard(&mut self, f: &Frame, c: CardId) {
         let p = f.player;
         self.stack.push(Frame {
-            depth: f.depth, subject: c, min: self.players[p as usize].discard.get(c) + 1,
+            depth: f.depth, subject: c,
             ..select(p, f.source, Zone::Discard, Act::Play, Filter::Any, 0, 0, Then::ContinueReturn)
         });
     }

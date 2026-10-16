@@ -1623,3 +1623,62 @@ fn a_clerk_still_hits_a_victim_with_five_cards_who_did_not_react() {
     assert_eq!(d.player, 1);
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, min: 1, max: 1, .. }), "{d:?}");
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md): a gained card is where it was gained until something moves it
+// ===========================================================================
+
+#[test]
+fn a_second_watchtower_cannot_trash_the_gained_card_the_first_put_on_the_deck() {
+    // Workshop gains a Silver into the discard pile, where an older Silver already lies. The first Watchtower puts the gained one on the deck;
+    // the second finds nothing to act on: the older Silver in the discard pile is not the card that was gained.
+    let mut g = new_state(&[id::WORKSHOP, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::WATCHTOWER, id::WATCHTOWER]);
+    set_discard(&mut g, 0, &[id::SILVER]);
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::SILVER));
+    loop {
+        match g.pending_decision().map(|d| d.kind) {
+            Some(DecisionKind::Select { act: Act::Topdeck, .. }) if g.players[0].deck_known.is_empty() => {
+                choose(&mut g, Choice::Card(id::SILVER));
+            }
+            Some(DecisionKind::Select { .. }) => {
+                // Declining what is offered while the gained card is where it was gained is fine; after it moved nothing may be offered.
+                assert!(g.players[0].deck_known.is_empty(), "offered a move of a card that is on the deck: {:?}", g.pending_decision());
+                choose(&mut g, Choice::Pass);
+            }
+            _ => break,
+        }
+    }
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER));
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1, "the older Silver was not touched");
+    assert!(g.trash.is_empty());
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn tiara_cannot_put_the_gained_card_on_the_deck_after_watchtower_trashed_it() {
+    let mut g = new_state(&[id::WORKSHOP, id::WATCHTOWER, id::TIARA], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::WATCHTOWER]);
+    set_in_play(&mut g, 0, &[id::TIARA]);
+    set_discard(&mut g, 0, &[id::SILVER]);
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::SILVER));
+    let mut trashed = false;
+    loop {
+        match g.pending_decision().map(|d| d.kind) {
+            Some(DecisionKind::Select { act: Act::Trash, .. }) => {
+                choose(&mut g, Choice::Card(id::SILVER));
+                trashed = true;
+            }
+            Some(DecisionKind::Select { act: Act::Topdeck, .. }) => {
+                assert!(!trashed, "Tiara's offer for a card that was trashed");
+                choose(&mut g, Choice::Pass);
+            }
+            _ => break,
+        }
+    }
+    assert!(trashed);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    assert!(g.players[0].deck_known.is_empty());
+}

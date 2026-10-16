@@ -639,6 +639,13 @@ impl GameState {
                     };
                     self.turn = TurnState::start(next, self.turn.number + 1);
                     self.turn.is_extra_turn = extra;
+                    // What is in play now was played on an earlier turn (Durations held over): `ledger.carried`, for Scepter.
+                    let held = &self.players[next as usize];
+                    if held.pending_durations_len != 0 || !held.stays.is_empty() || !held.discard_next_cleanup.is_empty() {
+                        for (c, n) in self.players[next as usize].in_play.iter() {
+                            self.turn.led.carried.add_or_drop(c, n);
+                        }
+                    }
                     // Flourishing Trade: cards cost $1 less (a reduction that every turn starts with).
                     if self.rs.active == id::FLOURISHING_TRADE {
                         self.turn.cost_reduction = 1;
@@ -1334,6 +1341,8 @@ impl GameState {
     /// `Ok(None)` when deck and discard are both empty.
     pub(crate) fn take_top<S: EventSink>(&mut self, p: u8, sink: &mut S) -> Result<Option<CardId>, NeedChance> {
         if let Some(c) = self.players[p as usize].deck_known.pop_top() {
+            // The stop-moving rule: a tracked card that was on top is gone.
+            self.cover_deck(p);
             return Ok(Some(c));
         }
         // Star Chart: the owner picks a card to go on top of the shuffled deck (a frame does the shuffle once they have).
@@ -1358,6 +1367,9 @@ impl GameState {
             let d = ps.discard;
             ps.deck_unknown.add_all(&d);
             ps.discard.clear();
+            if self.turn.led.n != 0 {
+                self.turn.led.kill_zone(p, crate::track::TZone::Discard);
+            }
             // Rising Sun: the Shadow cards go to the bottom of the shuffled deck.
             if self.rs.flags & crate::state::R_SHADOW != 0 {
                 ps.sink_shadows();
@@ -1451,11 +1463,22 @@ impl GameState {
         let to = if self.noc.flags & crate::state::N_GAIN_HOOK != 0 { self.gain_hook(p, c, to) } else { to };
         // Rising Sun: Progress puts every gained card onto the deck.
         let to = if self.rs.hook != 0 { self.rs_gain_dest(to) } else { to };
-        let ps = &mut self.players[p as usize];
+        // The stop-moving rule: a gain with reactions waiting on it (Watchtower, Tiara, Travelling Fair, ...), or whose gainer wants to move the
+        // card afterwards (Replace, Summon, ...: `led.want`), names the copy by a token, so that whatever moves it first takes it from the
+        // others. A Release frame under the reactions lets the token go once they are done.
+        let possible = crate::sets::gain_triggers_possible(self);
+        let tracked = self.turn.led.want || self.rs.hook != 0 || possible;
         match to {
-            Dest::Hand => ps.hand.add(c, 1),
-            Dest::DeckTop => ps.deck_known.push_top(c),
-            Dest::Discard => ps.discard.add(c, 1),
+            Dest::Hand => self.players[p as usize].hand.add(c, 1),
+            Dest::DeckTop => {
+                self.cover_deck(p);
+                self.players[p as usize].deck_known.push_top(c)
+            }
+            Dest::Discard => self.players[p as usize].discard.add(c, 1),
+        }
+        let mut track = GainTrack::default();
+        if tracked {
+            track = self.gain_track_begin(p, c, to);
         }
         sink.event(Event::Gain { player: p, card: c, to, source });
         // The top card of the Knights or Ruins pile was taken: the next one is revealed (it is drawn from the cards nobody has seen).
@@ -1484,11 +1507,51 @@ impl GameState {
         if self.rs.hook != 0 {
             self.rs_gain_pre(p, c, to);
         }
-        self.run_gain_triggers(p, c, to, on_buy, sink);
+        if possible {
+            self.run_gain_triggers(p, c, to, on_buy, sink);
+        }
+        if tracked {
+            self.gain_track_end(p, c, to, track);
+        }
         // Bureaucracy's Copper, Harsh Winter's Debt.
         if self.rs.hook != 0 {
             self.rs_gain_post(p, c, from_supply, sink);
         }
+    }
+
+    /// A gain with reactions waiting (or a gainer that wants to move the card afterwards) names the gained copy by a token; the `Release`
+    /// frame under the reactions lets it go (`track.rs`). Cold: ordinary games never get here.
+    #[cold]
+    #[inline(never)]
+    fn gain_track_begin(&mut self, p: u8, c: CardId, to: Dest) -> GainTrack {
+        let want = std::mem::take(&mut self.turn.led.want);
+        let outer = self.turn.led.ingain;
+        let gt = self.track(p, Self::gain_dest_zone(to), c);
+        if want {
+            self.turn.led.hold(gt);
+        }
+        self.turn.led.ingain = gt;
+        let base = self.stack.len as usize;
+        self.stack.push(Frame { tok: gt, ..Frame::new(FrameKind::Release, p, c) });
+        GainTrack { tok: gt, base, outer }
+    }
+
+    /// The reactions that move or play the gained card carry its token; with none waiting the token is not needed.
+    #[cold]
+    #[inline(never)]
+    fn gain_track_end(&mut self, p: u8, c: CardId, to: Dest, t: GainTrack) {
+        let gz = Self::gain_dest_zone(to);
+        for fr in &mut self.stack.frames[t.base + 1..self.stack.len as usize] {
+            if fr.tok == 0 && fr.player == p && fr.zone == gz && (fr.subject == c && fr.kind == FrameKind::YesNo || fr.kind == FrameKind::Select && fr.filter == Filter::Card(c)) {
+                fr.tok = t.tok;
+            }
+        }
+        if self.stack.len as usize == t.base + 1 {
+            self.stack.pop();
+            self.release_tok(t.tok);
+        }
+        self.turn.led.ingain = t.outer;
+        self.turn.led.gain = t.tok;
     }
 
     /// The zone a gain destination corresponds to, for triggers that need to find the gained
@@ -1592,6 +1655,14 @@ impl GameState {
     fn decision_source(&self) -> Option<CardId> {
         self.stack.top().filter(|f| f.kind != FrameKind::StartOrder).map(|f| f.source)
     }
+}
+
+/// What `finish_gain` keeps between `gain_track_begin` and `gain_track_end`.
+#[derive(Default, Clone, Copy)]
+struct GainTrack {
+    tok: u8,
+    base: usize,
+    outer: u8,
 }
 
 /// Helper for "pick cards one at a time" decisions. Picks are forced into non-decreasing

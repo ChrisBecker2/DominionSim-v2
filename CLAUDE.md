@@ -53,6 +53,16 @@ holds no hidden order; `KNIGHTS` / `RUINS` are marker ids that name the pile in 
 queue* (every trash goes through `GameState::trash_card`; "when you trash this" effects and Market Square are put on the
 stack by `flush_trash_triggers` after the selection that trashed the cards has finished picking).
 
+The *stop-moving rule* (an effect moves a card it put somewhere only while that very copy is still there; details and the list of
+dependent cards in `docs/stop-moving-rule.md`) is `crates/engine/src/track.rs`: zones are multisets, so the copies an effect is
+tracking get a token (`Frame::tok`, a mark in the turn's small `TurnState::led` ledger; 0 = untracked plain play, `NIP` = played
+without being in play). A card that moves itself says `leave_play_self_now` / `self_in_play_now` (never `in_play.remove(card)`),
+a frame that moves a tracked copy goes through `zone_take` after `tok_moved`, an untracked removal from play is `remove_from_play`,
+a push onto a deck top calls `cover_deck`. Plays that will be repeated (Throne-likes, Procession, Counterfeit, Daimyo, Citadel, Royal
+Carriage, Scepter) and gains with reactions (or a guard: Replace, Summon, Continue, Rapid Expansion) make the marks and push a
+`Release` frame under the effects; `ledger.n == 0` is the whole cost in an ordinary game. New cards that move themselves or the card
+they gained must use these, and get a test with a same-named copy elsewhere (see `cross_set.rs`).
+
 Conventions: agents only see `PlayerView` (honest information). Multi-card picks use canonical
 non-decreasing card-id order (`canonical_picks`). Goal of the project: discover strategies that
 are *usable by humans* — prefer readable rule-based strategies over opaque ones.

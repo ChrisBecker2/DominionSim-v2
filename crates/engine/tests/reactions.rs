@@ -187,8 +187,9 @@ fn watchtower_trashing_replaces_gain_stops_the_topdeck_and_spares_an_older_copy(
     assert_eq!(d.source, Some(id::WATCHTOWER));
     choose(&mut g, Choice::Card(id::SILVER)); // trash the gained Silver
     assert_eq!(g.trash.get(id::SILVER), 1);
-    // Watchtower's topdeck offer cannot tell the older Silver from the gained one: decline it.
-    choose(&mut g, Choice::Pass);
+    // The stop-moving rule: the gained Silver is gone (trashed), so neither Watchtower's topdeck offer nor Replace's move can take it,
+    // and the older Silver in the discard pile is not mistaken for it. No second offer is made.
+    assert!(matches!(g.pending_decision(), Some(Decision { kind: DecisionKind::Buy, .. })), "no topdeck offer: {:?}", g.pending_decision());
     assert!(g.players[0].deck_known.is_empty(), "Replace put nothing onto the deck");
     assert_eq!(g.players[0].discard.get(id::SILVER), 1, "the older Silver stays in the discard pile");
 }

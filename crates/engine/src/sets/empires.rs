@@ -373,7 +373,7 @@ impl SetRules for Empires {
         match card {
             ids::ENGINEER => {
                 // Gain a card costing up to $4; then this may be trashed for another.
-                if !g.turn.prince_play && g.players[pi].in_play.has(card) {
+                if g.self_in_play_now(p, card) {
                     g.stack.push(Frame { zone: Zone::InPlay, act: Trash, subject: card, then: Then::EngineerGain, ..Frame::new(K::YesNo, p, card) });
                 }
                 g.stack.push(gain_frame(p, card, 4, Filter::Any, Dest::Discard));
@@ -454,7 +454,7 @@ impl SetRules for Empires {
             }
             ids::SMALL_CASTLE => {
                 // Trash this or a Castle from the hand; gain a Castle. This first (a YesNo); declined, a Castle from the hand.
-                if !g.turn.prince_play && g.players[pi].in_play.has(card) {
+                if g.self_in_play_now(p, card) {
                     g.stack.push(Frame { zone: Zone::InPlay, act: Trash, subject: card, then: Then::SmallCastle, ..Frame::new(K::YesNo, p, card) });
                 } else {
                     g.small_castle_hand(p, card);
@@ -491,7 +491,12 @@ impl SetRules for Empires {
         let own_turn = p == g.turn.player;
         match c {
             ids::VILLA => {
-                // Into the hand with +1 Action; gained in the Buy phase, back to the Action phase.
+                // Into the hand with +1 Action; gained in the Buy phase, back to the Action phase. It moves the gained copy at once: the
+                // reactions still waiting on it (Watchtower, ...) find it gone (the stop-moving rule).
+                if to != Dest::Hand {
+                    let gt = g.turn.led.ingain;
+                    g.tok_moved(gt, p, GameState::gain_dest_zone(to), c);
+                }
                 let ps = &mut g.players[pi];
                 let moved = match to {
                     Dest::Discard => ps.discard.remove(c),
@@ -757,7 +762,7 @@ impl GameState {
         if on >= 4 {
             let n = self.emp.piles.take_vp(card);
             self.gain_vp_tokens(p, card, n as u16, sink);
-            if !self.turn.prince_play && self.players[p as usize].in_play.remove(card) {
+            if self.leave_play_self_now(p, card) {
                 self.trash_card(p, card, true, sink);
             }
         } else {
@@ -981,13 +986,13 @@ impl GameState {
                 // Trashed a card: gain one costing more $, taking Debt for the difference.
                 if f.count > 0 {
                     self.stack.push(Frame {
-                        more: true, then: Then::ChangeDebt, depth: f.depth,
+                        gf: crate::state::GF_MORE, then: Then::ChangeDebt, depth: f.depth,
                         ..gain_frame(p, f.source, self.cost(f.last), Filter::Any, Dest::Discard)
                     });
                 }
             }
             Then::EncampmentReveal => {
-                if f.count == 0 && !self.turn.prince_play && self.players[pi].in_play.remove(f.source) {
+                if f.count == 0 && self.leave_play_self(p, f.source, f.tok) {
                     // Set aside, and back on top of its pile at the start of Clean-up (here at once: nothing sees it in between).
                     self.supply.add(f.source, 1);
                     sink.event(Event::Return { player: p, card: f.source });
@@ -1253,6 +1258,7 @@ impl GameState {
             }
             Some(c2) => {
                 self.stack.pop();
+                self.cover_deck(left);
                 self.players[left as usize].deck_known.push_top(c2);
                 self.reveal_card(left, c2, sink);
                 if self.costs_more(f.subject, c2) {

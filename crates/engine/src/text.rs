@@ -1389,7 +1389,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         // Transient (the start-of-turn effects are rebuilt when the turn starts, see
         // `push_turn_start_frames`).
         start_pending: StartList::EMPTY,
-        prince_play: false,
+        led: crate::track::Ledger::EMPTY,
         used_up: SmallMultiset::EMPTY,
         moated: 0,
         extra_draw: tf.extra_draw,

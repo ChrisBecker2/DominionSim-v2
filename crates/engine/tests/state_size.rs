@@ -14,7 +14,7 @@ fn game_state_stays_small() {
     let sizes = [
         ("GameState", size_of::<GameState>(), 24_500),
         ("PlayerState", size_of::<PlayerState>(), 3_300),
-        ("TurnState", size_of::<TurnState>(), 1_000),
+        ("TurnState", size_of::<TurnState>(), 1_060),
         ("Frame", size_of::<Frame>(), 48),
         ("Counts", size_of::<Counts>(), 448),
     ];
@@ -31,7 +31,7 @@ fn game(players: usize, seed: u64) -> GameState {
 fn a_copy_of_a_two_player_game_leaves_out_the_empty_seats() {
     let g = game(2, 1);
     let copied = g.dup_bytes();
-    assert!(copied <= 11_300, "a 2-player copy is {copied} bytes (the struct is {}), over its bound: see tests/state_size.rs", size_of::<GameState>());
+    assert!(copied <= 11_400, "a 2-player copy is {copied} bytes (the struct is {}), over its bound: see tests/state_size.rs", size_of::<GameState>());
     assert_eq!(game(6, 1).dup_bytes(), size_of::<GameState>(), "a 6-player copy is the whole struct");
     for n in 2..=6 {
         assert_eq!(game(n, 1).dup_bytes() - g.dup_bytes(), (n - 2) * size_of::<PlayerState>());

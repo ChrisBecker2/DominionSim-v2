@@ -1931,3 +1931,40 @@ fn search_worlds_reach_the_night_phase_with_chance_outcomes() {
     assert_eq!(outcomes.total(), 12);
     let _ = HEX_CHANCE;
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_throne_roomed_pixie_is_trashed_once_even_with_another_pixie_in_play() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::PIXIE]);
+    set_in_play(&mut g, 0, &[id::PIXIE]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    play(&mut g, id::THRONE_ROOM);
+    pick(&mut g, id::PIXIE);
+    yes(&mut g); // the 1st play: trash the Pixie to receive the Boon twice
+    // The 2nd play: its Pixie is gone; the other one in play is not it, so no offer to trash it.
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.trash.get(id::PIXIE), 1);
+    assert_eq!(g.players[0].in_play.get(id::PIXIE), 1);
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn a_pixie_played_by_overlord_is_not_in_play_to_be_trashed() {
+    let mut g = new_state(&[id::OVERLORD, id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::OVERLORD]);
+    set_in_play(&mut g, 0, &[id::PIXIE]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    play(&mut g, id::OVERLORD);
+    if matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::Select { act: Act::Play, .. })) {
+        pick(&mut g, id::PIXIE);
+    }
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].in_play.get(id::PIXIE), 1, "the Pixie in play stays");
+    assert_eq!(g.trash.get(id::PIXIE), 0);
+}

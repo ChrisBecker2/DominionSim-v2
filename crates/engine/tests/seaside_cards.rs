@@ -2321,3 +2321,84 @@ fn lighthouse_still_protects_without_any_decision() {
     assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "no question asked: {step:?}");
     assert!(g.players[1].discard.is_empty());
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn throne_roomed_island_does_not_move_another_island_in_play() {
+    // The 2nd play of the Island can't move it again (it is on the mat); the Island played earlier this turn is another card.
+    let mut g = new_state(&[id::THRONE_ROOM, id::ISLAND], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::ISLAND, id::ESTATE, id::DUCHY]);
+    set_in_play(&mut g, 0, &[id::ISLAND]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::ISLAND));
+    choose(&mut g, Choice::Card(id::ESTATE)); // the 1st play's pick; the 2nd has only the Duchy left
+    assert_eq!(g.players[0].island_mat.counts(), counts_of(&[id::ISLAND, id::ESTATE, id::DUCHY]), "one Island on the mat, a card per play");
+    assert_eq!(g.players[0].in_play, counts_of(&[id::THRONE_ROOM, id::ISLAND]), "the Island played earlier stays in play");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn throne_roomed_treasure_map_does_not_trash_another_treasure_map_in_play() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::TREASURE_MAP], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::TREASURE_MAP, id::TREASURE_MAP]);
+    set_in_play(&mut g, 0, &[id::TREASURE_MAP]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::TREASURE_MAP));
+    // The 1st play trashes itself and the Map in hand (forced), the 4 Golds go on the deck; the 2nd finds itself gone and no Map in hand.
+    while g.pending_decision().map_or(false, |d| d.kind != DecisionKind::Buy && d.kind != DecisionKind::PlayAction) {
+        let first = choices(&g)[0];
+        choose(&mut g, first);
+    }
+    assert_eq!(g.trash.get(id::TREASURE_MAP), 2);
+    assert_eq!(g.players[0].in_play.get(id::TREASURE_MAP), 1, "the Map played earlier is not touched");
+    assert_eq!(g.players[0].deck_known.len, 4, "four Golds, once");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn sailor_cannot_play_a_gained_duration_that_watchtower_trashed_with_another_copy_in_the_discard_pile() {
+    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::CARAVAN, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::SAILOR, id::WORKSHOP, id::WATCHTOWER]);
+    set_discard(&mut g, 0, &[id::CARAVAN]); // an older Caravan
+    g.turn.actions = 2;
+    play(&mut g, id::SAILOR);
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::CARAVAN));
+    // Reactions to the gain are asked in turn: Sailor's offer and Watchtower's. Decline the Sailor, trash the gained Caravan with the Watchtower.
+    let mut trashed = false;
+    loop {
+        match g.pending_decision().map(|d| d.kind) {
+            Some(DecisionKind::YesNo { act: Act::Play }) if trashed => panic!("Sailor offered to play a Caravan that was trashed"),
+            Some(DecisionKind::YesNo { act: Act::Play }) => {
+                choose(&mut g, Choice::No);
+            }
+            Some(DecisionKind::Select { act: Act::Trash, .. }) => {
+                choose(&mut g, Choice::Card(id::CARAVAN));
+                trashed = true;
+            }
+            Some(DecisionKind::Select { act: Act::Topdeck, .. }) => panic!("Watchtower's topdeck offered for a trashed card"),
+            _ => break,
+        }
+    }
+    assert!(trashed, "the Watchtower reaction was offered");
+    assert_eq!(g.trash.get(id::CARAVAN), 1);
+    assert_eq!(g.players[0].discard.get(id::CARAVAN), 1, "the older Caravan stays");
+    assert_eq!(g.players[0].in_play.get(id::CARAVAN), 0, "and was not played");
+}
+
+#[test]
+fn blockade_sets_the_gained_card_aside_before_watchtower_and_trader_can_move_it() {
+    let mut g = new_state(&[id::BLOCKADE, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::BLOCKADE, id::WATCHTOWER]);
+    set_discard(&mut g, 0, &[id::SILVER]); // an older Silver
+    play(&mut g, id::BLOCKADE);
+    choose(&mut g, Choice::Card(id::SILVER));
+    // The Silver was set aside by Blockade at once: Watchtower has nothing to trash (the older Silver is not it), so there is no offer.
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::Select { act: Act::Trash, .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    assert_eq!(g.players[0].set_aside.get(id::SILVER), 1);
+    assert_eq!(g.turn.led.n, 0);
+}

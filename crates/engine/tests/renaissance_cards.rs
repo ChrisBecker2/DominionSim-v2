@@ -1944,3 +1944,41 @@ fn bought_projects_are_logged_and_projects_owned_are_in_the_text_of_the_players(
     let text = format_state(&g);
     assert!(text.contains("owned projects: Fair"), "{text}");
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn citadels_replay_of_mining_village_cannot_trash_another_mining_village() {
+    let mut g = new_state(&[id::CITADEL, id::MINING_VILLAGE], 2);
+    own(&mut g, 0, id::CITADEL);
+    set_hand(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::PROVINCE; 10]);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::Yes);
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+}
+
+#[test]
+fn scepters_replay_of_mining_village_can_trash_it_when_it_is_still_in_play() {
+    let mut g = new_state(&[id::SCEPTER, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::MINING_VILLAGE, id::SCEPTER]);
+    set_deck_known(&mut g, 0, &[id::PROVINCE; 10]);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::No); // keep it in play
+    while expect_decision(&mut g).kind == DecisionKind::PlayAction {
+        choose(&mut g, Choice::Pass);
+    }
+    play_treasure(&mut g, id::SCEPTER);
+    choose(&mut g, Choice::Mode(1));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash });
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 0);
+    assert_eq!(g.turn.led.n, 0);
+}

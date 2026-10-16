@@ -2463,3 +2463,56 @@ fn moat_declined_against_minion_leaves_the_player_with_a_new_hand_of_four() {
     assert_eq!(g.players[1].hand, counts_of(&[id::GOLD; 4]), "the declined Moat went with the old hand");
     assert_eq!(g.players[1].discard.get(id::MOAT), 1);
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md): a card moves itself only while it is the copy that was played
+// ===========================================================================
+
+#[test]
+fn throne_roomed_mining_village_cannot_trash_another_mining_village_in_play() {
+    // The 2nd play of the Throne Room'd Mining Village can't trash itself (it already did): the Mining Village played earlier this turn is a
+    // different card, even though it has the same name.
+    let mut g = new_state(&[id::THRONE_ROOM, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::MINING_VILLAGE));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash });
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.turn.coins, 2, "only the first play trashed it");
+    assert_eq!(g.players[0].in_play, counts_of(&[id::THRONE_ROOM, id::MINING_VILLAGE]), "the one played earlier stays in play");
+    assert_eq!(g.trash, counts_of(&[id::MINING_VILLAGE]));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy, "no second offer to trash it");
+    assert_eq!(g.turn.led.n, 0, "no token is left held");
+}
+
+#[test]
+fn throne_roomed_mining_village_kept_the_first_time_can_be_trashed_the_second() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::MINING_VILLAGE));
+    choose(&mut g, Choice::No);
+    // Still the same copy, still in play: offered again.
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash });
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+}
+
+#[test]
+fn replace_puts_the_gained_card_on_the_deck_not_an_older_copy_in_the_discard_pile() {
+    let mut g = new_state(&[id::REPLACE], 2);
+    set_hand(&mut g, 0, &[id::REPLACE, id::ESTATE, id::COPPER]);
+    set_discard(&mut g, 0, &[id::SILVER]); // an older Silver
+    play(&mut g, id::REPLACE);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER), "the gained Silver is on the deck");
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1, "and the older one stays where it was");
+    assert_eq!(g.turn.led.n, 0);
+}

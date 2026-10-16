@@ -2724,3 +2724,111 @@ fn a_beggar_reaction_is_offered_even_to_a_player_a_lighthouse_protects() {
     let d = expect_decision(&mut g);
     assert_eq!(d.subject, id::BEGGAR);
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md): a card moves itself only while it is the copy that was played
+// ===========================================================================
+
+#[test]
+fn procession_on_a_madman_cannot_return_another_madman_in_play() {
+    // Procession plays the Madman twice; the 1st play returns it to its pile, the 2nd cannot (it isn't in play), and the Madman played
+    // earlier this turn is another card: it stays in play, and Procession fails to trash the one it played.
+    let mut g = new_state(&[id::PROCESSION, id::POOR_HOUSE], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::MADMAN, id::ESTATE, id::ESTATE]);
+    set_in_play(&mut g, 0, &[id::MADMAN]);
+    set_deck_known(&mut g, 0, &junk(12));
+    g.madman = 10;
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::MADMAN);
+    assert_eq!(g.madman, 11, "returned once");
+    assert_eq!(g.players[0].in_play.get(id::MADMAN), 1, "the Madman played earlier is still in play");
+    assert!(!g.trash.has(id::MADMAN), "Procession lost track of the Madman it played, so it did not trash the other one");
+    assert_eq!(g.players[0].hand.total(), 2 + 2, "cards drawn once, +2 Actions twice");
+    assert_eq!(g.turn.actions, 4);
+    assert_eq!(g.players[0].discard.get(id::POOR_HOUSE), 1, "the gain of a card costing $1 does not depend on the trash");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn procession_trashes_the_card_it_played_when_nothing_moved_it_even_with_another_copy_in_play() {
+    let mut g = new_state(&[id::PROCESSION, id::VILLAGE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::VILLAGE]);
+    set_in_play(&mut g, 0, &[id::VILLAGE]);
+    set_deck_known(&mut g, 0, &junk(6));
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::VILLAGE);
+    pick(&mut g, id::SMITHY);
+    assert_eq!(g.trash.get(id::VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::VILLAGE), 1, "one Village trashed, the older one stays");
+}
+
+#[test]
+fn counterfeit_on_spoils_cannot_return_another_spoils_in_play() {
+    let mut g = new_state(&[id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::COUNTERFEIT, id::SPOILS]);
+    set_in_play(&mut g, 0, &[id::SPOILS]); // a Spoils played earlier (state set up directly)
+    g.spoils = 10;
+    g.turn.phase = Phase::Buy;
+    play_treasure(&mut g, id::COUNTERFEIT);
+    pick(&mut g, id::SPOILS);
+    assert_eq!(g.turn.coins, 1 + 3 + 3, "played twice");
+    assert_eq!(g.spoils, 11, "returned to its pile once: the 2nd play can't move it again");
+    assert_eq!(g.players[0].in_play.get(id::SPOILS), 1, "the other Spoils is not touched");
+    assert!(!g.trash.has(id::SPOILS), "and Counterfeit can't trash the one it played: it moved itself");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn a_throne_roomed_pillage_trashes_only_itself_with_another_pillage_in_play() {
+    let mut g = new_state(&[id::PILLAGE, id::THRONE_ROOM], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::PILLAGE]);
+    set_in_play(&mut g, 0, &[id::PILLAGE]);
+    set_hand(&mut g, 1, &[id::COPPER; 5]);
+    play(&mut g, id::THRONE_ROOM);
+    pick(&mut g, id::PILLAGE);
+    assert_eq!(g.trash.get(id::PILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::PILLAGE), 1, "the Pillage played earlier stays");
+    assert_eq!(g.players[0].discard.get(id::SPOILS), 2, "the second play does nothing more: 'if you did'");
+    assert_eq!(g.players[1].hand.total(), 4, "one discard");
+}
+
+#[test]
+fn a_throne_roomed_death_cart_cannot_trash_another_death_cart() {
+    let mut g = new_state(&[id::DEATH_CART, id::THRONE_ROOM], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::DEATH_CART, id::ESTATE]);
+    set_in_play(&mut g, 0, &[id::DEATH_CART]);
+    play(&mut g, id::THRONE_ROOM);
+    pick(&mut g, id::DEATH_CART);
+    // No Action in hand: it may trash itself instead.
+    yes(&mut g);
+    assert_eq!(g.turn.coins, 5, "the 2nd play can't trash it again");
+    assert_eq!(g.trash.get(id::DEATH_CART), 1);
+    assert_eq!(g.players[0].in_play.get(id::DEATH_CART), 1);
+}
+
+#[test]
+fn a_knight_played_by_band_of_misfits_does_not_trash_another_copy_of_it_in_play() {
+    let mut g = new_state(&[id::BAND_OF_MISFITS, id::KNIGHTS], 2);
+    let top = g.pile_top(&KNIGHTS_PILE).unwrap();
+    g.supply.set(top, 0);
+    g.supply.set(id::SIR_MARTIN, 10);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_in_play(&mut g, 0, &[id::SIR_MARTIN]); // played earlier
+    set_deck_known(&mut g, 1, &[id::SIR_BAILEY, id::COPPER]);
+    play(&mut g, id::BAND_OF_MISFITS);
+    assert!(g.trash.has(id::SIR_BAILEY));
+    assert_eq!(g.players[0].in_play.get(id::SIR_MARTIN), 1, "the Sir Martin in play is another card, not the one the Band played");
+    assert!(!g.trash.has(id::SIR_MARTIN));
+}
+
+#[test]
+fn hermit_is_exchanged_only_while_it_is_in_play() {
+    // Procession trashed the Hermit it played: it can't be exchanged at the end of the Buy phase; the Hermit in play from another play can.
+    let mut g = new_state(&[id::HERMIT], 2);
+    set_in_play(&mut g, 0, &[id::HERMIT]);
+    g.madman = 10;
+    let hermits = g.supply.get(id::HERMIT);
+    finish_turn(&mut g);
+    assert_eq!(g.madman, 9, "one exchange");
+    assert_eq!(g.supply.get(id::HERMIT), hermits + 1, "back in its pile");
+}

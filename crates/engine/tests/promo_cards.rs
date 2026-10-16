@@ -258,7 +258,7 @@ fn the_held_action_is_played_each_turn_without_entering_play_or_using_an_action(
     assert!(g.turn.played.has(id::SMITHY));
     assert_eq!(g.players[0].prince_cards.get(id::SMITHY), 1, "and never leaves the Prince");
     assert_eq!(total_cards(&g), before);
-    assert!(!g.turn.prince_play);
+    assert_eq!(g.turn.led.cur, 0);
     // It is still played the turn after.
     finish_turn(&mut g);
     assert_eq!(g.players[0].prince_cards.get(id::SMITHY), 1);
@@ -2075,4 +2075,24 @@ fn random_games_with_the_new_promo_cards_conserve_cards_and_terminate() {
         assert!(played.contains(&c), "{} was never played", cards::name(c));
     }
     assert!(gained_marchland > 20 && summoned > 20 && started > 20, "marchland {gained_marchland}, summoned {summoned}, started {started}");
+}
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_card_played_by_a_prince_cannot_trash_another_copy_of_itself_that_is_in_play() {
+    // The Mining Village the Prince plays is not in play; the one in play (a Duration-less leftover set up directly) is another card.
+    let mut g = new_state(&[id::PRINCE, id::MINING_VILLAGE], 2);
+    with_prince_holding(&mut g, &[id::MINING_VILLAGE]);
+    g.players[0].in_play.add(id::MINING_VILLAGE, 1);
+    set_deck_known(&mut g, 0, &junk());
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    assert!(!matches!(d.kind, DecisionKind::YesNo { .. }), "no offer to trash it: {d:?}");
+    assert_eq!(g.turn.coins, 0);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].prince_cards.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.turn.actions, 2 + 1, "+2 Actions, and the Prince's play used none");
+    assert_eq!(g.turn.led.n, 0);
 }

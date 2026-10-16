@@ -1435,3 +1435,25 @@ fn divine_wind_is_disabled_for_now() {
     let text = "players: 2\nkingdom: Kitsune, Smithy, Village, Market, Moat, Cellar, Workshop, Remodel, Mine, Militia, Divine Wind\n";
     assert!(parse_state(text).is_err());
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_daimyo_replay_of_mining_village_cannot_trash_another_mining_village() {
+    let mut g = new_state(&[id::DAIMYO, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::DAIMYO, id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::PROVINCE; 10]);
+    g.turn.actions = 2;
+    play(&mut g, id::DAIMYO);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::Yes); // the 1st play trashes it
+    // The Daimyo's replay: its Mining Village is gone; the one played earlier is another card.
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.turn.led.n, 0);
+}

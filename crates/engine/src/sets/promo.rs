@@ -172,13 +172,11 @@ impl SetRules for Promo {
             return false;
         }
         // "Play that Action": mandatory, uses no Action, and the card isn't put into play
-        // (it stays set aside, so a card that moves itself fails to: `prince_play`).
+        // (it stays set aside, so a card that moves itself fails to: `NIP`).
         if g.players[p as usize].prince_cards.has(e.arg) {
             sink.depth(0);
             sink.event(Event::StartPlay { player: p, source: id::PRINCE, card: e.arg });
-            g.turn.prince_play = true;
-            g.resolve_effects(e.arg, p, 0, sink);
-            g.turn.prince_play = false;
+            g.resolve_effects_tok(e.arg, p, 0, crate::track::NIP, sink);
         }
         true
     }
@@ -288,7 +286,7 @@ impl GameState {
         let p = f.player;
         if self.supply.get(c) > 0 {
             self.stack.push(Frame {
-                depth: f.depth, subject: c, min: self.players[p as usize].discard.get(c) + 1,
+                depth: f.depth, subject: c,
                 ..select(p, f.source, Zone::Discard, Act::SetAside, Filter::Any, 0, 0, Then::SummonAside)
             });
         }
@@ -323,13 +321,15 @@ impl GameState {
             // The card gained is set aside only if it is still in the discard pile, where it was gained (a Watchtower or Tracker that moved it
             // made Summon lose track of it); it is played at the start of the next turn.
             Then::SummonAside => {
+                let here = f.tok != 0 && self.tok_valid(f.tok);
+                self.tok_moved(f.tok, p, Zone::Discard, f.subject);
                 let ps = &mut self.players[p as usize];
                 let room = ps.summon_cards.has(f.subject) || ps.summon_cards.iter().count() < crate::state::SUMMON_CAP;
-                if ps.discard.get(f.subject) >= f.min && room {
-                    ps.discard.remove(f.subject);
+                if here && room && ps.discard.remove(f.subject) {
                     ps.summon_cards.add(f.subject, 1);
                     sink.event(Event::SetAside { player: p, card: f.subject });
                 }
+                self.release_tok(f.tok);
             }
             _ => {}
         }

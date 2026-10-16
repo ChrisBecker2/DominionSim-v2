@@ -2545,3 +2545,53 @@ fn teacher_moves_one_of_the_four_tokens_to_a_pile_without_the_players_tokens() {
     choose(&mut g, Choice::Card(id::VILLAGE));
     assert_eq!(g.players[0].tok[TOK_ACTION], id::VILLAGE);
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_throne_roomed_reserve_card_goes_to_the_mat_once_and_leaves_another_copy_in_play() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::COIN_OF_THE_REALM], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::COIN_OF_THE_REALM]);
+    set_in_play(&mut g, 0, &[id::COIN_OF_THE_REALM]); // called earlier this turn
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::COIN_OF_THE_REALM));
+    assert_eq!(g.players[0].tavern.get(id::COIN_OF_THE_REALM), 1, "the 2nd play can't put it on the mat again");
+    assert_eq!(g.players[0].in_play.get(id::COIN_OF_THE_REALM), 1, "the other copy was not taken");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn a_throne_roomed_raze_trashes_itself_once_and_a_card_from_the_hand_the_second_time() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::RAZE], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::RAZE, id::ESTATE]);
+    set_in_play(&mut g, 0, &[id::RAZE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::RAZE));
+    assert!(matches!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash }));
+    choose(&mut g, Choice::Yes);
+    // The 2nd play: the Raze it played is gone (the other one in play is not it): a card from the hand, the Estate, is trashed.
+    while !matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::PlayAction | DecisionKind::Buy) | None) {
+        let first = choices(&g)[0];
+        choose(&mut g, first);
+    }
+    assert_eq!(g.trash.get(id::RAZE), 1);
+    assert_eq!(g.trash.get(id::ESTATE), 1);
+    assert_eq!(g.players[0].in_play.get(id::RAZE), 1);
+}
+
+#[test]
+fn royal_carriage_is_not_offered_for_a_card_played_from_the_supply() {
+    // A Captain-like play is not in play: another copy of the card in play is not it.
+    let mut g = new_state(&[id::ROYAL_CARRIAGE, id::SMITHY, id::BAND_OF_MISFITS], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_in_play(&mut g, 0, &[id::SMITHY]);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::BAND_OF_MISFITS);
+    // The only call offered is for the Band of Misfits itself (it is in play); the Smithy it played is not.
+    assert!(call_decision(&g));
+    assert_eq!(g.pending_decision().unwrap().target, id::BAND_OF_MISFITS, "{:?}", g.pending_decision());
+}

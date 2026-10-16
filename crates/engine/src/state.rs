@@ -1093,10 +1093,11 @@ pub struct TurnState {
     /// cards. Transient: only non-empty while `FrameKind::StartOrder` is on the stack, and shown in
     /// the text format's `durations:` line (see `text.rs`).
     pub start_pending: StartList,
-    /// True only while a card held by a Prince is being played at the start of the turn: it is not
-    /// in play, so its effects that move "this" (Mining Village trashing itself, Treasure Map,
-    /// Island) fail instead of moving a copy that happens to be in play.
-    pub prince_play: bool,
+    /// The stop-moving rule's ledger: the copies that effects still tracking them may move (`track.rs`). Transient, not part of the text
+    /// format. `led.cur == NIP` while a card played from where it stays (Prince's set-aside card, Captain's, Necromancer's) resolves: it is not
+    /// in play, so its effects that move "this" (Mining Village trashing itself, Treasure Map, Island) fail instead of moving a copy that
+    /// happens to be in play.
+    pub led: crate::track::Ledger,
     /// Cards that trashed themselves as part of their own effect this turn (Investment's
     /// trash-for-VP, Mining Village's +$2, Treasure Map): used, not lost. Lets a scoring
     /// function (the bots' `GainListEvaluator`) tell "used up" from "had a card taken". Tiny
@@ -1351,7 +1352,7 @@ impl TurnState {
             treasury_offered: false,
             blockading_curse: false,
             start_pending: StartList::EMPTY,
-            prince_play: false,
+            led: crate::track::Ledger::EMPTY,
             used_up: SmallMultiset::EMPTY,
             moated: 0,
             extra_draw: 0,
@@ -2017,7 +2018,7 @@ pub enum Then {
 /// A pending piece of work on the effect stack. Card effects that need input or span
 /// several steps are built from these few generic frames, so the engine can stop and
 /// resume at any decision or chance point, and new cards mostly compose existing frames.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Frame {
     pub kind: FrameKind,
     /// The player this frame acts on (the victim for attacks): whose zones are read/written.
@@ -2094,8 +2095,50 @@ pub struct Frame {
     pub gf: u8,
     /// Select: every pick is a different card (Pilgrimage: differently named cards).
     pub distinct: bool,
-    /// Gain: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
-    pub more: bool,
+    /// The stop-moving rule's token (`track.rs`): the copy this frame may move or play (the card whose effect it is, the card a gain or
+    /// discard reaction is about), 0 when nothing tracks it, `NIP` when the card is not in play.
+    pub tok: u8,
+}
+
+/// Hashes exactly what the derived impl hashed before `tok` existed (`more` having become a `gf` bit), and `tok` only when it is set: the
+/// seeds `PlayerView::stable_seed` derives, and the search tables, see the same bytes for every frame without a token, at no extra cost
+/// (the hash of the whole effect stack is taken at every decision of a searching bot).
+impl std::hash::Hash for Frame {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.player.hash(state);
+        self.chooser.hash(state);
+        self.source.hash(state);
+        self.zone.hash(state);
+        self.act.hash(state);
+        self.filter.hash(state);
+        self.dest.hash(state);
+        self.min.hash(state);
+        self.max.hash(state);
+        self.exact.hash(state);
+        self.count.hash(state);
+        self.last.hash(state);
+        self.ordered.hash(state);
+        self.down_to_target.hash(state);
+        self.then.hash(state);
+        self.subject.hash(state);
+        self.depth.hash(state);
+        self.excl_named.hash(state);
+        self.cost_sum.hash(state);
+        self.gain_from_record.hash(state);
+        self.self_trashed.hash(state);
+        self.reveal_source.hash(state);
+        self.potion.hash(state);
+        self.optional.hash(state);
+        self.less.hash(state);
+        self.pay_coffers.hash(state);
+        self.gf.hash(state);
+        self.distinct.hash(state);
+        (self.gf & GF_MORE != 0).hash(state);
+        if self.tok != 0 {
+            self.tok.hash(state);
+        }
+    }
 }
 
 /// `Frame::gf`: Young Witch's Curse is skipped when the player reveals a Bane from their hand.
@@ -2111,6 +2154,8 @@ pub const GF_BOTH: u8 = 8;
 pub const GF_ANY_COST: u8 = 16;
 /// `Frame::gf`: the cards `Frame::subject` and `Frame::last` (when not 0) are not on offer: Receive Tribute's differently named Actions.
 pub const GF_EXCL: u8 = 32;
+/// `Frame::gf`: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
+pub const GF_MORE: u8 = 64;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -2144,7 +2189,7 @@ impl Frame {
             pay_coffers: false,
             gf: 0,
             distinct: false,
-            more: false,
+            tok: 0,
         }
     }
 }
@@ -2251,6 +2296,8 @@ pub enum FrameKind {
     /// unchanged), or the Boons a Fool took (`max` of them are drawn into the pool first; each is received and leaves the pool, until it is empty).
     /// `DecisionKind::PickBoon`.
     PickBoon,
+    /// The frames above have finished with the token `tok` (`track.rs`): it is released. No decision.
+    Release,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

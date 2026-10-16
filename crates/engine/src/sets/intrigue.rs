@@ -116,7 +116,7 @@ impl SetRules for Intrigue {
                 ..Frame::new(K::YesNo, p, card)
             }),
             // A card a Prince plays isn't in play: it can't trash itself, so no +$2 either.
-            id::MINING_VILLAGE if !g.turn.prince_play => g.stack.push(Frame {
+            id::MINING_VILLAGE if g.self_in_play_now(p, card) => g.stack.push(Frame {
                 zone: Zone::InPlay, act: Trash, subject: card, then: Then::CoinsPerPick(2),
                 ..Frame::new(K::YesNo, p, card)
             }),

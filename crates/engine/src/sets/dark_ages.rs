@@ -431,7 +431,7 @@ impl SetRules for DarkAges {
             id::MYSTIC => g.stack.push(Frame::new(K::Name, p, card)),
             id::PILLAGE => {
                 // "Trash this. If you did, ...": a Pillage played from the Supply (Band of Misfits) or already trashed (a second play) does nothing more.
-                if !g.turn.prince_play {
+                if g.self_in_play_now(p, card) {
                     g.stack.push(select(p, card, Zone::InPlay, Trash, Filter::Card(id::PILLAGE), 1, 1, Then::PillageRest));
                 }
             }
@@ -474,7 +474,7 @@ impl SetRules for DarkAges {
             }
             id::MADMAN => {
                 // Return this to the Madman pile (if it is in play to return); if that worked, +1 Card per card in the hand.
-                if !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+                if g.leave_play_self_now(p, card) {
                     g.madman += 1;
                     sink.event(Event::Return { player: p, card });
                     let n = g.players[pi].hand.total();
@@ -489,7 +489,7 @@ impl SetRules for DarkAges {
             }),
             id::SPOILS => {
                 // Played by an effect (Counterfeit): back to the Spoils pile.
-                if g.players[pi].in_play.remove(card) {
+                if g.leave_play_self_now(p, card) {
                     g.spoils += 1;
                     sink.event(Event::Return { player: p, card });
                 }
@@ -572,7 +572,7 @@ impl SetRules for DarkAges {
                 if !g.in_supply(id::HERMIT) && g.ferryman != id::HERMIT {
                     break;
                 }
-                g.players[p as usize].in_play.remove(id::HERMIT);
+                g.remove_from_play(p, id::HERMIT);
                 if g.in_supply(id::HERMIT) {
                     g.supply.add(id::HERMIT, 1);
                 } else {
@@ -683,7 +683,7 @@ impl GameState {
     /// Whether `p`, playing the Attack `attack`, may trash an Urchin in play (and a Mercenary is left to gain): another Urchin than the
     /// one being played (the same Urchin played twice does not count).
     pub(crate) fn urchin_offer_possible(&self, attack: CardId, p: u8) -> bool {
-        let needed = 1 + (attack == id::URCHIN && !self.turn.prince_play) as u8;
+        let needed = 1 + (attack == id::URCHIN && self.self_in_play_now(p, attack)) as u8;
         self.mercenary > 0 && self.players[p as usize].in_play.get(id::URCHIN) >= needed
     }
 

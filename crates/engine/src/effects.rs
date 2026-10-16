@@ -132,28 +132,62 @@ impl GameState {
     /// out of turn (Pirate's "when any player gains a Treasure, you may play this from your
     /// hand"): every caller passes the frame's own `player`, never assumes the current turn.
     pub(crate) fn resolve_effects<S: EventSink>(&mut self, card: CardId, player: u8, depth: u8, sink: &mut S) {
+        self.resolve_effects_tok(card, player, depth, 0, sink)
+    }
+
+    /// `resolve_effects` for a play of the copy tracked by `tok` (a Throne Room's second play of a card is the same copy as its first;
+    /// `NIP` for a card played from where it stays); 0 for a plain play, which gets a token here when something will replay it or call
+    /// on it after it (the stop-moving rule needs to know which copy that is).
+    pub(crate) fn resolve_effects_tok<S: EventSink>(&mut self, card: CardId, player: u8, depth: u8, mut tok: u8, sink: &mut S) {
         sink.depth(depth + 1);
+        // Daimyo, Citadel and a Royal Carriage on the mat play this card again, or call it, once its effects are done: they must find out
+        // whether it is still in play, and it is this copy that counts (the Release frame lets the token go after all of them).
+        if tok == 0 && (self.turn.rs.daimyo > 0 || self.ren.projects != 0 || self.after_play_possible(player)) && self.replay_wanted(card, player) {
+            tok = self.track_replay(player, card);
+            self.stack.push(Frame { tok, depth: depth + 1, ..Frame::new(K::Release, player, card) });
+        }
         let base = self.stack.len as usize;
         // Daimyo: the next non-Command Action played this turn is replayed afterwards (once per Daimyo played); the replays wait under its effects.
         if self.turn.rs.daimyo > 0 {
-            self.push_daimyo_replays(card, player);
+            self.push_daimyo_replays(card, player, tok);
         }
         // Renaissance: Citadel plays the turn's first Action twice.
         if self.ren.projects != 0 {
-            self.ren_on_action_play(card, player);
+            self.ren_on_action_play(card, player, tok);
         }
         // Adventures: the calls that follow an Action's play (Coin of the Realm, Royal Carriage) wait under its effects.
         if self.after_play_possible(player) && cards::is(card, ACTION) {
-            self.stack.push(Frame { subject: card, ..Frame::new(K::AfterPlay, player, card) });
+            self.stack.push(Frame { subject: card, tok, ..Frame::new(K::AfterPlay, player, card) });
         }
+        let outer = std::mem::replace(&mut self.turn.led.cur, tok);
         self.resolve_effects_inner(card, player, sink);
         // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
         if self.adv & G_PLAY_TOKENS != 0 {
             self.play_tokens(card, player, sink);
         }
+        self.turn.led.cur = outer;
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
             f.depth = depth + 1;
+            // The frames of a play carry its token: the ones that move the card itself (Mining Village's trash, Raze's) find it gone once a
+            // replay has moved it.
+            if f.tok == 0 && f.kind != K::PlayEffects {
+                f.tok = tok;
+            }
         }
+    }
+
+    /// Whether the Action `card` that `player` has just played will be played again or called on once its effects are done, so that its
+    /// copy must be told apart from any other of that name (Daimyo, Citadel, Royal Carriage).
+    #[cold]
+    #[inline(never)]
+    fn replay_wanted(&self, card: CardId, player: u8) -> bool {
+        if !cards::is(card, ACTION) {
+            return false;
+        }
+        let own = player == self.turn.player;
+        (self.after_play_possible(player))
+            || (own && self.turn.rs.daimyo > 0 && self.is_action(card) && !cards::is(card, cards::COMMAND))
+            || (own && self.ren.projects != 0 && !self.turn.ren.acted && self.is_action(card) && self.has_project(player, id::CITADEL))
     }
 
     fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
@@ -393,6 +427,7 @@ impl GameState {
             let ps = &mut self.players[p as usize];
             if ps.deck_known.peek_top() == Some(c) {
                 ps.deck_known.pop_top();
+                self.left_zone(p, z, c);
                 return true;
             }
             return false;
@@ -403,7 +438,11 @@ impl GameState {
         if z == Zone::Archive {
             return self.players[p as usize].archive.remove(c);
         }
-        self.zone_mut(p, z).remove(c)
+        let ok = self.zone_mut(p, z).remove(c);
+        if ok {
+            self.left_zone(p, z, c);
+        }
+        ok
     }
 
     fn zone_mut(&mut self, p: u8, z: Zone) -> &mut Counts {
@@ -480,8 +519,14 @@ impl GameState {
                 let ps = &self.players[p as usize];
                 cards::is(c, ACTION) && ps.in_play.get(c) > self.turn.duration_held.get(c).saturating_add(ps.stays.get(c))
             }
-            // Scepter: an Action (not a Command card) played this turn that is still in play.
-            Filter::ReplayTarget => self.is_action(c) && !cards::is(c, cards::COMMAND) && self.turn.played.has(c) && self.players[p as usize].in_play.has(c),
+            // Scepter: an Action (not a Command card) played this turn that is still in play: a copy beyond the ones held over from an earlier
+            // turn (`led.carried`: a Duration of that name still in play does not make a copy that has left play eligible).
+            Filter::ReplayTarget => {
+                self.is_action(c)
+                    && !cards::is(c, cards::COMMAND)
+                    && self.turn.played.has(c)
+                    && self.players[p as usize].in_play.get(c) > self.turn.led.carried.get(c)
+            }
             filter => filter.matches(c),
         }
     }
@@ -633,14 +678,12 @@ impl GameState {
                 }
                 if f.zone == Zone::Supply || f.zone == Zone::Trash {
                     // Played from the Supply (Captain) or the trash (Necromancer): the card stays there, so it is not in play and a card
-                    // that tries to move itself fails to (`prince_play`, shared with Prince's held card).
+                    // that tries to move itself fails to (`NIP`, shared with Prince's held card).
                     sink.event(Event::StartPlay { player: p, source: f.source, card: f.subject });
-                    self.turn.prince_play = true;
-                    self.resolve_effects(f.subject, p, f.depth, sink);
-                    self.turn.prince_play = false;
+                    self.resolve_effects_tok(f.subject, p, f.depth, crate::track::NIP, sink);
                     return Run::Continue;
                 }
-                self.resolve_effects(f.subject, p, f.depth, sink);
+                self.resolve_effects_tok(f.subject, p, f.depth, f.tok, sink);
                 Run::Continue
             }
             K::Gain => {
@@ -663,6 +706,11 @@ impl GameState {
                 }
             }
             K::Select => {
+                // The copy this selection was to move is gone (the stop-moving rule): nothing to pick.
+                if f.tok != 0 && self.frame_lost(&f) {
+                    self.finish_select(f, sink);
+                    return Run::Continue;
+                }
                 if f.down_to_target {
                     // First touch: `max` was a target zone size (Militia's "discard down to 3");
                     // any reaction that resolves first (Diplomat) already ran, so the zone's
@@ -693,6 +741,7 @@ impl GameState {
                 // while the hand still has that many cards, which is what lets it be revealed
                 // again after it resolved, as often as another copy and the hand allow.
                 if self.zone(p, f.zone).get(f.subject) == 0
+                    || (f.tok != 0 && self.frame_lost(&f))
                     || (f.subject == id::WALLED_VILLAGE && self.walled_village_blocked(p))
                     || (matches!(f.then, Then::ReactDrawDiscard { .. }) && self.players[pi].hand.total() < f.min as u32)
                     || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
@@ -825,14 +874,24 @@ impl GameState {
             K::ReceiveHex => self.run_receive_hex(f, sink),
             K::PickBoon => self.run_pick_boon(f, sink),
             K::AfterPlay => self.run_after_play(f),
+            K::Release => {
+                self.stack.pop();
+                self.release_tok(f.tok);
+                Run::Continue
+            }
             K::Token => self.run_token(f),
             K::Overpay => self.run_overpay(f),
             K::AttackBody => {
                 self.stack.pop();
                 let base = self.stack.len as usize;
+                let outer = std::mem::replace(&mut self.turn.led.cur, f.tok);
                 self.resolve_card_body(f.subject, p, sink);
+                self.turn.led.cur = outer;
                 for fr in &mut self.stack.frames[base..self.stack.len as usize] {
                     fr.depth = f.depth;
+                    if fr.tok == 0 && fr.kind != K::PlayEffects {
+                        fr.tok = f.tok;
+                    }
                 }
                 Run::Continue
             }
@@ -895,7 +954,7 @@ impl GameState {
                     // an ordinary gain); a "less than" gain may have up to the Debt in `min` (Dismantle: the Debt of the card trashed, 0 otherwise); Change (`more`) only compares the $.
                     let cost_ok = if f.gf & crate::state::GF_ANY_COST != 0 {
                         true
-                    } else if f.more {
+                    } else if f.gf & crate::state::GF_MORE != 0 {
                         cost > f.max
                     } else if f.exact {
                         (cost == f.max || (f.gf & crate::state::GF_BOTH != 0 && cost == f.max + 2)) && pc == f.potion && dc == f.min
@@ -977,7 +1036,7 @@ impl GameState {
             K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::AttackBody | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
             K::Overpay => self.overpay_choices(f, out),
-            K::AfterPlay => {}
+            K::AfterPlay | K::Release => {}
             K::Token => self.token_choices(f, out),
         }
     }
@@ -1011,20 +1070,11 @@ impl GameState {
                 // then moved onto the deck if it is still there once the gain's reactions have
                 // run (Watchtower, Tiara). The move waits under them.
                 let dest = f.dest;
-                if f.then == Then::GainedTypeDestAttack && self.supply.get(c) > 0 && (cards::is(c, ACTION) || self.is_treasure(c)) {
-                    self.stack.push(Frame {
-                        depth: f.depth, subject: c, min: self.players[pi].discard.get(c) + 1,
-                        ..select(p, f.source, Zone::Discard, Act::Topdeck, Filter::Any, 0, 0, Then::MoveSubjectIfPresent)
-                    });
-                }
-                // Summon: the card is set aside for the next turn if it is still in the discard pile once the gain's reactions have run.
-                if f.then == Then::SummonAside {
-                    self.push_summon_guard(&f, c);
-                }
-                // Continue: the return to the Action phase and the play of the card wait under the gain's reactions.
-                if f.then == Then::ContinueGain && self.supply.get(c) > 0 {
-                    self.push_continue_guard(&f, c);
-                }
+                // The guards below name the gained copy by a token (the stop-moving rule: a trigger that moves the card, or covers it, takes it
+                // from them), which the gain makes and hands to the guard (patched in once the gain is done).
+                let guard = self.stack.len as usize;
+                let special = matches!(f.then, Then::GainedTypeDestAttack | Then::SummonAside | Then::ContinueGain | Then::ScheduleDuration { .. });
+                let guarded = special && self.push_gain_guard(&f, c, guard);
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
@@ -1035,6 +1085,9 @@ impl GameState {
                 };
                 for fr in &mut self.stack.frames[base..self.stack.len as usize] {
                     fr.depth = f.depth;
+                }
+                if guarded {
+                    self.patch_gain_guard(guard, gained);
                 }
                 if gained {
                     match f.then {
@@ -1067,7 +1120,7 @@ impl GameState {
                         }
                         // Horn of Plenty: a Victory card gained trashes the Horn (if it is still in play).
                         Then::HornTrash if cards::is(c, VICTORY) => {
-                            if self.players[pi].in_play.remove(f.source) {
+                            if self.leave_play_self(p, f.source, f.tok) {
                                 self.trash_card(p, f.source, true, sink);
                                 self.flush_trash_triggers(f.depth, sink);
                             }
@@ -1082,6 +1135,8 @@ impl GameState {
                             // `set_aside` and schedule its return to hand. If a reaction already
                             // moved it elsewhere (Watchtower trashing/topdecking it), there's
                             // nothing to set aside or schedule.
+                            let gt = self.turn.led.gain;
+                            self.tok_moved(gt, p, Self::gain_dest_zone(dest), c);
                             let ps = &mut self.players[p as usize];
                             let moved = match dest {
                                 Dest::Discard => ps.discard.remove(c),
@@ -1129,6 +1184,7 @@ impl GameState {
                     let removed = if f.act == Act::Play && f.zone == Zone::Hand && self.plays_from_deck(p, c) {
                         self.players[pi].take_from_deck(c)
                     } else {
+                        self.tok_moved(f.tok, p, f.zone, c);
                         self.zone_take(p, f.zone, c)
                     };
                     debug_assert!(removed);
@@ -1189,6 +1245,7 @@ impl GameState {
                     self.turn.moated |= 1 << p;
                 } else {
                     if f.act != Act::Reveal {
+                        self.tok_moved(f.tok, p, f.zone, f.subject);
                         self.zone_take(p, f.zone, f.subject);
                     }
                     self.put(p, f.subject, f.act, f.dest, f.source, sink);
@@ -1319,7 +1376,9 @@ impl GameState {
             }
             Act::Choose => {}
             Act::Topdeck => {
-                ps.deck_known.push_top(c);
+                // The stop-moving rule: whatever was on top is covered up.
+                self.cover_deck(p);
+                self.players[p as usize].deck_known.push_top(c);
                 sink.event(Event::Topdeck { player: p, card: c });
             }
             Act::Play => {
@@ -1375,10 +1434,16 @@ impl GameState {
         let p = f.player;
         match f.then {
             Then::Nothing => {}
+            // The copy the token names (a card just played by Procession or Counterfeit, a card just gained by Replace) moves if it is still
+            // where it was put: the stop-moving rule.
             Then::MoveSubjectIfPresent => {
-                if self.zone(p, f.zone).get(f.subject) >= f.min && self.zone_take(p, f.zone, f.subject) {
-                    self.put(p, f.subject, f.act, f.dest, f.source, sink);
+                if self.tok_valid(f.tok) && f.tok != 0 && self.zone(p, f.zone).get(f.subject) > 0 {
+                    self.tok_moved(f.tok, p, f.zone, f.subject);
+                    if self.zone_take(p, f.zone, f.subject) {
+                        self.put(p, f.subject, f.act, f.dest, f.source, sink);
+                    }
                 }
+                self.release_tok(f.tok);
             }
             Then::DrawPerPick => {
                 if f.count > 0 {
@@ -1550,7 +1615,8 @@ impl GameState {
                 if f.count > 0 {
                     // Pushed bottom to top: the gain, the trash (of the card that was played, if it is still in play), the two plays.
                     let card = f.last;
-                    let in_play = self.players[p as usize].in_play.get(card);
+                    // The copy played: the trash frame (which lets the token go) finds it gone if a play moved it.
+                    let tok = self.track(p, Zone::InPlay, card);
                     if gain {
                         self.stack.push(Frame {
                             exact: true, potion: cards::potion_cost(card), depth: f.depth,
@@ -1558,11 +1624,11 @@ impl GameState {
                         });
                     }
                     self.stack.push(Frame {
-                        subject: card, min: in_play, depth: f.depth,
+                        subject: card, tok, depth: f.depth,
                         ..select(p, f.source, Zone::InPlay, Act::Trash, Filter::Any, 0, 0, Then::MoveSubjectIfPresent)
                     });
                     for nth in (1..=2).rev() {
-                        self.stack.push(Frame { subject: card, count: nth, depth: f.depth, ..Frame::new(K::PlayEffects, p, f.source) });
+                        self.stack.push(Frame { subject: card, count: nth, depth: f.depth, tok, ..Frame::new(K::PlayEffects, p, f.source) });
                     }
                 }
             }
@@ -1572,7 +1638,7 @@ impl GameState {
                 // Misfits) or has already gone.
                 if f.count > 0 && cards::is(f.last, cards::KNIGHT) {
                     let a = self.turn.player;
-                    if !self.turn.prince_play && self.players[a as usize].in_play.remove(f.source) {
+                    if self.leave_play_self(a, f.source, f.tok) {
                         self.trash_card(a, f.source, true, sink);
                     }
                 }
@@ -1593,10 +1659,10 @@ impl GameState {
                 if f.count > 0 {
                     self.turn.coins += 5;
                     sink.bonus(p, f.source, 0, 0, 5, 0);
-                } else if !self.turn.prince_play {
+                } else if self.self_in_play(p, f.source, f.tok) {
                     // Not trashed from the hand: the Death Cart itself may be (if it is still in play).
                     self.stack.push(Frame {
-                        depth: f.depth, zone: Zone::InPlay, act: Act::Trash, subject: f.source, then: Then::CoinsPerPick(5),
+                        depth: f.depth, zone: Zone::InPlay, act: Act::Trash, subject: f.source, then: Then::CoinsPerPick(5), tok: f.tok,
                         ..Frame::new(K::YesNo, p, f.source)
                     });
                 }
@@ -1977,6 +2043,44 @@ impl GameState {
         self.flush_trash_triggers(f.depth, sink);
     }
 
+    /// The gains whose gainer moves the card after the gain's reactions have run push a guard frame under them (Replace's move onto the
+    /// deck, Summon's set-aside, Continue's play); the guard names the gained copy by a token the gain makes for it. True if a guard was
+    /// pushed. (Blockade moves the card at once and reads the token of the gain, which is cleared here.)
+    #[cold]
+    #[inline(never)]
+    fn push_gain_guard(&mut self, f: &Frame, c: CardId, guard: usize) -> bool {
+        let p = f.player;
+        if f.then == Then::GainedTypeDestAttack && self.supply.get(c) > 0 && (cards::is(c, ACTION) || self.is_treasure(c)) {
+            self.stack.push(Frame {
+                depth: f.depth, subject: c,
+                ..select(p, f.source, Zone::Discard, Act::Topdeck, Filter::Any, 0, 0, Then::MoveSubjectIfPresent)
+            });
+        }
+        // Summon: the card is set aside for the next turn if it is still in the discard pile once the gain's reactions have run.
+        if f.then == Then::SummonAside {
+            self.push_summon_guard(f, c);
+        }
+        // Continue: the return to the Action phase and the play of the card wait under the gain's reactions.
+        if f.then == Then::ContinueGain && self.supply.get(c) > 0 {
+            self.push_continue_guard(f, c);
+        }
+        let guarded = self.stack.len as usize > guard;
+        self.turn.led.want = guarded;
+        self.turn.led.gain = 0;
+        guarded
+    }
+
+    /// The gain is done: the guard under its reactions gets the token the gain made.
+    #[cold]
+    #[inline(never)]
+    fn patch_gain_guard(&mut self, guard: usize, gained: bool) {
+        self.turn.led.want = false;
+        let gt = std::mem::take(&mut self.turn.led.gain);
+        if gained {
+            self.stack.frames[guard].tok = gt;
+        }
+    }
+
     /// The plays of the card picked (`f.last`) by a Throne Room-like selection `f`: `times` `PlayEffects`, the 1st on top. A Duration (or Prince)
     /// played more than once keeps the multiplier in play with it if at least one play schedules a next-turn effect: `MultiplierFinalize`
     /// sits below all of them (and everything they push) and checks the tally once they have all unwound. (Only for a card that plays another
@@ -1994,10 +2098,22 @@ impl GameState {
             self.turn.multiplier_successes = 0;
             self.stack.push(Frame { depth: f.depth, subject: f.last, ..Frame::new(K::MultiplierFinalize, p, f.source) });
         }
+        // A card played more than once is the same copy each time: its token tells the later plays whether an earlier one has moved it
+        // (Island, Mining Village, Madman, ...), whatever else of that name is in play. One played from where it stays is not in play.
+        let from_afar = f.zone == Zone::Supply || f.zone == Zone::Trash;
+        let tok = if from_afar {
+            crate::track::NIP
+        } else if times >= 2 {
+            let t = self.track(p, Zone::InPlay, f.last);
+            self.stack.push(Frame { tok: t, depth: f.depth, ..Frame::new(K::Release, p, f.source) });
+            t
+        } else {
+            0
+        };
         // Pushed last-first so the 1st resolution is on top; `count` = which play.
         for nth in (1..=times).rev() {
             self.stack.push(Frame {
-                subject: f.last, count: nth, zone: if f.zone == Zone::Supply || f.zone == Zone::Trash { f.zone } else { Zone::Hand },
+                subject: f.last, count: nth, zone: if from_afar { f.zone } else { Zone::Hand }, tok,
                 ..Frame::new(K::PlayEffects, p, f.source)
             });
         }

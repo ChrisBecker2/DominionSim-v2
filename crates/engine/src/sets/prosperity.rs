@@ -371,7 +371,7 @@ impl GameState {
         for (tc, n) in treasures.iter() {
             if self.is_treasure(tc) && !cards::is(tc, cards::DURATION) {
                 for _ in 0..n {
-                    self.players[p as usize].in_play.remove(tc);
+                    self.remove_from_play(p, tc);
                     self.trash_card(p, tc, true, sink);
                 }
             }
@@ -390,8 +390,7 @@ impl GameState {
         // Investment played twice (Tiara) that was already trashed by its first play
         // has nothing left to trash, so the second play reveals nothing and scores
         // nothing.
-        let ps = &mut self.players[p as usize];
-        if !ps.in_play.remove(f.source) {
+        if !self.leave_play_self(p, f.source, f.tok) {
             return;
         }
         self.trash_card(p, f.source, true, sink);

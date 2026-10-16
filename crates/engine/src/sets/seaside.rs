@@ -148,8 +148,8 @@ impl SetRules for Seaside {
                 // Throne Room/King's Court: a later resolution finds it already gone and just
                 // skips this part, matching the ruling ("the second play can't move Island
                 // again, but still moves another card").
-                let ps = &mut g.players[p as usize];
-                if !g.turn.prince_play && ps.in_play.remove(id::ISLAND) {
+                if g.leave_play_self_now(p, id::ISLAND) {
+                    let ps = &mut g.players[p as usize];
                     ps.island_mat.add(id::ISLAND, 1);
                     sink.event(Event::SetAside { player: p, card: id::ISLAND });
                 }
@@ -159,8 +159,7 @@ impl SetRules for Seaside {
             id::TREASURE_MAP => {
                 // 2nd edition: "this" (the physical copy in play) is trashed only if it's still
                 // in play — a 2nd Throne Room/King's Court resolution finds it already gone.
-                let ps = &mut g.players[p as usize];
-                let self_trashed = !g.turn.prince_play && ps.in_play.remove(id::TREASURE_MAP);
+                let self_trashed = g.leave_play_self_now(p, id::TREASURE_MAP);
                 if self_trashed {
                     g.trash_card(p, id::TREASURE_MAP, true, sink);
                     g.flush_trash_triggers(0, sink);
@@ -353,8 +352,7 @@ impl GameState {
         });
         if hit {
             self.turn.corsair_trashed_first = true;
-            let ps = &mut self.players[p as usize];
-            if ps.in_play.remove(c) {
+            if self.remove_from_play(p, c) {
                 self.trash_card(p, c, true, sink);
                 self.flush_trash_triggers(0, sink);
             }
@@ -419,8 +417,11 @@ impl GameState {
             // Paid off: the Map that trashed itself was used. (A lone Map trashing itself
             // for nothing is a loss, so it isn't recorded.)
             self.turn.used_up.add_or_drop(id::TREASURE_MAP, 1);
+            // One gain after another, each answered by its reactions (Watchtower) before the next one covers it on the deck (the
+            // stop-moving rule: a card on top of a deck can't be moved once it is covered up).
+            let _ = sink;
             for _ in 0..4 {
-                self.gain(p, id::GOLD, Dest::DeckTop, false, f.source, sink);
+                self.stack.push(Frame { depth: f.depth, ..gain_frame(p, f.source, u8::MAX, Filter::Card(id::GOLD), Dest::DeckTop) });
             }
         }
     }

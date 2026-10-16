@@ -315,7 +315,7 @@ impl SetRules for Renaissance {
             }
             // Back to its pile (when it is in play; not a copy played from the Supply).
             ids::EXPERIMENT => {
-                if !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+                if g.leave_play_self_now(p, card) {
                     g.return_to_pile(p, card, sink);
                 }
             }
@@ -645,7 +645,7 @@ impl GameState {
 
     /// An Action `card` was played by the turn's player (`resolve_effects`), with Projects in the game: Citadel plays the turn's first Action again.
     #[inline(never)]
-    pub(crate) fn ren_on_action_play(&mut self, card: CardId, player: u8) {
+    pub(crate) fn ren_on_action_play(&mut self, card: CardId, player: u8, tok: u8) {
         if player != self.turn.player || !self.is_action(card) || self.turn.ren.acted {
             return;
         }
@@ -656,8 +656,8 @@ impl GameState {
             if duration && in_play && self.turn.multiplier_card == 0 {
                 // A Duration played twice keeps the Citadel's second play too (nothing to keep: the Project stays).
             }
-            let zone = if self.turn.prince_play { Zone::Supply } else { Zone::Hand };
-            self.stack.push(Frame { subject: card, count: 2, zone, ..Frame::new(K::PlayEffects, player, ids::CITADEL) });
+            let zone = if tok == crate::track::NIP { Zone::Supply } else { Zone::Hand };
+            self.stack.push(Frame { subject: card, count: 2, zone, tok, ..Frame::new(K::PlayEffects, player, ids::CITADEL) });
         }
     }
 }
@@ -728,13 +728,16 @@ impl GameState {
             Then::ScepterReplay => {
                 if f.count > 0 {
                     let card = f.last;
+                    // The copy replayed is the one picked (in play, played this turn): its token tells the replay if it has moved by then.
+                    let tok = self.track_replay(p, card);
+                    self.stack.push(Frame { tok, depth: f.depth, ..Frame::new(K::Release, p, f.source) });
                     if cards::is(card, DURATION) && self.turn.multiplier_card == 0 && self.players[pi].in_play.has(f.source) {
                         self.turn.multiplier_card = f.source;
                         self.turn.multiplier_expected = 1;
                         self.turn.multiplier_successes = 0;
                         self.stack.push(Frame { depth: f.depth, subject: card, ..Frame::new(K::MultiplierFinalize, p, f.source) });
                     }
-                    self.stack.push(Frame { subject: card, count: 2, depth: f.depth, ..Frame::new(K::PlayEffects, p, f.source) });
+                    self.stack.push(Frame { subject: card, count: 2, depth: f.depth, tok, ..Frame::new(K::PlayEffects, p, f.source) });
                 }
             }
             // Star Chart: the card picked goes on top, and the rest of the discard pile is shuffled into the deck.

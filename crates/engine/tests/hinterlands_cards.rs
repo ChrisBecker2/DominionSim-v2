@@ -24,14 +24,23 @@ fn random_hinterlands_games_conserve_cards_and_terminate() {
     let mut reactions = std::collections::BTreeSet::new();
     for game in 0..4000u64 {
         let n = 2 + (game % 4) as usize;
+        // The kingdom is drawn from its own generator, so that it does not depend on how the earlier games were played (a ruling that
+        // changes one game must not change which cards the later ones have); every fourth game has the two reactions in it.
+        let mut krng = Rng::new(0x41A7 ^ game.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let mut kingdom: Vec<CardId> = Vec::new();
         let mut from = pool.clone();
-        for _ in 0..8 {
-            let i = rng.below(from.len() as u32) as usize;
+        if game % 4 == 0 {
+            for c in [id::TRADER, id::FOOLS_GOLD] {
+                kingdom.push(c);
+                from.retain(|&x| x != c);
+            }
+        }
+        while kingdom.len() < 8 {
+            let i = krng.below(from.len() as u32) as usize;
             kingdom.push(from.swap_remove(i));
         }
         for _ in 0..2 {
-            let c = others[rng.below(others.len() as u32) as usize];
+            let c = others[krng.below(others.len() as u32) as usize];
             if !kingdom.contains(&c) {
                 kingdom.push(c);
             }
@@ -47,8 +56,12 @@ fn random_hinterlands_games_conserve_cards_and_terminate() {
                     Event::Play { card, .. } | Event::PlayAgain { card, .. } => {
                         played.insert(card);
                     }
-                    Event::Gain { card, .. } => {
+                    Event::Gain { card, source, .. } => {
                         gained.insert(card);
+                        // Fool's Gold's reaction (trash it for a Gold on the deck) logs no Reaction event: the Gold it gains names it.
+                        if source == id::FOOLS_GOLD {
+                            reactions.insert(source);
+                        }
                     }
                     Event::Reaction { card, .. } => {
                         reactions.insert(card);
@@ -1779,4 +1792,37 @@ fn hinterlands_state_round_trips_through_the_text_format() {
     assert!(back.adv & dominion_engine::state::G_DISCARD_HOOK != 0);
     let strip = |s: &str| s.lines().filter(|l| !l.starts_with("seed:")).collect::<Vec<_>>().join("\n");
     assert_eq!(strip(&format_state(&back)), strip(&text));
+}
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_gained_trail_that_was_played_cannot_then_be_trashed_by_watchtower_with_an_older_trail_in_the_discard_pile() {
+    let mut g = new_state(&[id::WORKSHOP, id::TRAIL, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP, id::WATCHTOWER]);
+    set_discard(&mut g, 0, &[id::TRAIL]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::WORKSHOP);
+    choose(&mut g, Choice::Card(id::TRAIL));
+    let mut played = false;
+    loop {
+        match g.pending_decision().map(|d| d.kind) {
+            Some(DecisionKind::YesNo { act: Act::Play }) => {
+                choose(&mut g, Choice::Yes);
+                played = true;
+            }
+            Some(DecisionKind::Select { .. }) if played => panic!("Watchtower offered for a Trail that was played: {:?}", g.pending_decision()),
+            Some(DecisionKind::Select { .. }) => {
+                choose(&mut g, Choice::Pass);
+            }
+            _ => break,
+        }
+    }
+    assert!(played);
+    assert_eq!(g.players[0].in_play.get(id::TRAIL), 1);
+    assert_eq!(g.players[0].discard.get(id::TRAIL), 1, "the older Trail was not touched");
+    assert!(g.trash.is_empty());
+    assert_eq!(g.turn.led.n, 0);
 }

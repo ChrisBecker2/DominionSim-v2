@@ -232,14 +232,14 @@ impl SetRules for Adventures {
         let pi = p as usize;
         // A Reserve card goes onto the Tavern mat when it is played: this one, if it is still in play (a Throne Room's second play finds
         // it gone) and was played from the hand.
-        if cards::is(card, RES) && !g.turn.prince_play && g.players[pi].in_play.remove(card) {
+        if cards::is(card, RES) && g.leave_play_self_now(p, card) {
             g.players[pi].tavern.add(card, 1);
             sink.event(Event::ToTavern { player: p, card });
         }
         match card {
             ids::RAZE => {
                 // "Trash this or a card from your hand": this one first (a YesNo), else a card from the hand.
-                if g.turn.prince_play || !g.players[pi].in_play.has(card) {
+                if !g.self_in_play_now(p, card) {
                     g.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 1, 1, Then::RazeLook));
                 } else {
                     g.stack.push(Frame { zone: Zone::InPlay, act: Trash, subject: card, then: Then::RazeSelf, ..Frame::new(K::YesNo, p, card) });
@@ -334,8 +334,8 @@ impl SetRules for Adventures {
             }
             ids::SOLDIER => {
                 // +$1 per other Attack in play, then every other player with 4 or more cards discards one.
-                let in_play = &g.players[pi].in_play;
-                let others = in_play.count_type(ATTACK).saturating_sub(u32::from(in_play.has(card) && !g.turn.prince_play)) as u16;
+                let own = u32::from(g.self_in_play_now(p, card));
+                let others = g.players[pi].in_play.count_type(ATTACK).saturating_sub(own) as u16;
                 if others > 0 {
                     g.turn.coins += others;
                     sink.bonus(p, card, 0, 0, others, 0);
@@ -818,12 +818,12 @@ impl GameState {
         self.stack.pop();
         let p = f.player;
         let ps = &self.players[p as usize];
-        // A Reserve card goes to the Tavern mat when played, so it is no longer in play: another copy in play (a Royal Carriage called
-        // earlier, kept in play by the Duration it replayed) is not it (FAQ: a called Reserve card cannot be replayed either). Offering the
-        // call there would loop forever: each replay of a Royal Carriage puts one back on the mat as the call takes one off.
-        if ps.tavern.has(ids::ROYAL_CARRIAGE) && ps.in_play.has(f.subject) && !cards::is(f.subject, RES) {
+        // "If it is still in play": the copy that was played (`f.tok`), not another of that name. A Reserve card went to the Tavern mat when it
+        // was played, so the Royal Carriage in play from an earlier call (kept there by the Duration it replayed) is not it (FAQ: a called
+        // Reserve card cannot be replayed either), and neither is a card played from where it stays (Captain's).
+        if ps.tavern.has(ids::ROYAL_CARRIAGE) && self.self_in_play(p, f.subject, f.tok) {
             self.stack.push(Frame {
-                zone: Zone::Tavern, act: Act::Call, subject: ids::ROYAL_CARRIAGE, then: Then::Called, last: f.subject, depth: f.depth,
+                zone: Zone::Tavern, act: Act::Call, subject: ids::ROYAL_CARRIAGE, then: Then::Called, last: f.subject, depth: f.depth, tok: f.tok,
                 ..Frame::new(K::YesNo, p, ids::ROYAL_CARRIAGE)
             });
         }
@@ -870,7 +870,7 @@ impl GameState {
                     self.turn.multiplier_successes = 0;
                     self.stack.push(Frame { depth, subject: card, ..Frame::new(K::MultiplierFinalize, p, f.subject) });
                 }
-                self.stack.push(Frame { subject: card, count: 2, depth, ..Frame::new(K::PlayEffects, p, f.subject) });
+                self.stack.push(Frame { subject: card, count: 2, depth, tok: f.tok, ..Frame::new(K::PlayEffects, p, f.subject) });
             }
             ids::DUPLICATE => {
                 self.gain(p, f.last, Dest::Discard, false, f.subject, sink);

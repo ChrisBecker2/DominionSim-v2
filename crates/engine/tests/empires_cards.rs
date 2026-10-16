@@ -1550,3 +1550,46 @@ fn tower_scores_a_point_for_each_non_victory_card_from_an_empty_supply_pile() {
     g.supply.set(id::EMPORIUM, 0);
     assert_eq!(g.player_vp(0), 1 - 1 + 3 + 1);
 }
+
+// ===========================================================================
+// The stop-moving rule (docs/stop-moving-rule.md)
+// ===========================================================================
+
+#[test]
+fn a_crowned_mining_village_trashes_itself_once_with_another_in_play() {
+    let mut g = new_state(&[id::CROWN, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::CROWN, id::MINING_VILLAGE]);
+    set_in_play(&mut g, 0, &[id::MINING_VILLAGE]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.actions = 1;
+    play(&mut g, id::CROWN);
+    pick(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.trash.get(id::MINING_VILLAGE), 1);
+    assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1, "the other stays");
+    assert_eq!(g.turn.led.n, 0);
+}
+
+#[test]
+fn a_throne_roomed_engineer_trashes_itself_once_with_another_engineer_in_play() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::ENGINEER], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::ENGINEER]);
+    set_in_play(&mut g, 0, &[id::ENGINEER]);
+    play(&mut g, id::THRONE_ROOM);
+    pick(&mut g, id::ENGINEER);
+    // 1st play: gain a card up to $4, then the offer to trash the Engineer for another gain.
+    pick(&mut g, id::SILVER);
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::YesNo { act: Act::Trash });
+    yes_no(&mut g, true);
+    pick(&mut g, id::SILVER);
+    // 2nd play: a gain, and no second offer to trash.
+    pick(&mut g, id::SILVER);
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.trash.get(id::ENGINEER), 1);
+    assert_eq!(g.players[0].in_play.get(id::ENGINEER), 1);
+}
+
+fn yes_no(g: &mut GameState, yes: bool) {
+    choose(g, if yes { Choice::Yes } else { Choice::No });
+}

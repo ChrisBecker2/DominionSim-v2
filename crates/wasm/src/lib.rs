@@ -1746,6 +1746,9 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 8192 != 0 {
         v.push(cards::CardSet::Renaissance);
     }
+    if sets_mask & 16384 != 0 {
+        v.push(cards::CardSet::Menagerie);
+    }
     v
 }
 
@@ -2781,6 +2784,10 @@ fn supply_json(state: &GameState) -> String {
         if brought || state.noc.piles[i] > 0 {
             side(c, state.noc.piles[i]);
         }
+    }
+    // Menagerie: the Horses, while a card or Event that gains them is in the game (not in the Supply).
+    if state.has_horse_pile() {
+        side(dominion_engine::sets::menagerie::ids::HORSE, state.horses_left());
     }
     format!("[{}]", items.join(","))
 }

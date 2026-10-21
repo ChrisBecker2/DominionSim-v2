@@ -537,6 +537,12 @@
         panel.appendChild(row);
       }
       if (p.plotTokens) panel.appendChild(el("div", "zone", `Tokens on Sinister Plot: ${p.plotTokens}`));
+      // Menagerie: the Exile mat (its cards still count as the player's), the cards set aside for the next turn (Delay, Reap, Way of the Turtle), Invest and Gatekeeper.
+      if (p.exile && p.exile.length) panel.appendChild(zoneRow("Exile mat", p.exile));
+      if (p.delayed && p.delayed.length) panel.appendChild(zoneRow("Set aside for next turn (Delay, Reap, Turtle)", p.delayed));
+      if (p.invested && p.invested.length) panel.appendChild(zoneRow("Invested in", p.invested));
+      if (p.gatekeepers) panel.appendChild(el("div", "zone", `Gatekeepers in play: ${p.gatekeepers}`));
+      if (p.trashedLast) panel.appendChild(el("div", "zone", `Cards trashed last turn: ${p.trashedLast}`));
       if (p.cargo && p.cargo.length) panel.appendChild(zoneRow("Set aside by Cargo Ship", p.cargo));
       if (p.research && p.research.length) panel.appendChild(zoneRow("Set aside by Research (face down)", p.research));
       // Empires: Debt tokens, and the cards set aside under Archives.
@@ -626,8 +632,16 @@
     list.innerHTML = "";
     const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
     // An Artifact someone holds is shown in that player's box instead (renderPlayers).
-    const projects = view.projects || [], artifacts = (view.artifacts || []).filter((a) => a.holder === null);
-    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length;
+    const projects = view.projects || [], artifacts = (view.artifacts || []).filter((a) => a.holder === null), ways = view.ways || [];
+    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length && !ways.length;
+    // Menagerie: the Ways (any Action played from the hand may be played as one of them instead; the choice is asked when the card is played).
+    for (const w of ways) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Way"));
+      row.appendChild(cardChip(w));
+      if (view.menagerie && view.menagerie.mouse && w === "Way of the Mouse") row.appendChild(el("span", "cost", " plays " + view.menagerie.mouse));
+      list.appendChild(row);
+    }
     // Renaissance: the Artifacts (held by one player at a time) and the Projects (bought like Events; the cubes show who has each).
     for (const a of artifacts) {
       const row = el("div", "event-row");
@@ -1016,8 +1030,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192, menagerie: 16384 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

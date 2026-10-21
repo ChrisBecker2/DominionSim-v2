@@ -257,6 +257,27 @@ const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
     ("Silos", At::End, &[], None),
     ("Sinister Plot", At::Silver, &[], None),
     ("Star Chart", At::End, &[], None),
+    // Menagerie. Most are small effects behind the Silvers; Alliance, Populate, Reap and Enclave are the big-hand ones (Alliance and Populate want $10).
+    ("Alliance", At::Top, &[], None),
+    ("Banish", At::End, &[], None),
+    ("Bargain", At::Silver, &[], None),
+    ("Commerce", At::End, &[], None),
+    ("Delay", At::End, &[], None),
+    ("Demand", At::Silver, &[], None),
+    ("Desperation", At::End, &[], None),
+    ("Enclave", At::Gold, &[], None),
+    ("Enhance", At::End, &[], None),
+    ("Gamble", At::End, &[], None),
+    ("Invest", At::End, &[], None),
+    ("March", At::End, &[], None),
+    ("Populate", At::Top, &[], None),
+    ("Pursue", At::End, &[], None),
+    ("Reap", At::Gold, &[], None),
+    ("Ride", At::End, &[], None),
+    ("Seize the Day", At::End, &[Cond::Bought(1)], None),
+    ("Stampede", At::End, &[], None),
+    ("Toil", At::End, &[], None),
+    ("Transport", At::End, &[], None),
 ];
 
 fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {

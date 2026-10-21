@@ -591,5 +591,32 @@ deck: 2 Copper, 3 Estate
   check("the state text keeps Villagers, Projects and the Artifact", /villagers: 3/.test(back) && /owned projects: Fair/.test(back) && /Flag=2/.test(back), back);
 }
 
+// --- Menagerie: the Exile mat, the Horses and the Ways in the view -------------------------
+{
+  const text = `players: 2
+kingdom: Sleigh, Stockpile, Cardinal, Livery, Smithy, Village, Market, Moat, Cellar, Militia
+ways: Way of the Sheep, Way of the Ox
+turn: 3  player: 1  phase: buy  actions: 1  buys: 1  coins: 4
+
+[player 1]
+hand: 3 Copper, Estate
+deck: 4 Copper, 3 Estate, Silver
+exile: 2 Stockpile, Curse
+
+[player 2]
+hand: 5 Copper
+deck: 2 Copper, 3 Estate
+`;
+  const I = await instance();
+  I.load(text);
+  const v = I.view();
+  check("the Ways of the game are listed", (v.ways || []).slice().sort().join() === "Way of the Ox,Way of the Sheep", JSON.stringify(v.ways));
+  check("the Horse pile is shown outside the Supply", (v.supply || []).some((s) => s.name === "Horse" && s.side && s.count === 30), JSON.stringify((v.supply || []).filter((s) => s.name === "Horse")));
+  check("the Exile mat is reported per player", JSON.stringify(v.players[0].exile).includes("Stockpile") && JSON.stringify(v.players[0].exile).includes("Curse") && v.players[1].exile.length === 0, JSON.stringify(v.players[0].exile));
+  I.w.get_state_text();
+  const back = I.rd();
+  check("the state text keeps the Exile mat and the Ways", /exile: .*2 Stockpile/.test(back) && /exile: .*Curse/.test(back) && /Way of the Sheep/.test(back), back);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

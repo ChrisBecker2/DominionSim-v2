@@ -42,7 +42,7 @@ enum Cmd {
         /// or a comma-separated list of exactly 10 kingdom card names (add "Platinum,Colony" to
         /// this list explicitly for a Colony game; Events and Landmarks (Adventures, Empires) may be added too, they are not kingdom cards, and random drawings from
         /// adventures or empires add 0 to 2 of them). <sets> is any "+"-joined combination of
-        /// "base", "intrigue", "seaside", "prosperity", "alchemy", "promo", "cornucopia", "dark ages", "adventures", "empires", "rising sun" and "nocturne" (random/random:<sets> without a suffix
+        /// "base", "intrigue", "seaside", "prosperity", "alchemy", "promo", "cornucopia", "dark ages", "adventures", "empires", "rising sun", "nocturne", "hinterlands", "renaissance" and "menagerie" (random/random:<sets> without a suffix
         /// use base+intrigue).
         #[arg(long, default_value = "first-game")]
         kingdom: String,

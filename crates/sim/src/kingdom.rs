@@ -94,13 +94,13 @@ fn parse_sets(spec: &str) -> Result<Vec<CardSet>, String> {
         if name.is_empty() {
             continue;
         }
-        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\", \"rising sun\" and/or \"nocturne\")"))?;
+        let set = cards::set_by_name(name).ok_or_else(|| format!("unknown card set {name:?} (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\", \"rising sun\", \"nocturne\", \"hinterlands\", \"renaissance\" and/or \"menagerie\")"))?;
         if !out.contains(&set) {
             out.push(set);
         }
     }
     if out.is_empty() {
-        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\", \"rising sun\" and/or \"nocturne\")".into());
+        return Err("--kingdom: no card set named (expected \"base\", \"intrigue\", \"seaside\", \"prosperity\", \"alchemy\", \"promo\", \"cornucopia\", \"dark ages\", \"adventures\", \"empires\", \"rising sun\", \"nocturne\", \"hinterlands\", \"renaissance\" and/or \"menagerie\")".into());
     }
     Ok(out)
 }

@@ -82,6 +82,9 @@ fn free_actions_of(adventures: bool) -> Vec<CardId> {
         // Werewolf is an Action and a Night card: by day it draws 3, at night it hands out a Hex, which the scoring values (a Curse for the opponent),
         // so whether to play it as an Action is a real choice that the shortcut does not claim to solve (a strategy that plays it states a rule).
         .filter(|&c| c != id::WEREWOLF)
+        // A Knight reveals the top two cards of the opponent's deck, which the scoring's tie-break sees (the opponent's discard pile changes):
+        // with some opponent decks the attack ranks a hair below passing (about 2 on a scale of 10^6), whatever the order. Not about the order of plays.
+        .filter(|&c| !cards::is(c, cards::KNIGHT))
         .collect()
 }
 

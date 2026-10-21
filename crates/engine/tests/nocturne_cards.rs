@@ -63,9 +63,9 @@ fn random_nocturne_games_conserve_cards_and_terminate() {
             log.clear();
             let chosen;
             match g.advance(&mut log) {
-                Step::Decision(_) => {
+                Step::Decision(d) => {
                     g.legal_choices(&mut buf);
-                    assert!(!buf.is_empty());
+                    assert!(!buf.is_empty(), "no legal choice for {d:?} in game {game}");
                     let c = buf.as_slice()[rng.below(buf.len() as u32) as usize];
                     chosen = Some(c);
                     g.apply(c, &mut log).unwrap();
@@ -207,11 +207,11 @@ fn new_game(cards_: &[CardId], n: usize, seed: u64) -> GameState {
 
 #[test]
 fn the_set_has_all_its_cards() {
-    assert_eq!(CardSet::ALL.len(), 14);
+    assert_eq!(CardSet::ALL.len(), 15);
     assert_eq!(cards::set_by_name("Nocturne"), Some(CardSet::Nocturne));
     assert_eq!(cards::kingdom_cards_in(CardSet::Nocturne).count(), 33);
-    assert_eq!(cards::NUM_CARDS, 557);
-    assert_eq!(cards::NUM_ZONE_IDS, 423);
+    assert_eq!(cards::NUM_CARDS, 629);
+    assert_eq!(cards::NUM_ZONE_IDS, 454);
     assert!(cards::is_boon(id::THE_EARTHS_GIFT) && cards::is_boon(id::THE_WINDS_GIFT) && !cards::is_boon(id::BAD_OMENS));
     assert!(cards::is_hex(id::BAD_OMENS) && cards::is_hex(id::WAR) && !cards::is_hex(id::LOST_IN_THE_WOODS));
     assert!(cards::is_state(id::LOST_IN_THE_WOODS) && cards::is_state(id::TWICE_MISERABLE));

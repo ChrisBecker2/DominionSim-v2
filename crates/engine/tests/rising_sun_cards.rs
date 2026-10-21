@@ -157,7 +157,7 @@ fn events_of(g: &mut GameState, card: CardId) -> Vec<Event> {
 #[test]
 fn the_ids_and_counts_line_up() {
     assert_eq!(cards::kingdom_cards_in(CardSet::RisingSun).count(), 25);
-    assert_eq!(cards::NUM_EVENTS, 44);
+    assert_eq!(cards::NUM_EVENTS, 64);
     assert_eq!(cards::NUM_PROPHECIES, 15);
     assert_eq!(id::SICKNESS as usize + 1, cards::FIRST_PROJECT as usize);
     assert!(cards::is_prophecy(id::APPROACHING_ARMY) && cards::is_prophecy(id::SICKNESS) && !cards::is_prophecy(id::TWICE_MISERABLE));

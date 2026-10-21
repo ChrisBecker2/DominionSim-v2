@@ -375,7 +375,7 @@ impl GameState {
         let ps = &mut self.players[p as usize];
         let earlier_play = ps.pending_durations[..ps.pending_durations_len as usize]
             .iter()
-            .any(|e| matches!(e.card, id::CORSAIR | id::BLOCKADE));
+            .any(|e| matches!(e.card, id::CORSAIR | id::BLOCKADE | crate::sets::menagerie::ids::GATEKEEPER));
         ps.shielded = if earlier_play { ps.shielded & immune } else { immune };
     }
 }

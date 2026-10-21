@@ -475,6 +475,13 @@ impl Evaluator for GainListEvaluator<'_> {
                 return Some(c);
             }
         }
+        // Menagerie: which Way to play an Action as is searched only when the fast default's numbers are close.
+        if decision.kind == DecisionKind::Way && decision.player == me {
+            if self.strategy.search_play && self.strategy.way_close(&view, decision, choices) {
+                return None;
+            }
+            return Some(self.strategy.decide_by_rules(&view, decision, choices));
+        }
         if is_play_decision(state.turn.player, decision) {
             // Play order is searched, unless it's no real choice (the bot plays the obvious order).
             if matches!(decision.kind, DecisionKind::PlayAction) && decision.player == me && self.strategy.search_play {
@@ -506,7 +513,7 @@ impl Evaluator for GainListEvaluator<'_> {
     /// unlisted card, and the bot would play it).
     fn allows(&self, state: &GameState, me: u8, decision: &Decision, choice: Choice) -> bool {
         match (decision.kind, choice) {
-            (DecisionKind::Buy, Choice::Card(c)) => {
+            (DecisionKind::Buy, Choice::Card(c) | Choice::Alt(c)) => {
                 let view = PlayerView::new(state, me);
                 self.strategy.win_check_applies(&view) || self.strategy.allows_buy(&view, c)
             }

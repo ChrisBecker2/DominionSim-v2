@@ -23,8 +23,8 @@ pub const PENDING_DURATIONS_CAP: usize = 12;
 pub const PRINCE_CAP: usize = 8;
 /// Max distinct cards a player's Farmhands hold set aside at once (`PlayerState::farm_cards`).
 pub const FARM_CAP: usize = 8;
-/// Max distinct cards a player's Summons hold set aside at once (`PlayerState::summon_cards`).
-pub const SUMMON_CAP: usize = 3;
+/// Max distinct cards a player's Summons, Delays, Reaps and Ways of the Turtle hold set aside at once (`PlayerState::summon_cards`).
+pub const SUMMON_CAP: usize = 6;
 /// Max batches of cards Churches hold at once (`PlayerState::church`): one per Church play still waiting for the next turn.
 pub const CHURCH_CAP: usize = 4;
 /// Max start-of-turn effects pending at once (`TurnState::start_pending`): every pending
@@ -847,6 +847,8 @@ pub struct PlayerState {
     pub rs: u8,
     /// Renaissance: the Villagers, Projects and set-aside cards (`RenPlayer`).
     pub ren: RenPlayer,
+    /// Menagerie: the Exile mat and what Goatherd and Gatekeeper remember (`MenPlayer`).
+    pub men: MenPlayer,
 }
 
 /// The Renaissance state of one player. It hashes as nothing while it is all zero, so that the hash of a state in a game without Renaissance (the seed of a
@@ -910,6 +912,8 @@ impl PlayerState {
             + self.foresight.get(card) as u32
             + self.ren.cargo.get(card) as u32
             + self.ren.research.get(card) as u32
+            + self.men.exile.get(card) as u32
+            + self.men.aside.get(card) as u32
             + (self.saved == card && card != 0) as u32
             + (self.inherit == card && card != 0) as u32;
         if card == id::FAITHFUL_HOUND {
@@ -948,6 +952,9 @@ impl PlayerState {
         self.foresight.add_into(&mut c);
         self.ren.cargo.add_into(&mut c);
         self.ren.research.add_into(&mut c);
+        // Menagerie: the Exile mat's cards are the player's.
+        self.men.exile.add_into(&mut c);
+        self.men.aside.add_into(&mut c);
         // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
         if self.inherit != 0 {
             c.add(self.inherit, 1);
@@ -1125,6 +1132,8 @@ pub struct TurnState {
     pub rs: RsTurn,
     /// Renaissance per-turn bookkeeping.
     pub ren: RenTurn,
+    /// Menagerie per-turn bookkeeping.
+    pub men: MenTurn,
 }
 
 /// The per-turn bookkeeping of Rising Sun.
@@ -1223,6 +1232,124 @@ impl std::hash::Hash for RenTurn {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
         if *self != RenTurn::default() {
             (self.priests, self.cargo, self.innovation, self.acted, self.no_chain, self.no_sewers).hash(h);
+        }
+    }
+}
+
+/// Max distinct cards on one player's Exile mat (Menagerie): the cards of a Supply plus whatever was Exiled from a hand.
+pub const EXILE_CAP: usize = 20;
+/// Max distinct cards a player's Delays, Reaps and Ways of the Turtle hold set aside at once (`MenPlayer::aside`).
+pub const MEN_ASIDE_CAP: usize = 6;
+/// Max distinct cards Invest has put on one player's mat.
+pub const INVEST_CAP: usize = 6;
+/// Max distinct names among the cards gained in one turn (Commerce).
+pub const GAIN_NAMES_CAP: usize = 12;
+/// `MenState::flags`: which Menagerie effects are live in this game, so that other games skip each check with one byte test.
+/// A card whose cost moves is in the game (Fisherman, Destrier, Wayfarer): `GameState::cost` asks `men_cost`, the Buy decision does not use the printed-cost masks.
+pub const M_COST: u8 = 1;
+/// The cards the turn's player gains are recorded (`MenTurn::gains`, `names`, `last`): Destrier, Wayfarer and Commerce read them.
+pub const M_GAINS: u8 = 2;
+/// Goatherd is in the game: the cards the turn's player trashes are counted.
+pub const M_TRASHES: u8 = 4;
+/// A Way is in the game: playing an Action card asks which of its own effect and the Ways to use.
+pub const M_WAYS: u8 = 8;
+/// `MenState::hook` (kept up to date by `men_update_hook`): some Exile mat holds a card, so every gain looks for copies to discard from it.
+pub const H_EXILE: u8 = 1;
+/// Some player has Invested in a card: other players' gains of it draw them cards.
+pub const H_INVEST: u8 = 2;
+/// Some Gatekeeper's Attack is on: Actions and Treasures other players gain are Exiled.
+pub const H_GATE: u8 = 4;
+/// `MenPlayer::flags`: Seize the Day has been used.
+pub const MP_SEIZE_USED: u8 = 1;
+/// `MenTurn::flags`: Way of the Seal (the cards gained may be put onto the deck), Snowy Village (further +Actions are ignored), Seize the Day bought.
+pub const MT_SEAL: u8 = 1;
+pub const MT_SNOWY: u8 = 2;
+pub const MT_SEIZE: u8 = 4;
+
+/// The Menagerie state of one player: the Exile mat and what Menagerie cards remember about their last turn. Hashes as nothing while it is all zero, so that the hash of a
+/// state in a game without Menagerie (the seed of a bot's search, the transposition table's key) is the one it was before the set existed.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct MenPlayer {
+    /// The Exile mat: public, the cards on it are the player's (they score and are counted by `all_cards`).
+    pub exile: SmallMultiset<EXILE_CAP>,
+    /// The copies on the mat that Invest put there (a subset of `exile`): other players gaining or Investing in a copy of one draw their Invester cards.
+    pub invest: SmallMultiset<INVEST_CAP>,
+    /// The cards set aside by Delay, Reap and Way of the Turtle, played at the start of the player's next turn (face up; they count as owned).
+    pub aside: SmallMultiset<MEN_ASIDE_CAP>,
+    /// Goatherd: the cards this player trashed on their last turn.
+    pub trashed_last: u8,
+    /// Gatekeepers this player has played since their last turn started: their Attack is on until it does.
+    pub gk: u8,
+    /// `MP_*` flags.
+    pub flags: u8,
+}
+
+impl std::hash::Hash for MenPlayer {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != MenPlayer::default() {
+            self.exile.hash(h);
+            self.invest.hash(h);
+            self.aside.hash(h);
+            (self.trashed_last, self.gk, self.flags).hash(h);
+        }
+    }
+}
+
+/// The per-game state of Menagerie: the Ways in the game, Way of the Mouse's card, and which effects are live. Hashes as nothing while it is all zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct MenState {
+    /// `M_*` flags (fixed at set-up).
+    pub flags: u8,
+    /// `H_*` hooks (kept up to date by `men_update_hook`).
+    pub hook: u8,
+    /// Bit `way - cards::FIRST_WAY`: the Ways in this game (public).
+    pub ways: u32,
+    /// The card set aside in set-up for Way of the Mouse (an unused non-Duration Action costing $2 or $3), 0 = none.
+    pub mouse: CardId,
+}
+
+impl std::hash::Hash for MenState {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != MenState::default() {
+            (self.flags, self.hook, self.ways, self.mouse).hash(h);
+        }
+    }
+}
+
+/// The per-turn bookkeeping of Menagerie (hashes as nothing while it is all zero).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct MenTurn {
+    /// Kilns played this turn whose gain has not happened yet: the next card played brings a gain of a copy for each.
+    pub kiln: u8,
+    /// Liveries played this turn: a card gained costing $4 or more brings that many Horses.
+    pub livery: u8,
+    /// `MT_*` flags.
+    pub flags: u8,
+    /// Snowy Village: the Actions the player can still have, whatever else gives them.
+    pub cap: u8,
+    /// The cards the turn's player has gained this turn (only counted while `M_GAINS`; Destrier).
+    pub gains: u8,
+    /// The last card gained by anyone this turn that is not a Wayfarer, 0 = none (Wayfarer's cost).
+    pub last: CardId,
+    /// The differently named cards the turn's player has gained this turn (Commerce).
+    pub names: SmallMultiset<GAIN_NAMES_CAP>,
+    /// The cards the turn's player has trashed this turn (only counted while `M_TRASHES`; Goatherd of the player to their left).
+    pub trashed: u8,
+    /// Way of the Squirrel: the cards each seat draws at the end of the turn.
+    pub squirrel: [u8; MAX_PLAYERS],
+    /// Way of the Frog: the cards played as the Way, which are put onto the deck when discarded from play.
+    pub frogs: SmallMultiset<4>,
+    /// Populate: the piles (named by their top card) it has gained from.
+    pub pop: SmallMultiset<12>,
+}
+
+impl std::hash::Hash for MenTurn {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != MenTurn::default() {
+            (self.kiln, self.livery, self.flags, self.cap, self.gains, self.last, self.trashed, self.squirrel).hash(h);
+            self.names.hash(h);
+            self.frogs.hash(h);
+            self.pop.hash(h);
         }
     }
 }
@@ -1364,6 +1491,7 @@ impl TurnState {
             hint: HintTurn::default(),
             rs: RsTurn::default(),
             ren: RenTurn::default(),
+            men: MenTurn::default(),
         }
     }
 }
@@ -1388,6 +1516,8 @@ pub enum Zone {
     Tavern,
     /// The cards set aside under the player's Archives (Empires).
     Archive,
+    /// The player's Exile mat (Menagerie).
+    Exile,
 }
 
 /// What happens to a picked card.
@@ -1426,6 +1556,8 @@ pub enum Act {
     Return,
     /// Set it aside face down under the player's Archives / Crypts (`PlayerState::archive`).
     Archive,
+    /// Put it on the player's Exile mat (Menagerie): not a gain, not a trash.
+    Exile,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -1503,6 +1635,10 @@ pub enum Filter {
     /// An Action in play that this Clean-up discards (Scheme): not one that stays in play (a Duration held for the next turn, a Prince's).
     /// Decided against the live game (`filter_ok`); `matches` can only say "an Action".
     ActionToDiscard,
+    /// An Action in play that Way of the Frog will put onto the deck when it is discarded (`MenTurn::frogs`), and that this Clean-up discards. Decided against the live game.
+    Frogged,
+    /// An Action pile's top card that Populate has not gained from yet this turn (`MenTurn::pop`). Decided against the live game.
+    PopulateLeft,
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -1593,6 +1729,8 @@ impl Filter {
             Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0,
             Filter::ActionToDiscard => cards::is(c, cards::ACTION),
             Filter::ReplayTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::COMMAND),
+            Filter::Frogged => cards::is(c, cards::ACTION),
+            Filter::PopulateLeft => cards::is(c, cards::ACTION),
         }
     }
 }
@@ -2013,6 +2151,46 @@ pub enum Then {
     TributeGain,
     /// Select (a zero-pick frame under a gain's reactions, Rapid Expansion): the card gained is set aside if it is still where it was gained.
     RapidAside,
+    /// Gain (Groom): the bonuses of the card gained, by type: an Action, a Horse; a Treasure, a Silver; a Victory card, +1 Card and +1 Action.
+    GroomBonus,
+    /// Select (Scrap, a card trashed from the hand): choose a different thing per $1 it cost (`ModeOpt` of Scrap).
+    ModePerCost,
+    /// Select (Displace, a card Exiled from the hand): gain a differently named card costing up to $2 more.
+    DisplaceGain,
+    /// YesNo (a gain of a card that has copies on the Exile mat): discard all the copies, the one picked first and the rest.
+    ExileDiscard,
+    /// YesNo (Sleigh, a card gained): once Sleigh is discarded, a Mode frame puts the gained card into the hand or onto the deck.
+    SleighMove,
+    /// YesNo (Gatekeeper's Attack, an Action or Treasure gained; Stockpile played): the card is Exiled, with no question asked.
+    ForcedExile,
+    /// Ask (Village Green, Barge): Yes = the bonus now, No = at the start of the next turn.
+    NowOrNext,
+    /// Ask (Hunting Lodge): Yes = discard the hand and draw 5.
+    HuntingLodge,
+    /// Select (Delay, an Action of the hand, `Act::Choose`): it is set aside and played at the start of the next turn.
+    DelayAside,
+    /// Gain (Reap's Gold): set aside if it is still where it was gained, to be played at the start of the next turn.
+    ReapAside,
+    /// Select (Banish, `Act::Choose` on one card of the hand): the name; any number of the copies in the hand are Exiled next.
+    BanishPick,
+    /// Select (Bounty Hunter, a card Exiled from the hand): +$3 if there was no copy of it on the mat before.
+    BountyHunter,
+    /// Gain (Invest): the card Exiled from the Supply is marked as Invested.
+    InvestExile,
+    /// Name (Pursue): the card named is held in `subject`; the top 4 cards are revealed next.
+    PursueNamed,
+    /// RevealTop (Pursue, `subject` = the card named): the matches go back on the deck in any order, the rest are discarded.
+    PursueSort,
+    /// Gain (Desperation's Curse): +1 Buy and +$2 if it was gained.
+    DesperationBonus,
+    /// Gain (Populate): the pile the card came from is marked as done.
+    PopulateGain,
+    /// Select (Way of the Rat, a Treasure discarded): a copy of the card played (`subject`) is gained.
+    GainSubjectCopy,
+    /// YesNo (Way of the Butterfly): the card was returned to its pile; gain a card costing exactly $1 more.
+    ButterflyGain,
+    /// Select (Animal Fair bought by trashing an Action, `subject` = the card): once the Action is trashed, the card is gained as a bought card.
+    AltBuyGain,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -2154,6 +2332,8 @@ pub const GF_BOTH: u8 = 8;
 pub const GF_ANY_COST: u8 = 16;
 /// `Frame::gf`: the cards `Frame::subject` and `Frame::last` (when not 0) are not on offer: Receive Tribute's differently named Actions.
 pub const GF_EXCL: u8 = 32;
+/// `Frame::gf`: the card chosen is Exiled from the Supply instead of gained (Menagerie): it goes onto the mat of the frame's player, with no gain triggers.
+pub const GF_EXILE: u8 = 64;
 /// `Frame::gf`: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
 pub const GF_MORE: u8 = 64;
 
@@ -2298,6 +2478,9 @@ pub enum FrameKind {
     PickBoon,
     /// The frames above have finished with the token `tok` (`track.rs`): it is released. No decision.
     Release,
+    /// Menagerie: the card `subject` has just been played (already in play). The first Kiln gain was made above this frame; now, in a game with a Way, `player` chooses
+    /// between the card's own effect and the Ways (`DecisionKind::Way`: `Pass` or `Card(way)`), and the card's effects resolve (`GameState::run_preplay`).
+    PrePlay,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -2376,11 +2559,13 @@ pub struct GameConfig {
     pub obelisk: Option<CardId>,
     /// Riverboat's card (an Action costing $5 that is not in the kingdom and not a Duration). `None` = chosen from the game's seed when a Riverboat needs one.
     pub riverboat: Option<CardId>,
+    /// Way of the Mouse's card (an Action costing $2 or $3 that is not in the kingdom, not a Duration). `None` = chosen from the game's seed when a Way of the Mouse needs one.
+    pub mouse: Option<CardId>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None, riverboat: None }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None, riverboat: None, mouse: None }
     }
 }
 
@@ -2641,6 +2826,8 @@ pub struct GameState {
     pub rs: RsState,
     /// Renaissance: the Projects in the game, the holders of the Artifacts, the tokens on Sinister Plot, the Fleet round.
     pub ren: RenState,
+    /// Menagerie: the Ways in the game, Way of the Mouse's card, `M_*` flags and `H_*` hooks.
+    pub men: MenState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -2795,6 +2982,7 @@ impl GameState {
             noc: NocState::default(),
             rs: RsState::default(),
             ren: RenState::default(),
+            men: MenState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -2839,6 +3027,8 @@ impl GameState {
         crate::sets::rising_sun::setup(&mut s, cfg, n);
         // Renaissance: the Projects of the game.
         crate::sets::renaissance::setup(&mut s, cfg, n);
+        // Menagerie: the Horses, the Ways of the game, Way of the Mouse's card, which effects are live.
+        crate::sets::menagerie::setup(&mut s, cfg, n);
         s.push_opening_deal();
         // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
         s.dup()
@@ -2863,6 +3053,14 @@ impl GameState {
     pub fn cost(&self, c: CardId) -> u8 {
         let pi = self.turn.player as usize;
         let mut reduction: u32 = self.turn.cost_reduction as u32;
+        // Menagerie: Fisherman, Destrier and Wayfarer cost what the turn has made of them.
+        let mut printed = cards::cost(c) as u32;
+        if self.men.flags & M_COST != 0 {
+            match self.men_base_cost(c) {
+                Ok(base) => printed = base,
+                Err(exact) => return exact,
+            }
+        }
         // `in_supply` check first: a single cheap bitmask test that skips the (still cheap, but
         // not free) lookup entirely for the overwhelming majority of games, which have no
         // Quarry in the kingdom at all.
@@ -2876,7 +3074,7 @@ impl GameState {
         if self.adv & G_COST_TOKEN != 0 && cards::pile_of(c) == self.players[pi].tok[TOK_COST] && cards::is(c, cards::ACTION) {
             reduction += 2;
         }
-        (cards::cost(c) as u32).saturating_sub(reduction) as u8
+        printed.saturating_sub(reduction) as u8
     }
 
     /// How many times `p` has played `card` this turn, for "this turn" effects of Treasures that

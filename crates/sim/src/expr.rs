@@ -95,6 +95,10 @@ pub enum Var {
     /// Projects I own (0 to 2), and the tokens I have on Sinister Plot.
     Projects,
     PlotTokens,
+    /// Cards on my Exile mat (Menagerie), the most on an opponent's, and the Horses left in their pile.
+    Exile,
+    OppExile,
+    Horses,
 }
 
 impl Var {
@@ -140,6 +144,9 @@ impl Var {
             Var::OppVillagers => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.villagers_of(p)).max().unwrap_or(0) as i64,
             Var::Projects => view.projects_owned_by(view.me()) as i64,
             Var::PlotTokens => view.plot_tokens_of(view.me()) as i64,
+            Var::Exile => view.exile().total() as i64,
+            Var::OppExile => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.exile_of(p).total()).max().unwrap_or(0) as i64,
+            Var::Horses => view.horses_left() as i64,
         }
     }
 
@@ -181,6 +188,9 @@ impl Var {
             "opp_villagers" | "opponent_villagers" => Var::OppVillagers,
             "projects" => Var::Projects,
             "plot_tokens" => Var::PlotTokens,
+            "exile" => Var::Exile,
+            "opp_exile" | "opponent_exile" => Var::OppExile,
+            "horses" => Var::Horses,
             _ => return None,
         })
     }
@@ -223,6 +233,9 @@ pub enum Expr {
     LandmarkVp(CardId),
     /// `prophecy(Name)`: 1 if the Prophecy is in this game (Rising Sun; it may not have happened yet: see `prophecy_active`).
     Prophecy(CardId),
+    /// `exiled(Card)`: copies of the card on my Exile mat (Menagerie); `has_way(Name)`: 1 if the Way is in this game.
+    Exiled(CardId),
+    WayInGame(CardId),
     /// `has_project(Name)` / `opp_has_project(Name)`: 1 if I (any opponent) have put a cube on the Project (Renaissance); `project(Name)`: 1 if it is in this game.
     HasProject(CardId),
     OppHasProject(CardId),
@@ -300,6 +313,8 @@ impl Expr {
             Landmark(l) => view.has_landmark(*l) as i64,
             LandmarkVp(l) => view.landmark_vp(*l) as i64,
             Prophecy(p) => (view.prophecy() == *p) as i64,
+            Exiled(c) => view.exile().get(*c) as i64,
+            WayInGame(w) => view.has_way(*w) as i64,
             HasProject(p) => view.has_project(view.me(), *p) as i64,
             OppHasProject(p) => (0..view.num_players()).any(|q| q != view.me() && view.has_project(q, *p)) as i64,
             ProjectInGame(p) => view.has_project_in_game(*p) as i64,
@@ -378,7 +393,8 @@ impl Expr {
             CountPair(a, _) => f(*a),
             CountLine(c) => f(*c),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
-            HasProject(c) | OppHasProject(c) | ProjectInGame(c) => f(*c),
+            HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) => f(*c),
+            Exiled(c) => f(*c),
             HasArtifact(_) | OppHasArtifact(_) => {}
             Neg(a) | Not(a) => a.for_each_card_ref(f),
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | And(a, b) | Or(a, b) => {
@@ -678,6 +694,14 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 "opp_has_project" => Expr::OppHasProject(p),
                 _ => Expr::ProjectInGame(p),
             })
+        }
+        "exiled" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::Exiled(zone_card(c, "on a mat")?))
+        }
+        "has_way" | "way" => {
+            let w = cards::by_name(arg).filter(|&w| cards::is_way(w)).ok_or_else(|| format!("{arg:?} is not a Way, in condition {src:?}"))?;
+            Ok(Expr::WayInGame(w))
         }
         "has_artifact" | "opp_has_artifact" => {
             let a = cards::by_name(arg).filter(|&a| cards::is_artifact(a)).ok_or_else(|| format!("{arg:?} is not an Artifact, in condition {src:?}"))?;

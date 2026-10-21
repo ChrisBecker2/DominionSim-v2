@@ -50,9 +50,9 @@ fn random_adventures_games_conserve_cards_and_terminate() {
             log.clear();
             let chosen;
             match g.advance(&mut log) {
-                Step::Decision(_) => {
+                Step::Decision(d) => {
                     g.legal_choices(&mut buf);
-                    assert!(!buf.is_empty());
+                    assert!(!buf.is_empty(), "no legal choice for {d:?} in game {game}");
                     let c = buf.as_slice()[rng.below(buf.len() as u32) as usize];
                     chosen = Some(c);
                     g.apply(c, &mut log).unwrap();

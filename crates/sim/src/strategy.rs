@@ -67,6 +67,16 @@ struct ModeRuleRaw {
     cond: Option<String>,
 }
 
+/// `[[way]] card = "Smithy" way = "Way of the Sheep" if = "..."`: which Way to play an Action card as (Menagerie); `card = "any"` is any Action card, `way = "none"`
+/// plays the card for its own effect. The first rule for the card whose condition holds decides.
+#[derive(Deserialize)]
+struct WayRuleRaw {
+    card: String,
+    way: String,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
 /// `[[token]] token = "+1 Card" pile = "Laboratory" if = "..."`: where to put a token when a card or Event asks (Adventures).
 #[derive(Deserialize)]
 struct TokenRuleRaw {
@@ -211,6 +221,9 @@ struct StrategyFile {
     /// Debt payment rules (Empires), in priority order.
     #[serde(default)]
     debt: Vec<DebtRuleRaw>,
+    /// Rules for the Way an Action card is played as (Menagerie): the first rule for the card whose condition holds decides.
+    #[serde(default)]
+    way: Vec<WayRuleRaw>,
     /// Rules for calling a Reserve card (Adventures): the first rule for the card whose condition holds says yes.
     #[serde(default)]
     call: Vec<BuyRuleRaw>,
@@ -275,6 +288,8 @@ pub struct Strategy {
     token: Vec<(usize, CardId, Option<Expr>)>,
     /// `[[debt]]` rules in priority order.
     debt: Vec<(DebtPay, Option<Expr>)>,
+    /// `[[way]]` rules in priority order: (the Action card, `None` for any; the Way, `None` for the card's own effect; condition).
+    way: Vec<(Option<CardId>, Option<CardId>, Option<Expr>)>,
     /// `[[call]]` and `[[exchange]]` rules in priority order.
     call: Vec<(CardId, Option<Expr>)>,
     exchange: Vec<(CardId, Option<Expr>)>,
@@ -401,6 +416,24 @@ impl Strategy {
             };
             debt.push((pay, rule.cond.as_deref().map(Expr::parse).transpose()?));
         }
+        let mut way = Vec::with_capacity(raw.way.len());
+        for rule in &raw.way {
+            let card = if rule.card.trim().eq_ignore_ascii_case("any") {
+                None
+            } else {
+                Some(
+                    cards::by_name(&rule.card)
+                        .filter(|&c| cards::is(c, ACTION))
+                        .ok_or_else(|| format!("{:?} in a [[way]] rule is not an Action card (or \"any\")", rule.card))?,
+                )
+            };
+            let w = if rule.way.trim().eq_ignore_ascii_case("none") {
+                None
+            } else {
+                Some(cards::by_name(&rule.way).filter(|&w| cards::is_way(w)).ok_or_else(|| format!("{:?} in a [[way]] rule is not a Way (or \"none\")", rule.way))?)
+            };
+            way.push((card, w, rule.cond.as_deref().map(Expr::parse).transpose()?));
+        }
         let call = compile_rules(&raw.call, "call")?;
         for (c, _) in &call {
             if !cards::is(*c, cards::RESERVE) {
@@ -427,6 +460,7 @@ impl Strategy {
             mode,
             token,
             debt,
+            way,
             call,
             exchange,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
@@ -475,7 +509,7 @@ impl Strategy {
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c) || cards::is_project(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c) || cards::is_project(c) || cards::is_way(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -488,6 +522,15 @@ impl Strategy {
         }
         for (card, cond) in self.play.iter().chain(self.trash.iter()) {
             push(*card);
+            if let Some(e) = cond {
+                e.for_each_card_ref(&mut push);
+            }
+        }
+        // The Ways the `[[way]]` rules name are asked for like the cards (the Action cards they name are not: they are not what a kingdom is built on).
+        for (_, w, cond) in &self.way {
+            if let Some(w) = w {
+                push(*w);
+            }
             if let Some(e) = cond {
                 e.for_each_card_ref(&mut push);
             }
@@ -506,6 +549,14 @@ impl Strategy {
         // Stated rules come before any search.
         if let Some(c) = self.stated_effect_choice(view, decision, choices) {
             return c;
+        }
+        // Menagerie: which Way to play an Action as is searched only when the numbers of the fast default are close (a stated rule decided above).
+        if searching && decision.kind == DecisionKind::Way && decision.player == view.me() && view.is_my_turn() && choices.len() > 1 && defaults::way_is_close(self, view, decision, choices) {
+            if let Some(c) = crate::eval::search_play_choice(self, view) {
+                if choices.contains(&c) {
+                    return c;
+                }
+            }
         }
         // Debt: pay it as soon as there is $ for it. In a game with Change, whether to keep a token (Change gives +$3 with Debt) is searched.
         if searching
@@ -616,7 +667,7 @@ impl Strategy {
                     Act::Reveal => self.choose_reveal(choices),
                     Act::Pass => self.choose_pass(view, choices),
                     // Miser's Copper, and the picks the engine makes of calls and exchanges (they are YesNo decisions): the first offered.
-                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn | Act::Choose => {
+                    Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn | Act::Choose | Act::Exile => {
                         iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)
                     }
                     // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
@@ -670,7 +721,29 @@ impl Strategy {
             DecisionKind::PlayNight => self.night_decision(view, decision, choices),
             DecisionKind::PickBoon => defaults::pick_boon(self, view, decision, choices),
             DecisionKind::StartOrder => self.choose_start_order(choices),
+            DecisionKind::Way => self.stated_way(view, decision, choices).unwrap_or_else(|| defaults::way_choice(self, view, decision, choices)),
         }
+    }
+
+    /// The choice a stated `[[way]]` rule makes for a Way decision (`decision.subject` is the Action card played), if one applies: the Way, or `Pass` for the card's
+    /// own effect. A rule naming a Way that is not in the game is skipped.
+    pub fn stated_way(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
+        let card = decision.subject;
+        self.way.iter().find_map(|(c, w, cond)| {
+            if c.is_some_and(|c| c != card) || !cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)) {
+                return None;
+            }
+            match w {
+                None => Some(Choice::Pass),
+                Some(w) if choices.contains(&Choice::Card(*w)) => Some(Choice::Card(*w)),
+                Some(_) => None,
+            }
+        })
+    }
+
+    /// Whether the Way decision is close enough that a searching bot searches it (no stated rule applies).
+    pub fn way_close(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> bool {
+        self.stated_way(view, decision, choices).is_none() && defaults::way_is_close(self, view, decision, choices)
     }
 
     /// Which pending start-of-turn effect resolves first. Cards put into the hand come first
@@ -710,7 +783,31 @@ impl Strategy {
             }
             return Choice::Pass;
         }
-        self.match_gain_list(view, choices).map(Choice::Card).unwrap_or(Choice::Pass)
+        // Menagerie: Animal Fair bought by trashing an Action card, when the gain list wants it more than what the $ buy and the hand holds an Action it does not play.
+        let best = self.match_gain_list(view, choices);
+        if let Some(a) = self.alt_buy(view, choices, best) {
+            return a;
+        }
+        best.map(Choice::Card).unwrap_or(Choice::Pass)
+    }
+
+    /// The alternative way to buy a card (`Choice::Alt`, Animal Fair: trash an Action from the hand) when the gain list ranks the card above `best`, the card the $ would
+    /// buy, and the hand holds an Action card the strategy has no use for.
+    fn alt_buy(&self, view: &PlayerView, choices: &[Choice], best: Option<CardId>) -> Option<Choice> {
+        let rank_of = |c: CardId| self.buy.iter().position(|(x, cond)| *x == c && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, c)));
+        let best_rank = best.and_then(rank_of).unwrap_or(usize::MAX);
+        let junk = view.hand().iter().any(|(c, _)| view.is_action(c) && (c == id::HORSE || cards::is(c, cards::RUINS) || !(self.states_play(c) || self.lists(c))));
+        if !junk {
+            return None;
+        }
+        choices
+            .iter()
+            .filter_map(|ch| match ch {
+                Choice::Alt(c) => rank_of(*c).filter(|&r| r < best_rank).map(|r| (r, *ch)),
+                _ => None,
+            })
+            .min_by_key(|&(r, _)| r)
+            .map(|(_, ch)| ch)
     }
 
     /// The choice a stated `[[debt]]` rule makes among `choices` (a Buy decision with Debt to pay), if one applies.
@@ -1085,6 +1182,10 @@ impl Strategy {
     }
 
     fn choose_gain(&self, view: &PlayerView, _decision: &Decision, choices: &[Choice]) -> Choice {
+        // Menagerie: a card Exiled from the Supply is not one the gain list wants to gain.
+        if let Some(c) = _decision.source.and_then(|src| defaults::gain(self, view, _decision, src, choices)) {
+            return c;
+        }
         if let Some(c) = self.match_gain_list(view, choices) {
             return Choice::Card(c);
         }
@@ -1686,6 +1787,7 @@ impl Strategy {
     pub fn stated_effect_choice(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Option<Choice> {
         match decision.kind {
             DecisionKind::Mode { .. } => self.stated_mode_rule(view, decision.source?, choices),
+            DecisionKind::Way => self.stated_way(view, decision, choices),
             DecisionKind::YesNo { act: Act::Call | Act::Exchange | Act::Discard | Act::Return } => {
                 self.stated_call_or_exchange(view, decision).map(|yes| if yes { Choice::Yes } else { Choice::No })
             }
@@ -2021,6 +2123,7 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Trash => *view.trash(),
         Zone::Tavern => view.tavern_of(view.me()),
         Zone::Archive => view.archive(),
+        Zone::Exile => view.exile(),
         Zone::DeckTop => {
             let mut top = Counts::EMPTY;
             if let Some(c) = view.deck_known_top().next() {

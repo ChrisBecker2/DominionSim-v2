@@ -52,14 +52,14 @@ fn cards_lists_every_playable_kingdom_card_and_7_basic() {
     let (status, resp) = call(&state, "GET", "/api/cards", b"");
     assert_eq!(status, 200);
     let kingdom = resp["kingdom"].as_array().unwrap();
-    // The kingdom cards, then the 44 Events (Adventures, Empires, Summon, Rising Sun), the 21 Landmarks, the 20 Projects and the 14 available Prophecies
+    // The kingdom cards, then the 64 Events (Adventures, Empires, Summon, Rising Sun, Menagerie), the 21 Landmarks, the 20 Projects and the 14 available Prophecies
     // (of 15: Divine Wind is disabled for now).
     assert_eq!(
         kingdom.len(),
         dominion_engine::cards::kingdom_cards().count() + dominion_engine::cards::NUM_EVENTS + dominion_engine::cards::NUM_LANDMARKS + dominion_engine::cards::NUM_PROJECTS + dominion_engine::cards::NUM_PROPHECIES - 1
     );
     assert!(!kingdom.iter().any(|c| c["name"] == "Divine Wind"));
-    assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Event")).count(), 44);
+    assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Event")).count(), 64);
     assert_eq!(kingdom.iter().filter(|c| c["types"].as_array().unwrap().iter().any(|t| t == "Landmark")).count(), 21);
     assert_eq!(kingdom.iter().filter(|c| c["set"] == "Base").count(), 26);
     assert!(kingdom.iter().any(|c| c["name"] == "Bridge" && c["set"] == "Intrigue"));

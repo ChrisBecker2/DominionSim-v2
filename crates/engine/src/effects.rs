@@ -160,7 +160,12 @@ impl GameState {
             self.stack.push(Frame { subject: card, tok, ..Frame::new(K::AfterPlay, player, card) });
         }
         let outer = std::mem::replace(&mut self.turn.led.cur, tok);
-        self.resolve_effects_inner(card, player, sink);
+        // Menagerie: a Kiln's gain and the choice of a Way come before the card's own effects (a frame, resolved once the frames above it are).
+        if (self.men.flags & crate::state::M_WAYS != 0 && cards::is(card, ACTION)) || self.turn.men.kiln > 0 {
+            self.push_preplay(card, player, tok);
+        } else {
+            self.resolve_effects_inner::<S, false>(card, player, sink);
+        }
         // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
         if self.adv & G_PLAY_TOKENS != 0 {
             self.play_tokens(card, player, sink);
@@ -190,7 +195,8 @@ impl GameState {
             || (own && self.ren.projects != 0 && !self.turn.ren.acted && self.is_action(card) && self.has_project(player, id::CITADEL))
     }
 
-    fn resolve_effects_inner<S: EventSink>(&mut self, card: CardId, player: u8, sink: &mut S) {
+    /// The card's own effects. With `SWAP` (Way of the Chameleon) the printed +Cards and +$ trade places.
+    pub(crate) fn resolve_effects_inner<S: EventSink, const SWAP: bool>(&mut self, card: CardId, player: u8, sink: &mut S) {
         let p = player;
         let def = cards::def(card);
         // Enlightenment: a Treasure played in the Action phase is +1 Card +1 Action instead of what it says.
@@ -215,7 +221,7 @@ impl GameState {
             self.turn.played.add(card, 1);
             self.turn.actions += def.actions;
             self.turn.buys += def.buys;
-            self.turn.coins += def.coins as u16;
+            self.turn.coins += if SWAP { def.cards as u16 } else { def.coins as u16 };
             self.turn.potions += def.potions;
             // Champion: when you play an Action card, you first get +1 Action (per Champion in play, this one only once it is out).
             if self.adv & G_CHAMPION != 0 && cards::is(card, ACTION) {
@@ -229,18 +235,24 @@ impl GameState {
         // A Treasure's $ is reported as a bonus too (the log prints it under the play: "+$1" for Fool's Gold), except the basic Treasures', whose
         // value everyone knows (Copper, Silver, Gold, Platinum, Potion).
         let basic = matches!(card, id::COPPER | id::SILVER | id::GOLD | id::PLATINUM | id::POTION);
-        let shown_coins = if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) && basic { 0 } else { def.coins as u16 };
+        let shown_coins = if SWAP {
+            def.cards as u16
+        } else if cards::is(card, TREASURE) && !cards::is(card, cards::DURATION) && basic {
+            0
+        } else {
+            def.coins as u16
+        };
         sink.bonus(p, card, def.actions, def.buys, shown_coins, 0);
 
         // An Attack opens a reaction window first: each other player may reveal Moat (and Diplomat)
         // before the Attack does anything, so its own effects wait (`FrameKind::AttackBody`) under
         // the window. With nobody holding a Reaction there is no window and no wait.
-        if cards::is(card, cards::ATTACK) {
+        if cards::is(card, cards::ATTACK) && !(card == crate::sets::menagerie::ids::BLACK_CAT && p == self.turn.player) {
             self.turn.moated = 0;
             // Urchin (in play): the player may first trash it for a Mercenary, before the reactions.
             let urchin = self.in_supply(id::URCHIN) && self.urchin_offer_possible(card, p);
             if urchin || self.reaction_window_open(p) {
-                self.stack.push(Frame { subject: card, ..Frame::new(K::AttackBody, p, card) });
+                self.stack.push(Frame { subject: card, count: SWAP as u8, ..Frame::new(K::AttackBody, p, card) });
                 self.push_reaction_window(p, card);
                 if urchin {
                     self.stack.push(Frame {
@@ -251,13 +263,20 @@ impl GameState {
                 return;
             }
         }
-        self.resolve_card_body(card, p, sink);
+        self.resolve_card_body::<S, SWAP>(card, p, sink);
     }
 
     /// Everything a played card does beyond its vanilla bonuses (see `resolve_effects_inner`).
-    fn resolve_card_body<S: EventSink>(&mut self, card: CardId, p: u8, sink: &mut S) {
+    fn resolve_card_body<S: EventSink, const SWAP: bool>(&mut self, card: CardId, p: u8, sink: &mut S) {
         let def = cards::def(card);
-        crate::sets::play(self, def.set, card, p, sink);
+        if SWAP {
+            // Way of the Chameleon: what the play makes of +$ at once and of +Cards trades places too.
+            let (coins0, base) = (self.turn.coins, self.stack.len as usize);
+            crate::sets::play(self, def.set, card, p, sink);
+            self.cham_convert(card, p, coins0, base, sink);
+        } else {
+            crate::sets::play(self, def.set, card, p, sink);
+        }
         // Rising Sun: Great Leader's +1 Action and Approaching Army's +$1 come after the card.
         if self.rs.active != 0 && p == self.turn.player {
             self.rs_after_play(card, p, sink);
@@ -271,8 +290,9 @@ impl GameState {
             self.push_duration_pending(p, card, 1, 0);
         }
 
-        if def.cards > 0 {
-            self.stack.push(draw_frame(p, card, def.cards));
+        let drawn = if SWAP { def.coins } else { def.cards };
+        if drawn > 0 {
+            self.stack.push(draw_frame(p, card, drawn));
         }
     }
 
@@ -393,6 +413,7 @@ impl GameState {
                     }
                     Zone::Tavern => return ZoneRef::Top(ps.tavern.counts()),
                     Zone::Archive => return ZoneRef::Top(ps.archive.counts()),
+                    Zone::Exile => return ZoneRef::Top(ps.men.exile.counts()),
                     Zone::Supply | Zone::Trash => unreachable!(),
                 })
             }
@@ -438,6 +459,9 @@ impl GameState {
         if z == Zone::Archive {
             return self.players[p as usize].archive.remove(c);
         }
+        if z == Zone::Exile {
+            return self.exile_remove(p, c);
+        }
         let ok = self.zone_mut(p, z).remove(c);
         if ok {
             self.left_zone(p, z, c);
@@ -456,7 +480,7 @@ impl GameState {
                     Zone::Discard => &mut ps.discard,
                     Zone::Revealed => &mut ps.set_aside,
                     Zone::InPlay => &mut ps.in_play,
-                    Zone::DeckTop | Zone::Tavern | Zone::Archive | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
+                    Zone::DeckTop | Zone::Tavern | Zone::Archive | Zone::Exile | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
                 }
             }
         }
@@ -747,6 +771,7 @@ impl GameState {
                     || (f.then == Then::BlockAttack && self.turn.moated & (1 << p) != 0)
                     || (f.act == Act::Exchange && !self.exchange_possible(f.subject))
                     || (matches!(f.then, Then::TraderSwap | Then::BerserkerPlay) && !self.hint_yesno_possible(&f))
+                    || (f.then == Then::SleighMove && !self.sleigh_possible(&f))
                     || (matches!(f.then, Then::CargoAside | Then::InnovationPlay) && self.ren_yesno_pointless(&f))
                 {
                     self.stack.pop();
@@ -754,7 +779,7 @@ impl GameState {
                     return Run::Continue;
                 }
                 // A Berserker gained with an Action in play is played, whatever its player thinks.
-                if f.then == Then::BerserkerPlay {
+                if matches!(f.then, Then::BerserkerPlay | Then::ForcedExile) {
                     self.apply_frame(f, Choice::Yes, sink);
                     return Run::Continue;
                 }
@@ -795,7 +820,7 @@ impl GameState {
                 if f.count == 0 {
                     let has_options = if war_chest {
                         self.supply_cards().any(|c| self.supply.get(c) > 0)
-                    } else if journeyman || f.then == Then::RebuildNamed {
+                    } else if journeyman || f.then == Then::RebuildNamed || f.then == Then::PursueNamed {
                         true
                     } else {
                         !self.name_offer(p).is_empty()
@@ -830,6 +855,12 @@ impl GameState {
                         depth: f.depth, filter: Filter::NotCard(f.subject), max: 3, then: Then::KeepMatchingDiscardRest,
                         ..Frame::new(K::RevealUntil, p, f.source)
                     });
+                    return Run::Continue;
+                }
+                if f.then == Then::PursueNamed {
+                    // Named: reveal the top 4 cards; the ones with that name go back, the rest are discarded.
+                    self.stack.pop();
+                    self.stack.push(Frame { depth: f.depth, subject: f.subject, max: 4, then: Then::PursueSort, ..Frame::new(K::RevealTop, p, f.source) });
                     return Run::Continue;
                 }
                 if war_chest {
@@ -874,6 +905,7 @@ impl GameState {
             K::ReceiveHex => self.run_receive_hex(f, sink),
             K::PickBoon => self.run_pick_boon(f, sink),
             K::AfterPlay => self.run_after_play(f),
+            K::PrePlay => self.run_preplay(f, sink),
             K::Release => {
                 self.stack.pop();
                 self.release_tok(f.tok);
@@ -885,7 +917,11 @@ impl GameState {
                 self.stack.pop();
                 let base = self.stack.len as usize;
                 let outer = std::mem::replace(&mut self.turn.led.cur, f.tok);
-                self.resolve_card_body(f.subject, p, sink);
+                if f.count == 1 {
+                    self.resolve_card_body::<S, true>(f.subject, p, sink);
+                } else {
+                    self.resolve_card_body::<S, false>(f.subject, p, sink);
+                }
                 self.turn.led.cur = outer;
                 for fr in &mut self.stack.frames[base..self.stack.len as usize] {
                     fr.depth = f.depth;
@@ -931,6 +967,15 @@ impl GameState {
                 for i in 0..cards::NUM_REWARDS {
                     if self.rewards[i] > 0 {
                         out.push(Choice::Card(cards::FIRST_REWARD + i as CardId));
+                    }
+                }
+            }
+            K::Gain if f.filter == Filter::Card(crate::sets::menagerie::ids::HORSE) => {
+                // Menagerie: the Horse pile is outside the Supply, its count is in `supply`.
+                if self.supply.get(crate::sets::menagerie::ids::HORSE) > 0 {
+                    out.push(Choice::Card(crate::sets::menagerie::ids::HORSE));
+                    if f.optional {
+                        out.push(Choice::Pass);
                     }
                 }
             }
@@ -1026,6 +1071,7 @@ impl GameState {
                 }
             }
             K::Name if f.then == Then::RebuildNamed => self.rebuild_offer(out),
+            K::Name if f.then == Then::PursueNamed => self.pursue_offer(f.player, out),
             K::Name => {
                 for (c, _) in self.name_offer(f.player).iter() {
                     out.push(Choice::Card(c));
@@ -1037,6 +1083,7 @@ impl GameState {
             K::StartOrder => self.start_order_choices(out),
             K::Overpay => self.overpay_choices(f, out),
             K::AfterPlay | K::Release => {}
+            K::PrePlay => self.way_choices(f, out),
             K::Token => self.token_choices(f, out),
         }
     }
@@ -1073,12 +1120,15 @@ impl GameState {
                 // The guards below name the gained copy by a token (the stop-moving rule: a trigger that moves the card, or covers it, takes it
                 // from them), which the gain makes and hands to the guard (patched in once the gain is done).
                 let guard = self.stack.len as usize;
-                let special = matches!(f.then, Then::GainedTypeDestAttack | Then::SummonAside | Then::ContinueGain | Then::ScheduleDuration { .. });
+                let special = matches!(f.then, Then::GainedTypeDestAttack | Then::SummonAside | Then::ContinueGain | Then::ScheduleDuration { .. } | Then::ReapAside);
                 let guarded = special && self.push_gain_guard(&f, c, guard);
                 // Reactions the gain triggers (Watchtower) belong to this card effect: log them
                 // at its depth.
                 let base = self.stack.len as usize;
-                let gained = if f.gf & (crate::state::GF_FROM_SIDE | crate::state::GF_SPIRITS) != 0 {
+                let gained = if f.gf & crate::state::GF_EXILE != 0 {
+                    // Menagerie: Exiled from the Supply (not gained: no triggers).
+                    self.exile_from_supply(p, c, f.then == Then::InvestExile, sink)
+                } else if f.gf & (crate::state::GF_FROM_SIDE | crate::state::GF_SPIRITS) != 0 {
                     self.gain_side(p, c, dest, f.source, sink)
                 } else {
                     self.gain(p, c, dest, false, f.source, sink)
@@ -1130,6 +1180,7 @@ impl GameState {
                         }
                         Then::CreditDebt | Then::TributeGain => self.rs_gained(&f, c, sink),
                         Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
+                        Then::GroomBonus | Then::DesperationBonus | Then::PopulateGain | Then::ReapAside => self.men_gained(&f, c, dest, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1283,6 +1334,7 @@ impl GameState {
                     Then::Called => self.call_effect(&f, sink),
                     Then::CargoAside => self.ren_yes(&f, sink),
                     Then::HoundAside | Then::PixieTrash | Then::ChangelingSwap => self.noc_yes(&f, sink),
+                    Then::ExileDiscard | Then::SleighMove | Then::ButterflyGain => self.men_yes(&f, sink),
                     Then::TunnelGold | Then::FoolsGoldGain | Then::TraderSwap => self.hint_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
@@ -1316,6 +1368,8 @@ impl GameState {
                 self.stack.pop();
                 if f.then == Then::SinisterPlot {
                     self.ren_ask_no(f, sink);
+                } else if f.then == Then::NowOrNext {
+                    self.men_ask_no(f);
                 }
             }
             (K::Library, Choice::Yes) => self.library_set_aside(f, sink),
@@ -1326,6 +1380,7 @@ impl GameState {
                 self.stack.set_top(f);
             }
             (K::DeckPosition, Choice::Position(k)) => self.apply_deck_position(f, k),
+            (K::PrePlay, ch) => self.apply_preplay(f, ch, sink),
             (kind, ch) => unreachable!("choice {ch:?} not valid for frame {kind:?}"),
         }
     }
@@ -1366,6 +1421,18 @@ impl GameState {
             // Nocturne: back to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling).
             Act::Return => self.return_to_pile(p, c, sink),
             Act::Archive => ps.archive.add(c, 1),
+            // Menagerie: onto the Exile mat (not a gain, not a trash).
+            Act::Exile => {
+                // (A mat holding as many different cards as it can is full: the card is discarded instead.)
+                if !ps.men.exile.has(c) && ps.men.exile.iter().count() >= crate::state::EXILE_CAP {
+                    ps.discard.add(c, 1);
+                    sink.event(Event::Discard { player: p, card: c });
+                } else {
+                    ps.men.exile.add(c, 1);
+                    sink.event(Event::Exile { player: p, card: c });
+                    self.men.hook |= crate::state::H_EXILE;
+                }
+            }
             // Queued for its "when you trash this" effects, which go on the stack when the effect that trashed it is done picking.
             Act::Trash => {
                 // Sewers' own trash does not set Sewers off again.
@@ -1755,6 +1822,9 @@ impl GameState {
             | Then::Swashbuckler
             | Then::ScepterReplay
             | Then::StarChart => self.finish_ren_select(&f, sink),
+            Then::ModePerCost | Then::DisplaceGain | Then::DelayAside | Then::BanishPick | Then::BountyHunter | Then::GainSubjectCopy | Then::AltBuyGain => {
+                self.finish_men_select(&f, sink)
+            }
             Then::MountainShrine
             | Then::RiceBroker
             | Then::KintsugiGain
@@ -1861,7 +1931,20 @@ impl GameState {
             | Then::PageantPay
             | Then::SinisterPlot
             | Then::PiazzaPlay
-            | Then::BerserkerPlay => {}
+            | Then::BerserkerPlay
+            | Then::GroomBonus
+            | Then::ExileDiscard
+            | Then::SleighMove
+            | Then::ForcedExile
+            | Then::NowOrNext
+            | Then::HuntingLodge
+            | Then::ReapAside
+            | Then::InvestExile
+            | Then::PursueNamed
+            | Then::PursueSort
+            | Then::DesperationBonus
+            | Then::PopulateGain
+            | Then::ButterflyGain => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
         self.flush_trash_triggers(f.depth, sink);
@@ -1901,6 +1984,10 @@ impl GameState {
                         self.stack.push(gain_frame(p, f.source, u8::MAX, Filter::Card(c), dest));
                     }
                 }
+                ModeOpt::ExileFromSupply(filt) => {
+                    self.stack.push(Frame { gf: crate::state::GF_EXILE | crate::state::GF_ANY_COST, ..gain_frame(p, f.source, u8::MAX, filt, Dest::Discard) })
+                }
+                ModeOpt::ExileToDeck(filt) => self.stack.push(select(p, f.source, Zone::Exile, Act::Topdeck, filt, 1, 1, Then::Nothing)),
                 ModeOpt::TopdeckFromHand(n) => self.stack.push(select(p, f.source, Zone::Hand, Act::Topdeck, Filter::Any, n, n, Then::Nothing)),
                 ModeOpt::TrashGain { filter, plus, dest } => self.stack.push(select(
                     p, f.source, Zone::Hand, Act::Trash, filter, 1, 1,
@@ -1926,6 +2013,7 @@ impl GameState {
                 ModeOpt::TrashFiltered(filt) => self.stack.push(select(p, f.source, Zone::Hand, Act::Trash, filt, 1, 1, Then::Nothing)),
                 ModeOpt::ReplayAction => self.stack.push(select(p, f.source, Zone::InPlay, Act::Choose, Filter::ReplayTarget, 1, 1, Then::ScepterReplay)),
                 ModeOpt::TakeArtifact(_)
+                | ModeOpt::MoveGained(_)
                 | ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
                 | ModeOpt::BuysCoins(..)
@@ -2019,7 +2107,8 @@ impl GameState {
                 ModeOpt::NextGainDouble => self.turn.emp.charms = self.turn.emp.charms.saturating_add(1),
                 ModeOpt::CurseOthers => self.curse_others(f.source, f.depth, sink),
                 ModeOpt::TakeArtifact(a) => self.take_artifact(p, a, sink),
-                ModeOpt::TrashFiltered(_) | ModeOpt::ReplayAction => {}
+                ModeOpt::TrashFiltered(_) | ModeOpt::ReplayAction | ModeOpt::ExileFromSupply(_) | ModeOpt::ExileToDeck(_) => {}
+                ModeOpt::MoveGained(dest) => self.move_gained(&f, dest),
                 ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => {}
                 ModeOpt::Cards(_)
@@ -2200,6 +2289,11 @@ impl GameState {
         let pi = p as usize;
         // Corsair and Blockade end now ("until your next turn"), and so do Enchantress's marks on the other players.
         self.players[pi].shielded = 0;
+        // So does Gatekeeper's Attack (before anything else of the start of the turn).
+        if self.players[pi].men.gk > 0 {
+            self.players[pi].men.gk = 0;
+            self.men_update_hook();
+        }
         // Nocturne: Guardian's protection lasts until this turn starts.
         self.players[pi].noc &= !crate::state::P_GUARDED;
         if self.emp.flags & crate::state::E_ENCHANT != 0 {
@@ -2394,6 +2488,7 @@ impl GameState {
             Then::WispCheck | Then::FamineSort | Then::GhostSet => self.finish_noc_reveal(&f, sink),
             Then::PoetCheck | Then::ForesightSet => self.finish_rs_reveal(&f, sink),
             Then::BorderGuardReveal | Then::ResearchSet | Then::PiazzaPlay => self.finish_ren_reveal(&f, sink),
+            Then::PursueSort => self.finish_pursue(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

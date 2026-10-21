@@ -60,6 +60,12 @@
 //! Gap: Kind Emperor's and Sickness's start-of-turn effects are rebuilt from the Prophecy when a state is loaded at the start of a turn, so a state saved after
 //! they resolved and loaded again resolves them once more.
 //!
+//! Menagerie: `ways:` lists the Ways of the game (with the Events in `events:`), `mouse:` the card set aside for Way of the Mouse, and `side piles:` holds
+//! `Horse=` (the Horses left; the pile is outside the Supply). Per player `exile:` (the Exile mat), `invested:` (the copies on it that Invest put there),
+//! `delayed:` (the cards set aside by Delay, Reap and Way of the Turtle, each with a `Delay (Card)` entry in `durations:`), `trashed last:` (Goatherd),
+//! `gatekeepers:` (Gatekeepers whose Attack is on) and `seize: true` (Seize the Day used) while nonzero. A line `men turn:` holds the turn's bookkeeping, entries
+//! separated by `;` (`kiln 1; livery 2; flags 3; cap 4; gains 2; last Silver; trashed 1; squirrel 0 0 2 0 0 0; names Silver, Gold; frogs Village`).
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -79,7 +85,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, EmpTurn, FrameStack, NocTurn, RenTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, DurationHeld, EmpTurn, FrameStack, MenTurn, NocTurn, RenTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, SUMMON_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -285,7 +291,7 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         // Either half of a split pile names the pile.
         let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
         // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) {
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) && !cards::is_way(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -369,6 +375,61 @@ impl Default for TurnFields {
             noc: NocTurn::default(), rs: RsTurn::default(), ren: RenTurn::default(),
         }
     }
+}
+
+/// The `men turn:` line: Menagerie's per-turn bookkeeping, `key value` entries separated by `;`.
+fn format_men_turn(m: &MenTurn) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (k, v) in [("kiln", m.kiln), ("livery", m.livery), ("flags", m.flags), ("cap", m.cap), ("gains", m.gains), ("trashed", m.trashed)] {
+        if v > 0 {
+            parts.push(format!("{k} {v}"));
+        }
+    }
+    if m.last != 0 {
+        parts.push(format!("last {}", cards::name(m.last)));
+    }
+    if m.squirrel.iter().any(|&x| x != 0) {
+        let v: Vec<String> = m.squirrel.iter().map(|x| x.to_string()).collect();
+        parts.push(format!("squirrel {}", v.join(" ")));
+    }
+    if !m.names.is_empty() {
+        parts.push(format!("names {}", format_counts(&m.names.counts())));
+    }
+    if !m.frogs.is_empty() {
+        parts.push(format!("frogs {}", format_counts(&m.frogs.counts())));
+    }
+    parts.join("; ")
+}
+
+fn parse_men_turn(s: &str) -> Result<MenTurn, String> {
+    let mut m = MenTurn::default();
+    for part in s.split(';') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (key, val) = part.split_once(' ').unwrap_or((part, ""));
+        let val = val.trim();
+        let num = |what: &str| -> Result<u8, String> { val.parse().map_err(|_| format!("invalid {what} '{val}'")) };
+        match key {
+            "kiln" => m.kiln = num("kiln")?,
+            "livery" => m.livery = num("livery")?,
+            "flags" => m.flags = num("flags")?,
+            "cap" => m.cap = num("cap")?,
+            "gains" => m.gains = num("gains")?,
+            "trashed" => m.trashed = num("trashed")?,
+            "last" => m.last = cards::by_name(val).ok_or_else(|| format!("unknown card '{val}'"))?,
+            "squirrel" => {
+                for (i, w) in val.split_whitespace().enumerate().take(crate::state::MAX_PLAYERS) {
+                    m.squirrel[i] = w.parse().map_err(|_| format!("invalid squirrel '{w}'"))?;
+                }
+            }
+            "names" => m.names = parse_small_multiset::<{ crate::state::GAIN_NAMES_CAP }>(val, "names")?,
+            "frogs" => m.frogs = parse_small_multiset::<4>(val, "frogs")?,
+            other => return Err(format!("unknown men turn field '{other}'")),
+        }
+    }
+    Ok(m)
 }
 
 fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
@@ -496,6 +557,18 @@ pub fn format_state(state: &GameState) -> String {
         let seats: Vec<String> = (0..state.num_players).filter(|q| state.ren.fleet & (1 << q) != 0).map(|q| (q + 1).to_string()).collect();
         out.push_str(&format!("fleet round: {}\n", seats.join(" ")));
     }
+    // Menagerie: the Ways of the game, Way of the Mouse's card, the turn's bookkeeping.
+    if state.men.ways != 0 {
+        let names: Vec<&str> =
+            (0..cards::NUM_WAYS as CardId).filter(|i| state.men.ways & (1u32 << i) != 0).map(|i| cards::name(cards::FIRST_WAY + i)).collect();
+        out.push_str(&format!("ways: {}\n", names.join(", ")));
+    }
+    if state.men.mouse != 0 {
+        out.push_str(&format!("mouse: {}\n", cards::name(state.men.mouse)));
+    }
+    if state.turn.men != MenTurn::default() {
+        out.push_str(&format!("men turn: {}\n", format_men_turn(&state.turn.men)));
+    }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
     // Nocturne: the Boons and Hexes decks, Lost in the Woods.
@@ -531,6 +604,10 @@ pub fn format_state(state: &GameState) -> String {
         if state.in_supply(line) {
             side.push(format!("{}={}", cards::name(cards::FIRST_TRAV + i as CardId), state.trav[i]));
         }
+    }
+    // Menagerie: the Horses left.
+    if state.has_horse_pile() {
+        side.push(format!("{}={}", cards::name(crate::sets::menagerie::ids::HORSE), state.supply.get(crate::sets::menagerie::ids::HORSE)));
     }
     // Nocturne: the piles outside the Supply that the cards of the game bring.
     for (i, c) in [cards::id::WILL_O_WISP, cards::id::WISH, cards::id::BAT, cards::id::IMP, cards::id::GHOST].into_iter().enumerate() {
@@ -712,6 +789,24 @@ pub fn format_state(state: &GameState) -> String {
         }
         if ps.coffers > 0 {
             out.push_str(&format!("coffers: {}\n", ps.coffers));
+        }
+        if !ps.men.exile.is_empty() {
+            out.push_str(&format!("exile: {}\n", format_counts(&ps.men.exile.counts())));
+        }
+        if !ps.men.invest.is_empty() {
+            out.push_str(&format!("invested: {}\n", format_counts(&ps.men.invest.counts())));
+        }
+        if !ps.men.aside.is_empty() {
+            out.push_str(&format!("delayed: {}\n", format_counts(&ps.men.aside.counts())));
+        }
+        if ps.men.trashed_last > 0 {
+            out.push_str(&format!("trashed last: {}\n", ps.men.trashed_last));
+        }
+        if ps.men.gk > 0 {
+            out.push_str(&format!("gatekeepers: {}\n", ps.men.gk));
+        }
+        if ps.men.flags & crate::state::MP_SEIZE_USED != 0 {
+            out.push_str("seize: true\n");
         }
         if !ps.farm_cards.is_empty() {
             out.push_str(&format!("farmhands: {}\n", format_counts(&ps.farm_cards.counts())));
@@ -1034,6 +1129,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut fleet_val: Option<(usize, String)> = None;
     let mut suns_val: Option<(usize, String)> = None;
     let mut riverboat_val: Option<(usize, String)> = None;
+    let mut mouse_val: Option<(usize, String)> = None;
+    let mut ways_val: Option<(usize, String)> = None;
+    let mut men_turn_val: Option<(usize, String)> = None;
     let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
     let mut ruins_val: Option<(usize, String)> = None;
@@ -1082,6 +1180,9 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "fleet round" => fleet_val = Some((lineno, rest.to_string())),
             "suns" => suns_val = Some((lineno, rest.to_string())),
             "riverboat" => riverboat_val = Some((lineno, rest.to_string())),
+            "mouse" => mouse_val = Some((lineno, rest.to_string())),
+            "ways" => ways_val = Some((lineno, rest.to_string())),
+            "men turn" => men_turn_val = Some((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "ruins pile" => ruins_val = Some((lineno, rest.to_string())),
@@ -1142,6 +1243,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             kingdom.push(pr);
         }
     }
+    if let Some((ln, s)) = &ways_val {
+        for w in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_way(w) {
+                return Err(format!("line {ln}: '{}' is not a Way", cards::name(w)));
+            }
+            kingdom.push(w);
+        }
+    }
     if let Some((ln, s)) = &prophecy_val {
         for p in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
             if !cards::is_prophecy(p) {
@@ -1175,6 +1284,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         ferryman: named(&ferryman_val, "ferryman")?,
         obelisk: named(&obelisk_val, "obelisk")?,
         riverboat: named(&riverboat_val, "riverboat")?,
+        mouse: named(&mouse_val, "mouse")?,
         // The decks are read from the text; `shelters` is derived from them below.
         shelters: Some(false),
     };
@@ -1292,6 +1402,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 state.madman = count;
             } else if id == cards::id::MERCENARY {
                 state.mercenary = count;
+            } else if id == crate::sets::menagerie::ids::HORSE {
+                state.supply.set(id, count);
             } else if let Some(i) =
                 [cards::id::WILL_O_WISP, cards::id::WISH, cards::id::BAT, cards::id::IMP, cards::id::GHOST].iter().position(|&c| c == id)
             {
@@ -1402,6 +1514,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         hint: Default::default(),
         rs: tf.rs,
         ren: tf.ren,
+        men: match &men_turn_val {
+            Some((ln, s)) => parse_men_turn(s).map_err(|e| format!("line {ln}: {e}"))?,
+            None => MenTurn::default(),
+        },
     };
 
     // Player blocks.
@@ -1496,6 +1612,16 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "plot" => plot_tokens = val.parse().map_err(|_| format!("line {ln2}: invalid plot '{val}'"))?,
                 "cargo" => ps.ren.cargo = parse_small_multiset::<{ crate::state::CARGO_CAP }>(val, "cargo").map_err(|e| format!("line {ln2}: {e}"))?,
                 "research" => ps.ren.research = parse_small_multiset::<{ crate::state::RESEARCH_CAP }>(val, "research").map_err(|e| format!("line {ln2}: {e}"))?,
+                "exile" => ps.men.exile = parse_small_multiset::<{ crate::state::EXILE_CAP }>(val, "exile").map_err(|e| format!("line {ln2}: {e}"))?,
+                "invested" => ps.men.invest = parse_small_multiset::<{ crate::state::INVEST_CAP }>(val, "invested").map_err(|e| format!("line {ln2}: {e}"))?,
+                "delayed" => ps.men.aside = parse_small_multiset::<{ crate::state::MEN_ASIDE_CAP }>(val, "delayed").map_err(|e| format!("line {ln2}: {e}"))?,
+                "trashed last" => ps.men.trashed_last = val.parse().map_err(|_| format!("line {ln2}: invalid trashed last '{val}'"))?,
+                "gatekeepers" => ps.men.gk = val.parse().map_err(|_| format!("line {ln2}: invalid gatekeepers '{val}'"))?,
+                "seize" => {
+                    if val.eq_ignore_ascii_case("true") {
+                        ps.men.flags |= crate::state::MP_SEIZE_USED;
+                    }
+                }
                 "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
                 "summoned" => ps.summon_cards = parse_small_multiset::<SUMMON_CAP>(val, "summoned").map_err(|e| format!("line {ln2}: {e}"))?,
                 "church" => ps.church = parse_church(val).map_err(|e| format!("line {ln2}: {e}"))?,

@@ -641,6 +641,7 @@ fn verb(act: Act) -> &'static str {
         Act::Archive => "Set aside",
         Act::ShuffleIn => "Shuffle into the deck",
         Act::Choose => "Choose",
+        Act::Exile => "Exile",
     }
 }
 
@@ -735,6 +736,9 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
         (DecisionKind::PickBoon, Choice::Card(c)) => format!("Receive {}", cards::name(c)),
         (DecisionKind::PickBoon, _) => "?".to_string(),
         (DecisionKind::Buy, Choice::Card(c)) => format!("Buy {}", cards::name(c)),
+        (DecisionKind::Buy, Choice::Alt(c)) => format!("Buy {} by trashing an Action", cards::name(c)),
+        (DecisionKind::Way, Choice::Card(w)) => format!("Play it as {}", cards::name(w)),
+        (DecisionKind::Way, _) => "Play it for its own effect".to_string(),
         (DecisionKind::Buy, Choice::Coffers) => "Spend a Coffers (+$1)".to_string(),
         (DecisionKind::Buy, _) => "End buys".to_string(),
         (DecisionKind::PlayTreasure, Choice::Card(c)) if cards::is_event(c) => format!("Buy {}", cards::name(c)),

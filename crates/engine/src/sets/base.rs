@@ -214,9 +214,11 @@ impl GameState {
                 // plays it, and then Vassal can't, whatever else of that name is in the discard pile. The token names the copy (a Release
                 // frame lets it go); the reactions below carry it.
                 let hook = self.adv & crate::state::G_DISCARD_HOOK != 0;
-                let tok = if hook && cards::is(c, ACTION) { self.track(p, Zone::Discard, c) } else { 0 };
+                // Gamble (Menagerie) plays an Action or a Treasure; Vassal only an Action.
+                let playable = cards::is(c, ACTION) || (f.filter == Filter::ActionOrTreasure && self.is_treasure(c));
+                let tok = if hook && playable { self.track(p, Zone::Discard, c) } else { 0 };
                 let mut base = 0;
-                if cards::is(c, ACTION) {
+                if playable {
                     if tok != 0 {
                         self.stack.set_top(Frame { tok, depth: f.depth, ..Frame::new(K::Release, p, f.source) });
                         self.stack.push(Frame { zone: Zone::Discard, act: Act::Play, subject: c, depth: f.depth, tok, ..Frame::new(K::YesNo, p, f.source) });

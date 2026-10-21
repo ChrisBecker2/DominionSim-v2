@@ -73,6 +73,7 @@ pub mod id {
     pub use crate::sets::empires::ids::*;
     pub use crate::sets::hinterlands::ids::*;
     pub use crate::sets::intrigue::ids::*;
+    pub use crate::sets::menagerie::ids::*;
     pub use crate::sets::nocturne::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
@@ -82,13 +83,22 @@ pub mod id {
 }
 
 /// The first of the Events (pseudo-cards: ids for things that are bought but never gained, see `sets::adventures`). The Events are the 20
-/// of Adventures, then the 13 of Empires, Summon and the 10 of Rising Sun, and every id from here up (Events, then the Landmarks) is a
-/// pseudo-card: never in a zone, a pile or a supply mask, so `Counts` needs no lane for it.
+/// of Adventures, then the 13 of Empires, Summon, the 10 of Rising Sun and the 20 of Menagerie, and every id from here up (Events, then the
+/// Landmarks) is a pseudo-card: never in a zone, a pile or a supply mask, so `Counts` needs no lane for it.
 pub const FIRST_EVENT: CardId = id::ALMS;
 /// The number of Adventures Events.
 pub const NUM_ADV_EVENTS: usize = 20;
-/// The number of Events (Adventures, then Empires): `events` masks are indexed by `event - FIRST_EVENT`.
-pub const NUM_EVENTS: usize = 44;
+/// The number of Events (Adventures, Empires, Summon, Rising Sun, Menagerie): `events` masks are `u64`, indexed by `event - FIRST_EVENT` (64 is all of them).
+pub const NUM_EVENTS: usize = 64;
+/// The first of the 20 Ways (Menagerie): pseudo-cards that give an Action card another way to be played; the highest ids, after the Artifacts.
+pub const FIRST_WAY: CardId = id::WAY_OF_THE_BUTTERFLY;
+pub const NUM_WAYS: usize = 20;
+
+/// Whether `card` is one of the 20 Ways.
+#[inline(always)]
+pub fn is_way(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_WAY) < NUM_WAYS as CardId
+}
 /// The first of the 21 Landmarks (Empires), after the Events.
 pub const FIRST_LANDMARK: CardId = id::AQUEDUCT;
 pub const NUM_LANDMARKS: usize = 21;
@@ -314,13 +324,16 @@ pub enum CardSet {
     Hinterlands,
     /// Renaissance (Villagers, Artifacts, Projects; see `sets::renaissance`).
     Renaissance,
+    /// Menagerie (Exile, Horses, Ways, Events; see `sets::menagerie`).
+    Menagerie,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 14] = [
+    pub const ALL: [CardSet; 15] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
         CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
         CardSet::Hinterlands, CardSet::Renaissance,
+        CardSet::Menagerie,
     ];
 
     pub fn name(self) -> &'static str {
@@ -339,6 +352,7 @@ impl CardSet {
             CardSet::Nocturne => "Nocturne",
             CardSet::Hinterlands => "Hinterlands",
             CardSet::Renaissance => "Renaissance",
+            CardSet::Menagerie => "Menagerie",
         }
     }
 }
@@ -477,6 +491,11 @@ pub(crate) const fn hl(d: CardDef) -> CardDef {
 /// A Renaissance card.
 pub(crate) const fn ren(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Renaissance, ..d }
+}
+
+/// A Menagerie card.
+pub(crate) const fn men(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Menagerie, ..d }
 }
 
 /// A Rising Sun card.
@@ -743,6 +762,12 @@ pub enum ModeOpt {
     /// Governor: each player in turn order, starting with the chooser, may trash a card from the hand and gain one costing exactly
     /// `.0` more (the chooser) or `.1` more (the others).
     EachTrashGain(u8, u8),
+    /// Sleigh: put the card just gained (the frame's `subject`) into the hand / onto the deck, if it is still where it was gained.
+    MoveGained(Dest),
+    /// Transport: Exile an Action card (a card matching `Filter`) from the Supply.
+    ExileFromSupply(Filter),
+    /// Transport: put a card matching `Filter` from the Exile mat onto the deck.
+    ExileToDeck(Filter),
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -808,6 +833,8 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::SharesTypeWith(_) => ("a", "card"),
         Filter::ActionToDiscard => ("an", "Action"),
         Filter::ReplayTarget => ("an", "Action"),
+        Filter::Frogged => ("a", "card"),
+        Filter::PopulateLeft => ("an", "Action"),
     }
 }
 
@@ -852,6 +879,7 @@ impl ModeOpt {
             ModeOpt::TrashSelfRevealVpPerTreasureType => "Trash this for +1 VP per Treasure type in hand".to_string(),
             ModeOpt::NativeVillageAdd => "Put the top card of your deck on your Native Village mat".to_string(),
             ModeOpt::NativeVillageTake => "Put the cards on your Native Village mat into your hand".to_string(),
+            ModeOpt::GainMany(c, _, 1) => format!("Gain a {}", name(c)),
             ModeOpt::GainMany(c, _, n) => format!("Gain {n} {}s", name(c)),
             ModeOpt::TopdeckFromHand(_) => "Put a card from your hand onto your deck".to_string(),
             ModeOpt::TrashHand => "Trash your hand".to_string(),
@@ -896,6 +924,16 @@ impl ModeOpt {
                 format!("Trash {a} {noun} from your hand")
             }
             ModeOpt::ReplayAction => "Replay an Action you played".to_string(),
+            ModeOpt::MoveGained(Dest::Hand) => "Put it into your hand".to_string(),
+            ModeOpt::MoveGained(_) => "Put it onto your deck".to_string(),
+            ModeOpt::ExileFromSupply(f) => {
+                let (a, noun) = filter_words(f);
+                format!("Exile {a} {noun} from the Supply")
+            }
+            ModeOpt::ExileToDeck(f) => {
+                let (a, noun) = filter_words(f);
+                format!("Put {a} {noun} from your Exile mat onto your deck")
+            }
         }
     }
 }
@@ -933,7 +971,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::VILLAIN;
+pub const LAST_KINGDOM: CardId = id::ANIMAL_FAIR;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -1005,6 +1043,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "nocturne" | "noc" => Some(CardSet::Nocturne),
         "hinterlands" | "hint" | "hl" => Some(CardSet::Hinterlands),
         "renaissance" | "ren" => Some(CardSet::Renaissance),
+        "menagerie" | "men" => Some(CardSet::Menagerie),
         _ => None,
     }
 }
@@ -1077,10 +1116,12 @@ pub fn add_random_prophecy(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mu
     }
 }
 
-/// The Events, Landmarks and Projects of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks; Renaissance: 20 Projects).
+/// The Events, Landmarks, Projects and Ways of one set (Adventures: 20 Events; Empires: 13 Events and 21 Landmarks; Renaissance: 20 Projects; Menagerie:
+/// 20 Events and 20 Ways).
 pub fn pseudo_cards_of(set: CardSet) -> impl Iterator<Item = CardId> {
     (FIRST_EVENT..FIRST_EVENT + (NUM_EVENTS + NUM_LANDMARKS) as CardId)
         .chain(FIRST_PROJECT..FIRST_PROJECT + NUM_PROJECTS as CardId)
+        .chain(FIRST_WAY..FIRST_WAY + NUM_WAYS as CardId)
         .filter(move |&c| set_of(c) == set)
 }
 
@@ -1106,7 +1147,12 @@ pub fn add_random_events(kingdom: &mut Vec<CardId>, sets: &[CardSet], rng: &mut 
             events_left -= 1;
             if used < 2 {
                 let i = rng.below(events.len() as u32) as usize;
-                kingdom.push(events.swap_remove(i));
+                let e = events.swap_remove(i);
+                // At most one Way per game (the rulebook's recommendation): a second is skipped like any landscape beyond the second.
+                if is_way(e) && kingdom.iter().any(|&k| is_way(k)) {
+                    continue;
+                }
+                kingdom.push(e);
                 used += 1;
             }
         }

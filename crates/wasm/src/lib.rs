@@ -2028,6 +2028,8 @@ fn render_event(e: &Event) -> String {
         Event::SetAside { player, card } => format!("Player {} sets aside {}", player + 1, cards::name(card)),
         Event::StartPlay { player, source, card } => format!("Player {}'s {} plays {}", player + 1, cards::name(source), cards::name(card)),
         Event::Reaction { player, card } => format!("Player {} reveals {} (reaction)", player + 1, cards::name(card)),
+        Event::Exile { player, card } => format!("Player {} Exiles {}", player + 1, cards::name(card)),
+        Event::Way { player, way, card } => format!("Player {} plays {} as {}", player + 1, cards::name(card), cards::name(way)),
         Event::Coffers { player, source, n } => format!("Player {} gets +{n} Coffers ({})", player + 1, cards::name(source)),
         Event::SpendCoffers { player, n } => {
             format!("Player {} spends {} Coffers (+${n})", player + 1, if n == 1 { "a token of".to_string() } else { n.to_string() })
@@ -2117,6 +2119,7 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::DeckTop => " from the top of your deck",
         Zone::Tavern => " from your Tavern mat",
         Zone::Archive => " from the cards under your Archives",
+        Zone::Exile => " from your Exile mat",
     }
 }
 
@@ -2202,6 +2205,8 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::CopyInAttackersPlay => ("a copy of a card in play".into(), "copies of cards in play".into()),
         Filter::NecroTarget => ("a non-Duration Action card".into(), "non-Duration Action cards".into()),
         Filter::SharesTypeWith(c) => (format!("a card sharing a type with {}", cards::name(c)), format!("cards sharing a type with {}", cards::name(c))),
+        Filter::Frogged => ("a card played as Way of the Frog".into(), "cards played as Way of the Frog".into()),
+        Filter::PopulateLeft => ("an Action card from a pile you have not gained from".into(), "Action cards from piles you have not gained from".into()),
     }
 }
 
@@ -2257,6 +2262,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
         DecisionKind::PlayTreasure => format!("You may play a Treasure card (${} so far).", state.turn.coins),
         DecisionKind::PlayNight => "Night phase: you may play a Night card.".to_string(),
         DecisionKind::PickBoon => "Choose a Boon to receive.".to_string(),
+        DecisionKind::Way => format!("{} was played: do what it says, or play it as a Way?", cards::name(d.subject)),
         DecisionKind::Gain { max_cost, filter, dest, exact, potion, optional } => {
             let (one, _) = filter_noun(filter);
             let top = state.stack.top().filter(|f| f.kind == dominion_engine::state::FrameKind::Gain);
@@ -2296,6 +2302,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Archive => ("set aside", " face down under this".to_string()),
                 Act::ShuffleIn => ("shuffle", " into your deck".to_string()),
                 Act::Choose => ("choose", String::new()),
+                Act::Exile => ("Exile", String::new()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -2314,6 +2321,27 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
             let may = if min == 0 { "You may " } else { "" };
             let verb = if min == 0 { verb.to_string() } else { capitalize(verb) };
             format!("{may}{verb} {what}{zone}{tail}{order}.{upgrade}")
+        }
+        DecisionKind::YesNo { act } if matches!(d.source, Some(id::VILLAGE_GREEN | id::BARGE)) => {
+            let (cards_n, actions, buys, _) = cards::duration_bonus(d.source.unwrap());
+            let mut parts = Vec::new();
+            if cards_n > 0 {
+                parts.push(format!("+{cards_n} Card{}", if cards_n == 1 { "" } else { "s" }));
+            }
+            let bonus = bonus_text(actions, buys, 0, 0, false);
+            if !bonus.is_empty() {
+                parts.push(bonus);
+            }
+            let _ = act;
+            format!("Take {} now? (No: at the start of your next turn.)", parts.join(", "))
+        }
+        DecisionKind::YesNo { .. } if d.source == Some(id::HUNTING_LODGE) => "Discard your hand for +5 Cards?".to_string(),
+        DecisionKind::YesNo { .. } if d.source == Some(id::SLEIGH) => {
+            format!("Discard Sleigh to put the {} you gained into your hand or onto your deck?", cards::name(d.target))
+        }
+        DecisionKind::YesNo { .. } if d.source == Some(id::EXILE) => format!("Discard all your Exiled {} (you gained one)?", cards::name(d.subject)),
+        DecisionKind::YesNo { act: Act::Return } if d.source == Some(id::WAY_OF_THE_BUTTERFLY) => {
+            format!("Return {} to its pile to gain a card costing exactly $1 more?", cards::name(d.subject))
         }
         DecisionKind::YesNo { act } => {
             let card = cards::name(d.subject);
@@ -2337,6 +2365,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::Archive => format!("Set aside {card}?"),
                 Act::ShuffleIn => format!("Shuffle {card} into your deck?"),
                 Act::Choose => format!("Choose {card}?"),
+                Act::Exile => format!("Exile {card}?"),
             }
         }
         DecisionKind::Token { token } if token as usize == dominion_engine::sets::empires::TOK_TAX => "Put 2 Debt on a Supply pile.".to_string(),
@@ -2425,6 +2454,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
     match c {
         Choice::Coffers => "Spend a Coffers token (+$1)".to_string(),
         Choice::Villager => "Spend a Villager (+1 Action)".to_string(),
+        Choice::Alt(card) => format!("Buy {} by trashing an Action card", cards::name(card)),
         Choice::PayDebt => "Pay off Debt".to_string(),
         Choice::PayDebtKeep(n) => format!("Pay off Debt, keeping {n}"),
         Choice::Bid(0) => "No bid".to_string(),
@@ -2438,6 +2468,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
             DecisionKind::PlayNight => "Done (end the Night phase)".to_string(),
             DecisionKind::Buy => "Done buying".to_string(),
             DecisionKind::Gain { .. } => "Don't gain".to_string(),
+            DecisionKind::Way => "Do what the card says".to_string(),
             _ => "Done".to_string(),
         },
         Choice::Yes => "Yes".to_string(),
@@ -2469,7 +2500,9 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                     Act::Archive => format!("Set aside {name}"),
                     Act::ShuffleIn => format!("Shuffle {name} into the deck"),
                     Act::Choose => format!("Replay {name}"),
+                    Act::Exile => format!("Exile {name}"),
                 },
+                DecisionKind::Way => format!("Play it as {name}"),
                 DecisionKind::PlayNight => format!("Play {name} (Night)"),
                 DecisionKind::PickBoon => format!("Receive {name}"),
                 DecisionKind::Token { .. } => format!("Put it on {name}"),
@@ -2548,6 +2581,21 @@ fn events_json(state: &GameState) -> String {
         })
         .collect();
     format!("[{}]", items.join(","))
+}
+
+/// `["Way of the Ox", ...]`: the Ways of the game (Menagerie), in id order.
+fn ways_json(state: &GameState) -> String {
+    let items: Vec<String> = (0..cards::NUM_WAYS as CardId)
+        .filter(|i| state.men.ways & (1u32 << i) != 0)
+        .map(|i| jstr(cards::name(cards::FIRST_WAY + i)))
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `{"hasHorses":true,"horses":30,"mouse":"Sleigh"|null}`: the Horse pile (outside the Supply) and Way of the Mouse's card (Menagerie).
+fn menagerie_json(state: &GameState) -> String {
+    let mouse = if state.men.mouse != 0 { jstr(cards::name(state.men.mouse)) } else { "null".to_string() };
+    format!("{{\"hasHorses\":{},\"horses\":{},\"mouse\":{mouse}}}", state.has_horse_pile(), state.horses_left())
 }
 
 /// `[{"name":"Fair","cost":4,"costLabel":"$4","buyable":false,"owners":[0]},...]`: the Projects of the game (Renaissance); `owners` are the seats with a cube on
@@ -2776,6 +2824,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"tavern\":{tavern},\"tokens\":{tokens},\"journeyDown\":{journey},\"minusCard\":{mcard},\"minusCoin\":{mcoin},\"inherit\":{inherit},",
             "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
             "\"villagers\":{villagers},\"ownedProjects\":{owned_projects},\"plotTokens\":{plot},\"cargo\":{cargo},\"research\":{research},",
+            "\"exile\":{exile},\"invested\":{invested},\"delayed\":{delayed},\"trashedLast\":{trashed_last},\"gatekeepers\":{gatekeepers},",
             "\"states\":{states},\"hounds\":{hounds},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
@@ -2819,6 +2868,11 @@ fn player_json(state: &GameState, p: usize) -> String {
         prince_cards = counts_json(&ps.prince_cards.counts()),
         coffers = ps.coffers,
         villagers = ps.ren.villagers,
+        exile = counts_json(&ps.men.exile.counts()),
+        invested = counts_json(&ps.men.invest.counts()),
+        delayed = counts_json(&ps.men.aside.counts()),
+        trashed_last = ps.men.trashed_last,
+        gatekeepers = ps.men.gk,
         owned_projects = {
             let items: Vec<String> = (0..cards::NUM_PROJECTS as CardId)
                 .filter(|i| ps.ren.projects & (1u32 << i) != 0)
@@ -3001,7 +3055,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"ways\":{ways},\"menagerie\":{menagerie},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -3016,6 +3070,8 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         tpot = state.turn.potions,
         supply = supply_json(state),
         events = events_json(state),
+        ways = ways_json(state),
+        menagerie = menagerie_json(state),
         projects = projects_json(state),
         artifacts = artifacts_json(state),
         landmarks = landmarks_json(state),

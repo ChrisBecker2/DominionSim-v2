@@ -24,6 +24,7 @@ mod draws;
 mod empires;
 mod hinterlands;
 mod intrigue;
+mod menagerie;
 mod nocturne;
 mod promo;
 mod prosperity;
@@ -92,6 +93,10 @@ macro_rules! with_set {
                 type $S = renaissance::Renaissance;
                 $body
             }
+            CardSet::Menagerie => {
+                type $S = menagerie::Menagerie;
+                $body
+            }
         }
     };
 }
@@ -158,6 +163,10 @@ pub(super) trait SetDefaults {
     fn rule_play(_s: &Strategy, _view: &PlayerView, _decision: &Decision, _choices: &[Choice]) -> Option<Choice> {
         None
     }
+    /// A gain (or Exile from the Supply) decision caused by `source` (a card, Event or Way of this set) that has its own policy, before the gain list.
+    fn gain(_s: &Strategy, _view: &PlayerView, _decision: &Decision, _source: CardId, _choices: &[Choice]) -> Option<Choice> {
+        None
+    }
     /// A gain from outside the Supply (a Reward) when the gain list names none of the choices.
     fn default_side_gain(_choices: &[Choice]) -> Option<CardId> {
         None
@@ -177,6 +186,23 @@ pub(super) fn default_mode(s: &Strategy, view: &PlayerView, card: CardId, choice
 pub(super) fn yes_no(s: &Strategy, view: &PlayerView, decision: &Decision) -> Option<Choice> {
     let source = decision.source?;
     with_set!(cards::set_of(source), S => S::yes_no(s, view, decision, source))
+}
+
+pub(super) fn gain(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, choices: &[Choice]) -> Option<Choice> {
+    if cards::set_of(source) != CardSet::Menagerie {
+        return None;
+    }
+    menagerie::Menagerie::gain(s, view, decision, source, choices)
+}
+
+/// The fast choice of a Way decision when no `[[way]]` rule speaks (Menagerie).
+pub(super) fn way_choice(s: &Strategy, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
+    menagerie::way_choice(s, view, decision, choices)
+}
+
+/// Whether the Way decision is close enough for a bot that searches to search it.
+pub(super) fn way_is_close(s: &Strategy, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> bool {
+    menagerie::way_is_close(s, view, decision, choices)
 }
 
 pub(super) fn name(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId, choices: &[Choice]) -> Option<Choice> {

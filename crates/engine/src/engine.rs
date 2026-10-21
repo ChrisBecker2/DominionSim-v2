@@ -78,6 +78,9 @@ pub enum DecisionKind {
     PlayNight,
     /// Nocturne: pick a Boon to receive from a pool (Druid's three, the Fool's). Choices: `Card(boon)` (a pseudo-card id).
     PickBoon,
+    /// Menagerie: an Action card (`Decision::subject`) has just been played in a game with a Way. Choices: `Pass` (do what the card says) or `Card(way)`, a Way of the game
+    /// (do what the Way says instead).
+    Way,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -145,6 +148,8 @@ pub enum Choice {
     Bid(u8),
     /// Action phase, with no Action left: remove one Villager token for +1 Action (Renaissance).
     Villager,
+    /// Buy phase: buy this card by its other way of paying (Animal Fair: trash an Action card from the hand instead of paying $7). Uses a Buy, no $.
+    Alt(CardId),
 }
 
 /// `==` written out and inlined: the derived one is an out-of-line call, and the bots look for a choice in the list (`contains`) several
@@ -154,7 +159,7 @@ impl PartialEq for Choice {
     fn eq(&self, other: &Choice) -> bool {
         use Choice::*;
         match (self, other) {
-            (Card(a), Card(b)) => a == b,
+            (Card(a), Card(b)) | (Alt(a), Alt(b)) => a == b,
             (Pass, Pass) | (Yes, Yes) | (No, No) | (Coffers, Coffers) | (PayDebt, PayDebt) | (Villager, Villager) => true,
             (Mode(a), Mode(b))
             | (Position(a), Position(b))
@@ -285,6 +290,10 @@ pub enum Event {
     Villagers { player: u8, source: CardId, n: u16 },
     /// `player` removes a Villager for +1 Action.
     SpendVillager { player: u8 },
+    /// `player` puts `card` on their Exile mat (from the Supply, the hand, a revealed card or a card in play).
+    Exile { player: u8, card: CardId },
+    /// `player` plays `card` as the Way `way` (instead of doing what the card says).
+    Way { player: u8, way: CardId, card: CardId },
     /// `player` takes the Artifact `artifact`, from the seat `from` (255: nobody had it).
     Artifact { player: u8, artifact: CardId, from: u8 },
     /// `player` has `tokens` tokens on Sinister Plot now.
@@ -569,7 +578,11 @@ impl GameState {
                         return Run::Continue;
                     }
                 }
-                if (self.turn.actions > 0 || self.players[p].ren.villagers > 0)
+                // Snowy Village: further +Actions are ignored (the Actions are capped, and a Villager gives nothing).
+                if self.turn.men.flags & crate::state::MT_SNOWY != 0 {
+                    self.turn.actions = self.turn.actions.min(self.turn.men.cap);
+                }
+                if (self.turn.actions > 0 || (self.players[p].ren.villagers > 0 && self.turn.men.flags & crate::state::MT_SNOWY == 0))
                     && (self.players[p].hand.any_type(ACTION)
                         || (self.players[p].inherit != 0 && self.players[p].hand.has(id::ESTATE))
                         || self.rs_can_play_extra(p as u8))
@@ -588,6 +601,10 @@ impl GameState {
                 // `DecisionKind` is authoritative; `apply_phase` reuses it (via `apply_unchecked`)
                 // instead of re-deriving the same thing from another hand scan.
                 let has_choice_treasure = if self.turn.treasures_done { false } else { self.play_choice_free_treasures(sink) };
+                // A Treasure played here left frames to resolve first (Menagerie: Kiln's gain, stockpile's Exile).
+                if !self.stack.is_empty() {
+                    return Run::Continue;
+                }
                 if has_choice_treasure {
                     Run::Decide(DecisionKind::PlayTreasure, 0)
                 } else if (self.can_buy() || self.debt_payment_open()) && !self.turn.treasury_offered {
@@ -671,7 +688,7 @@ impl GameState {
         match kind {
             DecisionKind::PlayAction if self.turn.actions == 0 => {
                 // Out of Actions: a Villager buys one (spending one earlier would be no better).
-                if self.players[p].ren.villagers > 0 {
+                if self.players[p].ren.villagers > 0 && self.turn.men.flags & crate::state::MT_SNOWY == 0 {
                     out.push(Choice::Villager);
                 }
                 out.push(Choice::Pass);
@@ -711,7 +728,8 @@ impl GameState {
                     let plain = self.turn.cost_reduction == 0
                         && !self.in_supply(id::QUARRY)
                         && !self.in_supply(id::PEDDLER)
-                        && self.adv & crate::state::G_COST_TOKEN == 0;
+                        && self.adv & crate::state::G_COST_TOKEN == 0
+                        && self.men.flags & crate::state::M_COST == 0;
                     // Nocturne: Deluded, no Action can be bought this turn.
                     let no_actions = self.turn.noc.deluded;
                     if plain {
@@ -749,6 +767,10 @@ impl GameState {
                             out.push(Choice::Card(e));
                         }
                     }
+                }
+                // Animal Fair (Menagerie): bought by trashing an Action card from the hand instead of paying.
+                if self.in_supply(crate::sets::menagerie::ids::ANIMAL_FAIR) && self.alt_buy_possible(crate::sets::menagerie::ids::ANIMAL_FAIR) {
+                    out.push(Choice::Alt(crate::sets::menagerie::ids::ANIMAL_FAIR));
                 }
                 // Projects (Renaissance): bought like Events, for their cost and a Buy.
                 if self.ren.projects != 0 && self.can_buy() {
@@ -832,6 +854,9 @@ impl GameState {
             (_, Choice::PayDebtKeep(n)) => self.pay_debt_keeping(p, n as u16, sink),
             (Phase::Action, Choice::Card(c)) => {
                 self.turn.actions -= 1;
+                if self.turn.men.flags & crate::state::MT_SNOWY != 0 {
+                    self.turn.men.cap = self.turn.men.cap.saturating_sub(1);
+                }
                 // A Shadow card with a copy in the deck is played from there.
                 let from_deck = self.plays_from_deck(p, c);
                 let ps = &mut self.players[p as usize];
@@ -884,6 +909,7 @@ impl GameState {
                 self.play_all_choice_free_treasures(sink);
                 self.turn.treasures_done = true;
             }
+            (Phase::Buy, Choice::Alt(c)) => self.buy_alt(c, p, sink),
             (Phase::Buy, Choice::Card(c)) => {
                 self.turn.coins -= self.cost(c) as u16;
                 if cards::potion_cost(c) {
@@ -973,7 +999,7 @@ impl GameState {
         let hand = self.players[p as usize].hand;
         // Copper, Silver and Gold are played by a short path unless a card of this game acts on their plays: Envious (Silver and Gold make $1),
         // Sauna (a trash for each Silver) or Corsair (the first Silver or Gold of a turn is trashed).
-        let plain = !self.turn.noc.envy && self.turn.adv.sauna == 0 && !self.in_supply(id::CORSAIR);
+        let plain = !self.turn.noc.envy && self.turn.adv.sauna == 0 && !self.in_supply(id::CORSAIR) && self.turn.men.kiln == 0;
         for (c, n) in hand.iter() {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);
@@ -1056,6 +1082,10 @@ impl GameState {
         if self.rs.active != 0 {
             self.rs_treasure_plays(c, n, sink);
         }
+        // Kiln: the card played now may come with a copy first (asked before anything else of the play).
+        if self.turn.men.kiln > 0 {
+            self.kiln_hook(c, p);
+        }
         let coins_before = self.turn.coins;
         let ps = &mut self.players[p as usize];
         if fresh {
@@ -1100,6 +1130,10 @@ impl GameState {
         // Ducat (Renaissance): +1 Coffers each time.
         if c == id::DUCAT {
             self.give_coffers(p, c, n as u16, sink);
+        }
+        // Menagerie: Supplies gains a Horse onto the deck, Stockpile Exiles itself.
+        if c == crate::sets::menagerie::ids::SUPPLIES || c == crate::sets::menagerie::ids::STOCKPILE {
+            self.men_treasure(c, n, sink);
         }
         self.turn.coins += stone;
         // The $ the play made, indented under it ("+$1", "+$4" for a second Fool's Gold), and its extras (+Buy, Merchant's +$1); not for the
@@ -1239,11 +1273,18 @@ impl GameState {
         // Mission (Adventures): an extra turn too, unless this is one already or an Outpost's is taken instead; the extra turn buys no cards.
         let mission = self.turn.adv.mission && !self.turn.is_extra_turn && !grant_extra;
         self.turn.adv.next_no_buy = mission;
-        self.turn.outpost_grants_extra = grant_extra || mission;
+        // Seize the Day (Menagerie): an extra turn after this one, with no check on the previous turn.
+        self.turn.outpost_grants_extra = grant_extra || mission || self.turn.men.flags & crate::state::MT_SEIZE != 0;
+        // Goatherd (Menagerie): the cards trashed this turn, for the player to the left.
+        if self.men.flags & crate::state::M_TRASHES != 0 {
+            self.players[p].men.trashed_last = self.turn.men.trashed;
+        }
         // Farrier's overpay adds to the hand drawn now.
         let draw_n = (if outpost_played { 3u8 } else { 5 }).saturating_add(self.turn.extra_draw);
         // The Flag: +1 Card when drawing the hand.
         let draw_n = draw_n + (self.ren.holder[(id::FLAG - cards::FIRST_ARTIFACT) as usize] == p as u8 + 1) as u8;
+        // Way of the Squirrel (Menagerie): +2 Cards at the end of the turn for each play, whoever's turn it is.
+        let draw_n = if self.turn.men.squirrel.iter().any(|&x| x != 0) { self.squirrel_draws(p as u8, draw_n) } else { draw_n };
         // Other players' failed Outposts from the previous turn are discarded now.
         for q in 0..self.num_players as usize {
             if q != p && !self.players[q].discard_next_cleanup.is_empty() {
@@ -1512,6 +1553,10 @@ impl GameState {
                 self.turn.gained_in_buy = self.turn.gained_in_buy.saturating_add(1);
             }
         }
+        // Menagerie: Wayfarer's cost follows the last card gained; Destrier and Commerce count this turn's gains.
+        if self.men.flags & crate::state::M_GAINS != 0 {
+            self.men_track_gain(p, c);
+        }
         // Rising Sun: Kintsugi's and Receive Tribute's records, Growth's cheaper card, Rapid Expansion's set-aside (answered after the triggers below).
         if self.rs.hook != 0 {
             self.rs_gain_pre(p, c, to);
@@ -1639,6 +1684,8 @@ impl GameState {
             Some(Frame { kind: FrameKind::YesNo, act: Act::Call, last, .. }) => *last,
             // Pixie: the Boon the Pixie may be trashed to receive twice.
             Some(Frame { kind: FrameKind::YesNo, then: Then::PixieTrash, last, .. }) => *last,
+            // Sleigh: the card gained that it may move.
+            Some(Frame { kind: FrameKind::YesNo, then: Then::SleighMove, last, .. }) => *last,
             _ => 0,
         }
     }

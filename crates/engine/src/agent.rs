@@ -306,6 +306,52 @@ impl<'a> PlayerView<'a> {
         self.state.ren.flags & crate::state::REN_FLEET_ROUND != 0
     }
 
+    // --- Menagerie ---
+    /// The cards on `p`'s Exile mat (public).
+    pub fn exile_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].men.exile.counts()
+    }
+    /// The cards on my Exile mat.
+    pub fn exile(&self) -> Counts {
+        self.exile_of(self.me)
+    }
+    /// The copies on `p`'s mat that Invest put there.
+    pub fn invested_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].men.invest.counts()
+    }
+    /// The cards `p` has set aside with Delay, Reap and Way of the Turtle, to be played at the start of their next turn.
+    pub fn delayed_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].men.aside.counts()
+    }
+    /// The Ways of this game (card ids), in id order.
+    pub fn ways(&self) -> impl Iterator<Item = CardId> + '_ {
+        (0..crate::cards::NUM_WAYS as CardId).filter(|i| self.state.men.ways & (1u32 << i) != 0).map(|i| crate::cards::FIRST_WAY + i)
+    }
+    /// Whether the Way `w` is in this game.
+    pub fn has_way(&self, w: CardId) -> bool {
+        crate::cards::is_way(w) && self.state.men.ways & crate::sets::menagerie::way_bit(w) != 0
+    }
+    /// The card set aside for Way of the Mouse (0: none).
+    pub fn mouse_card(&self) -> CardId {
+        self.state.men.mouse
+    }
+    /// The Horses left in their pile (outside the Supply).
+    pub fn horses_left(&self) -> u8 {
+        self.state.horses_left()
+    }
+    /// Whether this game has the Horse pile.
+    pub fn has_horse_pile(&self) -> bool {
+        self.state.has_horse_pile()
+    }
+    /// The cards `p` trashed on their last turn (Goatherd of the player to their left).
+    pub fn trashed_last_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].men.trashed_last
+    }
+    /// Whether some Gatekeeper's Attack is on against me.
+    pub fn gatekept(&self) -> bool {
+        self.state.men.hook & crate::state::H_GATE != 0 && self.state.gatekeeper_hits(self.me)
+    }
+
     // --- Rising Sun ---
     /// The Buys the turn's player can use: the Buys, and under Flourishing Trade the Actions too.
     pub fn buys_left(&self) -> u16 {

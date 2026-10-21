@@ -56,26 +56,26 @@ pub mod ids {
     pub const DISCIPLE: CardId = 278;
     pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 423;
-    pub const BALL: CardId = 424;
-    pub const BONFIRE: CardId = 425;
-    pub const BORROW: CardId = 426;
-    pub const EXPEDITION: CardId = 427;
-    pub const FERRY: CardId = 428;
-    pub const INHERITANCE: CardId = 429;
-    pub const LOST_ARTS: CardId = 430;
-    pub const MISSION: CardId = 431;
-    pub const PATHFINDING: CardId = 432;
-    pub const PILGRIMAGE: CardId = 433;
-    pub const PLAN: CardId = 434;
-    pub const QUEST: CardId = 435;
-    pub const RAID: CardId = 436;
-    pub const SAVE: CardId = 437;
-    pub const SCOUTING_PARTY: CardId = 438;
-    pub const SEAWAY: CardId = 439;
-    pub const TRADE: CardId = 440;
-    pub const TRAINING: CardId = 441;
-    pub const TRAVELLING_FAIR: CardId = 442;
+    pub const ALMS: CardId = 454;
+    pub const BALL: CardId = 455;
+    pub const BONFIRE: CardId = 456;
+    pub const BORROW: CardId = 457;
+    pub const EXPEDITION: CardId = 458;
+    pub const FERRY: CardId = 459;
+    pub const INHERITANCE: CardId = 460;
+    pub const LOST_ARTS: CardId = 461;
+    pub const MISSION: CardId = 462;
+    pub const PATHFINDING: CardId = 463;
+    pub const PILGRIMAGE: CardId = 464;
+    pub const PLAN: CardId = 465;
+    pub const QUEST: CardId = 466;
+    pub const RAID: CardId = 467;
+    pub const SAVE: CardId = 468;
+    pub const SCOUTING_PARTY: CardId = 469;
+    pub const SEAWAY: CardId = 470;
+    pub const TRADE: CardId = 471;
+    pub const TRAINING: CardId = 472;
+    pub const TRAVELLING_FAIR: CardId = 473;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -162,7 +162,7 @@ pub(crate) fn traveller_piles(in_supply: &SupplyMask) -> [u8; NUM_TRAV] {
 
 /// Whether `e` is an Event that can be bought only once per turn (Alms, Borrow, Save, Pilgrimage).
 pub(crate) fn once_per_turn(e: CardId) -> bool {
-    matches!(e, ids::ALMS | ids::BORROW | ids::SAVE | ids::PILGRIMAGE | crate::sets::rising_sun::ids::CONTINUE)
+    matches!(e, ids::ALMS | ids::BORROW | ids::SAVE | ids::PILGRIMAGE | crate::sets::rising_sun::ids::CONTINUE | crate::sets::menagerie::ids::DESPERATION)
 }
 
 /// The Adventures cards (see the module docs of `sets`).
@@ -563,6 +563,9 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
     if e == crate::sets::promo::ids::SUMMON {
         return crate::sets::promo::event_available(g, e);
     }
+    if cards::set_of(e) == CardSet::Menagerie {
+        return crate::sets::menagerie::event_available(g, e);
+    }
     if cards::set_of(e) == CardSet::RisingSun {
         return crate::sets::rising_sun::event_available(g, e);
     }
@@ -599,6 +602,9 @@ pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, si
     use Act::*;
     if e == crate::sets::promo::ids::SUMMON {
         return crate::sets::promo::event_effect(g, e, p, sink);
+    }
+    if cards::set_of(e) == CardSet::Menagerie {
+        return crate::sets::menagerie::event_effect(g, e, p, sink);
     }
     if cards::set_of(e) == CardSet::RisingSun {
         return crate::sets::rising_sun::event_effect(g, e, p, sink);

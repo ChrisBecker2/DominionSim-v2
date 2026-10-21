@@ -40,32 +40,32 @@ pub mod ids {
     pub const TREASURER: CardId = 405;
     pub const VILLAIN: CardId = 406;
     // The Projects (after the Landmarks).
-    pub const CATHEDRAL: CardId = 532;
-    pub const CITY_GATE: CardId = 533;
-    pub const PAGEANT: CardId = 534;
-    pub const SEWERS: CardId = 535;
-    pub const STAR_CHART: CardId = 536;
-    pub const EXPLORATION: CardId = 537;
-    pub const FAIR: CardId = 538;
-    pub const SILOS: CardId = 539;
-    pub const SINISTER_PLOT: CardId = 540;
-    pub const ACADEMY: CardId = 541;
-    pub const CAPITALISM: CardId = 542;
-    pub const FLEET: CardId = 543;
-    pub const GUILDHALL: CardId = 544;
-    pub const PIAZZA: CardId = 545;
-    pub const ROAD_NETWORK: CardId = 546;
-    pub const BARRACKS: CardId = 547;
-    pub const CROP_ROTATION: CardId = 548;
-    pub const INNOVATION: CardId = 549;
-    pub const CANAL: CardId = 550;
-    pub const CITADEL: CardId = 551;
+    pub const CATHEDRAL: CardId = 583;
+    pub const CITY_GATE: CardId = 584;
+    pub const PAGEANT: CardId = 585;
+    pub const SEWERS: CardId = 586;
+    pub const STAR_CHART: CardId = 587;
+    pub const EXPLORATION: CardId = 588;
+    pub const FAIR: CardId = 589;
+    pub const SILOS: CardId = 590;
+    pub const SINISTER_PLOT: CardId = 591;
+    pub const ACADEMY: CardId = 592;
+    pub const CAPITALISM: CardId = 593;
+    pub const FLEET: CardId = 594;
+    pub const GUILDHALL: CardId = 595;
+    pub const PIAZZA: CardId = 596;
+    pub const ROAD_NETWORK: CardId = 597;
+    pub const BARRACKS: CardId = 598;
+    pub const CROP_ROTATION: CardId = 599;
+    pub const INNOVATION: CardId = 600;
+    pub const CANAL: CardId = 601;
+    pub const CITADEL: CardId = 602;
     // The Artifacts, the highest ids.
-    pub const FLAG: CardId = 552;
-    pub const HORN: CardId = 553;
-    pub const KEY: CardId = 554;
-    pub const LANTERN: CardId = 555;
-    pub const TREASURE_CHEST: CardId = 556;
+    pub const FLAG: CardId = 603;
+    pub const HORN: CardId = 604;
+    pub const KEY: CardId = 605;
+    pub const LANTERN: CardId = 606;
+    pub const TREASURE_CHEST: CardId = 607;
 }
 
 /// A Project: no types, no bonuses (what it does is looked up where it applies); its cost is the cost to buy it.
@@ -154,7 +154,8 @@ const CAPITALISM_NAMES: &[&str] = &[
     "Artificer", "Caravan Guard", "Giant", "Hero", "Messenger", "Miser", "Peasant", "Soldier", "Swamp Hag", "Teacher", "Treasure Hunter",
     "Wine Merchant", "Catapult", "Chariot Race", "Emporium", "Farmers' Market", "Gladiator", "Legionary", "Opulent Castle", "Sacrifice", "Villa", "Bard",
     "Conclave", "Sacred Grove", "Secret Cave", "Tormentor", "Tracker", "Cargo Ship", "Flag Bearer", "Improve", "Patron", "Priest", "Treasurer",
-    "Aristocrat", "Change", "Fishmonger", "Kiln", "Kitsune", "Mountain Shrine", "Samurai", "Tea House",
+    "Aristocrat", "Change", "Fishmonger", "Kiln", "Kitsune", "Mountain Shrine", "Samurai", "Tea House", "Animal Fair", "Bounty Hunter", "Cardinal", "Coven",
+    "Fisherman", "Gatekeeper", "Livery", "Paddock", "Scrap",
 ];
 
 /// Whether `c` is an Action with a "+$" amount in its text (the cards Capitalism turns into Treasures): a lookup table built once.

@@ -77,6 +77,19 @@ struct WayRuleRaw {
     cond: Option<String>,
 }
 
+/// `[[favor]] ally = "Cave Dwellers" use = true if = "..."`: whether to spend Favors on the Ally's ability when it is offered (Allies); `ally = "any"` (or no `ally`) is any
+/// Ally, `use = false` declines. The first rule for the Ally whose condition holds decides; with none, the Ally's default (`defaults::allies`) does. The condition is read with the
+/// card the ability is about (the card gained, for an Ally that acts on a gain) as the context.
+#[derive(Deserialize)]
+struct FavorRuleRaw {
+    #[serde(default)]
+    ally: Option<String>,
+    #[serde(rename = "use", default = "default_true")]
+    spend: bool,
+    #[serde(rename = "if")]
+    cond: Option<String>,
+}
+
 /// `[[token]] token = "+1 Card" pile = "Laboratory" if = "..."`: where to put a token when a card or Event asks (Adventures).
 #[derive(Deserialize)]
 struct TokenRuleRaw {
@@ -170,6 +183,10 @@ fn expand_pile(card: CardId) -> Vec<CardId> {
 /// The cards a rule naming `name` stands for: the card, the cards of a Knights or Ruins pile, or both halves of `Sauna/Avanto`.
 fn rule_cards(name: &str) -> Option<Vec<CardId>> {
     let norm: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect();
+    // An Allies split pile named as the pile (`Townsfolk`, `Wizards`...) stands for all four of its cards, top first.
+    if let Some(first) = cards::allies_pile_by_name(name) {
+        return Some((first..first + 4).collect());
+    }
     // A split pile named as `Top/Bottom` stands for both halves.
     for (top, bottom) in cards::SPLIT_PILES {
         let both: String = format!("{}/{}", cards::name(top), cards::name(bottom)).chars().filter(|c| !c.is_whitespace() && *c != '\'').flat_map(|c| c.to_lowercase()).collect();
@@ -224,6 +241,9 @@ struct StrategyFile {
     /// Rules for the Way an Action card is played as (Menagerie): the first rule for the card whose condition holds decides.
     #[serde(default)]
     way: Vec<WayRuleRaw>,
+    /// Rules for spending Favors on the Ally's ability (Allies): the first rule for the Ally whose condition holds decides.
+    #[serde(default)]
+    favor: Vec<FavorRuleRaw>,
     /// Rules for calling a Reserve card (Adventures): the first rule for the card whose condition holds says yes.
     #[serde(default)]
     call: Vec<BuyRuleRaw>,
@@ -290,6 +310,8 @@ pub struct Strategy {
     debt: Vec<(DebtPay, Option<Expr>)>,
     /// `[[way]]` rules in priority order: (the Action card, `None` for any; the Way, `None` for the card's own effect; condition).
     way: Vec<(Option<CardId>, Option<CardId>, Option<Expr>)>,
+    /// `[[favor]]` rules in priority order: (the Ally, `None` for any; whether to spend; condition).
+    favor: Vec<(Option<CardId>, bool, Option<Expr>)>,
     /// `[[call]]` and `[[exchange]]` rules in priority order.
     call: Vec<(CardId, Option<Expr>)>,
     exchange: Vec<(CardId, Option<Expr>)>,
@@ -434,6 +456,15 @@ impl Strategy {
             };
             way.push((card, w, rule.cond.as_deref().map(Expr::parse).transpose()?));
         }
+        let mut favor = Vec::with_capacity(raw.favor.len());
+        for rule in &raw.favor {
+            let ally = match rule.ally.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(a) if a.eq_ignore_ascii_case("any") => None,
+                Some(a) => Some(cards::by_name(a).filter(|&c| cards::is_ally(c)).ok_or_else(|| format!("{a:?} in a [[favor]] rule is not an Ally (or \"any\")"))?),
+            };
+            favor.push((ally, rule.spend, rule.cond.as_deref().map(Expr::parse).transpose()?));
+        }
         let call = compile_rules(&raw.call, "call")?;
         for (c, _) in &call {
             if !cards::is(*c, cards::RESERVE) {
@@ -461,6 +492,7 @@ impl Strategy {
             token,
             debt,
             way,
+            favor,
             call,
             exchange,
             keep_treasure: raw.keep_treasure.unwrap_or(2),
@@ -501,6 +533,9 @@ impl Strategy {
                 id::KNIGHTS
             } else if cards::is_split_bottom(c) {
                 cards::split_top(c).unwrap_or(c)
+            } else if cards::is_allies_split(c) {
+                // A card of an Allies split pile asks for the pile (named by its first card).
+                cards::pile_of(c)
             } else if cards::is_castle(c) {
                 id::CASTLES
             } else if c >= cards::FIRST_TRAV && ((c - cards::FIRST_TRAV) as usize) < cards::NUM_TRAV {
@@ -509,7 +544,7 @@ impl Strategy {
             } else {
                 c
             };
-            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c) || cards::is_project(c) || cards::is_way(c);
+            let kingdom = cards::is_kingdom(c) || cards::is_event(c) || cards::is_landmark(c) || cards::is_prophecy(c) || cards::is_project(c) || cards::is_way(c) || cards::is_ally(c);
             if c >= cards::FIRST_KINGDOM && c != id::POTION && (kingdom || cards::is_optional_basic(c)) && !out.contains(&c) {
                 out.push(c);
             }
@@ -670,6 +705,8 @@ impl Strategy {
                     Act::Tavern | Act::Call | Act::Exchange | Act::Return | Act::Archive | Act::ShuffleIn | Act::Choose | Act::Exile => {
                         iter_cards(choices).next().map(Choice::Card).unwrap_or(Choice::Pass)
                     }
+                    // Sibyl's card for the bottom of the deck (the set's own policy chose it above): the most valuable, which stays in the deck.
+                    Act::Bottom => iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(Choice::Pass),
                     // Archive's card to take (the set's own policy chose it above); any other: the best card by value.
                     Act::ToHand => iter_cards(choices).max_by_key(|&c| (Strategy::card_value(c), c)).map(Choice::Card).unwrap_or(Choice::Pass),
                 }
@@ -739,6 +776,23 @@ impl Strategy {
                 Some(_) => None,
             }
         })
+    }
+
+    /// The answer a stated `[[favor]]` rule gives to the Ally decision `decision` (an offer to spend Favors on the Ally's ability): `Some(yes)` when a rule for the Ally holds.
+    pub fn stated_favor(&self, view: &PlayerView, decision: &Decision) -> Option<bool> {
+        let ally = decision.source.filter(|&a| cards::is_ally(a))?;
+        let card = decision.subject;
+        self.favor.iter().find_map(|(a, spend, cond)| {
+            if a.is_some_and(|a| a != ally) || !cond.as_ref().map_or(true, |e| e.eval_bool_for(view, card)) {
+                return None;
+            }
+            Some(*spend)
+        })
+    }
+
+    /// Whether any `[[favor]]` rule exists.
+    pub fn states_favor(&self) -> bool {
+        !self.favor.is_empty()
     }
 
     /// Whether the Way decision is close enough that a searching bot searches it (no stated rule applies).

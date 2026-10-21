@@ -99,6 +99,9 @@ pub enum Var {
     Exile,
     OppExile,
     Horses,
+    /// My Favors (Allies) and the most any opponent has.
+    Favors,
+    OppFavors,
 }
 
 impl Var {
@@ -147,6 +150,8 @@ impl Var {
             Var::Exile => view.exile().total() as i64,
             Var::OppExile => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.exile_of(p).total()).max().unwrap_or(0) as i64,
             Var::Horses => view.horses_left() as i64,
+            Var::Favors => view.favors() as i64,
+            Var::OppFavors => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.favors_of(p)).max().unwrap_or(0) as i64,
         }
     }
 
@@ -191,6 +196,8 @@ impl Var {
             "exile" => Var::Exile,
             "opp_exile" | "opponent_exile" => Var::OppExile,
             "horses" => Var::Horses,
+            "favors" => Var::Favors,
+            "opp_favors" | "opponent_favors" => Var::OppFavors,
             _ => return None,
         })
     }
@@ -236,6 +243,10 @@ pub enum Expr {
     /// `exiled(Card)`: copies of the card on my Exile mat (Menagerie); `has_way(Name)`: 1 if the Way is in this game.
     Exiled(CardId),
     WayInGame(CardId),
+    /// `has_ally(Name)`: 1 if the Ally is the Ally of this game (Allies); `on_top(Card)`: 1 if the card can be bought or gained now (it is on top of its split pile, or its pile is not
+    /// a split pile: the pile is open).
+    AllyIs(CardId),
+    OnTop(CardId),
     /// `has_project(Name)` / `opp_has_project(Name)`: 1 if I (any opponent) have put a cube on the Project (Renaissance); `project(Name)`: 1 if it is in this game.
     HasProject(CardId),
     OppHasProject(CardId),
@@ -315,6 +326,8 @@ impl Expr {
             Prophecy(p) => (view.prophecy() == *p) as i64,
             Exiled(c) => view.exile().get(*c) as i64,
             WayInGame(w) => view.has_way(*w) as i64,
+            AllyIs(a) => view.has_ally(*a) as i64,
+            OnTop(c) => (view.in_supply(*c) && view.supply(*c) > 0 && view.pile_open(*c)) as i64,
             HasProject(p) => view.has_project(view.me(), *p) as i64,
             OppHasProject(p) => (0..view.num_players()).any(|q| q != view.me() && view.has_project(q, *p)) as i64,
             ProjectInGame(p) => view.has_project_in_game(*p) as i64,
@@ -393,7 +406,8 @@ impl Expr {
             CountPair(a, _) => f(*a),
             CountLine(c) => f(*c),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
-            HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) => f(*c),
+            HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) | OnTop(c) => f(*c),
+            AllyIs(_) => {}
             Exiled(c) => f(*c),
             HasArtifact(_) | OppHasArtifact(_) => {}
             Neg(a) | Not(a) => a.for_each_card_ref(f),
@@ -493,7 +507,7 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 let is_function = matches!(
                     word.to_ascii_lowercase().as_str(),
                     "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp" | "prophecy"
-                        | "has_state" | "opp_has_state" | "boon_in_discard" | "boon_in_deck" | "hex_in_discard" | "hex_in_deck"
+                        | "has_state" | "opp_has_state" | "boon_in_discard" | "boon_in_deck" | "hex_in_discard" | "hex_in_deck" | "has_ally" | "on_top"
                 );
                 let mut j = i;
                 while j < b.len() && (b[j] as char).is_ascii_whitespace() {
@@ -698,6 +712,14 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
         "exiled" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
             Ok(Expr::Exiled(zone_card(c, "on a mat")?))
+        }
+        "has_ally" => {
+            let a = cards::by_name(arg).filter(|&a| cards::is_ally(a)).ok_or_else(|| format!("{arg:?} is not an Ally, in condition {src:?}"))?;
+            Ok(Expr::AllyIs(a))
+        }
+        "on_top" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::OnTop(zone_card(c, "in a pile")?))
         }
         "has_way" | "way" => {
             let w = cards::by_name(arg).filter(|&w| cards::is_way(w)).ok_or_else(|| format!("{arg:?} is not a Way, in condition {src:?}"))?;

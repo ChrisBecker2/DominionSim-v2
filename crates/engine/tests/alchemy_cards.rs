@@ -1520,7 +1520,7 @@ fn herbalist_offers_the_treasure_under_charlatan_curse_too() {
 
 #[test]
 fn alchemy_set_plumbing() {
-    assert_eq!(CardSet::ALL.len(), 15);
+    assert_eq!(CardSet::ALL.len(), 16);
     assert_eq!(cards::set_by_name("alchemy"), Some(CardSet::Alchemy));
     assert!(cards::by_name("Possession").is_none());
     assert_eq!(cards::kingdom_cards_in(CardSet::Alchemy).count(), 11);

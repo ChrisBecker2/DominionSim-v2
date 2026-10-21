@@ -12,11 +12,11 @@ use std::mem::size_of;
 #[test]
 fn game_state_stays_small() {
     let sizes = [
-        ("GameState", size_of::<GameState>(), 26_500),
-        ("PlayerState", size_of::<PlayerState>(), 3_600),
+        ("GameState", size_of::<GameState>(), 27_200),
+        ("PlayerState", size_of::<PlayerState>(), 3_700),
         ("TurnState", size_of::<TurnState>(), 1_300),
         ("Frame", size_of::<Frame>(), 48),
-        ("Counts", size_of::<Counts>(), 480),
+        ("Counts", size_of::<Counts>(), 512),
     ];
     for (name, size, limit) in sizes {
         assert!(size <= limit, "{name} is {size} bytes, over its {limit} byte bound: see tests/state_size.rs");
@@ -31,7 +31,7 @@ fn game(players: usize, seed: u64) -> GameState {
 fn a_copy_of_a_two_player_game_leaves_out_the_empty_seats() {
     let g = game(2, 1);
     let copied = g.dup_bytes();
-    assert!(copied <= 12_300, "a 2-player copy is {copied} bytes (the struct is {}), over its bound: see tests/state_size.rs", size_of::<GameState>());
+    assert!(copied <= 12_600, "a 2-player copy is {copied} bytes (the struct is {}), over its bound: see tests/state_size.rs", size_of::<GameState>());
     assert_eq!(game(6, 1).dup_bytes(), size_of::<GameState>(), "a 6-player copy is the whole struct");
     for n in 2..=6 {
         assert_eq!(game(n, 1).dup_bytes() - g.dup_bytes(), (n - 2) * size_of::<PlayerState>());

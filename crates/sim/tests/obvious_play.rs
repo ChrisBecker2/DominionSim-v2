@@ -66,11 +66,12 @@ impl Evaluator for FullSearch<'_> {
 /// worse (the Stone is played after every Action in both), and the engine marks the Stone
 /// choice-free for that reason (docs/alchemy-plan.md); only the shortcut's "play all of them" is
 /// not exact for it, which this test, about the order of Actions, does not cover.
-/// Which pool a card is checked in: 1 for Adventures, 2 for Menagerie, 0 for every other set. The pools are checked separately, each with its own seed.
+/// Which pool a card is checked in: 1 for Adventures, 2 for Menagerie, 3 for Allies, 0 for every other set. The pools are checked separately, each with its own seed.
 fn pool_of(c: CardId) -> u8 {
     match cards::set_of(c) {
         cards::CardSet::Adventures => 1,
         cards::CardSet::Menagerie => 2,
+        cards::CardSet::Allies => 3,
         _ => 0,
     }
 }
@@ -117,6 +118,11 @@ fn obvious_play_is_as_good_as_searching_with_menagerie_cards() {
     std::thread::Builder::new().stack_size(256 << 20).spawn(|| obvious_play_is_as_good_as_searching_inner(2)).unwrap().join().unwrap();
 }
 
+#[test]
+fn obvious_play_is_as_good_as_searching_with_allies_cards() {
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| obvious_play_is_as_good_as_searching_inner(3)).unwrap().join().unwrap();
+}
+
 fn obvious_play_is_as_good_as_searching_inner(pool: u8) {
     let free = free_actions_of(pool);
     if pool == 1 {
@@ -124,6 +130,9 @@ fn obvious_play_is_as_good_as_searching_inner(pool: u8) {
     } else if pool == 2 {
         use dominion_engine::sets::menagerie::ids::{HORSE, HOSTELRY, LIVERY, SHEEPDOG};
         assert!(free.contains(&HORSE) && free.contains(&HOSTELRY) && free.contains(&LIVERY) && free.contains(&SHEEPDOG), "{free:?}");
+    } else if pool == 3 {
+        use dominion_engine::sets::allies::ids as a;
+        assert!(free.contains(&a::UNDERLING) && free.contains(&a::MERCHANT_CAMP) && free.contains(&a::GALLERIA) && !free.contains(&a::BATTLE_PLAN) && !free.contains(&a::TOWN), "{free:?}");
     } else {
         assert!(free.contains(&id::VILLAGE) && free.contains(&id::BRIDGE), "every playable choice-free card, from every other set: {free:?}");
     }
@@ -134,7 +143,7 @@ fn obvious_play_is_as_good_as_searching_inner(pool: u8) {
         .map(|f| Strategy::parse(&std::fs::read_to_string(format!("{root}{f}")).unwrap()).unwrap())
         .collect();
     let cfg = SearchConfig::default();
-    let mut rng = Rng::new([12345, 4711, 0x3E4A6][pool as usize]);
+    let mut rng = Rng::new([12345, 4711, 0x3E4A6, 0xA11E6][pool as usize]);
     let (mut checked, mut differs) = (0, 0);
     for case in 0..400 {
         let pick = |rng: &mut Rng, xs: &[CardId]| xs[rng.below(xs.len() as u32) as usize];
@@ -246,6 +255,11 @@ fn cantrip_first_is_as_good_as_searching() {
 }
 
 #[test]
+fn cantrip_first_is_as_good_as_searching_with_allies_cards() {
+    std::thread::Builder::new().stack_size(256 << 20).spawn(|| cantrip_first_is_as_good_as_searching_inner(3)).unwrap().join().unwrap();
+}
+
+#[test]
 fn cantrip_first_is_as_good_as_searching_with_adventures_cards() {
     std::thread::Builder::new().stack_size(256 << 20).spawn(|| cantrip_first_is_as_good_as_searching_inner(1)).unwrap().join().unwrap();
 }
@@ -263,6 +277,9 @@ fn cantrip_first_is_as_good_as_searching_inner(pool: u8) {
     } else if pool == 2 {
         use dominion_engine::sets::menagerie::ids as m;
         assert!(cantrip.contains(&m::HOSTELRY) && cantrip.contains(&m::HORSE) && choice.contains(&m::SLEIGH) && choice.contains(&m::PADDOCK) && !choice.contains(&m::KILN), "{cantrip:?} {choice:?}");
+    } else if pool == 3 {
+        use dominion_engine::sets::allies::ids as a;
+        assert!(cantrip.contains(&a::UNDERLING) && cantrip.contains(&a::MERCHANT_CAMP) && choice.contains(&a::TOWN) && !choice.contains(&a::BATTLE_PLAN), "{cantrip:?} {choice:?}");
     } else {
         assert!(cantrip.contains(&id::VILLAGE) && choice.contains(&id::WORKSHOP) && !choice.contains(&id::THRONE_ROOM) && !choice.contains(&id::REMODEL));
     }
@@ -271,7 +288,7 @@ fn cantrip_first_is_as_good_as_searching_inner(pool: u8) {
     let cfg = SearchConfig::default();
     // (A draw-two cantrip with money to spare can cycle good cards into the hand for nothing, which the leaf value sees as a tiny loss against a
     // lone terminal: the Menagerie pool's seed is one where no such position is drawn.)
-    let mut rng = Rng::new([777, 888, 0x3E4A8][pool as usize]);
+    let mut rng = Rng::new([777, 888, 0x3E4A8, 0xA11E8][pool as usize]);
     let (mut checked, mut cases) = (0, 0);
     // (Renaissance's cards draw and gain more than the older ones: fewer positions are solved exactly, so more are tried.)
     for _ in 0..2600 {

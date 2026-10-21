@@ -17,6 +17,7 @@ use crate::strategy::Strategy;
 
 mod adventures;
 mod alchemy;
+mod allies;
 mod base;
 mod cornucopia_guilds;
 mod dark_ages;
@@ -95,6 +96,10 @@ macro_rules! with_set {
             }
             CardSet::Menagerie => {
                 type $S = menagerie::Menagerie;
+                $body
+            }
+            CardSet::Allies => {
+                type $S = allies::Allies;
                 $body
             }
         }

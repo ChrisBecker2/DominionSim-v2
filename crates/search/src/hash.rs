@@ -130,6 +130,9 @@ fn finish_turn_hash(state: &GameState, ps: &PlayerState, mut h: FxHasher) -> u64
     // Renaissance: Villagers, Projects, what is set aside, the Artifacts (nothing is hashed while all of it is zero).
     ps.ren.hash(&mut h);
     state.ren.hash(&mut h);
+    // Menagerie: the Exile mat and what a player's cards remember, the Ways and Way of the Mouse's card (nothing is hashed while all of it is zero).
+    ps.men.hash(&mut h);
+    state.men.hash(&mut h);
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
     (state.spoils, state.madman, state.mercenary, state.trav, state.adv).hash(&mut h);

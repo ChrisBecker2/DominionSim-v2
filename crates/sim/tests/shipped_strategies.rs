@@ -160,3 +160,15 @@ fn canal_bm_beats_big_money_ultimate() {
     // Renaissance: the Canal Project, every card costs $1 less on your turns (~72%).
     beats_big_money_ultimate("canal_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Gardens,Canal", 2000, 0.6);
 }
+
+#[test]
+fn livery_bm_beats_big_money_ultimate() {
+    // The Livery (Menagerie): $3 and a Horse for every card costing $4 or more gained that turn (~79%).
+    beats_big_money_ultimate("livery_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Livery", 2000, 0.7);
+}
+
+#[test]
+fn cardinal_bm_beats_big_money_ultimate() {
+    // The Cardinal (Menagerie): a Militia-like Attack that Exiles the better of two cards from the deck (~54%).
+    beats_big_money_ultimate("cardinal_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Cardinal", 3000, 0.51);
+}

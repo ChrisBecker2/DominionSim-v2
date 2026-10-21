@@ -1,0 +1,30 @@
+# Cardinal Big Money -- a Militia-like Attack that Exiles. Cardinal is $2 and each opponent reveals two cards, Exiles one
+# costing $3 to $6 (the Exiled card is still theirs, but out of their deck) and discards the other. Up to two, then Big Money.
+
+name = "Cardinal-BM"
+description = "Big Money with up to two Cardinals."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Cardinal"
+if = "count(Cardinal) < 2"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
+
+[[gain]]
+card = "Silver"

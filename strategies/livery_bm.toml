@@ -1,0 +1,31 @@
+# Livery Big Money -- Big Money with up to two Liveries. Livery is $3 when played and, this turn, gains a Horse
+# for every card costing $4 or more bought after it: a Gold or a Province brings a Horse (+2 Cards +1 Action, back to its
+# pile when played), so the deck draws a little better the more it buys. Play it before buying; there is nothing to decide.
+
+name = "Livery-BM"
+description = "Big Money with up to two Liveries: every Gold or Province bought brings a Horse."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Livery"
+if = "count(Livery) < 2"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 6"
+
+[[gain]]
+card = "Silver"

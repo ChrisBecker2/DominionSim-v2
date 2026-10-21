@@ -205,3 +205,14 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * **Widening `Counts` / `SupplyMask`** grows every state copy (about 1 KB per 32 lanes): measure with the interleaved benchmark, and expect +-4% code-layout noise.
 * **Test setup pitfalls**: after a terminal the engine enters Buy and auto-plays Treasures (use non-Treasure fillers); Debt without coins makes the Buy decision
   auto-pass; a state from `new_state` has not resolved its start of turn.
+
+## 9. Learned with Menagerie
+
+* A new *landscape* kind (Ways) costs nothing in games without it when its check is one byte: `GameState::men.ways != 0` gates the `PrePlay` frame, `men.hook` bits gate the
+  per-gain work (`gain_live_extra`) and `men.flags` the cost and trash bookkeeping. Put such gates in the set's `SetRules` (`gain_live_extra`, `reads_empty_piles`), never in the generic loops.
+* A per-player mat that counts for scoring (Exile) is part of `PlayerState::all_cards()`; anything that counts "cards you own" must go through it.
+* A pile outside the Supply (the Horse) keeps its count in the `supply` lane, not in `in_supply`: Supply scans (`supply_cards`, empty-pile counts, the Buy decision) skip it with no extra test.
+* A `Filter` that depends on state (Populate's piles it has not gained from) cannot live in `Filter::matches`; add an arm to `GameState::filter_ok`.
+* A random-pool test (`obvious_play.rs`) with a new set: give the set its own pool and seed, so the older pools keep their draws; a card that counts as a Treasure and an Action card for the marks may need leaving out of the pool.
+* Every `Reaction` that fires on a discard needs `G_DISCARD_HOOK` set in the set's set-up and a line in `discard_hook` / `discard_hook_counts` / `discard_reaction` (Village Green was missing there until a test played it).
+

@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes) and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes), Menagerie (Exile mat, the Horse pile, Ways) and a few
 promos (Prince, Walled Village, Envoy, Captain, Sauna/Avanto, Governor, Dismantle, Church, Marchland, the Event Summon; all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**
@@ -16,7 +16,7 @@ promos (Prince, Walled Village, Envoy, Captain, Sauna/Avanto, Governor, Dismantl
   and explores strategies. `crates/lab` — native server + Strategy Lab page driving `evolve`.
 
 Layout: one module per expansion, so reading a card means reading one place. `crates/engine/src/sets/{base,
-intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds,dark_ages,adventures,renaissance}.rs` (and the other sets') each hold, for their cards: the ids (`ids`),
+intrigue,seaside,prosperity,alchemy,promo,cornucopia_guilds,dark_ages,adventures,renaissance,menagerie}.rs` (and the other sets') each hold, for their cards: the ids (`ids`),
 the `(id, CardDef)` table, and an `impl SetRules` with the play effect, modes table, Duration start-of-turn
 effect, gain / buy / cleanup triggers, overpay, bonus VP, reaction data and masks (anything not overridden is a
 no-op). Their card-specific frame handlers (`impl GameState`) sit below. `sets/mod.rs` builds the one `CARDS`
@@ -45,6 +45,8 @@ A new card: its id in the set's `ids` and its line in `CARDS` (ids are dense; th
 `play` arm, then whichever other `SetRules` methods it needs, then tests in the set's test file.
 
 Renaissance (`docs/renaissance-plan.md`) keeps per-player Villagers / Project cubes / Cargo Ship and Research cards in `PlayerState::ren`, the game's Projects, Artifact holders and Sinister Plot tokens in `GameState::ren`, and hashes all of it as nothing while it is all zero (so non-Renaissance games hash and play exactly as before). Projects are bought like Events (`is_bought_pseudo`); start-of-turn Projects run as `PendingDuration` entries.
+
+Menagerie (`docs/menagerie-plan.md`) keeps each player's Exile mat (a `SmallMultiset`; its cards count as theirs for scoring and for every "cards you own" count), Invest's copies, the cards set aside by Delay / Reap / Way of the Turtle and Gatekeeper counts in `PlayerState::men`, and the Ways, Way of the Mouse's card and the live-effect hooks (`H_EXILE`, `H_INVEST`, `H_GATE`, `H_COST`) in `GameState::men`; it hashes as nothing while all zero. The Horse pile is outside the Supply (its count sits in the `supply` lane, not in `in_supply`). A game with a Way pays one byte test per Action played: the Way choice is a `PrePlay` frame (`DecisionKind::Way`) pushed only then, and bots decide it with a stated `[[way]]` rule or `SetDefaults::way_choice`.
 
 Dark Ages adds two generic mechanisms (details in `docs/dark-ages-plan.md`): *mixed piles* (the Knights and the Ruins:
 one Supply pile of different cards, only the top card known; the members are in `in_supply`, the pile's size sits on the

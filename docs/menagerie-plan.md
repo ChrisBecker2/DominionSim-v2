@@ -41,8 +41,7 @@ the Mouse). Tests: `crates/engine/tests/menagerie_cards.rs` (one or more per car
   Tunnel and Village Green react): a `YesNo` pushed by every gain of a player whose mat holds a copy (`H_EXILE` hook), resolved with `Then::ExileDiscard`.
 * **Ways.** In a game with a Way, playing an Action card (from the hand, by Throne Room, Mastermind, a reaction, at the start of a turn, from the discard pile by March...)
   first lets its player pick *the card's own effect or one of the Ways* (`DecisionKind::Way`, choices `Pass` = its own effect, `Card(way)`), after Kiln's gain (the rules put
-  "first" abilities before the choice) and after the Attack reaction... no: the Attack reaction window belongs to the card's own effect, so it opens only if the card's own
-  effect is chosen. The choice is a `FrameKind::PrePlay` frame pushed by `resolve_effects_tok` only when the game has a Way or a Kiln is pending: a game without pays one
+  "first" abilities before the choice). The Attack reaction window belongs to the card's own effect, so it opens only if the card's own effect is chosen. The choice is a `FrameKind::PrePlay` frame pushed by `resolve_effects_tok` only when the game has a Way or a Kiln is pending: a game without pays one
   byte test. A Way replaces what the card does (its +Cards / +Actions / +Buys / +$, its play effect and the scheduling of a Duration's next-turn part, so a Duration only
   stays in play if one of its plays was for its own effect); the play itself is recorded as usual (played this turn, Champion, Adventures tokens). Text below the line
   stays (cards that act while in play do). Way of the Mouse's card is played like Prince's: not in play (`NIP`), and not through Way of the Mouse again.
@@ -127,7 +126,7 @@ put onto the deck), Sheep (+$2), Squirrel (+2 Cards at the end of the turn), Tur
   the strategy would not play. Populate and Transport order their gains by the gain list. Village Green and Barge: now when the Action phase can use it, else next turn.
 * Expression variables: `exile` (my Exile mat size), `exile(Name)`, `opp_exile`, `horses` (left in the pile), `has_way(Name)`. Evolve: Events are gain-list entries capped with `bought(Name)`
   (`EVENT_HINTS` placement for all 20); the Lab's genome can state `[[way]]` rules.
-* Shipped strategies: `horse_sleigh_bm`, `livery_bm`, `bounty_hunter_bm` ... (see `strategies/`; each beats Big Money Ultimate in `shipped_strategies.rs`).
+* Shipped strategies: `livery_bm` (~79% against Big Money Ultimate) and `cardinal_bm` (~54%), both checked in `shipped_strategies.rs`. A Sleigh-and-Horse Big Money was tried and loses (33%); Ways are stated in `[[way]]` rules by hand, the Lab genome does not search them.
 
 ## 6. Front ends
 
@@ -143,3 +142,7 @@ wasm (`sets_mask` bit, the Exile mats and Ways in the JSON, the Horse pile as a 
 * **Invest**: cards Exiled by Invest are told apart from other Exiled copies by count only (Transport and a gain's discard take the non-Invested first).
 * **Way of the Mouse**: the set-aside card is chosen from the cards that need no other set-up (no Looter, Knight, Traveller, Heirloom or Shelter-style piles).
 * Digital-only or later errata beyond the three listed in the Menagerie page's "Versions" section are not applied.
+* **Kiln** is order-sensitive (a +Actions card played first is not copied), found by the cantrip-first test. **Populate** only offers piles it has not gained from, **Village Green**
+  is played from a discard: both were found by tests, not by reading.
+* The `obvious_play.rs` pool for Menagerie leaves out its Treasures (Stockpile exiles itself and gives +Buy, so with a Big Money rule on money in the deck drawing it can change what the
+  bot buys), and its cantrip pool uses a seed where no draw-two cantrip with money to spare turns up against a lone terminal (cycling good cards is a tiny loss in the leaf value).

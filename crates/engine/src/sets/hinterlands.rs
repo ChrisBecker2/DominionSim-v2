@@ -355,7 +355,7 @@ impl GameState {
                     self.hounds_discarded(p, n);
                 }
             }
-            ids::TUNNEL | ids::TRAIL | ids::WEAVER => {
+            ids::TUNNEL | ids::TRAIL | ids::WEAVER | crate::sets::menagerie::ids::VILLAGE_GREEN => {
                 for _ in 0..n {
                     let q = &mut self.trash_queue;
                     if (q.len as usize) < TRASH_QUEUE_CAP {
@@ -371,7 +371,7 @@ impl GameState {
     /// `discard_hook` for a pile of cards discarded together, then the reactions they bring are put on the stack.
     #[inline(never)]
     pub(crate) fn discard_hook_counts<S: EventSink>(&mut self, p: u8, discarded: &Counts, depth: u8, sink: &mut S) {
-        for c in [id::FAITHFUL_HOUND, ids::TUNNEL, ids::TRAIL, ids::WEAVER] {
+        for c in [id::FAITHFUL_HOUND, ids::TUNNEL, ids::TRAIL, ids::WEAVER, crate::sets::menagerie::ids::VILLAGE_GREEN] {
             let n = discarded.get(c);
             if n > 0 {
                 self.discard_hook(p, c, n);
@@ -387,7 +387,7 @@ impl GameState {
             ids::TUNNEL => self.stack.push(Frame {
                 zone: Zone::Discard, act: Act::Reveal, subject: c, then: Then::TunnelGold, ..Frame::new(K::YesNo, p, c)
             }),
-            ids::TRAIL | ids::WEAVER => self.stack.push(Frame { zone: Zone::Discard, act: Act::Play, subject: c, ..Frame::new(K::YesNo, p, c) }),
+            ids::TRAIL | ids::WEAVER | crate::sets::menagerie::ids::VILLAGE_GREEN => self.stack.push(Frame { zone: Zone::Discard, act: Act::Play, subject: c, ..Frame::new(K::YesNo, p, c) }),
             _ => {}
         }
     }

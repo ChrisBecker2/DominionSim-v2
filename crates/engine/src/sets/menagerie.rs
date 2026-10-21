@@ -127,7 +127,7 @@ const CARDS: &[(CardId, CardDef)] = &[
     (ids::FALCONER, men(has_choice(c("Falconer", 5, ACTION | REACTION, 0, 0, 0, 0, 0)))), // a cheaper card to the hand; played when a multi-type card is gained
     (ids::GATEKEEPER, men(choice_free(c("Gatekeeper", 5, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0)))), // +$3 next turn; Exiles the Actions and Treasures others gain until then
     (ids::HUNTING_LODGE, men(order_sensitive(c("Hunting Lodge", 5, ACTION, 0, 0, 1, 2, 0)))), // may discard the hand for 5 cards
-    (ids::KILN, men(has_choice(c("Kiln", 5, ACTION, 2, 0, 0, 0, 0)))), // the next card played comes with a copy
+    (ids::KILN, men(order_sensitive(c("Kiln", 5, ACTION, 2, 0, 0, 0, 0)))), // the next card played comes with a copy: a card played before it is not copied
     (ids::LIVERY, men(choice_free(c("Livery", 5, ACTION, 3, 0, 0, 0, 0)))), // a Horse for each card gained costing $4 or more
     (ids::MASTERMIND, men(choice_free(c("Mastermind", 5, ACTION | DURATION, 0, 0, 0, 0, 0)))), // plays an Action from the hand 3 times next turn
     (ids::PADDOCK, men(has_choice(c("Paddock", 5, ACTION, 2, 0, 0, 0, 0)))), // 2 Horses; +1 Action per empty pile
@@ -1480,9 +1480,9 @@ mod tests {
             ids::BLACK_CAT, ids::SUPPLIES, ids::SHEEPDOG, ids::STOCKPILE, ids::CARDINAL, ids::HOSTELRY, ids::COVEN, ids::GATEKEEPER, ids::LIVERY, ids::MASTERMIND,
             ids::FISHERMAN, ids::DESTRIER, ids::ANIMAL_FAIR, ids::HORSE,
         ];
-        let order = [ids::GOATHERD, ids::SCRAP, ids::BOUNTY_HUNTER, ids::DISPLACE, ids::HUNTING_LODGE, ids::SANCTUARY];
+        let order = [ids::GOATHERD, ids::SCRAP, ids::BOUNTY_HUNTER, ids::DISPLACE, ids::HUNTING_LODGE, ids::SANCTUARY, ids::KILN];
         let choice = [
-            ids::SLEIGH, ids::CAMEL_TRAIN, ids::SNOWY_VILLAGE, ids::CAVALRY, ids::GROOM, ids::VILLAGE_GREEN, ids::BARGE, ids::FALCONER, ids::KILN, ids::PADDOCK,
+            ids::SLEIGH, ids::CAMEL_TRAIN, ids::SNOWY_VILLAGE, ids::CAVALRY, ids::GROOM, ids::VILLAGE_GREEN, ids::BARGE, ids::FALCONER, ids::PADDOCK,
             ids::WAYFARER,
         ];
         for (cid, def) in CARDS {

@@ -551,6 +551,8 @@ impl GameState {
                     && self.turn.played.has(c)
                     && self.players[p as usize].in_play.get(c) > self.turn.led.carried.get(c)
             }
+            // Populate: an Action pile it has not gained from yet.
+            Filter::PopulateLeft => self.populate_ok(c),
             filter => filter.matches(c),
         }
     }

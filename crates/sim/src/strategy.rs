@@ -794,6 +794,9 @@ impl Strategy {
     /// The alternative way to buy a card (`Choice::Alt`, Animal Fair: trash an Action from the hand) when the gain list ranks the card above `best`, the card the $ would
     /// buy, and the hand holds an Action card the strategy has no use for.
     fn alt_buy(&self, view: &PlayerView, choices: &[Choice], best: Option<CardId>) -> Option<Choice> {
+        if !choices.iter().any(|c| matches!(c, Choice::Alt(_))) {
+            return None;
+        }
         let rank_of = |c: CardId| self.buy.iter().position(|(x, cond)| *x == c && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, c)));
         let best_rank = best.and_then(rank_of).unwrap_or(usize::MAX);
         let junk = view.hand().iter().any(|(c, _)| view.is_action(c) && (c == id::HORSE || cards::is(c, cards::RUINS) || !(self.states_play(c) || self.lists(c))));

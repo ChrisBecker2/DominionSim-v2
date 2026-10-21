@@ -1244,6 +1244,10 @@ pub const MEN_ASIDE_CAP: usize = 6;
 pub const INVEST_CAP: usize = 6;
 /// Max distinct names among the cards gained in one turn (Commerce).
 pub const GAIN_NAMES_CAP: usize = 12;
+/// Max distinct cards played as Way of the Frog in one turn.
+pub const FROG_CAP: usize = 4;
+/// Max Action piles Populate can gain from (named by their top card).
+pub const POP_CAP: usize = 12;
 /// `MenState::flags`: which Menagerie effects are live in this game, so that other games skip each check with one byte test.
 /// A card whose cost moves is in the game (Fisherman, Destrier, Wayfarer): `GameState::cost` asks `men_cost`, the Buy decision does not use the printed-cost masks.
 pub const M_COST: u8 = 1;
@@ -1338,9 +1342,9 @@ pub struct MenTurn {
     /// Way of the Squirrel: the cards each seat draws at the end of the turn.
     pub squirrel: [u8; MAX_PLAYERS],
     /// Way of the Frog: the cards played as the Way, which are put onto the deck when discarded from play.
-    pub frogs: SmallMultiset<4>,
+    pub frogs: SmallMultiset<FROG_CAP>,
     /// Populate: the piles (named by their top card) it has gained from.
-    pub pop: SmallMultiset<12>,
+    pub pop: SmallMultiset<POP_CAP>,
 }
 
 impl std::hash::Hash for MenTurn {

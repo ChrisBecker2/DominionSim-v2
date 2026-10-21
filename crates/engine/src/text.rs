@@ -425,7 +425,7 @@ fn parse_men_turn(s: &str) -> Result<MenTurn, String> {
                 }
             }
             "names" => m.names = parse_small_multiset::<{ crate::state::GAIN_NAMES_CAP }>(val, "names")?,
-            "frogs" => m.frogs = parse_small_multiset::<4>(val, "frogs")?,
+            "frogs" => m.frogs = parse_small_multiset::<{ crate::state::FROG_CAP }>(val, "frogs")?,
             other => return Err(format!("unknown men turn field '{other}'")),
         }
     }

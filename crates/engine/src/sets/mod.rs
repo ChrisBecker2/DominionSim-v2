@@ -598,7 +598,10 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Adventures::offers_on_discard(g);
     Hinterlands::offers_on_discard(g);
     Renaissance::offers_on_discard(g);
-    Menagerie::offers_on_discard(g);
+    // Way of the Frog only (one test, not a call, in every other game).
+    if !g.turn.men.frogs.is_empty() {
+        Menagerie::offers_on_discard(g);
+    }
     Renaissance::offers_at_cleanup(g);
     Promo::offers_at_cleanup(g);
     RisingSun::offers_at_cleanup(g);

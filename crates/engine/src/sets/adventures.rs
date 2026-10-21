@@ -56,26 +56,26 @@ pub mod ids {
     pub const DISCIPLE: CardId = 278;
     pub const TEACHER: CardId = 279;
     // The Events (not cards: pseudo-cards for what is bought, see `cards::is_event`).
-    pub const ALMS: CardId = 454;
-    pub const BALL: CardId = 455;
-    pub const BONFIRE: CardId = 456;
-    pub const BORROW: CardId = 457;
-    pub const EXPEDITION: CardId = 458;
-    pub const FERRY: CardId = 459;
-    pub const INHERITANCE: CardId = 460;
-    pub const LOST_ARTS: CardId = 461;
-    pub const MISSION: CardId = 462;
-    pub const PATHFINDING: CardId = 463;
-    pub const PILGRIMAGE: CardId = 464;
-    pub const PLAN: CardId = 465;
-    pub const QUEST: CardId = 466;
-    pub const RAID: CardId = 467;
-    pub const SAVE: CardId = 468;
-    pub const SCOUTING_PARTY: CardId = 469;
-    pub const SEAWAY: CardId = 470;
-    pub const TRADE: CardId = 471;
-    pub const TRAINING: CardId = 472;
-    pub const TRAVELLING_FAIR: CardId = 473;
+    pub const ALMS: CardId = 503;
+    pub const BALL: CardId = 504;
+    pub const BONFIRE: CardId = 505;
+    pub const BORROW: CardId = 506;
+    pub const EXPEDITION: CardId = 507;
+    pub const FERRY: CardId = 508;
+    pub const INHERITANCE: CardId = 509;
+    pub const LOST_ARTS: CardId = 510;
+    pub const MISSION: CardId = 511;
+    pub const PATHFINDING: CardId = 512;
+    pub const PILGRIMAGE: CardId = 513;
+    pub const PLAN: CardId = 514;
+    pub const QUEST: CardId = 515;
+    pub const RAID: CardId = 516;
+    pub const SAVE: CardId = 517;
+    pub const SCOUTING_PARTY: CardId = 518;
+    pub const SEAWAY: CardId = 519;
+    pub const TRADE: CardId = 520;
+    pub const TRAINING: CardId = 521;
+    pub const TRAVELLING_FAIR: CardId = 522;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -820,7 +820,11 @@ impl GameState {
     /// (+2 Actions) and, if the Action is still in play, Royal Carriage (replay it). A replay opens its own window, so another Carriage can
     /// follow; Coins are offered again while one is left.
     #[inline(never)]
-    pub(crate) fn run_after_play(&mut self, f: Frame) -> Run {
+    pub(crate) fn run_after_play<S: EventSink>(&mut self, f: Frame, sink: &mut S) -> Run {
+        // Allies: an Ally's ability after a play.
+        if f.then == Then::AllyAsk {
+            return self.al_after_play(f, sink);
+        }
         self.stack.pop();
         let p = f.player;
         let ps = &self.players[p as usize];
@@ -1050,9 +1054,7 @@ impl GameState {
         if ps.set_aside.remove(f.last) {
             ps.inherit = f.last;
         }
-        if f.last >= cards::FIRST_PILE_CARD {
-            self.advance_pile(f.last);
-        }
+        self.pile_taken(f.last);
     }
 
     /// The tokens on the pile `card` is from give their owner `p` their bonus before the card does anything: +1 Action, +1 Buy and +$1 now,

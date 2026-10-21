@@ -40,32 +40,32 @@ pub mod ids {
     pub const TREASURER: CardId = 405;
     pub const VILLAIN: CardId = 406;
     // The Projects (after the Landmarks).
-    pub const CATHEDRAL: CardId = 583;
-    pub const CITY_GATE: CardId = 584;
-    pub const PAGEANT: CardId = 585;
-    pub const SEWERS: CardId = 586;
-    pub const STAR_CHART: CardId = 587;
-    pub const EXPLORATION: CardId = 588;
-    pub const FAIR: CardId = 589;
-    pub const SILOS: CardId = 590;
-    pub const SINISTER_PLOT: CardId = 591;
-    pub const ACADEMY: CardId = 592;
-    pub const CAPITALISM: CardId = 593;
-    pub const FLEET: CardId = 594;
-    pub const GUILDHALL: CardId = 595;
-    pub const PIAZZA: CardId = 596;
-    pub const ROAD_NETWORK: CardId = 597;
-    pub const BARRACKS: CardId = 598;
-    pub const CROP_ROTATION: CardId = 599;
-    pub const INNOVATION: CardId = 600;
-    pub const CANAL: CardId = 601;
-    pub const CITADEL: CardId = 602;
+    pub const CATHEDRAL: CardId = 632;
+    pub const CITY_GATE: CardId = 633;
+    pub const PAGEANT: CardId = 634;
+    pub const SEWERS: CardId = 635;
+    pub const STAR_CHART: CardId = 636;
+    pub const EXPLORATION: CardId = 637;
+    pub const FAIR: CardId = 638;
+    pub const SILOS: CardId = 639;
+    pub const SINISTER_PLOT: CardId = 640;
+    pub const ACADEMY: CardId = 641;
+    pub const CAPITALISM: CardId = 642;
+    pub const FLEET: CardId = 643;
+    pub const GUILDHALL: CardId = 644;
+    pub const PIAZZA: CardId = 645;
+    pub const ROAD_NETWORK: CardId = 646;
+    pub const BARRACKS: CardId = 647;
+    pub const CROP_ROTATION: CardId = 648;
+    pub const INNOVATION: CardId = 649;
+    pub const CANAL: CardId = 650;
+    pub const CITADEL: CardId = 651;
     // The Artifacts, the highest ids.
-    pub const FLAG: CardId = 603;
-    pub const HORN: CardId = 604;
-    pub const KEY: CardId = 605;
-    pub const LANTERN: CardId = 606;
-    pub const TREASURE_CHEST: CardId = 607;
+    pub const FLAG: CardId = 652;
+    pub const HORN: CardId = 653;
+    pub const KEY: CardId = 654;
+    pub const LANTERN: CardId = 655;
+    pub const TREASURE_CHEST: CardId = 656;
 }
 
 /// A Project: no types, no bonuses (what it does is looked up where it applies); its cost is the cost to buy it.
@@ -896,6 +896,10 @@ impl GameState {
             ps.sink_shadows();
         }
         sink.event(Event::Shuffle { player: p });
+        // Allies: Emissary counts the shuffles of the turn.
+        if self.al.flags & crate::state::AF_STAMP != 0 {
+            self.turn.al.shuffles = self.turn.al.shuffles.saturating_add(1);
+        }
     }
 
     /// Star Chart, a shuffle is about to happen for `p`: if they have the Project and the discard pile holds two different cards, the player picks the one that

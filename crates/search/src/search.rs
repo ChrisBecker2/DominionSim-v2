@@ -642,6 +642,7 @@ fn verb(act: Act) -> &'static str {
         Act::ShuffleIn => "Shuffle into the deck",
         Act::Choose => "Choose",
         Act::Exile => "Exile",
+        Act::Bottom => "Put on the bottom of the deck",
     }
 }
 

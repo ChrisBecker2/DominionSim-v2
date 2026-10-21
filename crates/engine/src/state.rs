@@ -849,6 +849,8 @@ pub struct PlayerState {
     pub ren: RenPlayer,
     /// Menagerie: the Exile mat and what Goatherd and Gatekeeper remember (`MenPlayer`).
     pub men: MenPlayer,
+    /// Allies: Favors, the cards Coastal Haven keeps, Lich's skips and the lingering Attacks (`AlPlayer`).
+    pub al: AlPlayer,
 }
 
 /// The Renaissance state of one player. It hashes as nothing while it is all zero, so that the hash of a state in a game without Renaissance (the seed of a
@@ -914,6 +916,7 @@ impl PlayerState {
             + self.ren.research.get(card) as u32
             + self.men.exile.get(card) as u32
             + self.men.aside.get(card) as u32
+            + self.al.keep.get(card) as u32
             + (self.saved == card && card != 0) as u32
             + (self.inherit == card && card != 0) as u32;
         if card == id::FAITHFUL_HOUND {
@@ -955,6 +958,8 @@ impl PlayerState {
         // Menagerie: the Exile mat's cards are the player's.
         self.men.exile.add_into(&mut c);
         self.men.aside.add_into(&mut c);
+        // Allies: the cards Coastal Haven keeps in hand are the player's.
+        self.al.keep.add_into(&mut c);
         // The card under the Estate token is set aside, and in the player's deck when scoring (Inheritance).
         if self.inherit != 0 {
             c.add(self.inherit, 1);
@@ -1134,6 +1139,8 @@ pub struct TurnState {
     pub ren: RenTurn,
     /// Menagerie per-turn bookkeeping.
     pub men: MenTurn,
+    /// Allies per-turn bookkeeping.
+    pub al: AlTurn,
 }
 
 /// The per-turn bookkeeping of Rising Sun.
@@ -1358,6 +1365,147 @@ impl std::hash::Hash for MenTurn {
     }
 }
 
+/// Max distinct cards Coastal Haven keeps in a player's hand from one Clean-up to the next.
+pub const AL_KEEP_CAP: usize = 8;
+/// Max distinct Supply piles that carry Family of Inventors' Favor tokens.
+pub const AL_FAM_CAP: usize = 10;
+/// How many Allies split piles there are, and how many cards each starts with.
+pub const AL_PILES: usize = 6;
+pub const AL_PILE_CARDS: u8 = 16;
+
+/// `AlState::flags`: which Allies effects are live in this game (fixed at set-up), so that other games skip each check with one byte test.
+/// An Ally is in the game: the players have Favors.
+pub const AF_ALLY: u16 = 1;
+/// The Ally acts on gains (Architects' Guild, Band of Nomads, City-state, Trappers' Lodge).
+pub const AF_GAIN: u16 = 2;
+/// An Allies split pile is in the game: the order of each is in `AlState::piles`.
+pub const AF_SPLIT: u16 = 4;
+/// The Ally acts when the deck is shuffled (Order of Astrologers, Order of Masons).
+pub const AF_SHUFFLE: u16 = 8;
+/// Merchant Camp or Tent is in the game: its owner may put it onto the deck when it is discarded from play.
+pub const AF_DISCARD: u16 = 16;
+/// Highwayman is in the game: the first Treasure each player plays each turn is remembered.
+pub const AF_HW: u16 = 32;
+/// The Ally acts after a play (Circle of Witches, Fellowship of Scribes, League of Shopkeepers).
+pub const AF_PLAYS: u16 = 64;
+/// The Ally acts at the start of the Buy phase (Family of Inventors, League of Bankers, Market Towns, Peaceful Cult, Woodworkers' Guild).
+pub const AF_BUY: u16 = 128;
+/// The Ally acts at the start of the turn (Cave Dwellers, Crafters' Guild, Desert Guides, Forest Dwellers, Gang of Pickpockets, Mountain Folk).
+pub const AF_START: u16 = 256;
+/// Emissary is in the game: the shuffles of a turn are counted.
+pub const AF_STAMP: u16 = 512;
+/// Coastal Haven is the Ally: cards may be kept in hand in Clean-up.
+pub const AF_KEEP: u16 = 1024;
+/// Island Folk is the Ally: an extra turn can be bought at the end of the turn.
+pub const AF_ISLAND: u16 = 2048;
+/// Plateau Shepherds is the Ally: the score counts Favors paired with $2 cards.
+pub const AF_SCORE: u16 = 4096;
+/// Family of Inventors is the Ally: the tokens on piles change costs (`M_COST` is set too).
+pub const AF_FAMILY: u16 = 8192;
+/// `AlState::hook` (kept up to date): some Highwayman's Attack is on / some Warlord's Attack is on / the turn is a Voyage turn (3 plays from the hand) / some
+/// player has a turn to skip (Lich).
+pub const AH_HW: u8 = 1;
+pub const AH_WL: u8 = 2;
+pub const AH_LIMIT: u8 = 4;
+pub const AH_SKIP: u8 = 8;
+/// The most cards a Voyage turn lets the player play from the hand.
+pub const VOYAGE_PLAYS: u8 = 3;
+
+/// The Allies state of one player: Favors, the cards Coastal Haven keeps, and what the lingering Attacks and Lich remember. Hashes as nothing while it is all zero, so
+/// that the hash of a state in a game without Allies (the seed of a bot's search, the transposition table's key) is the one it was before the set existed.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct AlPlayer {
+    /// The Favor tokens on the player's mat (public).
+    pub favors: u8,
+    /// Turns Lich makes this player skip: taken the next times they would take a turn.
+    pub skips: u8,
+    /// Highwaymen / Warlords this player has played since their last turn started: their Attacks are on until it does.
+    pub hw: u8,
+    pub wl: u8,
+    /// Garrison: the tokens on this player's Garrisons (each is +1 Card at the start of their next turn).
+    pub tokens: u8,
+    /// Coastal Haven: the cards kept from the last Clean-up's hand, put into the hand once the new one is drawn. Public; they count as owned.
+    pub keep: SmallMultiset<AL_KEEP_CAP>,
+}
+
+impl std::hash::Hash for AlPlayer {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != AlPlayer::default() {
+            (self.favors, self.skips, self.hw, self.wl, self.tokens).hash(h);
+            self.keep.hash(h);
+        }
+    }
+}
+
+/// The order of one Allies split pile: 2 bits per card (the pile's member index 0..4), top card in the low bits, `len` cards. The 16 cards start in order, four of each.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
+pub struct PileOrder {
+    pub order: u32,
+    pub len: u8,
+}
+
+/// The per-game state of Allies: the Ally, which effects are live, the order of the split piles and Family of Inventors' tokens. Hashes as nothing while it is all zero.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct AlState {
+    /// The Ally of the game (a pseudo-card id), 0 = none.
+    pub ally: CardId,
+    /// `AF_*` flags (fixed at set-up).
+    pub flags: u16,
+    /// `AH_*` hooks (kept up to date).
+    pub hook: u8,
+    /// The order of each split pile (indexed like `cards::allies_pile_index`); `len` 0 for a pile that is not in the game or is empty.
+    pub piles: [PileOrder; AL_PILES],
+    /// Family of Inventors: the Favor tokens on Supply piles (named by `cards::pile_of`): each makes the cards of its pile cost $1 less.
+    pub fam: SmallMultiset<AL_FAM_CAP>,
+}
+
+impl std::hash::Hash for AlState {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != AlState::default() {
+            (self.ally, self.flags, self.hook).hash(h);
+            self.piles.hash(h);
+            self.fam.hash(h);
+        }
+    }
+}
+
+/// The per-turn bookkeeping of Allies (hashes as nothing while it is all zero).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct AlTurn {
+    /// Nonzero while a card played this turn does something when a card is gained (Galleria, Guildmaster, Skirmisher, Bauble, Garrison): the gain triggers look.
+    pub live: u8,
+    /// Gallerias, Guildmasters, Skirmishers and Garrisons played this turn (each is a "this turn, when you gain a card" effect), and whether a Bauble allows
+    /// the cards gained to be put onto the deck.
+    pub galleria: u8,
+    pub guild: u8,
+    pub skirm: u8,
+    pub garrison: u8,
+    pub bauble: bool,
+    /// The turn is a Voyage turn: only `VOYAGE_PLAYS` cards may be played from the hand; this many have been.
+    pub limited: bool,
+    pub hand_plays: u8,
+    /// The first Treasure of the turn has been played (Highwayman's Attack stops only that one).
+    pub t1: bool,
+    /// The shuffles this turn (counted in a game with Emissary).
+    pub shuffles: u8,
+    /// The card Elder played is resolving: the "choose" decisions it makes give one more pick.
+    pub elder: bool,
+    /// A Voyage was played this turn (an extra turn follows unless this one is), and the turn that follows is that Voyage turn.
+    pub voyage: bool,
+    pub voyage_next: bool,
+    /// The end-of-turn offer of the Ally (Island Folk) has been made.
+    pub island_done: bool,
+}
+
+impl std::hash::Hash for AlTurn {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != AlTurn::default() {
+            (self.live, self.galleria, self.guild, self.skirm, self.garrison, self.bauble, self.limited, self.hand_plays).hash(h);
+            (self.t1, self.shuffles, self.elder, self.voyage, self.voyage_next, self.island_done).hash(h);
+        }
+    }
+}
+
 /// The per-turn bookkeeping of Hinterlands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct HintTurn {
@@ -1496,6 +1644,7 @@ impl TurnState {
             rs: RsTurn::default(),
             ren: RenTurn::default(),
             men: MenTurn::default(),
+            al: AlTurn::default(),
         }
     }
 }
@@ -1562,6 +1711,8 @@ pub enum Act {
     Archive,
     /// Put it on the player's Exile mat (Menagerie): not a gain, not a trash.
     Exile,
+    /// Put it on the bottom of the player's deck (Sibyl).
+    Bottom,
 }
 
 /// Which cards are eligible for a selection or gain.
@@ -1643,6 +1794,13 @@ pub enum Filter {
     Frogged,
     /// An Action pile's top card that Populate has not gained from yet this turn (`MenTurn::pop`). Decided against the live game.
     PopulateLeft,
+    /// A card of the Supply pile named by the card (a split pile by its first card, the Knights and the Ruins by their markers): any card with that `cards::pile_of`
+    /// (Acolyte's "gain an Augur").
+    InPile(CardId),
+    /// The top card of a Supply pile that rotating changes (it has two or more differently named cards in it; Battle Plan). Decided against the live game.
+    Rotatable,
+    /// The top card of a non-Victory Supply pile (Family of Inventors puts a Favor token on one). Decided against the live game.
+    TokenPile,
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -1662,6 +1820,8 @@ pub enum TypeSet {
     Castle,
     /// Action cards that are not Attacks (Continue).
     ActionNotAttack,
+    /// An Action or a Victory card (Acolyte).
+    ActionOrVictory,
 }
 
 impl TypeSet {
@@ -1675,6 +1835,7 @@ impl TypeSet {
             TypeSet::CurseRuinsShelterVictory => (cards::CURSE_T | cards::RUINS | cards::SHELTER | cards::VICTORY, 0),
             TypeSet::Castle => (cards::CASTLE, 0),
             TypeSet::ActionNotAttack => (cards::ACTION, cards::ATTACK),
+            TypeSet::ActionOrVictory => (cards::ACTION | cards::VICTORY, 0),
         }
     }
 }
@@ -1730,11 +1891,13 @@ impl Filter {
             Filter::TreasureNot(x) => c != x && cards::is(c, cards::TREASURE),
             Filter::CopyInAttackersPlay => true,
             Filter::NecroTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::DURATION),
-            Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0,
+            Filter::SharesTypeWith(x) => cards::def(c).types & cards::def(x).types != 0 || (cards::sub_type(x) != 0 && cards::sub_type(c) == cards::sub_type(x)),
             Filter::ActionToDiscard => cards::is(c, cards::ACTION),
             Filter::ReplayTarget => cards::is(c, cards::ACTION) && !cards::is(c, cards::COMMAND),
             Filter::Frogged => cards::is(c, cards::ACTION),
             Filter::PopulateLeft => cards::is(c, cards::ACTION),
+            Filter::InPile(pile) => cards::pile_of(c) == pile,
+            Filter::Rotatable | Filter::TokenPile => true,
         }
     }
 }
@@ -2195,6 +2358,70 @@ pub enum Then {
     ButterflyGain,
     /// Select (Animal Fair bought by trashing an Action, `subject` = the card): once the Action is trashed, the card is gained as a bought card.
     AltBuyGain,
+    /// Ask (an Ally's ability that spends Favors: `source` = the Ally, `min` = the Favors it costs, `subject` = the card it is about, 0 for none): Yes spends them and does what
+    /// the Ally says; the Ask is not made when the player has too few Favors by then.
+    AllyAsk,
+    /// YesNo (an Ally's ability on a card: City-state plays the card gained, Trappers' Lodge puts it onto the deck, `min` = the Favors it costs): once the card moved, the
+    /// Favors are spent.
+    AllyFavor,
+    /// Ask (Town Crier, Herb Gatherer, Old Map, Student, Tent; `subject` = the first card of the pile, 0 = none): Yes rotates the pile.
+    RotateAsk,
+    /// Select (Battle Plan, `Act::Choose` on a Supply card): the pile of the card picked is rotated.
+    RotatePicked,
+    /// Select: +$`n` if anything was picked (Sycophant's discards).
+    CoinsIfPicked(u8),
+    /// YesNo (Acolyte, trash this from play): gain a card from the Augurs pile.
+    AcolyteGain,
+    /// Name (Sorceress): the top card of the deck goes into the hand; if it is the card named, each other player gains a Curse.
+    SorceressNamed,
+    /// Name (Sorcerer, each victim names): the top card is revealed and put back; if it is not the card named the victim gains a Curse.
+    SorcererNamed,
+    /// TopCard (Courier): the top card is discarded, then an Action or Treasure may be played from the discard pile.
+    CourierTop,
+    /// RevealTop (Miller, the top 4): one goes to the hand, the rest are discarded.
+    MillerPick,
+    /// RevealTop (Hunter, the top 3): an Action, a Treasure and a Victory card go to the hand, the rest are discarded.
+    HunterReveal,
+    /// Select (Student, trash a card from the hand): a Treasure gives +1 Favor and Student goes onto the deck.
+    StudentTrash,
+    /// Select (Broker, trash a card from the hand): choose what the card's cost buys.
+    BrokerMode,
+    /// Select (Modify, trash a card from the hand): choose +1 Card +1 Action or a gain costing up to $2 more.
+    ModifyMode,
+    /// Select (Royal Galley, a non-Duration Action from the hand): the card is played, and if it is still in play afterwards the Galley and it wait for the next turn.
+    GalleyPlay,
+    /// Select (a zero-pick frame under the card Royal Galley played, `subject` = the card): schedule the replay if the card is still in play.
+    GalleySchedule,
+    /// Select (Contract, an Action of the hand): it is set aside to be played at the start of the next turn.
+    ContractAside,
+    /// Select (Specialist, an Action or Treasure of the hand): it is played, then play it again or gain a copy.
+    SpecialistPlay,
+    /// Select (Elder, an Action of the hand): it is played with one more pick for the "choose" decisions it makes.
+    ElderPlay,
+    /// Select (Swap, an Action returned to its pile): gain a different Action costing up to $5 into the hand.
+    SwapGain,
+    /// Gain (Hill Fort's card): choose to put it into the hand or +1 Card +1 Action.
+    HillFortGain,
+    /// Select (a zero-pick frame under Emissary's draw, `cost_sum` = the shuffles counted before it): if the draw shuffled, +1 Action and +2 Favors.
+    EmissaryCheck,
+    /// Select (Family of Inventors, a Supply card picked): a Favor token goes on its pile.
+    FamilyToken,
+    /// Select (Peaceful Cult, cards trashed from the hand): one Favor is spent per card.
+    CultSpend,
+    /// Select (Woodworkers' Guild, an Action trashed from the hand): gain an Action card.
+    WoodworkersGain,
+    /// Select (Coastal Haven, cards set aside from the hand): they are kept in hand for the next turn, a Favor each.
+    HavenKeep,
+    /// Select (a zero-pick frame under the Clean-up draw): the cards Coastal Haven kept go into the hand.
+    KeepToHand,
+    /// Select (Order of Astrologers, cards of the discard pile put on top of the deck): a Favor each, then the rest is shuffled in.
+    AstrologersShuffle,
+    /// Select (Order of Masons, cards of the discard pile set aside): a Favor per two, the rest is shuffled, the cards set aside go back to the discard pile.
+    MasonsShuffle,
+    /// Ask (Capital City): pay $2 for +2 Cards.
+    CapitalPay,
+    /// TopCard (Barbarian, each victim): the top card is trashed; one costing $3 or more is replaced by a cheaper card that shares a type, anything else by a Curse.
+    BarbarianHit,
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -2340,6 +2567,9 @@ pub const GF_EXCL: u8 = 32;
 pub const GF_EXILE: u8 = 64;
 /// `Frame::gf`: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
 pub const GF_MORE: u8 = 64;
+/// `Frame::gf`: Elder is making the play this frame belongs to (a `PlayEffects` frame), or a `Select` frame belongs to a play Elder made (the `Mode` frame it leads
+/// to gives one more pick).
+pub const GF_ELDER: u8 = 128;
 
 impl Frame {
     pub fn new(kind: FrameKind, player: u8, source: CardId) -> Self {
@@ -2832,6 +3062,8 @@ pub struct GameState {
     pub ren: RenState,
     /// Menagerie: the Ways in the game, Way of the Mouse's card, `M_*` flags and `H_*` hooks.
     pub men: MenState,
+    /// Allies: the Ally, the order of the split piles, Family of Inventors' tokens, `AF_*` flags and `AH_*` hooks.
+    pub al: AlState,
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -2943,6 +3175,8 @@ impl GameState {
             }
             // A split pile is named by either half.
             let k = if cards::is_split_bottom(k) { cards::split_top(k).unwrap_or(k) } else { k };
+            // The Allies split piles are named by any of their cards (the first of the four stands for the pile).
+            let k = if cards::is_allies_split(k) { cards::pile_of(k) } else { k };
             if k == id::SAUNA {
                 if split_pile {
                     continue;
@@ -2987,6 +3221,7 @@ impl GameState {
             rs: RsState::default(),
             ren: RenState::default(),
             men: MenState::default(),
+            al: AlState::default(),
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,
@@ -3033,6 +3268,8 @@ impl GameState {
         crate::sets::renaissance::setup(&mut s, cfg, n);
         // Menagerie: the Horses, the Ways of the game, Way of the Mouse's card, which effects are live.
         crate::sets::menagerie::setup(&mut s, cfg, n);
+        // Allies: the Ally and the Favors, the split piles' order, which effects are live.
+        crate::sets::allies::setup(&mut s, cfg, n);
         s.push_opening_deal();
         // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
         s.dup()
@@ -3181,6 +3418,14 @@ impl GameState {
                     let span = if hi - lo >= 32 { u32::MAX } else { ((1u32 << (hi - lo)) - 1) << lo };
                     in_block &= !span;
                 }
+                // The cards of the Allies split piles are not piles of their own either (counted below, a pile at a time).
+                let (a_lo, a_hi) = (cards::ALLIES_SPLIT_FIRST as usize, cards::ALLIES_SPLIT_FIRST as usize + cards::NUM_ALLIES_SPLIT);
+                if in_block != 0 && first < a_hi && first + 32 > a_lo {
+                    let lo = a_lo.saturating_sub(first);
+                    let hi = a_hi.min(first + 32) - first;
+                    let span = if hi - lo >= 32 { u32::MAX } else { ((1u32 << (hi - lo)) - 1) << lo };
+                    in_block &= !span;
+                }
                 if in_block != 0 {
                     n += (in_block & !self.supply.nonzero_mask(block)).count_ones();
                 }
@@ -3201,6 +3446,10 @@ impl GameState {
         for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
             n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
         }
+        // Allies: a split pile is empty when all four of its cards are gone.
+        if self.al.flags & AF_SPLIT != 0 {
+            n += self.al_empty_piles();
+        }
         n
     }
 
@@ -3215,6 +3464,7 @@ impl GameState {
                 c < cards::FIRST_PILE_CARD
                     && !cards::is_split_bottom(c)
                     && !cards::is_castle(c)
+                    && !cards::is_allies_split(c)
                     && self.supply.get(c) == 0
                     && cards::split_bottom(c).map_or(true, |b| !self.in_supply(b) || self.supply.get(b) == 0)
             })
@@ -3222,6 +3472,7 @@ impl GameState {
         if self.in_supply(id::HUMBLE_CASTLE) {
             n += (self.castles_left() == 0) as u32;
         }
+        n += self.al_empty_piles();
         for pile in [&crate::sets::dark_ages::RUINS_PILE, &crate::sets::dark_ages::KNIGHTS_PILE] {
             n += (self.has_pile(pile) && self.pile_size(pile) == 0) as u32;
         }
@@ -3274,7 +3525,10 @@ impl GameState {
 
     /// `p`'s score: their cards and VP tokens, and what the Landmarks add (Empires).
     pub fn player_vp(&self, p: u8) -> i32 {
-        self.players[p as usize].vp() + if self.emp.landmarks != 0 { self.landmark_score(p) } else { 0 }
+        self.players[p as usize].vp()
+            + if self.emp.landmarks != 0 { self.landmark_score(p) } else { 0 }
+            // Allies: Plateau Shepherds pairs the Favors with the cards costing $2.
+            + if self.al.flags & AF_SCORE != 0 { self.al_score(p) } else { 0 }
     }
 
     pub fn scores(&self) -> [i32; MAX_PLAYERS] {

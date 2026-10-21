@@ -66,6 +66,12 @@
 //! `gatekeepers:` (Gatekeepers whose Attack is on) and `seize: true` (Seize the Day used) while nonzero. A line `men turn:` holds the turn's bookkeeping, entries
 //! separated by `;` (`kiln 1; livery 2; flags 3; cap 4; gains 2; last Silver; trashed 1; squirrel 0 0 2 0 0 0; names Silver, Gold; frogs Village`).
 //!
+//! Allies: `ally:` names the Ally of the game, `fam:` the Favor tokens on Supply piles (Family of Inventors), and one `pile order:` line for each split pile in the game lists
+//! its cards top first as runs (`Herb Gatherer x4, Acolyte x4, Sorceress x4, Sibyl x4`; a line is optional while the pile is in the order its counts give, one of
+//! each card in turn). Per player `favors:`, `keep:` (the cards Coastal Haven keeps in hand), `skips:` (Lich), `highwaymen:` and `warlords:` (their Attacks that are on) and
+//! `garrison tokens:` while nonzero. A line `al turn:` holds the turn's bookkeeping, entries separated by `;` (`galleria 1; guild 2; skirm 1; garrison 1; bauble; limited; plays 2;
+//! first treasure; shuffles 1; voyage; voyage next; island done`).
+//!
 //! Sailor: a Sailor played more than once (Throne Room, King's Court, several copies) is one entry
 //! `Sailor x2`; `(used 1)` after it counts the gained Durations it has already offered to play, and
 //! plain `(used)` (the older format) means all of them.
@@ -85,7 +91,7 @@ use crate::cards::{self, CardId};
 use crate::counts::Counts;
 use crate::engine::Pending;
 use crate::state::{
-    AdvTurn, DurationHeld, EmpTurn, FrameStack, MenTurn, NocTurn, RenTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
+    AdvTurn, AlTurn, DurationHeld, EmpTurn, FrameStack, MenTurn, NocTurn, RenTurn, RsTurn, GameConfig, GameState, PendingDuration, PlayerState, SmallMultiset, TurnState, ADV_JOURNEY_DOWN, ADV_MINUS_CARD,
     ADV_MINUS_COIN, FARM_CAP, SUMMON_CAP, G_CHAMPION, G_COST_TOKEN, G_PLAY_TOKENS, G_TRASH_TOKEN, KNOWN_CAP, NUM_PILE_TOKENS, PENDING_DURATIONS_CAP, PRINCE_CAP,
     STAYS_CAP, StartList, TAVERN_CAP, TOK_COST, TOK_TRASH,
 };
@@ -291,7 +297,7 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         // Either half of a split pile names the pile.
         let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
         // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) && !cards::is_way(id) {
+        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) && !cards::is_way(id) && !cards::is_ally(id) {
             return Err(format!("'{name}' is not a kingdom card"));
         }
         if !cards::is_ready(id) {
@@ -432,6 +438,60 @@ fn parse_men_turn(s: &str) -> Result<MenTurn, String> {
     Ok(m)
 }
 
+/// The `al turn:` line: Allies' per-turn bookkeeping, `key value` entries separated by `;` (flags are a key alone).
+fn format_al_turn(a: &AlTurn) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (k, v) in [("galleria", a.galleria), ("guild", a.guild), ("skirm", a.skirm), ("garrison", a.garrison), ("plays", a.hand_plays), ("shuffles", a.shuffles)] {
+        if v > 0 {
+            parts.push(format!("{k} {v}"));
+        }
+    }
+    for (k, v) in [
+        ("bauble", a.bauble),
+        ("limited", a.limited),
+        ("first treasure", a.t1),
+        ("elder", a.elder),
+        ("voyage", a.voyage),
+        ("voyage next", a.voyage_next),
+        ("island done", a.island_done),
+    ] {
+        if v {
+            parts.push(k.to_string());
+        }
+    }
+    parts.join("; ")
+}
+
+fn parse_al_turn(s: &str) -> Result<AlTurn, String> {
+    let mut a = AlTurn::default();
+    for part in s.split(';') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (key, val) = part.rsplit_once(' ').filter(|(_, v)| v.parse::<u8>().is_ok()).unwrap_or((part, ""));
+        let num = || -> Result<u8, String> { val.parse().map_err(|_| format!("invalid {key} '{val}'")) };
+        match key {
+            "galleria" => a.galleria = num()?,
+            "guild" => a.guild = num()?,
+            "skirm" => a.skirm = num()?,
+            "garrison" => a.garrison = num()?,
+            "plays" => a.hand_plays = num()?,
+            "shuffles" => a.shuffles = num()?,
+            "bauble" => a.bauble = true,
+            "limited" => a.limited = true,
+            "first treasure" => a.t1 = true,
+            "elder" => a.elder = true,
+            "voyage" => a.voyage = true,
+            "voyage next" => a.voyage_next = true,
+            "island done" => a.island_done = true,
+            other => return Err(format!("unknown al turn field '{other}'")),
+        }
+    }
+    a.live = (a.galleria > 0 || a.guild > 0 || a.skirm > 0 || a.garrison > 0 || a.bauble) as u8;
+    Ok(a)
+}
+
 fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
     let toks: Vec<&str> = line.split_whitespace().collect();
     if toks.len() % 2 != 0 {
@@ -568,6 +628,29 @@ pub fn format_state(state: &GameState) -> String {
     }
     if state.turn.men != MenTurn::default() {
         out.push_str(&format!("men turn: {}\n", format_men_turn(&state.turn.men)));
+    }
+    // Allies: the Ally, Family of Inventors' tokens, the split piles' order, the turn's bookkeeping.
+    if state.al.ally != 0 {
+        out.push_str(&format!("ally: {}\n", cards::name(state.al.ally)));
+    }
+    if !state.al.fam.is_empty() {
+        out.push_str(&format!("fam: {}\n", format_counts(&state.al.fam.counts())));
+    }
+    for i in 0..crate::state::AL_PILES {
+        let (order, len) = state.al_pile_cards(i);
+        if len > 0 {
+            let mut parts: Vec<String> = Vec::new();
+            let mut k = 0;
+            while k < len {
+                let run = order[k..len].iter().take_while(|&&c| c == order[k]).count();
+                parts.push(qty_str(order[k], run as u8));
+                k += run;
+            }
+            out.push_str(&format!("pile order: {}\n", parts.join(", ")));
+        }
+    }
+    if state.turn.al != AlTurn::default() {
+        out.push_str(&format!("al turn: {}\n", format_al_turn(&state.turn.al)));
     }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
@@ -807,6 +890,17 @@ pub fn format_state(state: &GameState) -> String {
         }
         if ps.men.flags & crate::state::MP_SEIZE_USED != 0 {
             out.push_str("seize: true\n");
+        }
+        if ps.al.favors > 0 {
+            out.push_str(&format!("favors: {}\n", ps.al.favors));
+        }
+        if !ps.al.keep.is_empty() {
+            out.push_str(&format!("keep: {}\n", format_counts(&ps.al.keep.counts())));
+        }
+        for (key, v) in [("skips", ps.al.skips), ("highwaymen", ps.al.hw), ("warlords", ps.al.wl), ("garrison tokens", ps.al.tokens)] {
+            if v > 0 {
+                out.push_str(&format!("{key}: {v}\n"));
+            }
         }
         if !ps.farm_cards.is_empty() {
             out.push_str(&format!("farmhands: {}\n", format_counts(&ps.farm_cards.counts())));
@@ -1132,6 +1226,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut mouse_val: Option<(usize, String)> = None;
     let mut ways_val: Option<(usize, String)> = None;
     let mut men_turn_val: Option<(usize, String)> = None;
+    let mut ally_val: Option<(usize, String)> = None;
+    let mut fam_val: Option<(usize, String)> = None;
+    let mut al_turn_val: Option<(usize, String)> = None;
+    let mut pile_order_vals: Vec<(usize, String)> = Vec::new();
     let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
     let mut ruins_val: Option<(usize, String)> = None;
@@ -1183,6 +1281,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "mouse" => mouse_val = Some((lineno, rest.to_string())),
             "ways" => ways_val = Some((lineno, rest.to_string())),
             "men turn" => men_turn_val = Some((lineno, rest.to_string())),
+            "ally" => ally_val = Some((lineno, rest.to_string())),
+            "fam" => fam_val = Some((lineno, rest.to_string())),
+            "al turn" => al_turn_val = Some((lineno, rest.to_string())),
+            "pile order" => pile_order_vals.push((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
             "ruins pile" => ruins_val = Some((lineno, rest.to_string())),
@@ -1257,6 +1359,14 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 return Err(format!("line {ln}: '{}' is not a Prophecy", cards::name(p)));
             }
             kingdom.push(p);
+        }
+    }
+    if let Some((ln, s)) = &ally_val {
+        for a in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
+            if !cards::is_ally(a) {
+                return Err(format!("line {ln}: '{}' is not an Ally", cards::name(a)));
+            }
+            kingdom.push(a);
         }
     }
 
@@ -1518,6 +1628,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             Some((ln, s)) => parse_men_turn(s).map_err(|e| format!("line {ln}: {e}"))?,
             None => MenTurn::default(),
         },
+        al: match &al_turn_val {
+            Some((ln, s)) => parse_al_turn(s).map_err(|e| format!("line {ln}: {e}"))?,
+            None => AlTurn::default(),
+        },
     };
 
     // Player blocks.
@@ -1622,6 +1736,12 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         ps.men.flags |= crate::state::MP_SEIZE_USED;
                     }
                 }
+                "favors" => ps.al.favors = val.parse().map_err(|_| format!("line {ln2}: invalid favors '{val}'"))?,
+                "keep" => ps.al.keep = parse_small_multiset::<{ crate::state::AL_KEEP_CAP }>(val, "keep").map_err(|e| format!("line {ln2}: {e}"))?,
+                "skips" => ps.al.skips = val.parse().map_err(|_| format!("line {ln2}: invalid skips '{val}'"))?,
+                "highwaymen" => ps.al.hw = val.parse().map_err(|_| format!("line {ln2}: invalid highwaymen '{val}'"))?,
+                "warlords" => ps.al.wl = val.parse().map_err(|_| format!("line {ln2}: invalid warlords '{val}'"))?,
+                "garrison tokens" => ps.al.tokens = val.parse().map_err(|_| format!("line {ln2}: invalid garrison tokens '{val}'"))?,
                 "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
                 "summoned" => ps.summon_cards = parse_small_multiset::<SUMMON_CAP>(val, "summoned").map_err(|e| format!("line {ln2}: {e}"))?,
                 "church" => ps.church = parse_church(val).map_err(|e| format!("line {ln2}: {e}"))?,
@@ -1807,6 +1927,40 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             None => state.deal_face_down(pile),
         }
     }
+    // Allies: the split piles' order. Without a "pile order:" line a pile is in the order its counts give (each card's copies together, cheapest on top).
+    state.al_orders_from_counts();
+    for (ln, s) in &pile_order_vals {
+        let seq = parse_card_sequence(s).map_err(|e| format!("line {ln}: {e}"))?;
+        let Some(&first) = seq.first() else { return Err(format!("line {ln}: an empty 'pile order'")) };
+        let Some(i) = cards::allies_pile_index(first) else {
+            return Err(format!("line {ln}: {} is not in an Allies split pile", cards::name(first)));
+        };
+        if seq.len() > 16 || seq.iter().any(|&c| cards::allies_pile_index(c) != Some(i)) {
+            return Err(format!("line {ln}: 'pile order' must list up to 16 cards of one split pile"));
+        }
+        let mut held = [0u8; 4];
+        for &c in &seq {
+            held[(c - cards::ALLIES_SPLIT_FIRST) as usize % 4] += 1;
+        }
+        for k in 0..4 {
+            let c = cards::ALLIES_SPLIT_FIRST + 4 * i as CardId + k as CardId;
+            if held[k] != state.supply.get(c) {
+                return Err(format!("line {ln}: 'pile order' has {} {}, the supply {}", held[k], cards::name(c), state.supply.get(c)));
+            }
+        }
+        state.al.piles[i] = crate::state::PileOrder { order: 0, len: 0 };
+        for &c in seq.iter().rev() {
+            state.al.piles[i].order = (state.al.piles[i].order << 2) | ((c - cards::ALLIES_SPLIT_FIRST) % 4) as u32;
+            state.al.piles[i].len += 1;
+        }
+    }
+    if let Some((ln, s)) = &fam_val {
+        state.al.fam = parse_small_multiset::<{ crate::state::AL_FAM_CAP }>(s, "fam").map_err(|e| format!("line {ln}: {e}"))?;
+    }
+    if state.turn.al.limited {
+        state.al.hook |= crate::state::AH_LIMIT;
+    }
+    state.al_update_hook();
     // "Played this turn" isn't stored in the text; the current player's in-play cards are the
     // best reconstruction (a card played twice by Throne Room counts once).
     state.turn.played = state.players[state.turn.player as usize].in_play;

@@ -30,6 +30,7 @@ use crate::state::{Dest, GameState, PendingDuration};
 
 pub mod adventures;
 pub mod alchemy;
+pub mod allies;
 pub mod base;
 pub mod cornucopia_guilds;
 pub mod dark_ages;
@@ -46,6 +47,7 @@ pub mod seaside;
 
 use adventures::Adventures;
 use alchemy::Alchemy;
+use allies::Allies;
 use base::Base;
 use cornucopia_guilds::CornucopiaGuilds;
 use dark_ages::DarkAges;
@@ -138,6 +140,10 @@ macro_rules! with_set {
             }
             $crate::cards::CardSet::Menagerie => {
                 type $S = $crate::sets::menagerie::Menagerie;
+                $body
+            }
+            $crate::cards::CardSet::Allies => {
+                type $S = $crate::sets::allies::Allies;
                 $body
             }
         }
@@ -282,10 +288,10 @@ pub(crate) trait SetRules {
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
         + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len()
-        + Hinterlands::CARDS.len() + Renaissance::CARDS.len() + Menagerie::CARDS.len();
+        + Hinterlands::CARDS.len() + Renaissance::CARDS.len() + Menagerie::CARDS.len() + Allies::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 15] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 16] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -301,6 +307,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Hinterlands, Hinterlands::CARDS),
         (CardSet::Renaissance, Renaissance::CARDS),
         (CardSet::Menagerie, Menagerie::CARDS),
+        (CardSet::Allies, Allies::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -364,12 +371,13 @@ macro_rules! concat_sets {
             + Nocturne::$name.len()
             + Hinterlands::$name.len()
             + Renaissance::$name.len()
-            + Menagerie::$name.len();
+            + Menagerie::$name.len()
+            + Allies::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
                 DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name, Hinterlands::$name,
-                Renaissance::$name, Menagerie::$name,
+                Renaissance::$name, Menagerie::$name, Allies::$name,
             ],
             $zero,
         );
@@ -399,7 +407,7 @@ pub const GAIN_TOP: u128 = Empires::GAIN_TOP
     | Hinterlands::GAIN_TOP
     | Promo::GAIN_TOP
     | Renaissance::GAIN_TOP;
-pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT | Menagerie::GAIN_EXT;
+pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT | Menagerie::GAIN_EXT | Allies::GAIN_EXT;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -521,6 +529,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     Nocturne::turn_start_entries(g);
     RisingSun::turn_start_entries(g);
     Renaissance::turn_start_entries(g);
+    Allies::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
@@ -529,6 +538,7 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
     g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP, GAIN_EXT)
         || Renaissance::gain_live_extra(g)
         || Menagerie::gain_live_extra(g)
+        || Allies::gain_live_extra(g)
         || CornucopiaGuilds::gain_live_extra(g)
         || DarkAges::gain_live_extra(g)
         || Adventures::gain_live_extra(g)
@@ -575,6 +585,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     if g.in_supply.ext & Menagerie::GAIN_EXT != 0 || Menagerie::gain_live_extra(g) {
         Menagerie::gain_triggers(g, p, c, to, on_buy, sink);
     }
+    // Allies: the card's own effect (Sycophant, Territory), what this turn's plays do to gains (Galleria, Guildmaster, Skirmisher, Bauble, Garrison) and the Ally's ability.
+    if g.in_supply.ext & Allies::GAIN_EXT != 0 || Allies::gain_live_extra(g) {
+        Allies::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     // Last, so that its offers are asked first: a card may be exchanged for a Changeling before the rest of its gain happens.
     if g.in_supply.top & Nocturne::GAIN_TOP != 0 || Nocturne::gain_live_extra(g) {
         Nocturne::gain_triggers(g, p, c, to, on_buy, sink);
@@ -598,6 +612,10 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Adventures::offers_on_discard(g);
     Hinterlands::offers_on_discard(g);
     Renaissance::offers_on_discard(g);
+    // Merchant Camp and Tent (one byte test in every other game).
+    if g.al.flags & crate::state::AF_DISCARD != 0 {
+        Allies::offers_on_discard(g);
+    }
     // Way of the Frog only (one test, not a call, in every other game).
     if !g.turn.men.frogs.is_empty() {
         Menagerie::offers_on_discard(g);
@@ -606,4 +624,8 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Promo::offers_at_cleanup(g);
     RisingSun::offers_at_cleanup(g);
     Alchemy::offers_at_cleanup(g);
+    // Coastal Haven: the cards to keep are chosen first, as the hand is discarded.
+    if g.al.flags & crate::state::AF_KEEP != 0 {
+        Allies::offers_at_cleanup(g);
+    }
 }

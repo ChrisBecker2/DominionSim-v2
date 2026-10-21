@@ -16,7 +16,7 @@ pub mod ids {
     pub const CHURCH: CardId = 356;
     pub const MARCHLAND: CardId = 357;
     /// The Event Summon: the last Event, after Empires' (the Landmarks follow it).
-    pub const SUMMON: CardId = 487;
+    pub const SUMMON: CardId = 536;
     /// The split pile Sauna/Avanto (five Sauna on top of five Avanto): Sauna follows the Adventures kingdom cards; Avanto, a bottom half, is
     /// the first of the split-pile bottoms after the kingdom cards (`cards::is_split_bottom`).
     pub const SAUNA: CardId = 232;

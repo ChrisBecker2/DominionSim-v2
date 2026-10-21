@@ -50,49 +50,49 @@ pub mod ids {
     /// The Horse (a zone id, not a kingdom card: it has no pile in the Supply).
     pub const HORSE: CardId = 437;
     // The Events (after the Rising Sun Events).
-    pub const DELAY: CardId = 498;
-    pub const DESPERATION: CardId = 499;
-    pub const GAMBLE: CardId = 500;
-    pub const PURSUE: CardId = 501;
-    pub const RIDE: CardId = 502;
-    pub const TOIL: CardId = 503;
-    pub const ENHANCE: CardId = 504;
-    pub const MARCH: CardId = 505;
-    pub const TRANSPORT: CardId = 506;
-    pub const BANISH: CardId = 507;
-    pub const BARGAIN: CardId = 508;
-    pub const INVEST: CardId = 509;
-    pub const SEIZE_THE_DAY: CardId = 510;
-    pub const COMMERCE: CardId = 511;
-    pub const DEMAND: CardId = 512;
-    pub const STAMPEDE: CardId = 513;
-    pub const REAP: CardId = 514;
-    pub const ENCLAVE: CardId = 515;
-    pub const ALLIANCE: CardId = 516;
-    pub const POPULATE: CardId = 517;
+    pub const DELAY: CardId = 547;
+    pub const DESPERATION: CardId = 548;
+    pub const GAMBLE: CardId = 549;
+    pub const PURSUE: CardId = 550;
+    pub const RIDE: CardId = 551;
+    pub const TOIL: CardId = 552;
+    pub const ENHANCE: CardId = 553;
+    pub const MARCH: CardId = 554;
+    pub const TRANSPORT: CardId = 555;
+    pub const BANISH: CardId = 556;
+    pub const BARGAIN: CardId = 557;
+    pub const INVEST: CardId = 558;
+    pub const SEIZE_THE_DAY: CardId = 559;
+    pub const COMMERCE: CardId = 560;
+    pub const DEMAND: CardId = 561;
+    pub const STAMPEDE: CardId = 562;
+    pub const REAP: CardId = 563;
+    pub const ENCLAVE: CardId = 564;
+    pub const ALLIANCE: CardId = 565;
+    pub const POPULATE: CardId = 566;
     // The Ways, the highest ids.
-    pub const WAY_OF_THE_BUTTERFLY: CardId = 608;
-    pub const WAY_OF_THE_CAMEL: CardId = 609;
-    pub const WAY_OF_THE_CHAMELEON: CardId = 610;
-    pub const WAY_OF_THE_FROG: CardId = 611;
-    pub const WAY_OF_THE_GOAT: CardId = 612;
-    pub const WAY_OF_THE_HORSE: CardId = 613;
-    pub const WAY_OF_THE_MOLE: CardId = 614;
-    pub const WAY_OF_THE_MONKEY: CardId = 615;
-    pub const WAY_OF_THE_MOUSE: CardId = 616;
-    pub const WAY_OF_THE_MULE: CardId = 617;
-    pub const WAY_OF_THE_OTTER: CardId = 618;
-    pub const WAY_OF_THE_OWL: CardId = 619;
-    pub const WAY_OF_THE_OX: CardId = 620;
-    pub const WAY_OF_THE_PIG: CardId = 621;
-    pub const WAY_OF_THE_RAT: CardId = 622;
-    pub const WAY_OF_THE_SEAL: CardId = 623;
-    pub const WAY_OF_THE_SHEEP: CardId = 624;
-    pub const WAY_OF_THE_SQUIRREL: CardId = 625;
-    pub const WAY_OF_THE_TURTLE: CardId = 626;
-    pub const WAY_OF_THE_WORM: CardId = 627;
+    pub const WAY_OF_THE_BUTTERFLY: CardId = 657;
+    pub const WAY_OF_THE_CAMEL: CardId = 658;
+    pub const WAY_OF_THE_CHAMELEON: CardId = 659;
+    pub const WAY_OF_THE_FROG: CardId = 660;
+    pub const WAY_OF_THE_GOAT: CardId = 661;
+    pub const WAY_OF_THE_HORSE: CardId = 662;
+    pub const WAY_OF_THE_MOLE: CardId = 663;
+    pub const WAY_OF_THE_MONKEY: CardId = 664;
+    pub const WAY_OF_THE_MOUSE: CardId = 665;
+    pub const WAY_OF_THE_MULE: CardId = 666;
+    pub const WAY_OF_THE_OTTER: CardId = 667;
+    pub const WAY_OF_THE_OWL: CardId = 668;
+    pub const WAY_OF_THE_OX: CardId = 669;
+    pub const WAY_OF_THE_PIG: CardId = 670;
+    pub const WAY_OF_THE_RAT: CardId = 671;
+    pub const WAY_OF_THE_SEAL: CardId = 672;
+    pub const WAY_OF_THE_SHEEP: CardId = 673;
+    pub const WAY_OF_THE_SQUIRREL: CardId = 674;
+    pub const WAY_OF_THE_TURTLE: CardId = 675;
+    pub const WAY_OF_THE_WORM: CardId = 676;
     /// The Exile mat as a label: the source of the offer to discard the copies of a card gained from it.
-    pub const EXILE: CardId = 628;
+    pub const EXILE: CardId = 677;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -685,9 +685,7 @@ impl GameState {
         if full || !self.supply.remove(c) {
             return false;
         }
-        if c >= cards::FIRST_PILE_CARD {
-            self.advance_pile(c);
-        }
+        self.pile_taken(c);
         let m = &mut self.players[p as usize].men;
         m.exile.add(c, 1);
         if invested {
@@ -776,11 +774,13 @@ impl GameState {
     /// the card costs exactly that (Wayfarer, after a card was gained).
     #[inline(never)]
     pub(crate) fn men_base_cost(&self, c: CardId) -> Result<u32, u8> {
+        // Allies: Family of Inventors' tokens on the card's pile (this flag is set with `M_COST`, so the one test in `cost` covers both sets).
+        let fam = if self.al.flags & crate::state::AF_FAMILY != 0 { self.al_fam_less(c) as u32 } else { 0 };
         match c {
-            ids::FISHERMAN => Ok(if self.players[self.turn.player as usize].discard.is_empty() { 2 } else { 5 }),
-            ids::DESTRIER => Ok(6u32.saturating_sub(self.turn.men.gains as u32)),
+            ids::FISHERMAN => Ok((if self.players[self.turn.player as usize].discard.is_empty() { 2u32 } else { 5 }).saturating_sub(fam)),
+            ids::DESTRIER => Ok(6u32.saturating_sub(self.turn.men.gains as u32).saturating_sub(fam)),
             ids::WAYFARER if self.turn.men.last != 0 => Err(self.cost(self.turn.men.last)),
-            _ => Ok(cards::cost(c) as u32),
+            _ => Ok((cards::cost(c) as u32).saturating_sub(fam)),
         }
     }
 
@@ -1353,7 +1353,8 @@ impl GameState {
             // Scrap: one different thing per $1 the trashed card cost.
             Then::ModePerCost => {
                 if f.count > 0 {
-                    let picks = (self.cost(f.last) as usize).min(cards::modes(f.source).len()) as u8;
+                    // (Allies: a card Elder played gives one more pick.)
+                    let picks = (self.cost(f.last) as usize + (f.gf & crate::state::GF_ELDER != 0) as usize).min(cards::modes(f.source).len()) as u8;
                     if picks > 0 {
                         self.stack.push(mode_frame(p, f.source, picks));
                     }

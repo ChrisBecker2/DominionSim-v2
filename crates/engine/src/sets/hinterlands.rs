@@ -456,7 +456,9 @@ impl GameState {
             }
             Then::ModeIfPicked => {
                 if f.count > 0 {
-                    self.stack.push(mode_frame(p, f.source, 1));
+                    // Allies: a card Elder played gives one more pick.
+                    let picks = (1 + (f.gf & crate::state::GF_ELDER != 0) as usize).min(cards::modes(f.source).len()) as u8;
+                    self.stack.push(mode_frame(p, f.source, picks));
                 }
             }
             Then::WitchsHut => {

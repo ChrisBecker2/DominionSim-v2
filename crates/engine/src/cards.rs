@@ -62,11 +62,14 @@ pub const HEIRLOOM: u32 = 1 << 21;
 pub const OMEN: u32 = 1 << 22;
 /// Shadows (Rising Sun): put on the bottom of the deck when shuffled, and playable from the deck as if in the hand.
 pub const SHADOW: u32 = 1 << 23;
+/// Liaisons (Allies): cards that give Favors. A game with one has an Ally and every player starts with a Favor.
+pub const LIAISON: u32 = 1 << 24;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
     pub use crate::sets::adventures::ids::*;
     pub use crate::sets::alchemy::ids::*;
+    pub use crate::sets::allies::ids::*;
     pub use crate::sets::base::ids::*;
     pub use crate::sets::cornucopia_guilds::ids::*;
     pub use crate::sets::dark_ages::ids::*;
@@ -99,6 +102,40 @@ pub const NUM_WAYS: usize = 20;
 pub fn is_way(card: CardId) -> bool {
     card.wrapping_sub(FIRST_WAY) < NUM_WAYS as CardId
 }
+/// The first of the 23 Allies (Allies): pseudo-cards after the Exile label, never in a zone. A game with a Liaison has one of them.
+pub const FIRST_ALLY: CardId = id::ARCHITECTS_GUILD;
+pub const NUM_ALLIES: usize = 23;
+
+/// Whether `card` is one of the 23 Allies.
+#[inline(always)]
+pub fn is_ally(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_ALLY) < NUM_ALLIES as CardId
+}
+
+/// The 24 cards of the six Allies split piles (Augurs, Clashes, Forts, Odysseys, Townsfolk, Wizards), four consecutive ids per pile, cheapest first: they are in the
+/// Supply with their own counts, but only the top card of a pile (`AlState::piles`) can be gained or bought. The first of each four names the pile.
+pub const ALLIES_SPLIT_FIRST: CardId = id::HERB_GATHERER;
+pub const NUM_ALLIES_SPLIT: usize = 24;
+
+/// Whether `card` is one of the 24 cards of the Allies split piles.
+#[inline(always)]
+pub fn is_allies_split(card: CardId) -> bool {
+    card.wrapping_sub(ALLIES_SPLIT_FIRST) < NUM_ALLIES_SPLIT as CardId
+}
+
+/// The index (0..6) of the Allies split pile `card` is in, `None` for any other card.
+#[inline]
+pub fn allies_pile_index(card: CardId) -> Option<usize> {
+    is_allies_split(card).then(|| (card - ALLIES_SPLIT_FIRST) as usize / 4)
+}
+
+/// The pile type of an Allies split pile card, 1 to 6 (Augur, Clash, Fort, Odyssey, Townsfolk, Wizard), 0 for any other card. The pile types are not type bits (the free bits
+/// are few); a card that "shares a type" (Barbarian) compares them as well as the bits.
+#[inline]
+pub fn sub_type(card: CardId) -> u8 {
+    if is_allies_split(card) { 1 + ((card - ALLIES_SPLIT_FIRST) / 4) as u8 } else { 0 }
+}
+
 /// The first of the 21 Landmarks (Empires), after the Events.
 pub const FIRST_LANDMARK: CardId = id::AQUEDUCT;
 pub const NUM_LANDMARKS: usize = 21;
@@ -270,6 +307,8 @@ pub fn pile_of(card: CardId) -> CardId {
         split_top(card).unwrap_or(card)
     } else if is_castle(card) {
         id::CASTLES
+    } else if is_allies_split(card) {
+        ALLIES_SPLIT_FIRST + (card - ALLIES_SPLIT_FIRST) / 4 * 4
     } else {
         card
     }
@@ -326,14 +365,16 @@ pub enum CardSet {
     Renaissance,
     /// Menagerie (Exile, Horses, Ways, Events; see `sets::menagerie`).
     Menagerie,
+    /// Allies (Favors, Liaisons, Allies, split piles that rotate; see `sets::allies`).
+    Allies,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 15] = [
+    pub const ALL: [CardSet; 16] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
         CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
         CardSet::Hinterlands, CardSet::Renaissance,
-        CardSet::Menagerie,
+        CardSet::Menagerie, CardSet::Allies,
     ];
 
     pub fn name(self) -> &'static str {
@@ -353,6 +394,7 @@ impl CardSet {
             CardSet::Hinterlands => "Hinterlands",
             CardSet::Renaissance => "Renaissance",
             CardSet::Menagerie => "Menagerie",
+            CardSet::Allies => "Allies",
         }
     }
 }
@@ -496,6 +538,11 @@ pub(crate) const fn ren(d: CardDef) -> CardDef {
 /// A Menagerie card.
 pub(crate) const fn men(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Menagerie, ..d }
+}
+
+/// An Allies card.
+pub(crate) const fn al(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Allies, ..d }
 }
 
 /// A Rising Sun card.
@@ -668,7 +715,20 @@ pub fn by_name(s: &str) -> Option<CardId> {
             return Some(top);
         }
     }
+    // An Allies split pile by its name (Augurs, Clashes, Forts, Odysseys, Townsfolk, Wizards): its first card, which stands for the pile in a kingdom.
+    if let Some(first) = allies_pile_by_name(s) {
+        return Some(first);
+    }
     (0..NUM_CARDS as CardId).find(|&c| norm(name(c)) == want)
+}
+
+/// The names of the six Allies split piles, in id order (`cards::allies_pile_index`).
+pub const ALLIES_PILE_NAMES: [&str; 6] = ["Augurs", "Clashes", "Forts", "Odysseys", "Townsfolk", "Wizards"];
+
+/// The first card of the Allies split pile called `name` (case and spaces ignored), `None` when `name` is no pile's.
+pub fn allies_pile_by_name(name: &str) -> Option<CardId> {
+    let want: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect();
+    ALLIES_PILE_NAMES.iter().position(|p| p.to_lowercase() == want).map(|i| ALLIES_SPLIT_FIRST + 4 * i as CardId)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -768,6 +828,27 @@ pub enum ModeOpt {
     ExileFromSupply(Filter),
     /// Transport: put a card matching `Filter` from the Exile mat onto the deck.
     ExileToDeck(Filter),
+    /// Bauble: +n Favors.
+    Favors(u8),
+    /// Bauble: this turn, a card gained may be put onto the deck.
+    TopdeckGains,
+    /// Innkeeper: +n Cards, then discard m cards.
+    DrawThenDiscard(u8, u8),
+    /// Blacksmith: draw until there are n cards in the hand.
+    DrawUpTo(u8),
+    /// Stronghold: schedule the card's effect for the start of the next turn.
+    DurationNext,
+    /// Broker (the card in the frame's `subject` was trashed): +1 Card / +1 Action / +$1 / +1 Favor per $1 it costs.
+    CostCards,
+    CostActions,
+    CostCoins,
+    CostFavors,
+    /// Modify: gain a card costing up to $n more than the card in the frame's `subject` (the card trashed).
+    GainPlus(u8),
+    /// Specialist: the card in the frame's `subject` is played again.
+    PlaySubjectAgain,
+    /// Specialist: gain a copy of the card in the frame's `subject`.
+    GainCopy,
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -835,6 +916,8 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::ReplayTarget => ("an", "Action"),
         Filter::Frogged => ("a", "card"),
         Filter::PopulateLeft => ("an", "Action"),
+        Filter::InPile(_) => ("a", "card"),
+        Filter::Rotatable | Filter::TokenPile => ("a", "pile"),
     }
 }
 
@@ -934,6 +1017,19 @@ impl ModeOpt {
                 let (a, noun) = filter_words(f);
                 format!("Put {a} {noun} from your Exile mat onto your deck")
             }
+            ModeOpt::Favors(1) => "+1 Favor".to_string(),
+            ModeOpt::Favors(n) => format!("+{n} Favors"),
+            ModeOpt::TopdeckGains => "This turn, you may put the cards you gain onto your deck".to_string(),
+            ModeOpt::DrawThenDiscard(d, k) => format!("+{d} Cards, then discard {k}"),
+            ModeOpt::DrawUpTo(n) => format!("Draw until you have {n} cards in hand"),
+            ModeOpt::DurationNext => "At the start of your next turn".to_string(),
+            ModeOpt::CostCards => "+1 Card per $1 it costs".to_string(),
+            ModeOpt::CostActions => "+1 Action per $1 it costs".to_string(),
+            ModeOpt::CostCoins => "+$1 per $1 it costs".to_string(),
+            ModeOpt::CostFavors => "+1 Favor per $1 it costs".to_string(),
+            ModeOpt::GainPlus(n) => format!("Gain a card costing up to ${n} more"),
+            ModeOpt::PlaySubjectAgain => "Play it again".to_string(),
+            ModeOpt::GainCopy => "Gain a copy of it".to_string(),
         }
     }
 }
@@ -971,7 +1067,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::ANIMAL_FAIR;
+pub const LAST_KINGDOM: CardId = id::LICH;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -1000,6 +1096,9 @@ pub fn is_kingdom(card: CardId) -> bool {
         && !(card > id::CHANGE && card < id::DRUID)
         // Nocturne's Heirlooms, Spirits and Zombies sit between its last kingdom card and Hinterlands.
         && !(card > id::RAIDER && card < id::CROSSROADS)
+        // The Horse (Menagerie) is not a kingdom card; neither are the 18 cards of the Allies split piles below the first of each (a pile is named by its first card).
+        && card != crate::sets::menagerie::ids::HORSE
+        && !(is_allies_split(card) && (card - ALLIES_SPLIT_FIRST) % 4 != 0)
 }
 
 /// Basic cards that are only in some games' supply (Prosperity's Platinum and Colony, Alchemy's
@@ -1044,6 +1143,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "hinterlands" | "hint" | "hl" => Some(CardSet::Hinterlands),
         "renaissance" | "ren" => Some(CardSet::Renaissance),
         "menagerie" | "men" => Some(CardSet::Menagerie),
+        "allies" | "ally" => Some(CardSet::Allies),
         _ => None,
     }
 }
@@ -1094,7 +1194,18 @@ pub fn random_kingdom_with_colonies(sets: &[CardSet], required: &[CardId], rng: 
         add_random_events(&mut out, sets, rng);
     }
     add_random_prophecy(&mut out, sets, rng);
+    add_random_ally(&mut out, rng);
     out
+}
+
+/// Allies' set-up rule: a game with a Liaison among its kingdom cards (a Liaison names a pile too: Student is the Wizards pile) has exactly one Ally, dealt at random and appended
+/// to `kingdom` with the Events. A kingdom that already names an Ally is left alone. (No random number is drawn when there is no Liaison, so other kingdoms are dealt as before.)
+pub fn add_random_ally(kingdom: &mut Vec<CardId>, rng: &mut Rng) {
+    if !kingdom.iter().any(|&c| is(c, LIAISON)) || kingdom.iter().any(|&c| is_ally(c)) {
+        return;
+    }
+    let ready: Vec<CardId> = (FIRST_ALLY..FIRST_ALLY + NUM_ALLIES as CardId).filter(|&a| is_ready(a)).collect();
+    kingdom.push(ready[rng.below(ready.len() as u32) as usize]);
 }
 
 /// Rising Sun's set-up rule: a game with an Omen among its kingdom cards gets one Prophecy, dealt at random (appended to `kingdom` with the

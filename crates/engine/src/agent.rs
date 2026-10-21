@@ -352,6 +352,54 @@ impl<'a> PlayerView<'a> {
         self.state.men.hook & crate::state::H_GATE != 0 && self.state.gatekeeper_hits(self.me)
     }
 
+    // --- Allies ---
+    /// The Ally of the game (a pseudo-card id), 0 when there is none.
+    pub fn ally(&self) -> CardId {
+        self.state.al.ally
+    }
+    /// Whether the Ally `a` is the Ally of this game.
+    pub fn has_ally(&self, a: CardId) -> bool {
+        a != 0 && self.state.al.ally == a
+    }
+    /// My Favors.
+    pub fn favors(&self) -> u8 {
+        self.state.players[self.me as usize].al.favors
+    }
+    /// `p`'s Favors (public: the mat is face up).
+    pub fn favors_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].al.favors
+    }
+    /// The cards `p`'s Coastal Haven kept in hand for the next turn (public).
+    pub fn kept_of(&self, p: u8) -> Counts {
+        self.state.players[p as usize].al.keep.counts()
+    }
+    /// The turns `p` has to skip (Lich).
+    pub fn skips_of(&self, p: u8) -> u8 {
+        self.state.players[p as usize].al.skips
+    }
+    /// The top card of the Allies split pile that `c` is a card of, `None` when `c` is not one or its pile is empty.
+    pub fn split_top(&self, c: CardId) -> Option<CardId> {
+        crate::cards::allies_pile_index(c).and_then(|i| self.state.al_top(i))
+    }
+    /// The cards of the Allies split pile that `c` is a card of, top first (public: the order can be looked at any time).
+    pub fn split_cards(&self, c: CardId) -> Vec<CardId> {
+        match crate::cards::allies_pile_index(c) {
+            Some(i) => {
+                let (cards, n) = self.state.al_pile_cards(i);
+                cards[..n].to_vec()
+            }
+            None => Vec::new(),
+        }
+    }
+    /// The Favor tokens on the Supply pile of `c` (Family of Inventors): each makes its cards cost $1 less.
+    pub fn fam_tokens(&self, c: CardId) -> u8 {
+        self.state.al_fam_less(c)
+    }
+    /// Whether rotating the pile of `c` (a card of an Allies split pile) would uncover another card.
+    pub fn rotation_uncovers(&self, c: CardId) -> bool {
+        self.state.al_rotate_useful(crate::cards::pile_of(c))
+    }
+
     // --- Rising Sun ---
     /// The Buys the turn's player can use: the Buys, and under Flourishing Trade the Actions too.
     pub fn buys_left(&self) -> u16 {

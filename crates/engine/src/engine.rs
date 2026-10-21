@@ -297,6 +297,14 @@ pub enum Event {
     Exile { player: u8, card: CardId },
     /// `player` plays `card` as the Way `way` (instead of doing what the card says).
     Way { player: u8, way: CardId, card: CardId },
+    /// `source` (an Ally, a Liaison) gives `player` `n` Favors (`gained`), or `player` spends `n` Favors on it.
+    Favor { player: u8, source: CardId, n: u8, gained: bool },
+    /// `player` rotates the pile whose top card was `top` (the card now on top is `now`); `source` is the card or Ally that let them.
+    Rotate { player: u8, source: CardId, top: CardId, now: CardId },
+    /// `player` skips a turn (Lich): the turn that would have been theirs is not taken.
+    Skip { player: u8 },
+    /// `player` puts `card` on the bottom of their deck (Sibyl).
+    Bottom { player: u8, card: CardId },
     /// `player` takes the Artifact `artifact`, from the seat `from` (255: nobody had it).
     Artifact { player: u8, artifact: CardId, from: u8 },
     /// `player` has `tokens` tokens on Sinister Plot now.
@@ -636,6 +644,13 @@ impl GameState {
                 }
             }
             Phase::CleanupDraw => {
+                // Allies: Island Folk, at the end of the turn (the next hand is drawn): 5 Favors for an extra turn.
+                if self.al.flags & crate::state::AF_ISLAND != 0 && !self.turn.al.island_done {
+                    self.turn.al.island_done = true;
+                    if self.al_island_offer() {
+                        return Run::Continue;
+                    }
+                }
                 // Extra turns (Outpost) don't count towards the tie-break "fewer turns wins".
                 if !self.turn.is_extra_turn {
                     self.players[p].turns_taken += 1;
@@ -650,15 +665,39 @@ impl GameState {
                     // Outpost: an extra turn keeps the same player instead of advancing; the new
                     // turn's own `is_extra_turn` is set so a 2nd Outpost played during it can't
                     // grant a 3rd turn in a row (see `cleanup`, which computed this).
-                    let extra = self.turn.outpost_grants_extra && fleet_next.is_none();
-                    let no_buy = self.turn.adv.next_no_buy;
-                    let next = match fleet_next {
+                    let mut extra = self.turn.outpost_grants_extra && fleet_next.is_none();
+                    let mut no_buy = self.turn.adv.next_no_buy;
+                    let mut voyage_next = self.turn.al.voyage_next;
+                    let mut next = match fleet_next {
                         Some(q) => q,
                         None if extra => p as u8,
                         None => ((p + 1) % self.num_players as usize) as u8,
                     };
-                    self.turn = TurnState::start(next, self.turn.number + 1);
+                    let mut number = self.turn.number;
+                    // Allies: a player whose Lich says so skips the turn that would be theirs; the next player's turn follows.
+                    if self.al.hook & crate::state::AH_SKIP != 0 {
+                        while self.players[next as usize].al.skips > 0 {
+                            self.players[next as usize].al.skips -= 1;
+                            // A skipped turn still counts for the tie-break (an extra turn never does).
+                            if !extra {
+                                self.players[next as usize].turns_taken += 1;
+                            }
+                            sink.event(Event::Skip { player: next });
+                            number += 1;
+                            extra = false;
+                            no_buy = false;
+                            voyage_next = false;
+                            next = (next + 1) % self.num_players;
+                        }
+                        self.al_update_hook();
+                    }
+                    self.turn = TurnState::start(next, number + 1);
                     self.turn.is_extra_turn = extra;
+                    // Allies: a Voyage turn plays 3 cards from the hand at most.
+                    if voyage_next && extra {
+                        self.turn.al.limited = true;
+                        self.al.hook |= crate::state::AH_LIMIT;
+                    }
                     // What is in play now was played on an earlier turn (Durations held over): `ledger.carried`, for Scepter (the only card that reads it, so only games with a Scepter pay).
                     if self.in_supply(crate::sets::renaissance::ids::SCEPTER) {
                         self.note_carried(next);
@@ -698,8 +737,10 @@ impl GameState {
             }
             DecisionKind::PlayAction => {
                 let estates = self.estates_are_actions(p as u8);
+                // Allies: a Warlord's Attack and a Voyage turn limit what can be played from the hand.
+                let limited = self.al.hook != 0;
                 for (c, _) in self.players[p].hand.iter() {
-                    if cards::is(c, ACTION) || (estates && c == id::ESTATE) {
+                    if (cards::is(c, ACTION) || (estates && c == id::ESTATE)) && !(limited && self.al_play_blocked(p as u8, c)) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -857,6 +898,10 @@ impl GameState {
             (_, Choice::PayDebtKeep(n)) => self.pay_debt_keeping(p, n as u16, sink),
             (Phase::Action, Choice::Card(c)) => {
                 self.turn.actions -= 1;
+                // Allies: a Voyage turn counts the cards played from the hand.
+                if self.al.hook & crate::state::AH_LIMIT != 0 {
+                    self.turn.al.hand_plays = self.turn.al.hand_plays.saturating_add(1);
+                }
                 if self.turn.men.flags & crate::state::MT_SNOWY != 0 {
                     self.turn.men.cap = self.turn.men.cap.saturating_sub(1);
                 }
@@ -895,9 +940,15 @@ impl GameState {
             (Phase::Buy, Choice::Card(e)) if cards::is_event(e) => self.buy_event(e, p, sink),
             (Phase::Buy, Choice::Card(pr)) if cards::is_project(pr) => self.buy_project(pr, p, sink),
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure && self.plain_treasure(c) => {
+                if self.al.hook & crate::state::AH_LIMIT != 0 {
+                    self.turn.al.hand_plays = self.turn.al.hand_plays.saturating_add(1);
+                }
                 self.play_free_treasure(c, 1, sink);
             }
             (Phase::Buy, Choice::Card(c)) if kind == DecisionKind::PlayTreasure => {
+                if self.al.hook & crate::state::AH_LIMIT != 0 {
+                    self.turn.al.hand_plays = self.turn.al.hand_plays.saturating_add(1);
+                }
                 let ps = &mut self.players[p as usize];
                 ps.hand.remove(c);
                 ps.in_play.add(c, 1);
@@ -960,6 +1011,10 @@ impl GameState {
         if self.ren.holder[(id::TREASURE_CHEST - cards::FIRST_ARTIFACT) as usize] == self.turn.player + 1 {
             self.gain(self.turn.player, id::GOLD, Dest::Discard, false, id::TREASURE_CHEST, sink);
         }
+        // Allies: the Ally's start-of-Buy-phase ability (Family of Inventors, League of Bankers, Market Towns, Peaceful Cult, Woodworkers' Guild).
+        if self.al.flags & crate::state::AF_BUY != 0 {
+            self.al_buy_start(sink);
+        }
     }
 
     /// Start of (or return to) the Buy phase. Choice-free Treasures (Copper, Silver, Gold, ...;
@@ -981,6 +1036,10 @@ impl GameState {
     /// Treasure with a choice is in the hand, or a Sauna makes the Silvers' order matter.
     fn treasure_order_matters(&self) -> bool {
         let hand = &self.players[self.turn.player as usize].hand;
+        // Allies: a Voyage turn plays 3 cards from the hand in all, so the Treasures are chosen one by one until they are used up.
+        if self.al.hook & crate::state::AH_LIMIT != 0 {
+            return self.turn.al.hand_plays < crate::state::VOYAGE_PLAYS && hand.iter().any(|(c, _)| self.is_treasure(c));
+        }
         if hand.iter().any(|(c, _)| self.is_treasure(c) && (self.ask_treasures || !self.plain_treasure(c))) {
             return true;
         }
@@ -998,11 +1057,19 @@ impl GameState {
 
     /// Play every choice-free Treasure in the current player's hand.
     fn play_all_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) {
+        // Allies: a Voyage turn plays its Treasures one at a time, by choice (`treasure_order_matters`); none is played for the player.
+        if self.al.hook & crate::state::AH_LIMIT != 0 {
+            return;
+        }
         let p = self.turn.player;
         let hand = self.players[p as usize].hand;
         // Copper, Silver and Gold are played by a short path unless a card of this game acts on their plays: Envious (Silver and Gold make $1),
         // Sauna (a trash for each Silver) or Corsair (the first Silver or Gold of a turn is trashed).
-        let plain = !self.turn.noc.envy && self.turn.adv.sauna == 0 && !self.in_supply(id::CORSAIR) && self.turn.men.kiln == 0;
+        let plain = !self.turn.noc.envy
+            && self.turn.adv.sauna == 0
+            && !self.in_supply(id::CORSAIR)
+            && self.turn.men.kiln == 0
+            && self.al.flags & crate::state::AF_HW == 0;
         for (c, n) in hand.iter() {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);
@@ -1081,6 +1148,25 @@ impl GameState {
     /// `play_free_treasure`; with `fresh` false the card is already in play and is played again (Crown plays a Treasure twice).
     pub(crate) fn play_free_treasure_from<S: EventSink>(&mut self, c: CardId, n: u8, fresh: bool, sink: &mut S) {
         let p = self.turn.player;
+        // Allies: Highwayman stops the first Treasure the player plays each turn from doing anything (it is played all the same).
+        if self.al.flags & crate::state::AF_HW != 0 {
+            if n > 1 && !self.turn.al.t1 {
+                self.play_free_treasure_from(c, 1, fresh, sink);
+                return self.play_free_treasure_from(c, n - 1, fresh, sink);
+            }
+            if self.al_first_treasure_blocked(p) {
+                let ps = &mut self.players[p as usize];
+                if fresh {
+                    ps.hand.set(c, ps.hand.get(c) - n);
+                    ps.in_play.add(c, n);
+                }
+                self.turn.played.add(c, n);
+                for _ in 0..n {
+                    sink.event(Event::Play { player: p, card: c });
+                }
+                return;
+            }
+        }
         // Rising Sun: Panic's Buys, Good Harvest's Buy and $.
         if self.rs.active != 0 {
             self.rs_treasure_plays(c, n, sink);
@@ -1278,6 +1364,14 @@ impl GameState {
         self.turn.adv.next_no_buy = mission;
         // Seize the Day (Menagerie): an extra turn after this one, with no check on the previous turn.
         self.turn.outpost_grants_extra = grant_extra || mission || self.turn.men.flags & crate::state::MT_SEIZE != 0;
+        // Allies: Voyage's extra turn (not a 3rd in a row), in which 3 cards may be played from the hand; another extra turn pending is taken instead.
+        if self.turn.al.voyage && !self.turn.is_extra_turn {
+            self.turn.al.voyage_next = !self.turn.outpost_grants_extra;
+            self.turn.outpost_grants_extra = true;
+        }
+        if self.al.hook & crate::state::AH_LIMIT != 0 {
+            self.al.hook &= !crate::state::AH_LIMIT;
+        }
         // Goatherd (Menagerie): the cards trashed this turn, for the player to the left.
         if self.men.flags & crate::state::M_TRASHES != 0 {
             self.players[p].men.trashed_last = self.turn.men.trashed;
@@ -1371,6 +1465,12 @@ impl GameState {
         if self.players[p].saved != 0 {
             self.stack.push(crate::effects::select(p as u8, id::SAVE, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::SavedToHand));
         }
+        // Coastal Haven (Allies): the cards kept in hand are added to it once the new hand is drawn.
+        if self.al.flags & crate::state::AF_KEEP != 0 && !self.players[p].al.keep.is_empty() {
+            self.stack.push(crate::effects::select(
+                p as u8, crate::sets::allies::ids::COASTAL_HAVEN, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::KeepToHand,
+            ));
+        }
         self.stack.push(Frame { max: draw_n, ..Frame::new(FrameKind::Draw, p as u8, 0) });
     }
 
@@ -1405,6 +1505,13 @@ impl GameState {
                 return Err(NeedChance(crate::state::STAR_STOP));
             }
         }
+        // Allies: Order of Astrologers and Order of Masons, a shuffle is about to happen for `p` (a frame asks which cards, and shuffles once they are picked).
+        if self.al.flags & crate::state::AF_SHUFFLE != 0 {
+            let ps = &self.players[p as usize];
+            if ps.deck_unknown.is_empty() && ps.deck_known_bottom.len == 0 && !ps.discard.is_empty() && self.al_shuffle_offer(p) {
+                return Err(NeedChance(crate::state::STAR_STOP));
+            }
+        }
         let ps = &mut self.players[p as usize];
         // Nothing known on top: the unknown multiset is the deck; once it is empty the discard
         // pile is shuffled in (an idempotent change, so a chance step can redo this).
@@ -1428,6 +1535,10 @@ impl GameState {
                 ps.sink_shadows();
             }
             sink.event(Event::Shuffle { player: p });
+            // Allies: Emissary counts the shuffles of the turn.
+            if self.al.flags & crate::state::AF_STAMP != 0 {
+                self.turn.al.shuffles = self.turn.al.shuffles.saturating_add(1);
+            }
             total = ps.deck_unknown.total();
             if total == 0 {
                 return Ok(ps.deck_known_bottom.pop_front());
@@ -1535,8 +1646,8 @@ impl GameState {
         }
         sink.event(Event::Gain { player: p, card: c, to, source });
         // The top card of the Knights or Ruins pile was taken: the next one is revealed (it is drawn from the cards nobody has seen).
-        if from_supply && c >= cards::FIRST_PILE_CARD {
-            self.advance_pile(c);
+        if from_supply {
+            self.pile_taken(c);
         }
         // Smugglers' gain record: "a card the player to your right gained on their last turn"
         // means gained during *their own* turn specifically, so this excludes a victim's forced

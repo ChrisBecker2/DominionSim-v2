@@ -4,7 +4,7 @@ use crate::cards::{CardId, NUM_ZONE_IDS};
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
 /// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
 /// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
-pub const LANES: usize = 480;
+pub const LANES: usize = 512;
 /// The last four lanes are bookkeeping, not card lanes (`NUM_ZONE_IDS` leaves them free): a little-endian `u16` bitmap of the 32-lane blocks that
 /// may hold a card (bit `b` clear means block `b` is all zero), then the multiset's total count (`u16`). Every mutation keeps them up to date, so
 /// `total` and `is_empty` are a load and `iter`, `add_all` and `clear` visit only the blocks that can have cards (a hand or a discard pile has

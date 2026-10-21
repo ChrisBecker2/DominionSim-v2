@@ -2055,6 +2055,19 @@ fn render_event(e: &Event) -> String {
         Event::Flip { player, up } => format!("Player {} turns their Journey token {}", player + 1, if up { "face up" } else { "face down" }),
         Event::MinusToken { player, token } => format!("Player {} takes their {} token", player + 1, cards::TOKEN_NAMES[token as usize]),
         Event::GameOver => "--- Game over ---".to_string(),
+        Event::Favor { player, source, n, gained } => {
+            let what = if n == 1 { "a Favor".to_string() } else { format!("{n} Favors") };
+            if gained {
+                format!("Player {} gets +{what} ({})", player + 1, cards::name(source))
+            } else {
+                format!("Player {} spends {what} ({})", player + 1, cards::name(source))
+            }
+        }
+        Event::Rotate { player, source, top, now } => {
+            format!("Player {} rotates the pile of {}: {} is on top now ({})", player + 1, cards::name(top), cards::name(now), cards::name(source))
+        }
+        Event::Skip { player } => format!("Player {} skips a turn", player + 1),
+        Event::Bottom { player, card } => format!("Player {} puts {} on the bottom of their deck", player + 1, cards::name(card)),
         Event::Boon { player, boon, source } => {
             let from = if cards::is_boon(source) || source == NO_SOURCE { String::new() } else { format!(" ({})", cards::name(source)) };
             format!("Player {} receives {}{from}", player + 1, cards::name(boon))
@@ -2198,6 +2211,7 @@ fn filter_noun(f: Filter) -> (String, String) {
             }
             dominion_engine::state::TypeSet::Castle => ("a Castle".into(), "Castles".into()),
             dominion_engine::state::TypeSet::ActionNotAttack => ("a non-Attack Action card".into(), "non-Attack Action cards".into()),
+            dominion_engine::state::TypeSet::ActionOrVictory => ("an Action or Victory card".into(), "Action or Victory cards".into()),
         },
         Filter::NonTreasure => ("a non-Treasure card".into(), "non-Treasure cards".into()),
         Filter::TreasureNonDuration => ("a non-Duration Treasure".into(), "non-Duration Treasures".into()),
@@ -2210,6 +2224,9 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::SharesTypeWith(c) => (format!("a card sharing a type with {}", cards::name(c)), format!("cards sharing a type with {}", cards::name(c))),
         Filter::Frogged => ("a card played as Way of the Frog".into(), "cards played as Way of the Frog".into()),
         Filter::PopulateLeft => ("an Action card from a pile you have not gained from".into(), "Action cards from piles you have not gained from".into()),
+        Filter::InPile(c) => (format!("a card from the {} pile", cards::name(c)), format!("cards from the {} pile", cards::name(c))),
+        Filter::Rotatable => ("a pile that rotating changes".into(), "piles that rotating changes".into()),
+        Filter::TokenPile => ("a non-Victory Supply pile".into(), "non-Victory Supply piles".into()),
     }
 }
 
@@ -2306,6 +2323,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::ShuffleIn => ("shuffle", " into your deck".to_string()),
                 Act::Choose => ("choose", String::new()),
                 Act::Exile => ("Exile", String::new()),
+                Act::Bottom => ("put", " on the bottom of your deck".to_string()),
             };
             let zone = zone_phrase(from);
             let order = if ordered && act == Act::Topdeck { " (one at a time; the last one ends on top)" } else { "" };
@@ -2369,6 +2387,7 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
                 Act::ShuffleIn => format!("Shuffle {card} into your deck?"),
                 Act::Choose => format!("Choose {card}?"),
                 Act::Exile => format!("Exile {card}?"),
+                Act::Bottom => format!("Put {card} on the bottom of your deck?"),
             }
         }
         DecisionKind::Token { token } if token as usize == dominion_engine::sets::empires::TOK_TAX => "Put 2 Debt on a Supply pile.".to_string(),
@@ -2502,8 +2521,10 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
                     Act::Return => format!("Return {name}"),
                     Act::Archive => format!("Set aside {name}"),
                     Act::ShuffleIn => format!("Shuffle {name} into the deck"),
+                    Act::Choose if d.source.is_some_and(cards::is_ally) || d.source == Some(id::BATTLE_PLAN) => format!("Choose {name}"),
                     Act::Choose => format!("Replay {name}"),
                     Act::Exile => format!("Exile {name}"),
+                    Act::Bottom => format!("Put {name} on the bottom"),
                 },
                 DecisionKind::Way => format!("Play it as {name}"),
                 DecisionKind::PlayNight => format!("Play {name} (Night)"),

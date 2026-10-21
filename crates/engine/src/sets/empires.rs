@@ -50,41 +50,41 @@ pub mod ids {
     pub const GRAND_CASTLE: CardId = 270;
     pub const KINGS_CASTLE: CardId = 271;
     // The Events.
-    pub const ADVANCE: CardId = 474;
-    pub const ANNEX: CardId = 475;
-    pub const BANQUET: CardId = 476;
-    pub const CONQUEST: CardId = 477;
-    pub const DELVE: CardId = 478;
-    pub const DOMINATE: CardId = 479;
-    pub const DONATE: CardId = 480;
-    pub const RITUAL: CardId = 481;
-    pub const SALT_THE_EARTH: CardId = 482;
-    pub const TAX: CardId = 483;
-    pub const TRIUMPH: CardId = 484;
-    pub const WEDDING: CardId = 485;
-    pub const WINDFALL: CardId = 486;
+    pub const ADVANCE: CardId = 523;
+    pub const ANNEX: CardId = 524;
+    pub const BANQUET: CardId = 525;
+    pub const CONQUEST: CardId = 526;
+    pub const DELVE: CardId = 527;
+    pub const DOMINATE: CardId = 528;
+    pub const DONATE: CardId = 529;
+    pub const RITUAL: CardId = 530;
+    pub const SALT_THE_EARTH: CardId = 531;
+    pub const TAX: CardId = 532;
+    pub const TRIUMPH: CardId = 533;
+    pub const WEDDING: CardId = 534;
+    pub const WINDFALL: CardId = 535;
     // The Landmarks.
-    pub const AQUEDUCT: CardId = 518;
-    pub const ARENA: CardId = 519;
-    pub const BANDIT_FORT: CardId = 520;
-    pub const BASILICA: CardId = 521;
-    pub const BATHS: CardId = 522;
-    pub const BATTLEFIELD: CardId = 523;
-    pub const COLONNADE: CardId = 524;
-    pub const DEFILED_SHRINE: CardId = 525;
-    pub const FOUNTAIN: CardId = 526;
-    pub const KEEP: CardId = 527;
-    pub const LABYRINTH: CardId = 528;
-    pub const MOUNTAIN_PASS: CardId = 529;
-    pub const MUSEUM: CardId = 530;
-    pub const OBELISK: CardId = 531;
-    pub const ORCHARD: CardId = 532;
-    pub const PALACE: CardId = 533;
-    pub const TOMB: CardId = 534;
-    pub const TOWER: CardId = 535;
-    pub const TRIUMPHAL_ARCH: CardId = 536;
-    pub const WALL: CardId = 537;
-    pub const WOLF_DEN: CardId = 538;
+    pub const AQUEDUCT: CardId = 567;
+    pub const ARENA: CardId = 568;
+    pub const BANDIT_FORT: CardId = 569;
+    pub const BASILICA: CardId = 570;
+    pub const BATHS: CardId = 571;
+    pub const BATTLEFIELD: CardId = 572;
+    pub const COLONNADE: CardId = 573;
+    pub const DEFILED_SHRINE: CardId = 574;
+    pub const FOUNTAIN: CardId = 575;
+    pub const KEEP: CardId = 576;
+    pub const LABYRINTH: CardId = 577;
+    pub const MOUNTAIN_PASS: CardId = 578;
+    pub const MUSEUM: CardId = 579;
+    pub const OBELISK: CardId = 580;
+    pub const ORCHARD: CardId = 581;
+    pub const PALACE: CardId = 582;
+    pub const TOMB: CardId = 583;
+    pub const TOWER: CardId = 584;
+    pub const TRIUMPHAL_ARCH: CardId = 585;
+    pub const WALL: CardId = 586;
+    pub const WOLF_DEN: CardId = 587;
 }
 
 /// An Event: no types, no bonuses; its cost is the cost to buy it (`with_debt` adds the Debt part).
@@ -667,10 +667,15 @@ impl GameState {
     /// gone, a Castle only when no cheaper Castle is left.
     #[inline]
     pub fn pile_open(&self, c: CardId) -> bool {
-        if cards::is_split_bottom(c) {
-            cards::split_top(c).map_or(true, |t| self.supply.get(t) == 0)
-        } else if cards::is_castle(c) {
-            (ids::HUMBLE_CASTLE..c).all(|m| self.supply.get(m) == 0)
+        // The split piles' bottom halves and the Castles are the ids from Avanto (14 in a row); the Allies split piles' cards are another run.
+        if c.wrapping_sub(id::AVANTO) < 14 {
+            if cards::is_split_bottom(c) {
+                cards::split_top(c).map_or(true, |t| self.supply.get(t) == 0)
+            } else {
+                (ids::HUMBLE_CASTLE..c).all(|m| self.supply.get(m) == 0)
+            }
+        } else if cards::is_allies_split(c) {
+            self.al_pile_open(c)
         } else {
             true
         }

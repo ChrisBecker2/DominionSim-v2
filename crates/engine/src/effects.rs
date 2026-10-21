@@ -159,6 +159,10 @@ impl GameState {
         if self.after_play_possible(player) && cards::is(card, ACTION) {
             self.stack.push(Frame { subject: card, tok, ..Frame::new(K::AfterPlay, player, card) });
         }
+        // Allies: an Ally that acts after a play (Circle of Witches, Fellowship of Scribes, League of Shopkeepers) waits under its effects too.
+        if self.al.flags & crate::state::AF_PLAYS != 0 && player == self.turn.player {
+            self.al_push_after_play(card, player, tok);
+        }
         let outer = std::mem::replace(&mut self.turn.led.cur, tok);
         // Menagerie: a Kiln's gain and the choice of a Way come before the card's own effects (a frame, resolved once the frames above it are).
         if (self.men.flags & crate::state::M_WAYS != 0 && cards::is(card, ACTION)) || self.turn.men.kiln > 0 {
@@ -178,6 +182,10 @@ impl GameState {
             if f.tok == 0 && f.kind != K::PlayEffects {
                 f.tok = tok;
             }
+        }
+        // Allies: Elder's play gives its "choose" decisions one more pick.
+        if self.turn.al.elder {
+            self.al_elder_stamp(base);
         }
     }
 
@@ -199,6 +207,11 @@ impl GameState {
     pub(crate) fn resolve_effects_inner<S: EventSink, const SWAP: bool>(&mut self, card: CardId, player: u8, sink: &mut S) {
         let p = player;
         let def = cards::def(card);
+        // Allies: Highwayman stops the first Treasure the player plays each turn from doing anything.
+        if self.al.flags & crate::state::AF_HW != 0 && p == self.turn.player && self.is_treasure(card) && self.al_first_treasure_blocked(p) {
+            self.turn.played.add(card, 1);
+            return;
+        }
         // Enlightenment: a Treasure played in the Action phase is +1 Card +1 Action instead of what it says.
         if self.rs.active == id::ENLIGHTENMENT && p == self.turn.player && self.turn.phase == Phase::Action && self.is_treasure(card) {
             self.rs_enlightened_play(card, p, sink);
@@ -496,7 +509,10 @@ impl GameState {
     #[inline(always)]
     fn select_ok(&self, f: &Frame, c: CardId) -> bool {
         // From the Supply only the top card of a pile can be taken (not a split pile's bottom half, nor a Castle behind a cheaper one).
-        (f.zone != Zone::Supply || self.pile_open(c)) && self.filter_ok(f.player, f.filter, c)
+        (f.zone != Zone::Supply || self.pile_open(c))
+            && self.filter_ok(f.player, f.filter, c)
+            // Allies: a Warlord's Attack and a Voyage turn limit what can be played from the hand.
+            && (self.al.hook == 0 || !(f.act == Act::Play && f.zone == Zone::Hand) || !self.al_play_blocked(f.player, c))
             || (c == id::ESTATE && f.zone == Zone::Hand && f.filter == Filter::Action && self.estates_are_actions(f.player))
     }
 
@@ -553,6 +569,9 @@ impl GameState {
             }
             // Populate: an Action pile it has not gained from yet.
             Filter::PopulateLeft => self.populate_ok(c),
+            // Allies: a pile that rotating changes; a non-Victory pile (Family of Inventors).
+            Filter::Rotatable => self.al_rotatable(c),
+            Filter::TokenPile => self.al_token_pile(c),
             filter => filter.matches(c),
         }
     }
@@ -709,6 +728,13 @@ impl GameState {
                     self.resolve_effects_tok(f.subject, p, f.depth, crate::track::NIP, sink);
                     return Run::Continue;
                 }
+                // Allies: Elder's play (the "choose" decisions the card makes give one more pick).
+                if f.gf & crate::state::GF_ELDER != 0 {
+                    self.turn.al.elder = true;
+                    self.resolve_effects_tok(f.subject, p, f.depth, f.tok, sink);
+                    self.turn.al.elder = false;
+                    return Run::Continue;
+                }
                 self.resolve_effects_tok(f.subject, p, f.depth, f.tok, sink);
                 Run::Continue
             }
@@ -775,6 +801,7 @@ impl GameState {
                     || (matches!(f.then, Then::TraderSwap | Then::BerserkerPlay) && !self.hint_yesno_possible(&f))
                     || (f.then == Then::SleighMove && !self.sleigh_possible(&f))
                     || (matches!(f.then, Then::CargoAside | Then::InnovationPlay) && self.ren_yesno_pointless(&f))
+                    || (f.then == Then::AllyFavor && self.players[pi].al.favors < f.min)
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
@@ -803,6 +830,7 @@ impl GameState {
                     Then::DiscardRevealedAsk => self.players[pi].set_aside.is_empty(),
                     Then::SnakeWitch | Then::GoldMine => self.rs_ask_pointless(&f),
                     Then::PageantPay | Then::SinisterPlot => self.ren_ask_pointless(&f),
+                    Then::AllyAsk | Then::RotateAsk | Then::CapitalPay => self.al_ask_pointless(&f),
                     _ => false,
                 };
                 if pointless {
@@ -832,6 +860,9 @@ impl GameState {
                         return Run::Continue;
                     }
                     return Run::Decide(DecisionKind::Name, 0);
+                }
+                if matches!(f.then, Then::SorceressNamed | Then::SorcererNamed) {
+                    return self.run_al_named(f, sink);
                 }
                 if f.then == Then::RebuildNamed {
                     // Named: reveal until a Victory card that was not named (discarding the rest), trash it, and gain a Victory card
@@ -902,11 +933,12 @@ impl GameState {
             K::TopCard if f.then == Then::ChariotRace => self.run_chariot(f, sink),
             K::Bid => self.run_bid(f, sink),
             K::TopCard if matches!(f.then, Then::LocustsHit | Then::MasonTrash) => self.run_noc_top_card(f, sink),
+            K::TopCard if matches!(f.then, Then::CourierTop | Then::BarbarianHit) => self.run_al_top_card(f, sink),
             K::TopCard => self.run_jester_top_card(f, sink),
             K::ReceiveBoon => self.run_receive_boon(f, sink),
             K::ReceiveHex => self.run_receive_hex(f, sink),
             K::PickBoon => self.run_pick_boon(f, sink),
-            K::AfterPlay => self.run_after_play(f),
+            K::AfterPlay => self.run_after_play(f, sink),
             K::PrePlay => self.run_preplay(f, sink),
             K::Release => {
                 self.stack.pop();
@@ -1183,6 +1215,7 @@ impl GameState {
                         Then::CreditDebt | Then::TributeGain => self.rs_gained(&f, c, sink),
                         Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
                         Then::GroomBonus | Then::DesperationBonus | Then::PopulateGain | Then::ReapAside => self.men_gained(&f, c, dest, sink),
+                        Then::HillFortGain => self.al_gained(&f, c, dest),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1220,6 +1253,10 @@ impl GameState {
                 if f.then == Then::WitchsHut && cards::is(c, ACTION) {
                     f.subject += 1;
                 }
+                // Allies: a Voyage turn counts the cards played from the hand (the Throne Room's pick counts, its replay does not).
+                if self.al.hook & crate::state::AH_LIMIT != 0 && f.act == Act::Play && f.zone == Zone::Hand {
+                    self.turn.al.hand_plays = self.turn.al.hand_plays.saturating_add(1);
+                }
                 self.stack.set_top(f);
                 // A card played from the Supply stays there (Captain); it is neither moved nor logged
                 // as played until its `PlayEffects` frame runs.
@@ -1250,9 +1287,7 @@ impl GameState {
                 } else if f.act == Act::Trash && f.zone == Zone::Supply {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
-                    if c >= cards::FIRST_PILE_CARD {
-                        self.advance_pile(c);
-                    }
+                    self.pile_taken(c);
                 } else if !(f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }
@@ -1339,6 +1374,7 @@ impl GameState {
                     Then::ExileDiscard | Then::SleighMove | Then::ButterflyGain => self.men_yes(&f, sink),
                     Then::TunnelGold | Then::FoolsGoldGain | Then::TraderSwap => self.hint_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
+                    Then::AllyFavor | Then::AcolyteGain => self.al_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
                     Then::RazeSelf => {
                         let n = self.cost(id::RAZE).min(u8::MAX as u8);
@@ -1372,6 +1408,8 @@ impl GameState {
                     self.ren_ask_no(f, sink);
                 } else if f.then == Then::NowOrNext {
                     self.men_ask_no(f);
+                } else if f.then == Then::AllyAsk {
+                    self.al_ask_no(f, sink);
                 }
             }
             (K::Library, Choice::Yes) => self.library_set_aside(f, sink),
@@ -1486,6 +1524,11 @@ impl GameState {
                 ps.hand.add(c, 1);
                 sink.event(Event::Draw { player: p, card: c });
             }
+            // Allies: the bottom of the deck (below the cards nobody knows, with the other cards put there).
+            Act::Bottom => {
+                ps.deck_known_bottom.push_top(c);
+                sink.event(Event::Bottom { player: p, card: c });
+            }
         }
     }
 
@@ -1569,6 +1612,7 @@ impl GameState {
                 if f.count > 0 {
                     // A Curse is also a Treasure in a game with Charlatan: two types.
                     let types = cards::def(f.last).types.count_ones() + (f.last == id::CURSE && self.is_treasure(f.last)) as u32;
+                    let types = types + (f.gf & crate::state::GF_ELDER != 0) as u32;
                     let picks = types.min(cards::modes(f.source).len() as u32) as u8;
                     if picks > 0 {
                         self.stack.push(mode_frame(p, f.source, picks));
@@ -1827,6 +1871,25 @@ impl GameState {
             Then::ModePerCost | Then::DisplaceGain | Then::DelayAside | Then::BanishPick | Then::BountyHunter | Then::GainSubjectCopy | Then::AltBuyGain => {
                 self.finish_men_select(&f, sink)
             }
+            Then::RotatePicked
+            | Then::CoinsIfPicked(_)
+            | Then::StudentTrash
+            | Then::BrokerMode
+            | Then::ModifyMode
+            | Then::GalleyPlay
+            | Then::GalleySchedule
+            | Then::ContractAside
+            | Then::SpecialistPlay
+            | Then::ElderPlay
+            | Then::SwapGain
+            | Then::EmissaryCheck
+            | Then::FamilyToken
+            | Then::CultSpend
+            | Then::WoodworkersGain
+            | Then::HavenKeep
+            | Then::KeepToHand
+            | Then::AstrologersShuffle
+            | Then::MasonsShuffle => self.finish_al_select(&f, sink),
             Then::MountainShrine
             | Then::RiceBroker
             | Then::KintsugiGain
@@ -1946,6 +2009,18 @@ impl GameState {
             | Then::PursueSort
             | Then::DesperationBonus
             | Then::PopulateGain
+            | Then::AllyAsk
+            | Then::AllyFavor
+            | Then::RotateAsk
+            | Then::AcolyteGain
+            | Then::SorceressNamed
+            | Then::SorcererNamed
+            | Then::CourierTop
+            | Then::MillerPick
+            | Then::HunterReveal
+            | Then::HillFortGain
+            | Then::CapitalPay
+            | Then::BarbarianHit
             | Then::ButterflyGain => {}
         }
         // Cards the continuation trashed (a Procession's trash step) resolve what they do right away.
@@ -2014,7 +2089,32 @@ impl GameState {
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => self.governor_frames(&f, table[i as usize]),
                 ModeOpt::TrashFiltered(filt) => self.stack.push(select(p, f.source, Zone::Hand, Act::Trash, filt, 1, 1, Then::Nothing)),
                 ModeOpt::ReplayAction => self.stack.push(select(p, f.source, Zone::InPlay, Act::Choose, Filter::ReplayTarget, 1, 1, Then::ScepterReplay)),
-                ModeOpt::TakeArtifact(_)
+                // Allies: the cards drawn first, then the discard (the draw is on top).
+                ModeOpt::DrawThenDiscard(d, k) => {
+                    self.stack.push(select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, k, k, Then::Nothing));
+                    self.stack.push(draw_frame(p, f.source, d));
+                }
+                ModeOpt::DrawUpTo(n) => self.stack.push(select(p, f.source, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::DrawUpTo(n))),
+                ModeOpt::CostCards => {
+                    let n = self.cost(f.subject);
+                    if n > 0 {
+                        self.stack.push(draw_frame(p, f.source, n));
+                    }
+                }
+                ModeOpt::GainPlus(n) => self.stack.push(Frame {
+                    potion: cards::potion_cost(f.subject), ..gain_frame(p, f.source, self.cost(f.subject).saturating_add(n), Filter::Any, Dest::Discard)
+                }),
+                ModeOpt::PlaySubjectAgain => self.stack.push(Frame { subject: f.subject, count: 2, ..Frame::new(K::PlayEffects, p, f.source) }),
+                ModeOpt::GainCopy => self.stack.push(Frame {
+                    gf: crate::state::GF_ANY_COST, ..gain_frame(p, f.source, u8::MAX, Filter::Card(f.subject), Dest::Discard)
+                }),
+                ModeOpt::Favors(_)
+                | ModeOpt::TopdeckGains
+                | ModeOpt::DurationNext
+                | ModeOpt::CostActions
+                | ModeOpt::CostCoins
+                | ModeOpt::CostFavors
+                | ModeOpt::TakeArtifact(_)
                 | ModeOpt::MoveGained(_)
                 | ModeOpt::CoinsPerTavernCopper
                 | ModeOpt::Nothing
@@ -2111,6 +2211,33 @@ impl GameState {
                 ModeOpt::TakeArtifact(a) => self.take_artifact(p, a, sink),
                 ModeOpt::TrashFiltered(_) | ModeOpt::ReplayAction | ModeOpt::ExileFromSupply(_) | ModeOpt::ExileToDeck(_) => {}
                 ModeOpt::MoveGained(dest) => self.move_gained(&f, dest),
+                // Allies.
+                ModeOpt::Favors(n) => self.give_favors(p, f.source, n, sink),
+                ModeOpt::TopdeckGains => {
+                    self.turn.al.bauble = true;
+                    self.turn.al.live |= 1;
+                }
+                ModeOpt::DurationNext => self.push_duration_pending(p, f.source, 1, 0),
+                ModeOpt::CostActions => {
+                    let k = self.cost(f.subject);
+                    self.turn.actions = self.turn.actions.saturating_add(k);
+                    b_actions = b_actions.saturating_add(k);
+                }
+                ModeOpt::CostCoins => {
+                    let k = self.cost(f.subject) as u16;
+                    self.turn.coins += k;
+                    b_coins += k;
+                }
+                ModeOpt::CostFavors => {
+                    let k = self.cost(f.subject);
+                    self.give_favors(p, f.source, k, sink);
+                }
+                ModeOpt::DrawThenDiscard(..)
+                | ModeOpt::DrawUpTo(_)
+                | ModeOpt::CostCards
+                | ModeOpt::GainPlus(_)
+                | ModeOpt::PlaySubjectAgain
+                | ModeOpt::GainCopy => {}
                 ModeOpt::GainTakeVp(_) | ModeOpt::GainUpToCost(_) => {}
                 ModeOpt::EachCards(..) | ModeOpt::EachGain(..) | ModeOpt::EachTrashGain(..) => {}
                 ModeOpt::Cards(_)
@@ -2491,6 +2618,7 @@ impl GameState {
             Then::PoetCheck | Then::ForesightSet => self.finish_rs_reveal(&f, sink),
             Then::BorderGuardReveal | Then::ResearchSet | Then::PiazzaPlay => self.finish_ren_reveal(&f, sink),
             Then::PursueSort => self.finish_pursue(&f, sink),
+            Then::MillerPick | Then::HunterReveal => self.al_reveal_done(&f, sink),
             Then::MoveMatchingToHand(filter) => {
                 let p = f.player as usize;
                 let revealed = self.players[p].set_aside;

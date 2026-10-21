@@ -61,37 +61,37 @@ pub mod ids {
     pub const ZOMBIE_MASON: CardId = 326;
     pub const ZOMBIE_SPY: CardId = 327;
     // The Boons (pseudo-cards).
-    pub const THE_EARTHS_GIFT: CardId = 539;
-    pub const THE_FIELDS_GIFT: CardId = 540;
-    pub const THE_FLAMES_GIFT: CardId = 541;
-    pub const THE_FORESTS_GIFT: CardId = 542;
-    pub const THE_MOONS_GIFT: CardId = 543;
-    pub const THE_MOUNTAINS_GIFT: CardId = 544;
-    pub const THE_RIVERS_GIFT: CardId = 545;
-    pub const THE_SEAS_GIFT: CardId = 546;
-    pub const THE_SKYS_GIFT: CardId = 547;
-    pub const THE_SUNS_GIFT: CardId = 548;
-    pub const THE_SWAMPS_GIFT: CardId = 549;
-    pub const THE_WINDS_GIFT: CardId = 550;
+    pub const THE_EARTHS_GIFT: CardId = 588;
+    pub const THE_FIELDS_GIFT: CardId = 589;
+    pub const THE_FLAMES_GIFT: CardId = 590;
+    pub const THE_FORESTS_GIFT: CardId = 591;
+    pub const THE_MOONS_GIFT: CardId = 592;
+    pub const THE_MOUNTAINS_GIFT: CardId = 593;
+    pub const THE_RIVERS_GIFT: CardId = 594;
+    pub const THE_SEAS_GIFT: CardId = 595;
+    pub const THE_SKYS_GIFT: CardId = 596;
+    pub const THE_SUNS_GIFT: CardId = 597;
+    pub const THE_SWAMPS_GIFT: CardId = 598;
+    pub const THE_WINDS_GIFT: CardId = 599;
     // The Hexes.
-    pub const BAD_OMENS: CardId = 551;
-    pub const DELUSION: CardId = 552;
-    pub const ENVY: CardId = 553;
-    pub const FAMINE: CardId = 554;
-    pub const FEAR: CardId = 555;
-    pub const GREED: CardId = 556;
-    pub const HAUNTING: CardId = 557;
-    pub const LOCUSTS: CardId = 558;
-    pub const MISERY: CardId = 559;
-    pub const PLAGUE: CardId = 560;
-    pub const POVERTY: CardId = 561;
-    pub const WAR: CardId = 562;
+    pub const BAD_OMENS: CardId = 600;
+    pub const DELUSION: CardId = 601;
+    pub const ENVY: CardId = 602;
+    pub const FAMINE: CardId = 603;
+    pub const FEAR: CardId = 604;
+    pub const GREED: CardId = 605;
+    pub const HAUNTING: CardId = 606;
+    pub const LOCUSTS: CardId = 607;
+    pub const MISERY: CardId = 608;
+    pub const PLAGUE: CardId = 609;
+    pub const POVERTY: CardId = 610;
+    pub const WAR: CardId = 611;
     // The States.
-    pub const LOST_IN_THE_WOODS: CardId = 563;
-    pub const DELUDED: CardId = 564;
-    pub const ENVIOUS: CardId = 565;
-    pub const MISERABLE: CardId = 566;
-    pub const TWICE_MISERABLE: CardId = 567;
+    pub const LOST_IN_THE_WOODS: CardId = 612;
+    pub const DELUDED: CardId = 613;
+    pub const ENVIOUS: CardId = 614;
+    pub const MISERABLE: CardId = 615;
+    pub const TWICE_MISERABLE: CardId = 616;
 }
 
 /// A Boon, Hex or State: no types, no bonuses (what it does is `boon_effect` / `hex_effect` / the state flags); a pseudo-card that is never in a zone.
@@ -1067,6 +1067,8 @@ impl GameState {
             ids::BAT => self.noc.piles[crate::state::NOC_BAT] += 1,
             ids::IMP => self.noc.piles[crate::state::NOC_IMP] += 1,
             ids::GHOST => self.noc.piles[crate::state::NOC_GHOST] += 1,
+            // Allies: a card of a split pile goes on top of it, even when other cards of the pile are above or below.
+            _ if cards::is_allies_split(c) => self.al_return(c),
             _ if c >= cards::FIRST_PILE_CARD => {
                 // The returned member of a Knights or Ruins pile becomes the top card; the old top card is not visible any more.
                 if let Some(pile) = crate::sets::dark_ages::MixedPile::of_member(c) {

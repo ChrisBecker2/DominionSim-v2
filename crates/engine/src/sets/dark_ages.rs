@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 438;
+    pub const RUINS: CardId = 487;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 439;
-    pub const RUINED_LIBRARY: CardId = 440;
-    pub const RUINED_MARKET: CardId = 441;
-    pub const RUINED_VILLAGE: CardId = 442;
-    pub const SURVIVORS: CardId = 443;
-    pub const DAME_ANNA: CardId = 444;
-    pub const DAME_JOSEPHINE: CardId = 445;
-    pub const DAME_MOLLY: CardId = 446;
-    pub const DAME_NATALIE: CardId = 447;
-    pub const DAME_SYLVIA: CardId = 448;
-    pub const SIR_BAILEY: CardId = 449;
-    pub const SIR_DESTRY: CardId = 450;
-    pub const SIR_MARTIN: CardId = 451;
-    pub const SIR_MICHAEL: CardId = 452;
-    pub const SIR_VANDER: CardId = 453;
+    pub const ABANDONED_MINE: CardId = 488;
+    pub const RUINED_LIBRARY: CardId = 489;
+    pub const RUINED_MARKET: CardId = 490;
+    pub const RUINED_VILLAGE: CardId = 491;
+    pub const SURVIVORS: CardId = 492;
+    pub const DAME_ANNA: CardId = 493;
+    pub const DAME_JOSEPHINE: CardId = 494;
+    pub const DAME_MOLLY: CardId = 495;
+    pub const DAME_NATALIE: CardId = 496;
+    pub const DAME_SYLVIA: CardId = 497;
+    pub const SIR_BAILEY: CardId = 498;
+    pub const SIR_DESTRY: CardId = 499;
+    pub const SIR_MARTIN: CardId = 500;
+    pub const SIR_MICHAEL: CardId = 501;
+    pub const SIR_VANDER: CardId = 502;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).
@@ -786,6 +786,7 @@ impl GameState {
             Then::SnakeWitch | Then::GoldMine => self.rs_ask_yes(f, sink),
             Then::PageantPay | Then::SinisterPlot => self.ren_ask_yes(f, sink),
             Then::NowOrNext | Then::HuntingLodge => self.men_ask_yes(f, sink),
+            Then::AllyAsk | Then::RotateAsk | Then::CapitalPay => self.al_ask_yes(f, sink),
             _ => {}
         }
     }

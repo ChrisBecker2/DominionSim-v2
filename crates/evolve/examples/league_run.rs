@@ -1,6 +1,6 @@
 //! Run a kingdom league from the command line and print the niche table and crosstable.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
-//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED,
+//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED, FINAL_FULL=0 (fast bots in the final ranking),
 //! SEARCH=off|selective|full with SEARCH_GAP (points) and SEARCH_COST (times a fast game): how much turn search the evaluation bots keep)
 use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, SearchMode, Track};
 
@@ -16,7 +16,13 @@ fn main() {
     let final_games = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
     let cfg = EvolveConfig {
         track: Track::Fixed { kingdom },
-        league: Some(LeagueConfig { final_games, exploit_rounds: env("EXPLOIT_ROUNDS", 3), exploit_generations: env("EXPLOIT_GENS", 30), ..LeagueConfig::default() }),
+        league: Some(LeagueConfig {
+            final_games,
+            exploit_rounds: env("EXPLOIT_ROUNDS", 3),
+            exploit_generations: env("EXPLOIT_GENS", 30),
+            final_full: env("FINAL_FULL", 1) != 0,
+            ..LeagueConfig::default()
+        }),
         forbidden: vec![],
         islands: env("ISLANDS", 6),
         island_size: env("ISLAND_SIZE", 24),

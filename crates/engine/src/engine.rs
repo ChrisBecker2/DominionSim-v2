@@ -158,16 +158,19 @@ impl PartialEq for Choice {
     #[inline(always)]
     fn eq(&self, other: &Choice) -> bool {
         use Choice::*;
+        // The same variant first (a tag compare), then the payload: the bots look for a choice in a list of them all the time.
+        if std::mem::discriminant(self) != std::mem::discriminant(other) {
+            return false;
+        }
         match (self, other) {
             (Card(a), Card(b)) | (Alt(a), Alt(b)) => a == b,
-            (Pass, Pass) | (Yes, Yes) | (No, No) | (Coffers, Coffers) | (PayDebt, PayDebt) | (Villager, Villager) => true,
             (Mode(a), Mode(b))
             | (Position(a), Position(b))
             | (Overpay(a), Overpay(b))
             | (OverpayPotion(a), OverpayPotion(b))
             | (PayDebtKeep(a), PayDebtKeep(b))
             | (Bid(a), Bid(b)) => a == b,
-            _ => false,
+            _ => true,
         }
     }
 }

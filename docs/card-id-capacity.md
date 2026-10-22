@@ -264,3 +264,26 @@ The same binary measured against itself differs by up to 3% in this setup (a cop
 * Merging the two Buy-phase hand scans into one pass, a per-game "all Treasures are plain" flag: superseded by change 3.
 * Left (each now under about 5% of a profile): `take_top` is still 15% (the draw's `deck_known` / Star Chart / shuffle checks and `remove`), `advance` + `run_phase` + `run_frame` about 25% together with no line above 4%, `Counts::add_all` 5% (cleanup discards, the shuffle), `Strategy` rule evaluation (`match_gain_list`, `Expr::eval_in`) about 6%. Sparse player zones were not prototyped: `Counts` operations are no longer the top of a plain-bot profile (the dense layout costs little now that every scan goes through the block bitmap), so the 15% of the 128-lane experiment is no longer where the time is.
 * The stock strategy files search the play order (`search_play` is on unless the file says otherwise); `dominion-sim match --fast` now plays rules-only bots (`search_play` and `win_this_turn` off, what the Lab's fast evaluation does); the benchmarks above used copies of the files with `search_play = false`, which play the same games.
+
+**Profile after the pass** (master 22fe5b1, `tools/winprof`, `RAYON_NUM_THREADS=1`, fast bots: `match --fast`; winprof takes about 12 samples a second, so 120-870 samples per run: read to +-2-3 points).
+Workloads: `plain` (BMU vs Double Witch, 2M games, 405 samples), `engine` (Village/Smithy engine vs Kitsune BM, `auto`, 400k, 178), `rising` (Kitsune BM vs Samurai BM, Rising Sun kingdom, 400k, 119), `newsets`
+(Crew BM vs Barbarian BM on Crew, Cutthroat, Sack of Loot, Shaman, Buried Treasure, Flagship, Barbarian, Townsfolk, Animal Fair, Livery, 400k, 238) and `league` (`league_run` on Village, Smithy, Militia, Witch, Market, Laboratory, Moat, Cellar,
+Moneylender, Chapel, `SEARCH=off FINAL_FULL=0 ISLANDS=2 ISLAND_SIZE=8 EXPLOIT_ROUNDS=0`, 30 generations, 4000 final games, 871).
+
+| function | plain | engine | rising | newsets | league |
+|---|---|---|---|---|---|
+| `take_top` (nearly all of it line 1711: `deck_unknown.nth(rng.below(total))`) | 23% | 18% | 13% | 13% | 13.5% |
+| `advance` (the `run_frame` / `run_phase` dispatch and the `Decision` assembly: `decider`, `decision_source`, `_upgrade`, `_play_times`, `_target`) | 18% | 14% | 18% | 11% | 7.6% |
+| `frame_choices` + `filter_ok` + `select_bounds` (the lists of Select and Gain decisions: Chapel, Cellar, Militia's discards, Moneylender, gains) | - | - | - | 7.5% | 16.7% |
+| `play_all_choice_free_treasures` | 6.4% | 1.7% | 5.9% | 2.9% | - |
+| `cleanup` + `Counts::add_all` | 9.6% | 7.8% | 1.7% | 3.4% | 3.9% |
+| `push_end_of_turn_offers` (`sets::end_of_turn_offers`: about ten set hooks called every turn) | 3.7% | 2.2% | 2.5% | 2.5% | 1% |
+| `empty_piles` (an 18-block walk, every turn for the game end and for `empty_piles` conditions) | 3.5% | - | 2.5% | 0.8% | 2.3% |
+| `Strategy` (`decide_buy`, `Expr::eval_in`, `decide_by_rules`, `best_play`, `play_decision`) | 7% | 5% | 6.8% | 1.7% | 9% |
+| `alt_buy_possible` (Animal Fair: a hand scan with `is_action` on every Buy decision) | - | - | - | 4.6% | - |
+| `run_frame`, `apply_unchecked`, `gain`, `legal_choices`, `buy_avail`, `GameState::new` | 12% | 21% | 8% | 16% | 10% |
+| rayon glue | 2% | 5.6% | 3.4% | 2.5% | 8.5% |
+
+Leads for a fifth pass, by size: the draw (13-23%; the RNG and the prefix-sum `nth` are the whole line); the `Decision` assembly in `advance` (fields computed for every decision, most of them never read by a fast bot);
+the Select / Gain choice lists in trashing and discarding kingdoms (17% of the league; a per-filter fast path or a mask of the hand's cards that pass); `end_of_turn_offers` behind one per-game mask of the sets that have offers in the kingdom;
+`empty_piles` kept as a count updated when a pile empties; `alt_buy_possible` by the Action lane mask; rayon batch sizes for the league's small batches.

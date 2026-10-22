@@ -55,7 +55,9 @@ pub fn resolve(spec: &str, strategies: &[&Strategy], seed: u64) -> Result<Vec<Ca
         let c = if c >= cards::id::DAME_ANNA && c < cards::NUM_ZONE_IDS as CardId { cards::id::KNIGHTS } else { c };
         // Avanto is the bottom half of the Sauna/Avanto split pile (one kingdom card).
         let c = if c == cards::id::AVANTO { cards::id::SAUNA } else { c };
-        if !cards::is_kingdom(c) && !cards::is_optional_basic(c) && !cards::is_event(c) && !cards::is_prophecy(c) && !cards::is_project(c) {
+        // Any card of an Allies split pile names the pile (by its first card).
+        let c = if cards::is_allies_split(c) { cards::pile_of(c) } else { c };
+        if !cards::is_kingdom(c) && !cards::is_optional_basic(c) && !cards::is_event(c) && !cards::is_prophecy(c) && !cards::is_project(c) && !cards::is_way(c) && !cards::is_ally(c) {
             return Err(format!("{name:?} is not a kingdom card (the Ruins come with a Looter, Shelters with Dark Ages, Spoils, Madman and Mercenary with their cards)"));
         }
         if !cards::is_ready(c) {

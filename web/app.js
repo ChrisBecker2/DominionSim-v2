@@ -542,6 +542,10 @@
       if (p.delayed && p.delayed.length) panel.appendChild(zoneRow("Set aside for next turn (Delay, Reap, Turtle)", p.delayed));
       if (p.invested && p.invested.length) panel.appendChild(zoneRow("Invested in", p.invested));
       if (p.gatekeepers) panel.appendChild(el("div", "zone", `Gatekeepers in play: ${p.gatekeepers}`));
+      // Allies: the Favors mat (public), the cards Coastal Haven keeps in hand, and the turns Lich makes the player skip.
+      if (view.ally || p.favors) panel.appendChild(el("div", "zone favors", `Favors: ${p.favors || 0}`));
+      if (p.kept && p.kept.length) panel.appendChild(zoneRow("Kept in hand (Coastal Haven)", p.kept));
+      if (p.skips) panel.appendChild(el("div", "zone", `Turns to skip (Lich): ${p.skips}`));
       if (p.trashedLast) panel.appendChild(el("div", "zone", `Cards trashed last turn: ${p.trashedLast}`));
       if (p.cargo && p.cargo.length) panel.appendChild(zoneRow("Set aside by Cargo Ship", p.cargo));
       if (p.research && p.research.length) panel.appendChild(zoneRow("Set aside by Research (face down)", p.research));
@@ -608,11 +612,14 @@
       // Young Witch's extra pile is a Supply pile; Ferryman's and the Rewards are not in the Supply.
       if (c.bane) tdName.appendChild(el("span", "cost", " Bane"));
       // The Knights and Ruins piles: one entry, showing the top card (the only one that can be bought) and how many are left.
-      if (c.pile) tdName.appendChild(el("span", "cost", ` (${c.pile} pile, top card)`));
+      if (c.pile && !c.pileCards) tdName.appendChild(el("span", "cost", ` (${c.pile} pile, top card)`));
       // Adventures tokens on the pile, by owner.
       if (c.tokens) tdName.appendChild(el("span", "cost", " [" + c.tokens.join(", ") + "]"));
       // Empires: the halves of a split pile, and the VP and Debt tokens on a pile.
       if (c.half) tdName.appendChild(el("span", "cost", c.half === "top" ? " (split pile, top half)" : " (split pile, bottom half)"));
+      // Allies: a split pile is one entry (its top card is the one that can be bought); the whole pile, top first, and the Favor tokens of Family of Inventors.
+      if (c.pileCards) tdName.appendChild(el("span", "cost", ` (${c.pile} pile: ${c.pileCards.join(", ")})`));
+      if (c.favorTokens) tdName.appendChild(el("span", "cost", ` [${c.favorTokens} Favor token${c.favorTokens === 1 ? "" : "s"}]`));
       if (c.vp) tdName.appendChild(el("span", "cost", ` [${c.vp} VP]`));
       if (c.debtTokens) tdName.appendChild(el("span", "cost", ` [${c.debtTokens} Debt]`));
       const tdCount = document.createElement("td");
@@ -633,7 +640,16 @@
     const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
     // An Artifact someone holds is shown in that player's box instead (renderPlayers).
     const projects = view.projects || [], artifacts = (view.artifacts || []).filter((a) => a.holder === null), ways = view.ways || [];
-    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length && !ways.length;
+    const ally = view.ally;
+    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length && !ways.length && !ally;
+    // Allies: the Ally of the game (cards that give Favors are the Liaisons; the Favors are on each player's mat).
+    if (ally) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Ally"));
+      row.appendChild(cardChip(ally.name));
+      row.appendChild(el("span", "cost", " " + ally.text));
+      list.appendChild(row);
+    }
     // Menagerie: the Ways (any Action played from the hand may be played as one of them instead; the choice is asked when the card is played).
     for (const w of ways) {
       const row = el("div", "event-row");
@@ -1030,8 +1046,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192, menagerie: 16384 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192, menagerie: 16384, allies: 32768 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

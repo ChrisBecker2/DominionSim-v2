@@ -1625,6 +1625,7 @@ pub extern "C" fn card_info() -> i32 {
         (cards::HEIRLOOM, "heirloom"),
         (cards::OMEN, "omen"),
         (cards::SHADOW, "shadow"),
+        (cards::LIAISON, "liaison"),
     ];
     let items: Vec<String> = (0..cards::NUM_CARDS as CardId).chain(cards::FIRST_PROPHECY..cards::FIRST_PROPHECY + cards::NUM_PROPHECIES as CardId)
         .map(|c| {
@@ -1636,6 +1637,7 @@ pub extern "C" fn card_info() -> i32 {
                 (cards::is_prophecy(c), "prophecy"),
                 (cards::is_project(c), "project"),
                 (cards::is_artifact(c), "artifact"),
+                (cards::is_ally(c), "ally"),
             ] {
                 if yes {
                     types.push(jstr(name));
@@ -1749,12 +1751,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 16384 != 0 {
         v.push(cards::CardSet::Menagerie);
     }
+    if sets_mask & 32768 != 0 {
+        v.push(cards::CardSet::Allies);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -2356,6 +2361,15 @@ fn decision_description(state: &GameState, d: &Decision) -> String {
             let _ = act;
             format!("Take {} now? (No: at the start of your next turn.)", parts.join(", "))
         }
+        DecisionKind::YesNo { .. } if d.source.is_some_and(cards::is_ally) => {
+            let ally = d.source.unwrap();
+            let target = if d.subject != 0 && d.subject != ally { format!(" ({})", cards::name(d.subject)) } else { String::new() };
+            format!("Spend Favors on {}{target}? {}", cards::name(ally), ally_text(ally))
+        }
+        DecisionKind::YesNo { act: Act::Discard } if d.source.is_some_and(|s| cards::is_allies_split(s)) && d.subject == d.source.unwrap() => {
+            let pile = cards::ALLIES_PILE_NAMES[((cards::pile_of(d.subject) - cards::ALLIES_SPLIT_FIRST) / 4) as usize];
+            format!("Rotate the {pile} pile? (The top card and the copies under it go to the bottom.)")
+        }
         DecisionKind::YesNo { .. } if d.source == Some(id::HUNTING_LODGE) => "Discard your hand for +5 Cards?".to_string(),
         DecisionKind::YesNo { .. } if d.source == Some(id::SLEIGH) => {
             format!("Discard Sleigh to put the {} you gained into your hand or onto your deck?", cards::name(d.target))
@@ -2616,6 +2630,46 @@ fn ways_json(state: &GameState) -> String {
     format!("[{}]", items.join(","))
 }
 
+/// `{"name":"Cave Dwellers","text":"..."}` or `null`: the Ally of the game (Allies) and what it does with Favors.
+fn ally_json(state: &GameState) -> String {
+    let a = state.al.ally;
+    if a == 0 {
+        return "null".to_string();
+    }
+    format!("{{\"name\":{},\"text\":{}}}", jstr(cards::name(a)), jstr(ally_text(a)))
+}
+
+/// What an Ally lets a player do with Favors, in the words of the card.
+fn ally_text(a: CardId) -> &'static str {
+    use dominion_engine::sets::allies::ids as al;
+    match a {
+        al::ARCHITECTS_GUILD => "When you gain a card, you may spend 2 Favors to gain a cheaper non-Victory card.",
+        al::BAND_OF_NOMADS => "When you gain a card costing $3 or more, you may spend a Favor, for +1 Card, or +1 Action, or +1 Buy.",
+        al::CAVE_DWELLERS => "At the start of your turn, you may spend a Favor, to discard a card then draw a card. Repeat as desired.",
+        al::CIRCLE_OF_WITCHES => "After playing a Liaison, you may spend 3 Favors to have each other player gain a Curse.",
+        al::CITY_STATE => "When you gain an Action card during your turn, you may spend 2 Favors to play it.",
+        al::COASTAL_HAVEN => "When discarding your hand in Clean-up, you may spend any number of Favors to keep that many cards in hand for next turn (you still draw 5).",
+        al::CRAFTERS_GUILD => "At the start of your turn, you may spend 2 Favors to gain a card costing up to $4 onto your deck.",
+        al::DESERT_GUIDES => "At the start of your turn, you may spend a Favor to discard your hand and draw 5 cards. Repeat as desired.",
+        al::FAMILY_OF_INVENTORS => "At the start of your Buy phase, you may put a Favor token you have on a non-Victory Supply pile. Cards cost $1 less per Favor token on their piles.",
+        al::FELLOWSHIP_OF_SCRIBES => "After playing an Action, if you have 4 or fewer cards in hand, you may spend a Favor for +1 Card.",
+        al::FOREST_DWELLERS => "At the start of your turn, you may spend a Favor to look at the top 3 cards of your deck, discard any number and put the rest back in any order.",
+        al::GANG_OF_PICKPOCKETS => "At the start of your turn, discard down to 4 cards in hand unless you spend a Favor.",
+        al::ISLAND_FOLK => "At the end of your turn, you may spend 5 Favors to take an extra turn after this one (but not a 3rd turn in a row).",
+        al::LEAGUE_OF_BANKERS => "At the start of your Buy phase, +$1 per 4 Favors you have (round down).",
+        al::LEAGUE_OF_SHOPKEEPERS => "After playing a Liaison, if you have 5 or more Favors, +$1, and if 10 or more, +1 Action and +1 Buy.",
+        al::MARKET_TOWNS => "At the start of your Buy phase, you may spend a Favor to play an Action card from your hand. Repeat as desired.",
+        al::MOUNTAIN_FOLK => "At the start of your turn, you may spend 5 Favors for +3 Cards.",
+        al::ORDER_OF_ASTROLOGERS => "When shuffling, you may pick one card per Favor you spend to go on top.",
+        al::ORDER_OF_MASONS => "When shuffling, you may pick up to 2 cards per Favor you spend to put into your discard pile.",
+        al::PEACEFUL_CULT => "At the start of your Buy phase, you may spend any number of Favors to trash that many cards from your hand.",
+        al::PLATEAU_SHEPHERDS => "When scoring, pair up your Favors with cards you have costing $2, for 2 VP per pair.",
+        al::TRAPPERS_LODGE => "When you gain a card, you may spend a Favor to put it onto your deck.",
+        al::WOODWORKERS_GUILD => "At the start of your Buy phase, you may spend a Favor to trash an Action card from your hand. If you did, gain an Action card.",
+        _ => "",
+    }
+}
+
 /// `{"hasHorses":true,"horses":30,"mouse":"Sleigh"|null}`: the Horse pile (outside the Supply) and Way of the Mouse's card (Menagerie).
 fn menagerie_json(state: &GameState) -> String {
     let mouse = if state.men.mouse != 0 { jstr(cards::name(state.men.mouse)) } else { "null".to_string() };
@@ -2701,6 +2755,15 @@ fn supply_json(state: &GameState) -> String {
     if let Some(top) = state.castle_top() {
         piles.push((top, state.castles_left() as u8, "Castles"));
     }
+    // Allies: each split pile is one entry, showing the top card (the only one that can be bought) and the cards left in the pile.
+    ids.retain(|&c| !cards::is_allies_split(c));
+    for i in 0..cards::ALLIES_PILE_NAMES.len() {
+        let first = cards::ALLIES_SPLIT_FIRST + 4 * i as CardId;
+        if state.in_supply(first) {
+            let (order, len) = state.al_pile_cards(i);
+            piles.push((if len > 0 { order[0] } else { first }, len as u8, cards::ALLIES_PILE_NAMES[i]));
+        }
+    }
     ids.extend(piles.iter().map(|p| p.0));
     // Victory (Colony alongside Province), then treasure high to low (Platinum alongside Gold),
     // then Curse, then kingdom cards cheapest first.
@@ -2752,6 +2815,24 @@ fn supply_json(state: &GameState) -> String {
                         s += ",\"half\":\"bottom\"";
                     } else if cards::split_bottom(c).is_some() && c != id::SAUNA {
                         s += ",\"half\":\"top\"";
+                    }
+                    // Allies: the cards of a split pile, top first, as "Town Crier x3", and the Favor tokens of Family of Inventors on the pile.
+                    if cards::is_allies_split(c) {
+                        let i = ((c - cards::ALLIES_SPLIT_FIRST) / 4) as usize;
+                        let (order, len) = state.al_pile_cards(i);
+                        let mut runs: Vec<(CardId, usize)> = Vec::new();
+                        for &x in &order[..len] {
+                            match runs.last_mut() {
+                                Some(r) if r.0 == x => r.1 += 1,
+                                _ => runs.push((x, 1)),
+                            }
+                        }
+                        let items: Vec<String> = runs.iter().map(|&(x, n)| jstr(&format!("{} x{n}", cards::name(x)))).collect();
+                        s += &format!(",\"pileCards\":[{}]", items.join(","));
+                    }
+                    let fam = state.al.fam.get(c);
+                    if fam > 0 {
+                        s += &format!(",\"favorTokens\":{fam}");
                     }
                     s
                 }
@@ -2853,7 +2934,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
             "\"villagers\":{villagers},\"ownedProjects\":{owned_projects},\"plotTokens\":{plot},\"cargo\":{cargo},\"research\":{research},",
             "\"exile\":{exile},\"invested\":{invested},\"delayed\":{delayed},\"trashedLast\":{trashed_last},\"gatekeepers\":{gatekeepers},",
-            "\"states\":{states},\"hounds\":{hounds},",
+            "\"states\":{states},\"hounds\":{hounds},\"favors\":{favors},\"kept\":{kept},\"skips\":{skips},",
             "\"vp\":{vp},\"vpTokens\":{vp_tokens},\"turnsTaken\":{turns}}}"
         ),
         tavern = counts_json(&ps.tavern.counts()),
@@ -2923,6 +3004,9 @@ fn player_json(state: &GameState, p: usize) -> String {
         archive = counts_json(&ps.archive.counts()),
         states = states_json(state, p),
         hounds = ps.hounds,
+        favors = ps.al.favors,
+        kept = counts_json(&ps.al.keep.counts()),
+        skips = ps.al.skips,
         vp = ps.vp(),
         vp_tokens = ps.vp_tokens,
         turns = ps.turns_taken,
@@ -3083,7 +3167,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"ways\":{ways},\"menagerie\":{menagerie},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"ways\":{ways},\"menagerie\":{menagerie},\"ally\":{ally},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -3100,6 +3184,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         events = events_json(state),
         ways = ways_json(state),
         menagerie = menagerie_json(state),
+        ally = ally_json(state),
         projects = projects_json(state),
         artifacts = artifacts_json(state),
         landmarks = landmarks_json(state),

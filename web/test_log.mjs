@@ -618,5 +618,35 @@ deck: 2 Copper, 3 Estate
   check("the state text keeps the Exile mat and the Ways", /exile: .*2 Stockpile/.test(back) && /exile: .*Curse/.test(back) && /Way of the Sheep/.test(back), back);
 }
 
+// --- Allies: the Ally, the Favors and a split pile in the view -----------------------------
+{
+  const text = `players: 2
+kingdom: Town Crier, Underling, Smithy, Village, Market, Moat, Cellar, Militia, Workshop, Bazaar
+ally: Mountain Folk
+pile order: 4 Blacksmith, 4 Miller, 4 Elder, 4 Town Crier
+turn: 3  player: 1  phase: buy  actions: 1  buys: 1  coins: 4
+
+[player 1]
+hand: 3 Copper, Estate
+deck: 4 Copper, 3 Estate, Silver
+favors: 6
+
+[player 2]
+hand: 5 Copper
+deck: 2 Copper, 3 Estate
+favors: 2
+`;
+  const I = await instance();
+  I.load(text);
+  const v = I.view();
+  check("the Ally of the game is reported", v.ally && v.ally.name === "Mountain Folk" && /5 Favors/.test(v.ally.text), JSON.stringify(v.ally));
+  check("the Favors are reported per player", v.players[0].favors === 6 && v.players[1].favors === 2, JSON.stringify(v.players.map((p) => p.favors)));
+  const top = (v.supply || []).filter((s) => s.pile === "Townsfolk");
+  check("a split pile is one entry showing its top card and the cards left", top.length === 1 && top[0].name === "Blacksmith" && top[0].count === 16 && top[0].pileCards.length === 4, JSON.stringify(top));
+  I.w.get_state_text();
+  const back = I.rd();
+  check("the state text keeps the Ally, the Favors and the pile order", /ally: Mountain Folk/.test(back) && /favors: 6/.test(back) && /pile order: 4 Blacksmith, 4 Miller, 4 Elder, 4 Town Crier/.test(back), back);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASSED (log)");
 if (failed) process.exit(1);

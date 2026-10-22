@@ -51,7 +51,7 @@ fn buy_from_a_test_on_a_card_plays_the_same_games_as_the_list() {
 fn run() {
     let all = strategies();
     assert!(all.len() > 20);
-    let sets = ["base", "adventures", "empires", "rising sun", "base+intrigue+seaside+prosperity+alchemy+promo+cornucopia+dark ages+adventures+empires+rising sun+nocturne"];
+    let sets = ["base", "adventures", "empires", "rising sun", "menagerie", "Barbarian, Guildmaster, Highwayman, Warlord, Voyage, Town, Elder, Innkeeper, Courier, Capital City, League of Bankers", "Cage, Crew, Siren, Taskmaster, Shaman, Quartermaster, Frigate, Harbor Village, Maroon, Silver Mine", "Village, Smithy, Market, Militia, Moat, Workshop, Mine, Merchant, Kiln, Animal Fair, Way of the Mouse", "base+intrigue+seaside+prosperity+alchemy+promo+cornucopia+dark ages+adventures+empires+rising sun+nocturne"];
     let mut games = 0;
     for (i, s) in all.iter().enumerate() {
         // Opponents: the next strategies in the list (2 to 4 players).
@@ -59,7 +59,7 @@ fn run() {
         let strats: Vec<&Strategy> = (0..players).map(|k| &all[(i + k * 7) % all.len()]).collect();
         assert!(players <= MAX_PLAYERS);
         for (j, set) in sets.iter().enumerate() {
-            let spec = format!("auto:{set}");
+            let spec = if set.contains(',') { set.to_string() } else { format!("auto:{set}") };
             let kingdom = dominion_sim::kingdom::resolve(&spec, &strats, (i * 31 + j) as u64).unwrap();
             let seed = 1000 + (i * 13 + j) as u64;
             let list = play(&strats, &kingdom, seed, false);

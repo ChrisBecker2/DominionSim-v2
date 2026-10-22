@@ -50,6 +50,10 @@ enum Cmd {
         seed: u64,
         #[arg(long, default_value_t = 200)]
         max_turns: u16,
+        /// Fast bots: rules only, no turn search (`search_play` and `win_this_turn` off, as the Strategy Lab's fast evaluation plays), whatever the
+        /// strategy files say. Several times faster for a strategy that would search.
+        #[arg(long)]
+        fast: bool,
     },
     /// Round-robin: every pair of strategies (from a directory, or a list of files) plays a
     /// 2-player match; prints each strategy's aggregate record.
@@ -79,7 +83,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), String> {
     match cli.cmd {
-        Cmd::Match { strategies, games, players, kingdom, seed, max_turns } => cmd_match(strategies, games, players, &kingdom, seed, max_turns),
+        Cmd::Match { strategies, games, players, kingdom, seed, max_turns, fast } => cmd_match(strategies, games, players, &kingdom, seed, max_turns, fast),
         Cmd::League { paths, games, kingdom, seed, max_turns } => cmd_league(paths, games, &kingdom, seed, max_turns),
     }
 }
@@ -93,13 +97,19 @@ fn print_kingdom(k: &[dominion_engine::CardId]) {
     println!("Kingdom: {}", names.join(", "));
 }
 
-fn cmd_match(paths: Vec<PathBuf>, games: u64, players: Option<usize>, kingdom_spec: &str, seed: u64, max_turns: u16) -> Result<(), String> {
+fn cmd_match(paths: Vec<PathBuf>, games: u64, players: Option<usize>, kingdom_spec: &str, seed: u64, max_turns: u16, fast: bool) -> Result<(), String> {
     if let Some(p) = players {
         if p != paths.len() {
             return Err(format!("--players {p} doesn't match the {} strategy files given", paths.len()));
         }
     }
-    let strategies = load_all(&paths)?;
+    let mut strategies = load_all(&paths)?;
+    if fast {
+        for s in &mut strategies {
+            s.search_play = false;
+            s.win_this_turn = false;
+        }
+    }
     let refs: Vec<&Strategy> = strategies.iter().collect();
     let k = kingdom::resolve(kingdom_spec, &refs, seed)?;
     print_kingdom(&k);

@@ -194,7 +194,8 @@ What was tried to find it, none of which helped:
   aliases in the L1 cache and is 2% slower again; the shipped caps (24 / 8) give 4160.
 * Smaller `PluPlayer` (caps 4/2, 16/6, 20/6, 12/4): not faster, so the footprint is not the cost.
 * Compiling every `plu.live` / `plu.flags` test out of the engine, the play, gain, Clean-up and shuffle paths: +1.8%, within noise.
-* `#[cold]` / `#[inline(never)]` on the hooks and one flag test in front of `turn_start_entries`: no change.
+* `#[cold]` / `#[inline(never)]` on the hooks and one flag test in front of `turn_start_entries`: 3% slower still (reverted); compiling the whole Plunder arm out of the `with_set!`
+  dispatch (Plunder cards mapped to another set's rules): no change, so it is not the dispatch either.
 * A sampling profile of one thread (`tools/winprof`, 3 x 1.5 M games) shows no function that Plunder added: `advance`, `legal_choices`, `match_gain_list`, `cleanup` and `new` all grow a
   little, which looks like code layout, not work. Left open.
 

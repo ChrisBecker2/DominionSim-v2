@@ -123,6 +123,57 @@ impl<'a> PlayerView<'a> {
     pub fn church_count_of(&self, p: u8) -> usize {
         self.state.players[p as usize].church.total()
     }
+    // --- Plunder ---
+    /// The copies of the Loot `c` left in the Loot pile (public: the cards gained are revealed, the order is what is hidden).
+    pub fn loot_left_of(&self, c: CardId) -> u8 {
+        if crate::cards::is_loot(c) { self.state.supply.get(c) } else { 0 }
+    }
+    /// The Loot cards left in the pile.
+    pub fn loot_left(&self) -> u32 {
+        (0..crate::cards::NUM_LOOT as CardId).map(|i| self.state.supply.get(crate::cards::FIRST_LOOT + i) as u32).sum()
+    }
+    /// Whether the game has the Loot pile.
+    pub fn has_loot_pile(&self) -> bool {
+        self.state.plu.flags & crate::state::PF_LOOT != 0
+    }
+    /// The Traits of the game with the Supply pile (a card standing for it) each sits on.
+    pub fn traits(&self) -> impl Iterator<Item = (CardId, CardId)> + '_ {
+        (0..crate::cards::NUM_TRAITS).filter(|&i| self.state.plu.traits & (1 << i) != 0).map(|i| (crate::cards::FIRST_TRAIT + i as CardId, self.state.plu.trait_pile[i]))
+    }
+    /// Whether the card `c` is of the pile that has the Trait `t`.
+    pub fn has_trait(&self, t: CardId, c: CardId) -> bool {
+        crate::cards::is_trait(t) && self.state.has_trait(t, c)
+    }
+    /// The "next time" Durations `p` has waiting in play: `(card, plays)`.
+    pub fn waiting_of(&self, p: u8) -> impl Iterator<Item = (CardId, u8)> + '_ {
+        let ps = &self.state.players[p as usize];
+        ps.plu.wait[..ps.plu.wait_len as usize].iter().map(|e| (e.card, e.times))
+    }
+    /// The cards `p` has set aside in Plunder zones, by zone code (`state::Z_*`): what a viewer can see (their own, face down ones too).
+    pub fn plunder_aside_of(&self, p: u8) -> Vec<(u16, Counts)> {
+        let ps = &self.state.players[p as usize].plu;
+        let mut out: Vec<(u16, Counts)> = Vec::new();
+        for (k, n) in ps.z.iter() {
+            let code = k >> 10;
+            if p != self.me && ps.private_zone(code) {
+                continue;
+            }
+            match out.iter_mut().find(|(c, _)| *c == code) {
+                Some((_, cs)) => cs.add(k & 1023, n),
+                None => {
+                    let mut cs = Counts::EMPTY;
+                    cs.add(k & 1023, n);
+                    out.push((code, cs));
+                }
+            }
+        }
+        out.sort_by_key(|(c, _)| *c);
+        out
+    }
+    /// How many cards `p` has set aside face down in Plunder zones (public; only their owner sees which).
+    pub fn plunder_hidden_count_of(&self, p: u8) -> u32 {
+        self.state.players[p as usize].plu.private_cards().total()
+    }
     /// Whether the rules let the current player buy `c` right now beyond cost and pile (Grand
     /// Market with a Copper in play).
     pub fn may_buy(&self, c: CardId) -> bool {
@@ -832,6 +883,11 @@ impl<'a> PlayerView<'a> {
             let church_sizes = ps.church.sizes();
             let church_batches = ps.church.len();
             ps.church.add_into(&mut pool);
+            // Plunder: the cards set aside face down (on Cages and Grottos, for Puzzle Box) are as hidden as the hand they came from.
+            let (plu_priv, plu_priv_n) = ps.plu.take_private();
+            for &(_, c, m) in &plu_priv[..plu_priv_n] {
+                pool.add(c, m);
+            }
             if ps.saved != 0 {
                 pool.add(ps.saved, 1);
             }
@@ -860,6 +916,15 @@ impl<'a> PlayerView<'a> {
                 }
             }
             ps.church = church;
+            for &(code, _, m) in &plu_priv[..plu_priv_n] {
+                for _ in 0..m {
+                    let c = pool.nth(rng.below(pool.total()));
+                    pool.remove(c);
+                    if !ps.plu.zadd(code, c, 1) {
+                        ps.discard.add(c, 1);
+                    }
+                }
+            }
             for i in 0..start_haven_slots.len() {
                 if start_haven_slots[i] {
                     let c = pool.nth(rng.below(pool.total()));

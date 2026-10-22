@@ -39,6 +39,7 @@ pub mod hinterlands;
 pub mod intrigue;
 pub mod menagerie;
 pub mod nocturne;
+pub mod plunder;
 pub mod promo;
 pub mod prosperity;
 pub mod renaissance;
@@ -56,6 +57,7 @@ use hinterlands::Hinterlands;
 use intrigue::Intrigue;
 use menagerie::Menagerie;
 use nocturne::Nocturne;
+use plunder::Plunder;
 use promo::Promo;
 use prosperity::Prosperity;
 use renaissance::Renaissance;
@@ -146,6 +148,10 @@ macro_rules! with_set {
                 type $S = $crate::sets::allies::Allies;
                 $body
             }
+            $crate::cards::CardSet::Plunder => {
+                type $S = $crate::sets::plunder::Plunder;
+                $body
+            }
         }
     };
 }
@@ -167,6 +173,8 @@ pub(crate) trait SetRules {
     const GAIN_TOP: u128 = 0;
     /// The same for ids from 384 (bits of `in_supply.ext`).
     const GAIN_EXT: u128 = 0;
+    /// The same for ids from 512 (bits of `in_supply.ext2`).
+    const GAIN_EXT2: u128 = 0;
     /// The cards of this set whose `may_buy` can say no (Grand Market, Avanto): every other card is buyable whenever it is affordable,
     /// and the Buy choices skip the call for it.
     const MAY_BUY_CARDS: &'static [CardId] = &[];
@@ -288,10 +296,10 @@ pub(crate) trait SetRules {
 pub const NUM_CARDS: usize =
     Base::CARDS.len() + Intrigue::CARDS.len() + Seaside::CARDS.len() + Prosperity::CARDS.len() + Alchemy::CARDS.len() + Promo::CARDS.len()
         + CornucopiaGuilds::CARDS.len() + DarkAges::CARDS.len() + Adventures::CARDS.len() + Empires::CARDS.len() + RisingSun::CARDS.len() + Nocturne::CARDS.len()
-        + Hinterlands::CARDS.len() + Renaissance::CARDS.len() + Menagerie::CARDS.len() + Allies::CARDS.len();
+        + Hinterlands::CARDS.len() + Renaissance::CARDS.len() + Menagerie::CARDS.len() + Allies::CARDS.len() + Plunder::CARDS.len();
 
 const fn build_cards() -> [CardDef; NUM_CARDS] {
-    let parts: [(CardSet, &[(CardId, CardDef)]); 16] = [
+    let parts: [(CardSet, &[(CardId, CardDef)]); 17] = [
         (CardSet::Base, Base::CARDS),
         (CardSet::Intrigue, Intrigue::CARDS),
         (CardSet::Seaside, Seaside::CARDS),
@@ -308,6 +316,7 @@ const fn build_cards() -> [CardDef; NUM_CARDS] {
         (CardSet::Renaissance, Renaissance::CARDS),
         (CardSet::Menagerie, Menagerie::CARDS),
         (CardSet::Allies, Allies::CARDS),
+        (CardSet::Plunder, Plunder::CARDS),
     ];
     let mut out = [crate::cards::c("", 0, 0, 0, 0, 0, 0, 0); NUM_CARDS];
     let mut filled = [false; NUM_CARDS];
@@ -372,12 +381,13 @@ macro_rules! concat_sets {
             + Hinterlands::$name.len()
             + Renaissance::$name.len()
             + Menagerie::$name.len()
-            + Allies::$name.len();
+            + Allies::$name.len()
+            + Plunder::$name.len();
         const A: [$T; N] = concat::<$T, N>(
             &[
                 Base::$name, Intrigue::$name, Seaside::$name, Prosperity::$name, Alchemy::$name, Promo::$name, CornucopiaGuilds::$name,
                 DarkAges::$name, Adventures::$name, Empires::$name, RisingSun::$name, Nocturne::$name, Hinterlands::$name,
-                Renaissance::$name, Menagerie::$name, Allies::$name,
+                Renaissance::$name, Menagerie::$name, Allies::$name, Plunder::$name,
             ],
             $zero,
         );
@@ -407,9 +417,8 @@ pub const GAIN_TOP: u128 = Empires::GAIN_TOP
     | Hinterlands::GAIN_TOP
     | Promo::GAIN_TOP
     | Renaissance::GAIN_TOP;
-pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT | Menagerie::GAIN_EXT | Allies::GAIN_EXT;
-/// No card of ids from 512 has a gain trigger yet.
-pub const GAIN_EXT2: u128 = 0;
+pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT | Menagerie::GAIN_EXT | Allies::GAIN_EXT | Plunder::GAIN_EXT;
+pub const GAIN_EXT2: u128 = Plunder::GAIN_EXT2;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -532,6 +541,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
     RisingSun::turn_start_entries(g);
     Renaissance::turn_start_entries(g);
     Allies::turn_start_entries(g);
+    Plunder::turn_start_entries(g);
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
@@ -541,6 +551,7 @@ pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
         || Renaissance::gain_live_extra(g)
         || Menagerie::gain_live_extra(g)
         || Allies::gain_live_extra(g)
+        || Plunder::gain_live_extra(g)
         || CornucopiaGuilds::gain_live_extra(g)
         || DarkAges::gain_live_extra(g)
         || Adventures::gain_live_extra(g)
@@ -591,6 +602,10 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
     if g.in_supply.ext & Allies::GAIN_EXT != 0 || Allies::gain_live_extra(g) {
         Allies::gain_triggers(g, p, c, to, on_buy, sink);
     }
+    // Plunder: the card's own effect, the Traits, the waiting Durations, this turn's effects and the reactions in the hands.
+    if g.in_supply.ext & Plunder::GAIN_EXT != 0 || g.in_supply.ext2 & Plunder::GAIN_EXT2 != 0 || Plunder::gain_live_extra(g) {
+        Plunder::gain_triggers(g, p, c, to, on_buy, sink);
+    }
     // Last, so that its offers are asked first: a card may be exchanged for a Changeling before the rest of its gain happens.
     if g.in_supply.top & Nocturne::GAIN_TOP != 0 || Nocturne::gain_live_extra(g) {
         Nocturne::gain_triggers(g, p, c, to, on_buy, sink);
@@ -610,6 +625,10 @@ pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
 /// last, and "at the start of Clean-up" offers (Alchemist, Walled Village) first, as the rules order them.
 pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     Alchemy::offers_on_discard(g);
+    // Trickster's Treasures (one byte test in every other game).
+    if g.plu.live & crate::state::LV_CLEAN != 0 {
+        Plunder::offers_on_discard(g);
+    }
     Seaside::offers_on_discard(g);
     Adventures::offers_on_discard(g);
     Hinterlands::offers_on_discard(g);
@@ -621,6 +640,10 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     // Way of the Frog only (one test, not a call, in every other game).
     if !g.turn.men.frogs.is_empty() {
         Menagerie::offers_on_discard(g);
+    }
+    // Friendly and Patient.
+    if g.plu.live & crate::state::LV_CLEAN != 0 {
+        Plunder::offers_at_cleanup(g);
     }
     Renaissance::offers_at_cleanup(g);
     Promo::offers_at_cleanup(g);

@@ -64,6 +64,8 @@ pub const OMEN: u32 = 1 << 22;
 pub const SHADOW: u32 = 1 << 23;
 /// Liaisons (Allies): cards that give Favors. A game with one has an Ally and every player starts with a Favor.
 pub const LIAISON: u32 = 1 << 24;
+/// Loot (Plunder): the Treasures a Loot gainer gains from the Loot pile, outside the Supply.
+pub const LOOT: u32 = 1 << 25;
 
 /// Card ids by name. The constants are defined next to their cards, in each set's `ids` module.
 pub mod id {
@@ -78,6 +80,7 @@ pub mod id {
     pub use crate::sets::intrigue::ids::*;
     pub use crate::sets::menagerie::ids::*;
     pub use crate::sets::nocturne::ids::*;
+    pub use crate::sets::plunder::ids::*;
     pub use crate::sets::promo::ids::*;
     pub use crate::sets::prosperity::ids::*;
     pub use crate::sets::renaissance::ids::*;
@@ -91,8 +94,25 @@ pub mod id {
 pub const FIRST_EVENT: CardId = id::ALMS;
 /// The number of Adventures Events.
 pub const NUM_ADV_EVENTS: usize = 20;
-/// The number of Events (Adventures, Empires, Summon, Rising Sun, Menagerie): `events` masks are `u64`, indexed by `event - FIRST_EVENT` (64 is all of them).
-pub const NUM_EVENTS: usize = 64;
+/// The number of Events (Adventures, Empires, Summon, Rising Sun, Menagerie, Plunder): the `events` masks are `state::EvMask`es (128 bits), indexed by `event - FIRST_EVENT`.
+pub const NUM_EVENTS: usize = 79;
+/// The first of the 15 Loot cards (Plunder): Treasures with ids that can be in a zone but not in the Supply, after the kingdom cards and before the Ruins and Knights.
+pub const FIRST_LOOT: CardId = id::AMPHORA;
+pub const NUM_LOOT: usize = 15;
+/// The first of the 15 Traits (Plunder), the highest ids: pseudo-cards that sit on a Supply pile for the whole game.
+pub const FIRST_TRAIT: CardId = id::CHEAP;
+pub const NUM_TRAITS: usize = 15;
+
+/// Whether `card` is one of the 15 Loot cards.
+#[inline(always)]
+pub fn is_loot(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_LOOT) < NUM_LOOT as CardId
+}
+/// Whether `card` is one of the 15 Traits.
+#[inline(always)]
+pub fn is_trait(card: CardId) -> bool {
+    card.wrapping_sub(FIRST_TRAIT) < NUM_TRAITS as CardId
+}
 /// The first of the 20 Ways (Menagerie): pseudo-cards that give an Action card another way to be played; the highest ids, after the Artifacts.
 pub const FIRST_WAY: CardId = id::WAY_OF_THE_BUTTERFLY;
 pub const NUM_WAYS: usize = 20;
@@ -367,14 +387,16 @@ pub enum CardSet {
     Menagerie,
     /// Allies (Favors, Liaisons, Allies, split piles that rotate; see `sets::allies`).
     Allies,
+    /// Plunder (Loot, Traits, Treasure-Durations, "next time" Durations, Events; see `sets::plunder`).
+    Plunder,
 }
 
 impl CardSet {
-    pub const ALL: [CardSet; 16] = [
+    pub const ALL: [CardSet; 17] = [
         CardSet::Base, CardSet::Intrigue, CardSet::Seaside, CardSet::Prosperity, CardSet::Alchemy, CardSet::Promo,
         CardSet::CornucopiaGuilds, CardSet::DarkAges, CardSet::Adventures, CardSet::Empires, CardSet::RisingSun, CardSet::Nocturne,
         CardSet::Hinterlands, CardSet::Renaissance,
-        CardSet::Menagerie, CardSet::Allies,
+        CardSet::Menagerie, CardSet::Allies, CardSet::Plunder,
     ];
 
     pub fn name(self) -> &'static str {
@@ -395,6 +417,7 @@ impl CardSet {
             CardSet::Renaissance => "Renaissance",
             CardSet::Menagerie => "Menagerie",
             CardSet::Allies => "Allies",
+            CardSet::Plunder => "Plunder",
         }
     }
 }
@@ -543,6 +566,11 @@ pub(crate) const fn men(d: CardDef) -> CardDef {
 /// An Allies card.
 pub(crate) const fn al(d: CardDef) -> CardDef {
     CardDef { set: CardSet::Allies, ..d }
+}
+
+/// A Plunder card.
+pub(crate) const fn pl(d: CardDef) -> CardDef {
+    CardDef { set: CardSet::Plunder, ..d }
 }
 
 /// A Rising Sun card.
@@ -849,6 +877,8 @@ pub enum ModeOpt {
     PlaySubjectAgain,
     /// Specialist: gain a copy of the card in the frame's `subject`.
     GainCopy,
+    /// Plunder: an option of one of its cards, by code (`sets::plunder::M_*`).
+    Plu(u8),
 }
 
 /// The names of the tokens, indexed like `state::TOK_*` (the six pile tokens), then the Estate token, the -1 Card token, the -$1 token and the
@@ -893,6 +923,7 @@ fn filter_words(f: Filter) -> (&'static str, &'static str) {
         Filter::TreasureOrCurse => ("a", "Treasure"),
         Filter::Either(..) => ("a", "card"),
         Filter::NonAction => ("a", "non-Action card"),
+        Filter::Plu(_) => ("a", "card"),
         Filter::ActionNot(_) => ("an", "Action"),
         Filter::ActionCostUpTo(_) | Filter::NotInPlayAction => ("an", "Action"),
         Filter::NotCard(_) | Filter::NotInHand => ("a", "card"),
@@ -937,6 +968,7 @@ impl ModeOpt {
             ModeOpt::Buys(1) => "+1 Buy".to_string(),
             ModeOpt::Buys(n) => format!("+{n} Buys"),
             ModeOpt::Coins(n) => format!("+${n}"),
+            ModeOpt::Plu(k) => crate::sets::plunder::mode_label(k).to_string(),
             ModeOpt::TrashFromHand(1) => "Trash a card".to_string(),
             ModeOpt::TrashFromHand(n) => format!("Trash {n} cards"),
             ModeOpt::DiscardFromHand(1) => "Discard a card".to_string(),
@@ -1067,7 +1099,7 @@ pub const FIRST_KINGDOM: CardId = id::CELLAR;
 /// The last kingdom card id: Sauna, which stands for the Sauna/Avanto pile. The kingdom cards are the ids from `FIRST_KINGDOM` to here, except
 /// the Dark Ages cards no kingdom contains (Shelters, Spoils, Madman, Mercenary: ids after Hunting Grounds, `LAST_KINGDOM_DA`, before the
 /// first Adventures card), the Rewards and the optional basics.
-pub const LAST_KINGDOM: CardId = id::LICH;
+pub const LAST_KINGDOM: CardId = id::KINGS_CACHE;
 /// The first member of a mixed pile (the five Ruins, then the ten Knights are the highest ids): a card from here is
 /// the top card of the Knights or Ruins pile when it is in the Supply.
 pub const FIRST_PILE_CARD: CardId = id::ABANDONED_MINE;
@@ -1144,6 +1176,7 @@ pub fn set_by_name(s: &str) -> Option<CardSet> {
         "renaissance" | "ren" => Some(CardSet::Renaissance),
         "menagerie" | "men" => Some(CardSet::Menagerie),
         "allies" | "ally" => Some(CardSet::Allies),
+        "plunder" | "plu" => Some(CardSet::Plunder),
         _ => None,
     }
 }
@@ -1233,6 +1266,7 @@ pub fn pseudo_cards_of(set: CardSet) -> impl Iterator<Item = CardId> {
     (FIRST_EVENT..FIRST_EVENT + (NUM_EVENTS + NUM_LANDMARKS) as CardId)
         .chain(FIRST_PROJECT..FIRST_PROJECT + NUM_PROJECTS as CardId)
         .chain(FIRST_WAY..FIRST_WAY + NUM_WAYS as CardId)
+        .chain(FIRST_TRAIT..FIRST_TRAIT + NUM_TRAITS as CardId)
         .filter(move |&c| set_of(c) == set)
 }
 

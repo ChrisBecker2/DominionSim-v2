@@ -74,29 +74,29 @@ pub mod ids {
     pub const SORCERER: CardId = 485;
     pub const LICH: CardId = 486;
     // The Allies.
-    pub const ARCHITECTS_GUILD: CardId = 678;
-    pub const BAND_OF_NOMADS: CardId = 679;
-    pub const CAVE_DWELLERS: CardId = 680;
-    pub const CIRCLE_OF_WITCHES: CardId = 681;
-    pub const CITY_STATE: CardId = 682;
-    pub const COASTAL_HAVEN: CardId = 683;
-    pub const CRAFTERS_GUILD: CardId = 684;
-    pub const DESERT_GUIDES: CardId = 685;
-    pub const FAMILY_OF_INVENTORS: CardId = 686;
-    pub const FELLOWSHIP_OF_SCRIBES: CardId = 687;
-    pub const FOREST_DWELLERS: CardId = 688;
-    pub const GANG_OF_PICKPOCKETS: CardId = 689;
-    pub const ISLAND_FOLK: CardId = 690;
-    pub const LEAGUE_OF_BANKERS: CardId = 691;
-    pub const LEAGUE_OF_SHOPKEEPERS: CardId = 692;
-    pub const MARKET_TOWNS: CardId = 693;
-    pub const MOUNTAIN_FOLK: CardId = 694;
-    pub const ORDER_OF_ASTROLOGERS: CardId = 695;
-    pub const ORDER_OF_MASONS: CardId = 696;
-    pub const PEACEFUL_CULT: CardId = 697;
-    pub const PLATEAU_SHEPHERDS: CardId = 698;
-    pub const TRAPPERS_LODGE: CardId = 699;
-    pub const WOODWORKERS_GUILD: CardId = 700;
+    pub const ARCHITECTS_GUILD: CardId = 748;
+    pub const BAND_OF_NOMADS: CardId = 749;
+    pub const CAVE_DWELLERS: CardId = 750;
+    pub const CIRCLE_OF_WITCHES: CardId = 751;
+    pub const CITY_STATE: CardId = 752;
+    pub const COASTAL_HAVEN: CardId = 753;
+    pub const CRAFTERS_GUILD: CardId = 754;
+    pub const DESERT_GUIDES: CardId = 755;
+    pub const FAMILY_OF_INVENTORS: CardId = 756;
+    pub const FELLOWSHIP_OF_SCRIBES: CardId = 757;
+    pub const FOREST_DWELLERS: CardId = 758;
+    pub const GANG_OF_PICKPOCKETS: CardId = 759;
+    pub const ISLAND_FOLK: CardId = 760;
+    pub const LEAGUE_OF_BANKERS: CardId = 761;
+    pub const LEAGUE_OF_SHOPKEEPERS: CardId = 762;
+    pub const MARKET_TOWNS: CardId = 763;
+    pub const MOUNTAIN_FOLK: CardId = 764;
+    pub const ORDER_OF_ASTROLOGERS: CardId = 765;
+    pub const ORDER_OF_MASONS: CardId = 766;
+    pub const PEACEFUL_CULT: CardId = 767;
+    pub const PLATEAU_SHEPHERDS: CardId = 768;
+    pub const TRAPPERS_LODGE: CardId = 769;
+    pub const WOODWORKERS_GUILD: CardId = 770;
 }
 
 /// An Ally: nothing to buy, never in a zone (what it does is the code below).

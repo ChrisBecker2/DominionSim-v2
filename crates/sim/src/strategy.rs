@@ -2181,6 +2181,8 @@ fn zone_of(view: &PlayerView, from: Zone, filter: Filter, choices: &[Choice]) ->
         Zone::Tavern => view.tavern_of(view.me()),
         Zone::Archive => view.archive(),
         Zone::Exile => view.exile(),
+        // (The starting deck and the cards set aside in a Plunder holder: only the cards on offer are known.)
+        Zone::StartDeck | Zone::PluAside => Counts::EMPTY,
         Zone::DeckTop => {
             let mut top = Counts::EMPTY;
             if let Some(c) = view.deck_known_top().next() {

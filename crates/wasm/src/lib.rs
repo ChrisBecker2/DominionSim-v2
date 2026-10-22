@@ -2141,6 +2141,8 @@ fn zone_phrase(z: Zone) -> &'static str {
         Zone::Tavern => " from your Tavern mat",
         Zone::Archive => " from the cards under your Archives",
         Zone::Exile => " from your Exile mat",
+        Zone::StartDeck => " from your starting deck",
+        Zone::PluAside => " from the cards set aside",
     }
 }
 
@@ -2217,6 +2219,7 @@ fn filter_noun(f: Filter) -> (String, String) {
             dominion_engine::state::TypeSet::Castle => ("a Castle".into(), "Castles".into()),
             dominion_engine::state::TypeSet::ActionNotAttack => ("a non-Attack Action card".into(), "non-Attack Action cards".into()),
             dominion_engine::state::TypeSet::ActionOrVictory => ("an Action or Victory card".into(), "Action or Victory cards".into()),
+            dominion_engine::state::TypeSet::Duration => ("a Duration card".into(), "Duration cards".into()),
         },
         Filter::NonTreasure => ("a non-Treasure card".into(), "non-Treasure cards".into()),
         Filter::TreasureNonDuration => ("a non-Duration Treasure".into(), "non-Duration Treasures".into()),
@@ -2232,6 +2235,11 @@ fn filter_noun(f: Filter) -> (String, String) {
         Filter::InPile(c) => (format!("a card from the {} pile", cards::name(c)), format!("cards from the {} pile", cards::name(c))),
         Filter::Rotatable => ("a pile that rotating changes".into(), "piles that rotating changes".into()),
         Filter::TokenPile => ("a non-Victory Supply pile".into(), "non-Victory Supply piles".into()),
+        Filter::Plu(k) if (k as usize) < cards::NUM_TRAITS => {
+            let t = cards::name(cards::FIRST_TRAIT + k as dominion_engine::CardId);
+            (format!("a {t} card"), format!("{t} cards"))
+        }
+        Filter::Plu(_) => ("a card in play".into(), "cards in play".into()),
     }
 }
 

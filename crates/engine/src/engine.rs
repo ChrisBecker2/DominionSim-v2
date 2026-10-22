@@ -513,6 +513,12 @@ impl GameState {
     /// Chance-mode answer: the top card of `player`'s deck is `card` (must be in `deck_unknown`).
     pub fn resolve_chance(&mut self, player: u8, card: CardId) {
         assert_eq!(self.pending(), Pending::Chance(player), "no chance event pending for player");
+        if player == crate::state::LOOT_CHANCE {
+            // A Loot comes off the pile: the outcome (lane `card` = the Loot's index) is the next one gained.
+            self.plu.loot_top = card as u8 + 1;
+            self.set_pending(Pending::None);
+            return;
+        }
         if player >= crate::state::BOON_CHANCE {
             // A Boon or Hex draw: the outcome (lane `card` = the Boon or Hex's index) is the next one drawn.
             if player == crate::state::BOON_CHANCE {
@@ -531,6 +537,14 @@ impl GameState {
 
     /// Distribution for a pending chance event: card counts in the unknown part of the deck.
     pub fn chance_outcomes(&self, player: u8) -> Counts {
+        if player == crate::state::LOOT_CHANCE {
+            // The Loot cards left in the pile: lane `i` is `cards::FIRST_LOOT + i`, with its copies as the weight.
+            let mut out = Counts::EMPTY;
+            for i in 0..cards::NUM_LOOT as CardId {
+                out.set(i, self.supply.get(cards::FIRST_LOOT + i));
+            }
+            return out;
+        }
         if player >= crate::state::BOON_CHANCE {
             // The Boons (or Hexes) of the deck: lane `i` is the card `i` of the 12, each equally likely.
             let mask = if player == crate::state::BOON_CHANCE { self.noc.boon_deck } else { self.noc.hex_deck };
@@ -693,6 +707,9 @@ impl GameState {
                     }
                     self.turn = TurnState::start(next, number + 1);
                     self.turn.is_extra_turn = extra;
+                    if self.plu.flags != 0 {
+                        self.plu_refresh();
+                    }
                     // Allies: a Voyage turn plays 3 cards from the hand at most.
                     if voyage_next && extra {
                         self.turn.al.limited = true;
@@ -773,7 +790,8 @@ impl GameState {
                         && !self.in_supply(id::QUARRY)
                         && !self.in_supply(id::PEDDLER)
                         && self.adv & crate::state::G_COST_TOKEN == 0
-                        && self.men.flags & crate::state::M_COST == 0;
+                        && self.men.flags & crate::state::M_COST == 0
+                        && self.plu.flags & crate::state::PF_COST == 0;
                     // Nocturne: Deluded, no Action can be bought this turn.
                     let no_actions = self.turn.noc.deluded;
                     if plain {
@@ -1094,6 +1112,10 @@ impl GameState {
     fn play_plain_treasure<S: EventSink>(&mut self, c: CardId, n: u8, sink: &mut S) {
         debug_assert!(c <= id::GOLD);
         let p = self.turn.player;
+        // Plunder: the first card played this turn is a Treasure (Landing Party).
+        if self.plu.live & crate::state::LV_PLAY != 0 {
+            self.plu_first_treasure(p, sink);
+        }
         // Rising Sun: Panic's Buys, Good Harvest's Buy and $.
         if self.rs.active != 0 {
             self.rs_treasure_plays(c, n, sink);
@@ -1150,6 +1172,9 @@ impl GameState {
     /// `play_free_treasure`; with `fresh` false the card is already in play and is played again (Crown plays a Treasure twice).
     pub(crate) fn play_free_treasure_from<S: EventSink>(&mut self, c: CardId, n: u8, fresh: bool, sink: &mut S) {
         let p = self.turn.player;
+        if fresh && self.plu.live & crate::state::LV_PLAY != 0 {
+            self.plu_first_treasure(p, sink);
+        }
         // Allies: Highwayman stops the first Treasure the player plays each turn from doing anything (it is played all the same).
         if self.al.flags & crate::state::AF_HW != 0 {
             if n > 1 && !self.turn.al.t1 {
@@ -1366,6 +1391,10 @@ impl GameState {
         self.turn.adv.next_no_buy = mission;
         // Seize the Day (Menagerie): an extra turn after this one, with no check on the previous turn.
         self.turn.outpost_grants_extra = grant_extra || mission || self.turn.men.flags & crate::state::MT_SEIZE != 0;
+        // Plunder: Journey is an extra turn too (not a third in a row), whatever else is pending.
+        if self.turn.plu.journey && !self.turn.is_extra_turn {
+            self.turn.outpost_grants_extra = true;
+        }
         // Allies: Voyage's extra turn (not a 3rd in a row), in which 3 cards may be played from the hand; another extra turn pending is taken instead.
         if self.turn.al.voyage && !self.turn.is_extra_turn {
             self.turn.al.voyage_next = !self.turn.outpost_grants_extra;
@@ -1417,7 +1446,7 @@ impl GameState {
         if self.rs.active != 0 {
             self.rs_cleanup(sink);
         }
-        if self.turn.duration_held.is_empty() && self.players[p].stays.is_empty() {
+        if self.turn.duration_held.is_empty() && self.players[p].stays.is_empty() && self.plu.live & crate::state::LV_CLEAN == 0 {
             // The common turn: nothing stays in play, so the hand and play area both discard.
             let ps = &mut self.players[p];
             ps.discard.add_all(&ps.hand);
@@ -1441,6 +1470,10 @@ impl GameState {
             let mut discard_part = play;
             for (c, _) in kept.iter() {
                 discard_part.set(c, play.get(c) - kept.get(c));
+            }
+            // Plunder: Journey keeps the play area, Tireless sets its cards aside for the deck, Reckless returns its cards to their pile.
+            if self.plu.live & crate::state::LV_CLEAN != 0 {
+                self.plu_cleanup_discards(p as u8, &play, &mut kept, &mut discard_part, sink);
             }
             let ps = &mut self.players[p];
             ps.discard.add_all(&hand);
@@ -1472,6 +1505,10 @@ impl GameState {
             self.stack.push(crate::effects::select(
                 p as u8, crate::sets::allies::ids::COASTAL_HAVEN, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::KeepToHand,
             ));
+        }
+        // Plunder: the cards set aside until the end of the turn (Deliver, Cage, Puzzle Box, Trickster, Tireless) join the new hand.
+        if self.plu.live & crate::state::LV_CLEAN != 0 && !self.players[p].plu.z.is_empty() {
+            self.stack.push(crate::effects::select(p as u8, crate::sets::plunder::ids::DELIVER, Zone::Hand, Act::Discard, Filter::Any, 0, 0, Then::Plu(crate::sets::plunder::T_EOT)));
         }
         self.stack.push(Frame { max: draw_n, ..Frame::new(FrameKind::Draw, p as u8, 0) });
     }
@@ -1511,6 +1548,13 @@ impl GameState {
         if self.al.flags & crate::state::AF_SHUFFLE != 0 {
             let ps = &self.players[p as usize];
             if ps.deck_unknown.is_empty() && ps.deck_known_bottom.len == 0 && !ps.discard.is_empty() && self.al_shuffle_offer(p) {
+                return Err(NeedChance(crate::state::STAR_STOP));
+            }
+        }
+        // Plunder: Avoid (the turn's player keeps cards out of the shuffle) and Fated (cards put on top or at the bottom): a frame asks, then shuffles.
+        if self.plu.live & crate::state::LV_SHUFFLE != 0 {
+            let ps = &self.players[p as usize];
+            if ps.deck_unknown.is_empty() && ps.deck_known_bottom.len == 0 && !ps.discard.is_empty() && self.plu_shuffle_offer(p) {
                 return Err(NeedChance(crate::state::STAR_STOP));
             }
         }

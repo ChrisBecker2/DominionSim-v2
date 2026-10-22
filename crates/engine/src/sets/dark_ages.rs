@@ -54,23 +54,23 @@ pub mod ids {
     pub const MADMAN: CardId = 200;
     pub const MERCENARY: CardId = 201;
     /// The Ruins pile (in the Supply with any Looter; never in a zone).
-    pub const RUINS: CardId = 487;
+    pub const RUINS: CardId = 542;
     // The Ruins, then the Knights.
-    pub const ABANDONED_MINE: CardId = 488;
-    pub const RUINED_LIBRARY: CardId = 489;
-    pub const RUINED_MARKET: CardId = 490;
-    pub const RUINED_VILLAGE: CardId = 491;
-    pub const SURVIVORS: CardId = 492;
-    pub const DAME_ANNA: CardId = 493;
-    pub const DAME_JOSEPHINE: CardId = 494;
-    pub const DAME_MOLLY: CardId = 495;
-    pub const DAME_NATALIE: CardId = 496;
-    pub const DAME_SYLVIA: CardId = 497;
-    pub const SIR_BAILEY: CardId = 498;
-    pub const SIR_DESTRY: CardId = 499;
-    pub const SIR_MARTIN: CardId = 500;
-    pub const SIR_MICHAEL: CardId = 501;
-    pub const SIR_VANDER: CardId = 502;
+    pub const ABANDONED_MINE: CardId = 543;
+    pub const RUINED_LIBRARY: CardId = 544;
+    pub const RUINED_MARKET: CardId = 545;
+    pub const RUINED_VILLAGE: CardId = 546;
+    pub const SURVIVORS: CardId = 547;
+    pub const DAME_ANNA: CardId = 548;
+    pub const DAME_JOSEPHINE: CardId = 549;
+    pub const DAME_MOLLY: CardId = 550;
+    pub const DAME_NATALIE: CardId = 551;
+    pub const DAME_SYLVIA: CardId = 552;
+    pub const SIR_BAILEY: CardId = 553;
+    pub const SIR_DESTRY: CardId = 554;
+    pub const SIR_MARTIN: CardId = 555;
+    pub const SIR_MICHAEL: CardId = 556;
+    pub const SIR_VANDER: CardId = 557;
 }
 
 /// The last kingdom card of the set (ids `FIRST_DA..=LAST_KINGDOM_DA` are kingdom cards).

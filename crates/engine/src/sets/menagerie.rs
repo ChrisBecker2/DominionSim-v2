@@ -50,49 +50,49 @@ pub mod ids {
     /// The Horse (a zone id, not a kingdom card: it has no pile in the Supply).
     pub const HORSE: CardId = 437;
     // The Events (after the Rising Sun Events).
-    pub const DELAY: CardId = 547;
-    pub const DESPERATION: CardId = 548;
-    pub const GAMBLE: CardId = 549;
-    pub const PURSUE: CardId = 550;
-    pub const RIDE: CardId = 551;
-    pub const TOIL: CardId = 552;
-    pub const ENHANCE: CardId = 553;
-    pub const MARCH: CardId = 554;
-    pub const TRANSPORT: CardId = 555;
-    pub const BANISH: CardId = 556;
-    pub const BARGAIN: CardId = 557;
-    pub const INVEST: CardId = 558;
-    pub const SEIZE_THE_DAY: CardId = 559;
-    pub const COMMERCE: CardId = 560;
-    pub const DEMAND: CardId = 561;
-    pub const STAMPEDE: CardId = 562;
-    pub const REAP: CardId = 563;
-    pub const ENCLAVE: CardId = 564;
-    pub const ALLIANCE: CardId = 565;
-    pub const POPULATE: CardId = 566;
+    pub const DELAY: CardId = 602;
+    pub const DESPERATION: CardId = 603;
+    pub const GAMBLE: CardId = 604;
+    pub const PURSUE: CardId = 605;
+    pub const RIDE: CardId = 606;
+    pub const TOIL: CardId = 607;
+    pub const ENHANCE: CardId = 608;
+    pub const MARCH: CardId = 609;
+    pub const TRANSPORT: CardId = 610;
+    pub const BANISH: CardId = 611;
+    pub const BARGAIN: CardId = 612;
+    pub const INVEST: CardId = 613;
+    pub const SEIZE_THE_DAY: CardId = 614;
+    pub const COMMERCE: CardId = 615;
+    pub const DEMAND: CardId = 616;
+    pub const STAMPEDE: CardId = 617;
+    pub const REAP: CardId = 618;
+    pub const ENCLAVE: CardId = 619;
+    pub const ALLIANCE: CardId = 620;
+    pub const POPULATE: CardId = 621;
     // The Ways, the highest ids.
-    pub const WAY_OF_THE_BUTTERFLY: CardId = 657;
-    pub const WAY_OF_THE_CAMEL: CardId = 658;
-    pub const WAY_OF_THE_CHAMELEON: CardId = 659;
-    pub const WAY_OF_THE_FROG: CardId = 660;
-    pub const WAY_OF_THE_GOAT: CardId = 661;
-    pub const WAY_OF_THE_HORSE: CardId = 662;
-    pub const WAY_OF_THE_MOLE: CardId = 663;
-    pub const WAY_OF_THE_MONKEY: CardId = 664;
-    pub const WAY_OF_THE_MOUSE: CardId = 665;
-    pub const WAY_OF_THE_MULE: CardId = 666;
-    pub const WAY_OF_THE_OTTER: CardId = 667;
-    pub const WAY_OF_THE_OWL: CardId = 668;
-    pub const WAY_OF_THE_OX: CardId = 669;
-    pub const WAY_OF_THE_PIG: CardId = 670;
-    pub const WAY_OF_THE_RAT: CardId = 671;
-    pub const WAY_OF_THE_SEAL: CardId = 672;
-    pub const WAY_OF_THE_SHEEP: CardId = 673;
-    pub const WAY_OF_THE_SQUIRREL: CardId = 674;
-    pub const WAY_OF_THE_TURTLE: CardId = 675;
-    pub const WAY_OF_THE_WORM: CardId = 676;
+    pub const WAY_OF_THE_BUTTERFLY: CardId = 727;
+    pub const WAY_OF_THE_CAMEL: CardId = 728;
+    pub const WAY_OF_THE_CHAMELEON: CardId = 729;
+    pub const WAY_OF_THE_FROG: CardId = 730;
+    pub const WAY_OF_THE_GOAT: CardId = 731;
+    pub const WAY_OF_THE_HORSE: CardId = 732;
+    pub const WAY_OF_THE_MOLE: CardId = 733;
+    pub const WAY_OF_THE_MONKEY: CardId = 734;
+    pub const WAY_OF_THE_MOUSE: CardId = 735;
+    pub const WAY_OF_THE_MULE: CardId = 736;
+    pub const WAY_OF_THE_OTTER: CardId = 737;
+    pub const WAY_OF_THE_OWL: CardId = 738;
+    pub const WAY_OF_THE_OX: CardId = 739;
+    pub const WAY_OF_THE_PIG: CardId = 740;
+    pub const WAY_OF_THE_RAT: CardId = 741;
+    pub const WAY_OF_THE_SEAL: CardId = 742;
+    pub const WAY_OF_THE_SHEEP: CardId = 743;
+    pub const WAY_OF_THE_SQUIRREL: CardId = 744;
+    pub const WAY_OF_THE_TURTLE: CardId = 745;
+    pub const WAY_OF_THE_WORM: CardId = 746;
     /// The Exile mat as a label: the source of the offer to discard the copies of a card gained from it.
-    pub const EXILE: CardId = 677;
+    pub const EXILE: CardId = 747;
 }
 
 /// An Event: no types, no bonuses (what it does is `event_effect`); its cost is the cost to buy it.
@@ -1181,7 +1181,7 @@ impl GameState {
     }
 
     /// How many copies of `c` `p` has in a zone a gained card can be in.
-    fn count_in(&self, p: u8, z: Zone, c: CardId) -> u8 {
+    pub(crate) fn count_in(&self, p: u8, z: Zone, c: CardId) -> u8 {
         let ps = &self.players[p as usize];
         match z {
             Zone::Hand => ps.hand.get(c),

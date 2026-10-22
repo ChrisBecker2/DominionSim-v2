@@ -27,6 +27,7 @@ mod hinterlands;
 mod intrigue;
 mod menagerie;
 mod nocturne;
+mod plunder;
 mod promo;
 mod prosperity;
 mod renaissance;
@@ -100,6 +101,10 @@ macro_rules! with_set {
             }
             CardSet::Allies => {
                 type $S = allies::Allies;
+                $body
+            }
+            CardSet::Plunder => {
+                type $S = plunder::Plunder;
                 $body
             }
         }

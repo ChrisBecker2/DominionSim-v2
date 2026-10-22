@@ -786,8 +786,10 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
 
 /// The name of the outcome `card` of the chance event of `player`: a card of the deck, or (the Boon and Hex draws of Nocturne) the Boon or Hex.
 pub(crate) fn chance_name(player: u8, card: dominion_engine::CardId) -> &'static str {
-    use dominion_engine::state::{BOON_CHANCE, HEX_CHANCE};
-    if player == BOON_CHANCE {
+    use dominion_engine::state::{BOON_CHANCE, HEX_CHANCE, LOOT_CHANCE};
+    if player == LOOT_CHANCE {
+        cards::name(cards::FIRST_LOOT + card)
+    } else if player == BOON_CHANCE {
         cards::name(cards::FIRST_BOON + card)
     } else if player == HEX_CHANCE {
         cards::name(cards::FIRST_HEX + card)

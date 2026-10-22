@@ -33,7 +33,7 @@ pub const START_PENDING_CAP: usize = PENDING_DURATIONS_CAP + PRINCE_CAP + FARM_C
 /// Max distinct cards `DurationHeld` tracks in one turn (see its doc comment): generous for a
 /// realistic turn (a handful of distinct Duration cards, plus any Throne Room/King's Court that
 /// multiplied one).
-pub const DURATION_HELD_CAP: usize = 8;
+pub const DURATION_HELD_CAP: usize = 16;
 /// Max distinct cards on one player's Tavern mat (Adventures): the nine Reserve cards and Coppers (Miser).
 pub const TAVERN_CAP: usize = 10;
 /// Max distinct cards that stay in play for the rest of the game (`PlayerState::stays`).
@@ -918,6 +918,8 @@ pub struct PlayerState {
     pub men: MenPlayer,
     /// Allies: Favors, the cards Coastal Haven keeps, Lich's skips and the lingering Attacks (`AlPlayer`).
     pub al: AlPlayer,
+    /// Plunder: the cards set aside, the "next time" Durations waiting, the Frigates played (`PluPlayer`).
+    pub plu: PluPlayer,
 }
 
 /// The Renaissance state of one player. It hashes as nothing while it is all zero, so that the hash of a state in a game without Renaissance (the seed of a
@@ -985,6 +987,7 @@ impl PlayerState {
             + self.men.aside.get(card) as u32
             + self.al.keep.get(card) as u32
             + (self.saved == card && card != 0) as u32
+            + self.plu.count_of(card)
             + (self.inherit == card && card != 0) as u32;
         if card == id::FAITHFUL_HOUND {
             n += self.hounds as u32;
@@ -1031,6 +1034,8 @@ impl PlayerState {
         if self.inherit != 0 {
             c.add(self.inherit, 1);
         }
+        // Plunder: the cards set aside on Cages, Grottos and Quartermasters, until the end of the turn, for Prepare.
+        self.plu.add_into(&mut c);
         if self.hounds != 0 {
             c.add(id::FAITHFUL_HOUND, self.hounds);
         }
@@ -1208,6 +1213,8 @@ pub struct TurnState {
     pub men: MenTurn,
     /// Allies per-turn bookkeeping.
     pub al: AlTurn,
+    /// Plunder per-turn bookkeeping.
+    pub plu: PluTurn,
 }
 
 /// The per-turn bookkeeping of Rising Sun.
@@ -1668,6 +1675,252 @@ pub struct AdvTurn {
     pub next_no_buy: bool,
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Plunder
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/// Distinct (zone code, card) keys a player's `PluPlayer::z` holds.
+pub const PLU_Z_CAP: usize = 24;
+/// "Next time" Durations in play at once (`PluPlayer::wait`, one entry per card and multiplier).
+pub const PLU_WAIT_CAP: usize = 8;
+/// `PluState::flags` (fixed at set-up): which Plunder effects are in this game, so that other games skip each check with one byte test.
+/// Some Plunder card, Event or Trait is in the game.
+pub const PF_ANY: u8 = 1;
+/// The Loot pile is in the game (something gains Loot).
+pub const PF_LOOT: u8 = 2;
+/// The Cheap Trait: costs ask `plu_cost`.
+pub const PF_COST: u8 = 4;
+/// Some Trait reacts to gains (Cursed, Fawning, Hasty, Nearby, Pious, Rich).
+pub const PF_TRAIT_GAIN: u8 = 8;
+/// Inspiring or Reckless: plays ask `plu_on_play`.
+pub const PF_TRAIT_PLAY: u8 = 16;
+/// Fated, or the Avoid Event: the shuffle is offered.
+pub const PF_SHUFFLE: u8 = 32;
+/// Shaman or Shy: the start of every turn has an entry.
+pub const PF_START: u8 = 64;
+/// `PluState::live` (kept up to date): what Plunder watches right now.
+/// A "next time" Duration waits for a gain or for a pile to empty.
+pub const LV_WAIT: u8 = 1;
+/// Gains are watched: a this-turn effect (Rush, Mirror, Deliver, Insignia, Mining Road, Taskmaster), a Trait, or the Loot with a gain effect.
+pub const LV_GAIN: u8 = 2;
+/// Plays are watched: a Flagship, Landing Party or Harbor Village waits, a Frigate's Attack is on, Inspiring or Reckless is in the game.
+pub const LV_PLAY: u8 = 4;
+/// The shuffle is offered.
+pub const LV_SHUFFLE: u8 = 8;
+/// Clean-up has Plunder work to do.
+pub const LV_CLEAN: u8 = 16;
+/// `PluState::flags`: Friendly, Patient, Tireless or Reckless is in the game.
+pub const PF_CLEAN: u8 = 128;
+/// The chance "player" of the Loot draw: `Step::Chance { player: LOOT_CHANCE }` asks which Loot comes off the pile (lane `i` is `cards::FIRST_LOOT + i`, weighted by the copies left).
+pub const LOOT_CHANCE: u8 = 252;
+
+/// `PluPlayer::z` zone codes: a key is the card plus 1024 times the code.
+/// The cards set aside on all the player's Cages (face down; every waiting Cage fires at once, so the sets are one).
+pub const Z_CAGE: u16 = 1;
+/// The first of the holder codes: a Grotto play (face down) or a Quartermaster (face up) is a holder, 2..=9.
+pub const Z_HOLDER0: u16 = 2;
+pub const Z_HOLDERS: u16 = 8;
+/// Set aside until the end of the turn, then into the hand: face up (Deliver, Trickster) and face down (Puzzle Box, the Cages' cards).
+pub const Z_EOT_UP: u16 = 10;
+pub const Z_EOT_DOWN: u16 = 11;
+/// Set aside until the end of the turn, then onto the deck (Tireless).
+pub const Z_EOT_DECK: u16 = 12;
+/// Prepare's hand, set aside face up until the start of the next turn.
+pub const Z_PREP: u16 = 13;
+
+/// A "next time" Duration in play: the card (0 = unused slot), the card that played it more than once (Throne Room: it stays in play with it), and how many plays it stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct WaitEntry {
+    pub card: CardId,
+    pub mult: CardId,
+    pub times: u8,
+}
+
+/// The Plunder state of one player: the cards set aside (keyed by zone, see `Z_*`), the Durations that wait for their "next time", the holders in use, the Frigates played.
+/// Hashes as nothing while it is all zero.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct PluPlayer {
+    pub z: SmallMultiset<PLU_Z_CAP>,
+    pub wait: [WaitEntry; PLU_WAIT_CAP],
+    pub wait_len: u8,
+    /// Bit `h - Z_HOLDER0` set: holder `h` is in use; `qm`: it is a Quartermaster's.
+    pub holders: u8,
+    pub qm: u8,
+    /// Frigates played since the player's last turn started: their Attack is on.
+    pub frigate: u8,
+}
+
+impl std::hash::Hash for PluPlayer {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != PluPlayer::default() {
+            self.z.hash(h);
+            self.wait[..self.wait_len as usize].hash(h);
+            (self.holders, self.qm, self.frigate).hash(h);
+        }
+    }
+}
+
+impl PluPlayer {
+    #[inline]
+    pub const fn key(code: u16, card: CardId) -> CardId {
+        card | code << 10
+    }
+    pub fn zget(&self, code: u16, card: CardId) -> u8 {
+        self.z.get(Self::key(code, card))
+    }
+    /// Adds `n` copies of `card` to the zone `code`; false (nothing added) when the set is full of other keys.
+    pub fn zadd(&mut self, code: u16, card: CardId, n: u8) -> bool {
+        let k = Self::key(code, card);
+        if self.z.has(k) || self.z.iter().count() < PLU_Z_CAP {
+            self.z.add(k, n);
+            true
+        } else {
+            false
+        }
+    }
+    pub fn zremove(&mut self, code: u16, card: CardId) -> bool {
+        self.z.remove(Self::key(code, card))
+    }
+    /// The cards of zone `code`.
+    pub fn zcards(&self, code: u16) -> Counts {
+        let mut out = Counts::EMPTY;
+        for (k, n) in self.z.iter() {
+            if k >> 10 == code {
+                out.add(k & 1023, n);
+            }
+        }
+        out
+    }
+    pub fn ztotal(&self, code: u16) -> u32 {
+        self.z.iter().filter(|&(k, _)| k >> 10 == code).map(|(_, n)| n as u32).sum()
+    }
+    /// Takes every card of zone `code` out of the set.
+    pub fn ztake(&mut self, code: u16) -> Counts {
+        let out = self.zcards(code);
+        for (c, n) in out.iter() {
+            for _ in 0..n {
+                self.zremove(code, c);
+            }
+        }
+        out
+    }
+    /// Every card in every zone, added to `c`.
+    pub fn add_into(&self, c: &mut Counts) {
+        for (k, n) in self.z.iter() {
+            c.add(k & 1023, n);
+        }
+    }
+    pub fn count_of(&self, card: CardId) -> u32 {
+        self.z.iter().filter(|&(k, _)| k & 1023 == card).map(|(_, n)| n as u32).sum()
+    }
+    /// The cards that are face down (private to their owner).
+    pub fn private_cards(&self) -> Counts {
+        let mut out = Counts::EMPTY;
+        for (k, n) in self.z.iter() {
+            if self.private_zone(k >> 10) {
+                out.add(k & 1023, n);
+            }
+        }
+        out
+    }
+    /// Whether the zone `code` is face down (private to its owner): the Cages', a Grotto's, Puzzle Box's.
+    pub fn private_zone(&self, code: u16) -> bool {
+        code == Z_CAGE || code == Z_EOT_DOWN || ((Z_HOLDER0..Z_HOLDER0 + Z_HOLDERS).contains(&code) && self.qm & (1 << (code - Z_HOLDER0)) == 0)
+    }
+    /// Takes the face-down cards out of the set: `(zone code, card, copies)` entries and how many (for `determinize`, which deals them again from the cards nobody has seen).
+    pub fn take_private(&mut self) -> ([(u16, CardId, u8); PLU_Z_CAP], usize) {
+        let mut out = [(0u16, 0 as CardId, 0u8); PLU_Z_CAP];
+        let mut n = 0;
+        let all: SmallMultiset<PLU_Z_CAP> = self.z;
+        for (k, m) in all.iter() {
+            if self.private_zone(k >> 10) {
+                out[n] = (k >> 10, k & 1023, m);
+                n += 1;
+                for _ in 0..m {
+                    self.z.remove(k);
+                }
+            }
+        }
+        (out, n)
+    }
+    /// The waiting entry for `card` played with `mult` (0 for no multiplier), if any.
+    pub fn wait_index(&self, card: CardId, mult: CardId) -> Option<usize> {
+        self.wait[..self.wait_len as usize].iter().position(|e| e.card == card && e.mult == mult)
+    }
+    pub fn waiting(&self, card: CardId) -> u32 {
+        self.wait[..self.wait_len as usize].iter().filter(|e| e.card == card).map(|e| e.times as u32).sum()
+    }
+    pub fn wait_remove(&mut self, i: usize) {
+        let n = self.wait_len as usize;
+        for j in i + 1..n {
+            self.wait[j - 1] = self.wait[j];
+        }
+        self.wait[n - 1] = WaitEntry::default();
+        self.wait_len -= 1;
+    }
+}
+
+/// The per-game state of Plunder: the Traits and the piles they sit on, which effects are live. (The Loot pile is the `supply` lanes of the Loot cards, two copies each, not
+/// in `in_supply`: no order is stored.) Hashes as nothing while it is all zero.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct PluState {
+    /// The Loot drawn by a chance outcome, not yet gained (index + 1), 0 = none.
+    pub loot_top: u8,
+    /// The number of empty Supply piles when a Search last looked (it fires when more are empty than that).
+    pub empty_seen: u8,
+    /// Bit per Trait in the game (`cards::FIRST_TRAIT + i`) and the Supply pile (`cards::pile_of`) each sits on.
+    pub traits: u16,
+    pub trait_pile: [CardId; crate::cards::NUM_TRAITS],
+    /// `PF_*` (fixed at set-up) and `LV_*` (kept up to date).
+    pub flags: u8,
+    pub live: u8,
+}
+
+impl std::hash::Hash for PluState {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != PluState::default() {
+            (self.loot_top, self.empty_seen, self.traits, self.flags, self.live).hash(h);
+            self.trait_pile.hash(h);
+        }
+    }
+}
+
+/// The per-turn bookkeeping of Plunder (hashes as nothing while it is all zero).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct PluTurn {
+    /// Rush, Mirror and Avoid bought this turn and not used up yet; Mining Roads whose "once this turn" is still to use.
+    pub rush: u8,
+    pub mirror: u8,
+    pub avoid: u8,
+    pub road: u8,
+    /// Insignia played (gains may go onto the deck), Deliver bought (gains are set aside), Journey bought.
+    pub insignia: bool,
+    pub deliver: bool,
+    pub journey: bool,
+    /// Harbor Villages waiting for the next Action played.
+    pub harbor: u8,
+    /// Taskmasters played this turn that no $5 gain has marked yet / that one has (they repeat next turn).
+    pub tm_watch: u8,
+    pub tm_marked: u8,
+    /// Seats that have played a card this turn (Landing Party looks at the first).
+    pub first_by: u8,
+    /// Tricksters played this turn.
+    pub trickster: u8,
+    /// The play being resolved is a Reckless card's repeat: the Plunder play hooks stand aside.
+    pub skip_hooks: bool,
+    /// Prosper's Treasures gained (the names are in `named_for_war_chest`): the Event is being resolved.
+    pub prosper: bool,
+}
+
+impl std::hash::Hash for PluTurn {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        if *self != PluTurn::default() {
+            (self.rush, self.mirror, self.avoid, self.road, self.insignia, self.deliver, self.journey).hash(h);
+            (self.harbor, self.tm_watch, self.tm_marked, self.first_by, self.trickster, self.skip_hooks, self.prosper).hash(h);
+        }
+    }
+}
+
 impl TurnState {
     pub fn start(player: u8, number: u16) -> Self {
         TurnState {
@@ -1712,6 +1965,7 @@ impl TurnState {
             ren: RenTurn::default(),
             men: MenTurn::default(),
             al: AlTurn::default(),
+            plu: PluTurn::default(),
         }
     }
 }
@@ -1738,6 +1992,10 @@ pub enum Zone {
     Archive,
     /// The player's Exile mat (Menagerie).
     Exile,
+    /// The cards the player starts the game with, as a multiset (Inherited: the card the Inherited card replaces). Only used before the first hand is drawn.
+    StartDeck,
+    /// The cards set aside in the Plunder holder `Frame::subject` (a Quartermaster's, Prepare's hand): `PluPlayer::z`.
+    PluAside,
 }
 
 /// What happens to a picked card.
@@ -1868,6 +2126,9 @@ pub enum Filter {
     Rotatable,
     /// The top card of a non-Victory Supply pile (Family of Inventors puts a Favor token on one). Decided against the live game.
     TokenPile,
+    /// Plunder: a card with a condition that needs the live game, by code (`sets::plunder::F_*`: a card of the pile with the Trait `k`, a card some player has in play, ...).
+    /// Decided against the live game (`filter_ok`); `matches` can only say "any".
+    Plu(u8),
 }
 
 /// The groups of card types a `Filter::Types` selects (kept to one byte so that frames stay small).
@@ -1889,6 +2150,8 @@ pub enum TypeSet {
     ActionNotAttack,
     /// An Action or a Victory card (Acolyte).
     ActionOrVictory,
+    /// Duration cards (Cabin Boy).
+    Duration,
 }
 
 impl TypeSet {
@@ -1903,6 +2166,7 @@ impl TypeSet {
             TypeSet::Castle => (cards::CASTLE, 0),
             TypeSet::ActionNotAttack => (cards::ACTION, cards::ATTACK),
             TypeSet::ActionOrVictory => (cards::ACTION | cards::VICTORY, 0),
+            TypeSet::Duration => (cards::DURATION, 0),
         }
     }
 }
@@ -1964,7 +2228,7 @@ impl Filter {
             Filter::Frogged => cards::is(c, cards::ACTION),
             Filter::PopulateLeft => cards::is(c, cards::ACTION),
             Filter::InPile(pile) => cards::pile_of(c) == pile,
-            Filter::Rotatable | Filter::TokenPile => true,
+            Filter::Rotatable | Filter::TokenPile | Filter::Plu(_) => true,
         }
     }
 }
@@ -2489,6 +2753,8 @@ pub enum Then {
     CapitalPay,
     /// TopCard (Barbarian, each victim): the top card is trashed; one costing $3 or more is replaced by a cheaper card that shares a type, anything else by a Curse.
     BarbarianHit,
+    /// Plunder: the continuation of one of its cards, Events or Traits, by code (`sets::plunder::T_*`); `Select`, `YesNo`, `Ask`, `Gain` and `Loot` frames all use it.
+    Plu(u8),
 }
 
 /// A pending piece of work on the effect stack. Card effects that need input or span
@@ -2782,6 +3048,11 @@ pub enum FrameKind {
     /// Menagerie: the card `subject` has just been played (already in play). The first Kiln gain was made above this frame; now, in a game with a Way, `player` chooses
     /// between the card's own effect and the Ways (`DecisionKind::Way`: `Pass` or `Card(way)`), and the card's effects resolve (`GameState::run_preplay`).
     PrePlay,
+    /// Plunder: `player` gains the top card of the Loot pile to `dest` (the card is drawn when the frame runs: a chance outcome in chance mode, `subject` once known). `then` is what follows.
+    Loot,
+    /// Plunder: the card `subject` has just been played and fully resolved; `min` says what follows (`sets::plunder::A_*`: Harbor Village's $, Inspiring's extra play, a Frigate's discard,
+    /// Landing Party). No decision of its own.
+    PluAfter,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -2862,11 +3133,13 @@ pub struct GameConfig {
     pub riverboat: Option<CardId>,
     /// Way of the Mouse's card (an Action costing $2 or $3 that is not in the kingdom, not a Duration). `None` = chosen from the game's seed when a Way of the Mouse needs one.
     pub mouse: Option<CardId>,
+    /// The Supply pile each Trait of the kingdom sits on (Plunder): `(Trait, a card of the pile)`. A Trait not listed is put on a pile chosen from the game's seed.
+    pub trait_piles: Vec<(CardId, CardId)>,
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None, riverboat: None, mouse: None }
+        GameConfig { num_players: 2, kingdom: cards::FIRST_GAME.to_vec(), seed: 0, max_turns: 200, bane: None, ferryman: None, shelters: None, obelisk: None, riverboat: None, mouse: None, trait_piles: Vec::new() }
     }
 }
 
@@ -3131,6 +3404,8 @@ pub struct GameState {
     pub men: MenState,
     /// Allies: the Ally, the order of the split piles, Family of Inventors' tokens, `AF_*` flags and `AH_*` hooks.
     pub al: AlState,
+    /// Plunder: the Loot pile, the Traits and their piles, `PF_*` flags and `LV_*` live bits.
+    pub plu: PluState,
     /// Layout tuning, nothing more: with every thread of a 16-core / 32-thread machine busy, where the hot fields of two games that share a core fall in the L1 data
     /// cache decides the speed of the whole benchmark (up to 10%: see "Learned with Allies" in `docs/adding-a-set.md`). These bytes keep the Allies fields from moving the turn and the
     /// players to a bad spot; if a new field costs speed again, try other sizes here before looking for a leak.
@@ -3296,6 +3571,7 @@ impl GameState {
             ren: RenState::default(),
             men: MenState::default(),
             al: AlState::default(),
+            plu: PluState::default(),
             _pad: [0; 128],
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
@@ -3345,7 +3621,11 @@ impl GameState {
         crate::sets::menagerie::setup(&mut s, cfg, n);
         // Allies: the Ally and the Favors, the split piles' order, which effects are live.
         crate::sets::allies::setup(&mut s, cfg, n);
+        // Plunder: the Loot pile, the Traits and their piles, which effects are live.
+        crate::sets::plunder::setup(&mut s, cfg, n);
         s.push_opening_deal();
+        // Inherited: each player chooses the starting card it replaces, before the first hand is drawn.
+        crate::sets::plunder::setup_inherited(&mut s);
         // Returned without the unused seats: a plain `s` here is a copy of all 20 KB.
         s.dup()
     }
@@ -3386,6 +3666,10 @@ impl GameState {
         if c == id::PEDDLER && self.turn.phase == Phase::Buy {
             reduction += 2 * self.players[pi].in_play.count_type(cards::ACTION);
         }
+        // Plunder: the Cheap pile costs $1 less.
+        if self.plu.flags & PF_COST != 0 {
+            reduction += self.plu_cost_reduction(c) as u32;
+        }
         // Ferry's -$2 cost token: cards of its pile cost $2 less on its owner's turns.
         if self.adv & G_COST_TOKEN != 0 && cards::pile_of(c) == self.players[pi].tok[TOK_COST] && cards::is(c, cards::ACTION) {
             reduction += 2;
@@ -3423,7 +3707,7 @@ impl GameState {
     /// that Capitalism turns into a Treasure is played like any Action (with its effects), one at a time.
     #[inline(always)]
     pub fn plain_treasure(&self, c: CardId) -> bool {
-        cards::is_choice_free(c) && (!cards::is(c, cards::ACTION) || cards::is(c, cards::TREASURE))
+        cards::is_choice_free(c) && (!cards::is(c, cards::ACTION) || cards::is(c, cards::TREASURE)) && (self.plu.flags & PF_TRAIT_PLAY == 0 || !self.plu_trait_play(c))
     }
 
     /// The `Filter` to use for a Select/Gain that should match Treasures, extended to Curse when

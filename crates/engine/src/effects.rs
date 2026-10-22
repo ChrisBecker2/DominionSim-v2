@@ -171,6 +171,10 @@ impl GameState {
         if self.al.flags & crate::state::AF_PLAYS != 0 && player == self.turn.player {
             self.al_push_after_play(card, player, tok);
         }
+        // Plunder: Flagship and Reckless play the card again, and Harbor Village, Inspiring, a Frigate and Landing Party act after it.
+        if self.plu.live & crate::state::LV_PLAY != 0 {
+            self.plu_play_hooks(card, player, tok);
+        }
         let outer = std::mem::replace(&mut self.turn.led.cur, tok);
         // Menagerie: a Kiln's gain and the choice of a Way come before the card's own effects (a frame, resolved once the frames above it are).
         if (self.men.flags & crate::state::M_WAYS != 0 && cards::is(card, ACTION)) || self.turn.men.kiln > 0 {
@@ -321,8 +325,9 @@ impl GameState {
     /// Lighthouse already protecting them), or a card that draws (Diplomat, with enough cards in
     /// hand) and so may bring a Moat into the hand.
     fn reaction_window_open(&self, attacker: u8) -> bool {
-        // Cheap exit for the many games with no such Reaction in the kingdom.
+        // Cheap exit for the many games with no such Reaction in the kingdom (Plunder: the Loot Shield is not in the Supply, it is in the game with the Loot pile).
         if !cards::BLOCK_REACTIONS.iter().any(|&c| self.in_supply(c))
+            && self.plu.flags & crate::state::PF_LOOT == 0
             && !cards::REACTION_EFFECTS.iter().any(|&(c, ..)| self.in_supply(c))
             && !cards::ATTACK_REACTIONS.iter().any(|&(c, ..)| self.in_supply(c))
         {
@@ -435,6 +440,8 @@ impl GameState {
                     Zone::Tavern => return ZoneRef::Top(ps.tavern.counts()),
                     Zone::Archive => return ZoneRef::Top(ps.archive.counts()),
                     Zone::Exile => return ZoneRef::Top(ps.men.exile.counts()),
+                    Zone::StartDeck => &ps.deck_unknown,
+                    Zone::PluAside => return ZoneRef::Top(Counts::EMPTY),
                     Zone::Supply | Zone::Trash => unreachable!(),
                 })
             }
@@ -445,6 +452,9 @@ impl GameState {
     /// the deck whenever an Action can be played from the hand).
     #[inline(always)]
     fn select_zone(&self, f: &Frame) -> ZoneRef<'_> {
+        if f.zone == Zone::PluAside {
+            return ZoneRef::Top(self.players[f.player as usize].plu.zcards(f.subject));
+        }
         if f.act == Act::Play && f.zone == Zone::Hand && self.rs.flags & crate::state::R_SHADOW != 0 {
             return self.zone_with_shadows(f.player);
         }
@@ -501,7 +511,8 @@ impl GameState {
                     Zone::Discard => &mut ps.discard,
                     Zone::Revealed => &mut ps.set_aside,
                     Zone::InPlay => &mut ps.in_play,
-                    Zone::DeckTop | Zone::Tavern | Zone::Archive | Zone::Exile | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
+                    Zone::StartDeck => &mut ps.deck_unknown,
+                    Zone::PluAside | Zone::DeckTop | Zone::Tavern | Zone::Archive | Zone::Exile | Zone::Supply | Zone::Trash => unreachable!("{z:?} is not a counted zone"),
                 }
             }
         }
@@ -578,6 +589,7 @@ impl GameState {
             // Populate: an Action pile it has not gained from yet.
             Filter::PopulateLeft => self.populate_ok(c),
             // Allies: a pile that rotating changes; a non-Victory pile (Family of Inventors).
+            Filter::Plu(k) => self.plu_filter(k, c),
             Filter::Rotatable => self.al_rotatable(c),
             Filter::TokenPile => self.al_token_pile(c),
             filter => filter.matches(c),
@@ -694,6 +706,8 @@ impl GameState {
                 Run::Continue
             }
             K::NativeVillageAdd => self.run_native_village_add(f, sink),
+            K::Loot => self.run_plu_loot(f, sink),
+            K::PluAfter => self.run_plu_after(f, sink),
             K::RevealTop => {
                 if f.max == 0 {
                     self.finish_reveal_top(f, sink);
@@ -729,11 +743,14 @@ impl GameState {
                 if f.count >= 2 {
                     sink.event(Event::PlayAgain { player: p, card: f.subject, source: f.source, nth: f.count });
                 }
+                // Plunder: a repeat made by Flagship or Reckless is not a play of its own (`exact`): the Plunder play hooks stand aside.
+                self.turn.plu.skip_hooks = f.exact;
                 if f.zone == Zone::Supply || f.zone == Zone::Trash {
                     // Played from the Supply (Captain) or the trash (Necromancer): the card stays there, so it is not in play and a card
                     // that tries to move itself fails to (`NIP`, shared with Prince's held card).
                     sink.event(Event::StartPlay { player: p, source: f.source, card: f.subject });
                     self.resolve_effects_tok(f.subject, p, f.depth, crate::track::NIP, sink);
+                    self.turn.plu.skip_hooks = false;
                     return Run::Continue;
                 }
                 // Allies: Elder's play (the "choose" decisions the card makes give one more pick).
@@ -741,9 +758,11 @@ impl GameState {
                     self.turn.al.elder = true;
                     self.resolve_effects_tok(f.subject, p, f.depth, f.tok, sink);
                     self.turn.al.elder = false;
+                    self.turn.plu.skip_hooks = false;
                     return Run::Continue;
                 }
                 self.resolve_effects_tok(f.subject, p, f.depth, f.tok, sink);
+                self.turn.plu.skip_hooks = false;
                 Run::Continue
             }
             K::Gain => {
@@ -810,13 +829,14 @@ impl GameState {
                     || (f.then == Then::SleighMove && !self.sleigh_possible(&f))
                     || (matches!(f.then, Then::CargoAside | Then::InnovationPlay) && self.ren_yesno_pointless(&f))
                     || (f.then == Then::AllyFavor && self.players[pi].al.favors < f.min)
+                    || (matches!(f.then, Then::Plu(crate::sets::plunder::T_FORCED_PLAY)) && !self.plu_forced_possible(&f))
                 {
                     self.stack.pop();
                     self.yesno_decline(f, sink);
                     return Run::Continue;
                 }
                 // A Berserker gained with an Action in play is played, whatever its player thinks.
-                if matches!(f.then, Then::BerserkerPlay | Then::ForcedExile) {
+                if matches!(f.then, Then::BerserkerPlay | Then::ForcedExile | Then::Plu(crate::sets::plunder::T_FORCED_PLAY)) {
                     self.apply_frame(f, Choice::Yes, sink);
                     return Run::Continue;
                 }
@@ -980,7 +1000,7 @@ impl GameState {
                 // Duration card is keeping it in play, Throne Room stays in play with it").
                 if self.turn.multiplier_card == f.source
                     && self.turn.multiplier_successes >= 1
-                    && matches!(f.subject, id::PRINCE | id::HIRELING | id::CHAMPION)
+                    && matches!(f.subject, id::PRINCE | id::HIRELING | id::CHAMPION | crate::sets::plunder::ids::QUARTERMASTER)
                 {
                     // A Throne Room / King's Court whose Prince set cards aside stays in play with
                     // it for the rest of the game ("both will stay in play").
@@ -1128,7 +1148,7 @@ impl GameState {
             K::Draw | K::RevealTop | K::PlayEffects | K::Vassal | K::TrashTopThenGain | K::PassLeftBegin | K::PassLeftDeliver | K::MultiplierFinalize | K::AttackBody | K::NativeVillageAdd | K::RevealUntil | K::TopCard => {}
             K::StartOrder => self.start_order_choices(out),
             K::Overpay => self.overpay_choices(f, out),
-            K::AfterPlay | K::Release => {}
+            K::AfterPlay | K::Release | K::Loot | K::PluAfter => {}
             K::PrePlay => self.way_choices(f, out),
             K::Token => self.token_choices(f, out),
         }
@@ -1228,6 +1248,7 @@ impl GameState {
                         Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
                         Then::GroomBonus | Then::DesperationBonus | Then::PopulateGain | Then::ReapAside => self.men_gained(&f, c, dest, sink),
                         Then::HillFortGain => self.al_gained(&f, c, dest),
+                        Then::Plu(_) => self.plu_gained(&f, c, dest, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1260,6 +1281,8 @@ impl GameState {
                 // ruling: Bridge/Quarry-style reductions active now apply on both sides.
                 f.cost_sum += self.cost(c) as u16;
                 // Record the pick before the card moves: a gain from the trash can push frames (gain reactions) above this one.
+                // Plunder: Foray counts the names among the cards discarded (the picks come in card order).
+                self.plu_count_pick(&mut f, c);
                 f.count += 1;
                 f.last = c;
                 if f.then == Then::WitchsHut && cards::is(c, ACTION) {
@@ -1275,7 +1298,7 @@ impl GameState {
                 // Storyteller's Treasure is played from the hand by its own path.
                 let storyteller = f.then == Then::StorytellerPlay;
                 // Crown in the Buy phase: a choice-free Treasure is played from the hand by the usual path, twice.
-                let crown = f.then == Then::CrownTreasure && self.plain_treasure(c);
+                let crown = matches!(f.then, Then::CrownTreasure | Then::Plu(crate::sets::plunder::T_KINGS_CACHE)) && self.plain_treasure(c);
                 let in_place = f.act == Act::Reveal || f.act == Act::Choose || (f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) || storyteller || crown;
                 // Necromancer: the Action is turned face down in the trash for the rest of the turn.
                 if f.act == Act::Play && f.zone == Zone::Trash {
@@ -1287,7 +1310,11 @@ impl GameState {
                         self.players[pi].take_from_deck(c)
                     } else {
                         self.tok_moved(f.tok, p, f.zone, c);
-                        self.zone_take(p, f.zone, c)
+                        if f.zone == Zone::PluAside {
+                            self.players[pi].plu.zremove(f.subject, c)
+                        } else {
+                            self.zone_take(p, f.zone, c)
+                        }
                     };
                     debug_assert!(removed);
                 }
@@ -1295,7 +1322,9 @@ impl GameState {
                     self.storyteller_play(&f, c, sink);
                 } else if crown {
                     self.play_free_treasure(c, 1, sink);
-                    self.play_free_treasure_from(c, 1, false, sink);
+                    for _ in 1..(if f.then == Then::CrownTreasure { 2 } else { 3 }) {
+                        self.play_free_treasure_from(c, 1, false, sink);
+                    }
                 } else if f.act == Act::Trash && f.zone == Zone::Supply {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
@@ -1312,6 +1341,8 @@ impl GameState {
                     Then::GearAside => self.push_duration_pending(p, f.source, 1, c),
                     // Church: each card set aside goes into the newest batch, face down.
                     Then::ChurchAside => self.church_add(p, c),
+                    // Patient: each card set aside is held for the next turn.
+                    Then::Plu(crate::sets::plunder::T_PATIENT) => self.plu_pick(&f, c),
                     // Pilgrimage: a copy of each card picked.
                     Then::GainCopyEachPick => {
                         self.gain(p, c, Dest::Discard, false, f.source, sink);
@@ -1387,6 +1418,7 @@ impl GameState {
                     Then::TunnelGold | Then::FoolsGoldGain | Then::TraderSwap => self.hint_yes(&f, sink),
                     Then::EngineerGain | Then::SmallCastle => self.empires_yes(&f, sink),
                     Then::AllyFavor | Then::AcolyteGain => self.al_yes(&f, sink),
+                    Then::Plu(_) => self.plu_yes(&f, sink),
                     // Raze trashed itself: look at as many cards as it cost.
                     Then::RazeSelf => {
                         let n = self.cost(id::RAZE).min(u8::MAX as u8);
@@ -1875,6 +1907,7 @@ impl GameState {
             | Then::DevelopGain
             | Then::GainPerCost { .. } => self.finish_hint_select(&f, sink),
             Then::DismantleGain | Then::SummonAside => self.finish_promo_select(&f, sink),
+            Then::Plu(_) => self.finish_plu_select(&f, sink),
             Then::BorderGuardPick
             | Then::HideoutCurse
             | Then::CostLess
@@ -2124,6 +2157,7 @@ impl GameState {
                 ModeOpt::GainCopy => self.stack.push(Frame {
                     gf: crate::state::GF_ANY_COST, ..gain_frame(p, f.source, u8::MAX, Filter::Card(f.subject), Dest::Discard)
                 }),
+                ModeOpt::Plu(k) => self.plu_mode_frames(&f, k),
                 ModeOpt::Favors(_)
                 | ModeOpt::TopdeckGains
                 | ModeOpt::DurationNext
@@ -2234,6 +2268,7 @@ impl GameState {
                     self.turn.al.live |= 1;
                 }
                 ModeOpt::DurationNext => self.push_duration_pending(p, f.source, 1, 0),
+                ModeOpt::Plu(k) => self.plu_mode_now(&f, k, sink),
                 ModeOpt::CostActions => {
                     let k = self.cost(f.subject);
                     self.turn.actions = self.turn.actions.saturating_add(k);
@@ -2438,6 +2473,11 @@ impl GameState {
         if self.players[pi].men.gk > 0 {
             self.players[pi].men.gk = 0;
             self.men_update_hook();
+        }
+        // Plunder: a Frigate's Attack ends.
+        if self.players[pi].plu.frigate > 0 {
+            self.players[pi].plu.frigate = 0;
+            self.plu_refresh();
         }
         // Nocturne: Guardian's protection lasts until this turn starts.
         self.players[pi].noc &= !crate::state::P_GUARDED;

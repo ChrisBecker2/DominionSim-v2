@@ -136,6 +136,11 @@ fn finish_turn_hash(state: &GameState, ps: &PlayerState, mut h: FxHasher) -> u64
     // Allies: Favors, the cards Coastal Haven keeps, the Lich skips and lingering Attacks of a player, and the Ally, the split piles' order and the Favor tokens (nothing is hashed while all of it is zero).
     ps.al.hash(&mut h);
     state.al.hash(&mut h);
+    // Plunder: the cards set aside and the waiting Durations of a player, the Traits and the turn's bookkeeping (nothing is hashed while all of it is zero).
+    if state.plu.flags != 0 {
+        ps.plu.hash(&mut h);
+        state.plu.hash(&mut h);
+    }
     state.turn.hash(&mut h);
     state.supply.hash(&mut h);
     (state.spoils, state.madman, state.mercenary, state.trav, state.adv).hash(&mut h);

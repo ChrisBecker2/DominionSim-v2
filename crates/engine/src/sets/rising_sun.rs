@@ -38,32 +38,32 @@ pub mod ids {
     pub const SAMURAI: CardId = 380;
     pub const RICE: CardId = 381;
     // The Events, after Summon.
-    pub const AMASS: CardId = 537;
-    pub const ASCETICISM: CardId = 538;
-    pub const CONTINUE: CardId = 539;
-    pub const CREDIT: CardId = 540;
-    pub const FORESIGHT: CardId = 541;
-    pub const GATHER: CardId = 542;
-    pub const KINTSUGI: CardId = 543;
-    pub const PRACTICE: CardId = 544;
-    pub const RECEIVE_TRIBUTE: CardId = 545;
-    pub const SEA_TRADE: CardId = 546;
+    pub const AMASS: CardId = 592;
+    pub const ASCETICISM: CardId = 593;
+    pub const CONTINUE: CardId = 594;
+    pub const CREDIT: CardId = 595;
+    pub const FORESIGHT: CardId = 596;
+    pub const GATHER: CardId = 597;
+    pub const KINTSUGI: CardId = 598;
+    pub const PRACTICE: CardId = 599;
+    pub const RECEIVE_TRIBUTE: CardId = 600;
+    pub const SEA_TRADE: CardId = 601;
     // The Prophecies, the highest ids.
-    pub const APPROACHING_ARMY: CardId = 617;
-    pub const BIDING_TIME: CardId = 618;
-    pub const BUREAUCRACY: CardId = 619;
-    pub const DIVINE_WIND: CardId = 620;
-    pub const ENLIGHTENMENT: CardId = 621;
-    pub const FLOURISHING_TRADE: CardId = 622;
-    pub const GOOD_HARVEST: CardId = 623;
-    pub const GREAT_LEADER: CardId = 624;
-    pub const GROWTH: CardId = 625;
-    pub const HARSH_WINTER: CardId = 626;
-    pub const KIND_EMPEROR: CardId = 627;
-    pub const PANIC: CardId = 628;
-    pub const PROGRESS: CardId = 629;
-    pub const RAPID_EXPANSION: CardId = 630;
-    pub const SICKNESS: CardId = 631;
+    pub const APPROACHING_ARMY: CardId = 687;
+    pub const BIDING_TIME: CardId = 688;
+    pub const BUREAUCRACY: CardId = 689;
+    pub const DIVINE_WIND: CardId = 690;
+    pub const ENLIGHTENMENT: CardId = 691;
+    pub const FLOURISHING_TRADE: CardId = 692;
+    pub const GOOD_HARVEST: CardId = 693;
+    pub const GREAT_LEADER: CardId = 694;
+    pub const GROWTH: CardId = 695;
+    pub const HARSH_WINTER: CardId = 696;
+    pub const KIND_EMPEROR: CardId = 697;
+    pub const PANIC: CardId = 698;
+    pub const PROGRESS: CardId = 699;
+    pub const RAPID_EXPANSION: CardId = 700;
+    pub const SICKNESS: CardId = 701;
 }
 
 /// The Shadow cards (playable from the deck).

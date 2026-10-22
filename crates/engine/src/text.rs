@@ -492,6 +492,148 @@ fn parse_al_turn(s: &str) -> Result<AlTurn, String> {
     Ok(a)
 }
 
+/// The `plu turn:` line: Plunder's per-turn bookkeeping, `key value` entries separated by `;` (flags are a key alone).
+fn format_plu_turn(t: &crate::state::PluTurn) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (k, v) in [
+        ("rush", t.rush),
+        ("mirror", t.mirror),
+        ("avoid", t.avoid),
+        ("road", t.road),
+        ("harbor", t.harbor),
+        ("watching", t.tm_watch),
+        ("marked", t.tm_marked),
+        ("first", t.first_by),
+        ("tricksters", t.trickster),
+    ] {
+        if v > 0 {
+            parts.push(format!("{k} {v}"));
+        }
+    }
+    for (k, v) in [("insignia", t.insignia), ("deliver", t.deliver), ("journey", t.journey), ("prosper", t.prosper)] {
+        if v {
+            parts.push(k.to_string());
+        }
+    }
+    parts.join("; ")
+}
+
+fn parse_plu_turn(s: &str) -> Result<crate::state::PluTurn, String> {
+    let mut t = crate::state::PluTurn::default();
+    for part in s.split(';') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (key, val) = part.rsplit_once(' ').filter(|(_, v)| v.parse::<u8>().is_ok()).unwrap_or((part, ""));
+        let num = || -> Result<u8, String> { val.parse().map_err(|_| format!("invalid {key} '{val}'")) };
+        match key {
+            "rush" => t.rush = num()?,
+            "mirror" => t.mirror = num()?,
+            "avoid" => t.avoid = num()?,
+            "road" => t.road = num()?,
+            "harbor" => t.harbor = num()?,
+            "watching" => t.tm_watch = num()?,
+            "marked" => t.tm_marked = num()?,
+            "first" => t.first_by = num()?,
+            "tricksters" => t.trickster = num()?,
+            "insignia" => t.insignia = true,
+            "deliver" => t.deliver = true,
+            "journey" => t.journey = true,
+            "prosper" => t.prosper = true,
+            other => return Err(format!("unknown plu turn field '{other}'")),
+        }
+    }
+    Ok(t)
+}
+
+/// The names of the zones of `PluPlayer::z` in the text format.
+fn plu_zone_name(code: u16) -> String {
+    use crate::state::*;
+    match code {
+        Z_CAGE => "cage".to_string(),
+        Z_EOT_UP => "eot up".to_string(),
+        Z_EOT_DOWN => "eot down".to_string(),
+        Z_EOT_DECK => "eot deck".to_string(),
+        Z_PREP => "prep".to_string(),
+        h => format!("holder{h}"),
+    }
+}
+
+fn plu_zone_code(name: &str) -> Option<u16> {
+    use crate::state::*;
+    match name {
+        "cage" => Some(Z_CAGE),
+        "eot up" => Some(Z_EOT_UP),
+        "eot down" => Some(Z_EOT_DOWN),
+        "eot deck" => Some(Z_EOT_DECK),
+        "prep" => Some(Z_PREP),
+        h => h.strip_prefix("holder").and_then(|n| n.parse::<u16>().ok()).filter(|n| (Z_HOLDER0..Z_HOLDER0 + Z_HOLDERS).contains(n)),
+    }
+}
+
+/// `plunder aside:` is `zone:Card=count` entries; `waiting:` is `Card[ xN][ via Card]` entries; `plunder:` is `key value` entries separated by `;`.
+fn format_plu_aside(p: &crate::state::PluPlayer) -> String {
+    let mut items: Vec<(u16, CardId, u8)> = p.z.iter().map(|(k, n)| (k >> 10, k & 1023, n)).collect();
+    items.sort_unstable();
+    items.iter().map(|&(z, c, n)| format!("{}:{}={}", plu_zone_name(z), cards::name(c), n)).collect::<Vec<_>>().join(", ")
+}
+
+fn parse_plu_aside(s: &str, p: &mut crate::state::PluPlayer) -> Result<(), String> {
+    for part in split_parts(s) {
+        let (zone, rest) = part.split_once(':').ok_or_else(|| format!("expected 'zone:Card=count' in plunder aside, found '{part}'"))?;
+        let (name, n) = rest.rsplit_once('=').ok_or_else(|| format!("expected 'Card=count' in '{part}'"))?;
+        let code = plu_zone_code(zone.trim()).ok_or_else(|| format!("unknown zone '{zone}'"))?;
+        let card = cards::by_name(name.trim()).ok_or_else(|| format!("unknown card '{}'", name.trim()))?;
+        let n: u8 = n.trim().parse().map_err(|_| format!("invalid count in '{part}'"))?;
+        if !p.zadd(code, card, n) {
+            return Err("too many different cards set aside".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn format_plu_waiting(p: &crate::state::PluPlayer) -> String {
+    p.wait[..p.wait_len as usize]
+        .iter()
+        .map(|e| {
+            let mut s = cards::name(e.card).to_string();
+            if e.times > 1 {
+                s.push_str(&format!(" x{}", e.times));
+            }
+            if e.mult != 0 {
+                s.push_str(&format!(" via {}", cards::name(e.mult)));
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_plu_waiting(s: &str, p: &mut crate::state::PluPlayer) -> Result<(), String> {
+    for part in split_parts(s) {
+        let (head, mult) = match part.split_once(" via ") {
+            Some((h, m)) => (h.trim(), Some(m.trim())),
+            None => (part, None),
+        };
+        let (name, times) = match head.rsplit_once(" x") {
+            Some((n, t)) if t.parse::<u8>().is_ok() => (n.trim(), t.parse::<u8>().unwrap()),
+            _ => (head, 1),
+        };
+        let card = cards::by_name(name).ok_or_else(|| format!("unknown card '{name}'"))?;
+        let mult = match mult {
+            Some(m) => cards::by_name(m).ok_or_else(|| format!("unknown card '{m}'"))?,
+            None => 0,
+        };
+        if p.wait_len as usize >= crate::state::PLU_WAIT_CAP {
+            return Err("too many waiting Durations".to_string());
+        }
+        p.wait[p.wait_len as usize] = crate::state::WaitEntry { card, mult, times };
+        p.wait_len += 1;
+    }
+    Ok(())
+}
+
 fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
     let toks: Vec<&str> = line.split_whitespace().collect();
     if toks.len() % 2 != 0 {
@@ -649,6 +791,17 @@ pub fn format_state(state: &GameState) -> String {
     if state.turn.al != AlTurn::default() {
         out.push_str(&format!("al turn: {}\n", format_al_turn(&state.turn.al)));
     }
+    // Plunder: the Traits and their piles, the turn's bookkeeping.
+    if state.plu.traits != 0 {
+        let items: Vec<String> = (0..cards::NUM_TRAITS)
+            .filter(|i| state.plu.traits & (1 << i) != 0)
+            .map(|i| format!("{} on {}", cards::name(cards::FIRST_TRAIT + i as CardId), cards::name(state.plu.trait_pile[i])))
+            .collect();
+        out.push_str(&format!("traits: {}\n", items.join(", ")));
+    }
+    if state.turn.plu != crate::state::PluTurn::default() {
+        out.push_str(&format!("plu turn: {}\n", format_plu_turn(&state.turn.plu)));
+    }
     // Empires: the Landmarks and the tokens on them and on the piles.
     format_empires(state, &mut out);
     // Nocturne: the Boons and Hexes decks, Lost in the Woods.
@@ -683,6 +836,12 @@ pub fn format_state(state: &GameState) -> String {
         let line = if i < 4 { cards::id::PAGE } else { cards::id::PEASANT };
         if state.in_supply(line) {
             side.push(format!("{}={}", cards::name(cards::FIRST_TRAV + i as CardId), state.trav[i]));
+        }
+    }
+    // Plunder: the Loot cards left in the pile.
+    if state.plu.flags & crate::state::PF_LOOT != 0 {
+        for i in 0..cards::NUM_LOOT as CardId {
+            side.push(format!("{}={}", cards::name(cards::FIRST_LOOT + i), state.supply.get(cards::FIRST_LOOT + i)));
         }
     }
     // Menagerie: the Horses left.
@@ -904,6 +1063,15 @@ pub fn format_state(state: &GameState) -> String {
         }
         if !ps.summon_cards.is_empty() {
             out.push_str(&format!("summoned: {}\n", format_counts(&ps.summon_cards.counts())));
+        }
+        if !ps.plu.z.is_empty() {
+            out.push_str(&format!("plunder aside: {}\n", format_plu_aside(&ps.plu)));
+        }
+        if ps.plu.wait_len > 0 {
+            out.push_str(&format!("waiting: {}\n", format_plu_waiting(&ps.plu)));
+        }
+        if ps.plu.holders != 0 || ps.plu.qm != 0 || ps.plu.frigate != 0 {
+            out.push_str(&format!("plunder: holders {}; qm {}; frigate {}\n", ps.plu.holders, ps.plu.qm, ps.plu.frigate));
         }
         if !ps.church.is_empty() {
             let batches: Vec<String> = (0..ps.church.len())
@@ -1223,6 +1391,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
     let mut ally_val: Option<(usize, String)> = None;
     let mut fam_val: Option<(usize, String)> = None;
     let mut al_turn_val: Option<(usize, String)> = None;
+    let mut traits_val: Option<(usize, String)> = None;
+    let mut plu_turn_val: Option<(usize, String)> = None;
     let mut pile_order_vals: Vec<(usize, String)> = Vec::new();
     let mut pass_done = false;
     let mut supply_val: Option<(usize, String)> = None;
@@ -1278,6 +1448,8 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             "ally" => ally_val = Some((lineno, rest.to_string())),
             "fam" => fam_val = Some((lineno, rest.to_string())),
             "al turn" => al_turn_val = Some((lineno, rest.to_string())),
+            "traits" => traits_val = Some((lineno, rest.to_string())),
+            "plu turn" => plu_turn_val = Some((lineno, rest.to_string())),
             "pile order" => pile_order_vals.push((lineno, rest.to_string())),
             "pass" => pass_done = rest.eq_ignore_ascii_case("done"),
             "supply" => supply_val = Some((lineno, rest.to_string())),
@@ -1321,6 +1493,17 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 return Err(format!("line {ln}: '{}' is not an Event", cards::name(e)));
             }
             kingdom.push(e);
+        }
+    }
+    // Plunder: each Trait with the pile it sits on.
+    let mut trait_piles: Vec<(CardId, CardId)> = Vec::new();
+    if let Some((ln, s)) = &traits_val {
+        for part in split_parts(s) {
+            let (t, pile) = part.split_once(" on ").ok_or_else(|| format!("line {ln}: expected 'Trait on Card', found '{part}'"))?;
+            let t = cards::by_name(t.trim()).filter(|&t| cards::is_trait(t)).ok_or_else(|| format!("line {ln}: '{}' is not a Trait", t.trim()))?;
+            let pile = cards::by_name(pile.trim()).ok_or_else(|| format!("line {ln}: unknown card '{}'", pile.trim()))?;
+            kingdom.push(t);
+            trait_piles.push((t, pile));
         }
     }
     if let Some((ln, s)) = &landmarks_val {
@@ -1391,6 +1574,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         mouse: named(&mouse_val, "mouse")?,
         // The decks are read from the text; `shelters` is derived from them below.
         shelters: Some(false),
+        trait_piles,
     };
     let (riverboat, bane, ferryman) = (cfg.riverboat, cfg.bane, cfg.ferryman);
     let mut state = GameState::new(&cfg);
@@ -1506,7 +1690,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 state.madman = count;
             } else if id == cards::id::MERCENARY {
                 state.mercenary = count;
-            } else if id == crate::sets::menagerie::ids::HORSE {
+            } else if id == crate::sets::menagerie::ids::HORSE || cards::is_loot(id) {
                 state.supply.set(id, count);
             } else if let Some(i) =
                 [cards::id::WILL_O_WISP, cards::id::WISH, cards::id::BAT, cards::id::IMP, cards::id::GHOST].iter().position(|&c| c == id)
@@ -1626,6 +1810,10 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
             Some((ln, s)) => parse_al_turn(s).map_err(|e| format!("line {ln}: {e}"))?,
             None => AlTurn::default(),
         },
+        plu: match &plu_turn_val {
+            Some((ln, s)) => parse_plu_turn(s).map_err(|e| format!("line {ln}: {e}"))?,
+            None => Default::default(),
+        },
     };
 
     // Player blocks.
@@ -1739,6 +1927,24 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 "farmhands" => ps.farm_cards = parse_small_multiset::<FARM_CAP>(val, "farmhands").map_err(|e| format!("line {ln2}: {e}"))?,
                 "summoned" => ps.summon_cards = parse_small_multiset::<SUMMON_CAP>(val, "summoned").map_err(|e| format!("line {ln2}: {e}"))?,
                 "church" => ps.church = parse_church(val).map_err(|e| format!("line {ln2}: {e}"))?,
+                "plunder aside" => parse_plu_aside(val, &mut ps.plu).map_err(|e| format!("line {ln2}: {e}"))?,
+                "waiting" => parse_plu_waiting(val, &mut ps.plu).map_err(|e| format!("line {ln2}: {e}"))?,
+                "plunder" => {
+                    for part in val.split(';') {
+                        let part = part.trim();
+                        if part.is_empty() {
+                            continue;
+                        }
+                        let (k, v) = part.rsplit_once(' ').ok_or_else(|| format!("line {ln2}: malformed plunder entry '{part}'"))?;
+                        let v: u8 = v.parse().map_err(|_| format!("line {ln2}: invalid number in '{part}'"))?;
+                        match k {
+                            "holders" => ps.plu.holders = v,
+                            "qm" => ps.plu.qm = v,
+                            "frigate" => ps.plu.frigate = v,
+                            other => return Err(format!("line {ln2}: unknown plunder field '{other}'")),
+                        }
+                    }
+                }
                 "cleanup aside" => ps.cleanup_aside = parse_small_multiset::<2>(val, "cleanup aside").map_err(|e| format!("line {ln2}: {e}"))?,
                 "durations" => {
                     let list = parse_pending_durations(val).map_err(|e| format!("line {ln2}: {e}"))?;
@@ -1846,6 +2052,11 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 
     // Renaissance: which Projects some player owns decides which hooks are live.
     state.ren_update_hooks();
+    // Plunder: what is live follows the waiting Durations and the turn's bookkeeping just read.
+    if state.plu.flags != 0 {
+        state.plu.empty_seen = state.empty_piles().min(255) as u8;
+        state.plu_refresh();
+    }
     // Shelters were in the starting decks if any player holds one anywhere.
     state.shelters = state.players.iter().any(|ps| {
         let all = ps.all_cards();

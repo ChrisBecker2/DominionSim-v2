@@ -40,32 +40,32 @@ pub mod ids {
     pub const TREASURER: CardId = 405;
     pub const VILLAIN: CardId = 406;
     // The Projects (after the Landmarks).
-    pub const CATHEDRAL: CardId = 632;
-    pub const CITY_GATE: CardId = 633;
-    pub const PAGEANT: CardId = 634;
-    pub const SEWERS: CardId = 635;
-    pub const STAR_CHART: CardId = 636;
-    pub const EXPLORATION: CardId = 637;
-    pub const FAIR: CardId = 638;
-    pub const SILOS: CardId = 639;
-    pub const SINISTER_PLOT: CardId = 640;
-    pub const ACADEMY: CardId = 641;
-    pub const CAPITALISM: CardId = 642;
-    pub const FLEET: CardId = 643;
-    pub const GUILDHALL: CardId = 644;
-    pub const PIAZZA: CardId = 645;
-    pub const ROAD_NETWORK: CardId = 646;
-    pub const BARRACKS: CardId = 647;
-    pub const CROP_ROTATION: CardId = 648;
-    pub const INNOVATION: CardId = 649;
-    pub const CANAL: CardId = 650;
-    pub const CITADEL: CardId = 651;
+    pub const CATHEDRAL: CardId = 702;
+    pub const CITY_GATE: CardId = 703;
+    pub const PAGEANT: CardId = 704;
+    pub const SEWERS: CardId = 705;
+    pub const STAR_CHART: CardId = 706;
+    pub const EXPLORATION: CardId = 707;
+    pub const FAIR: CardId = 708;
+    pub const SILOS: CardId = 709;
+    pub const SINISTER_PLOT: CardId = 710;
+    pub const ACADEMY: CardId = 711;
+    pub const CAPITALISM: CardId = 712;
+    pub const FLEET: CardId = 713;
+    pub const GUILDHALL: CardId = 714;
+    pub const PIAZZA: CardId = 715;
+    pub const ROAD_NETWORK: CardId = 716;
+    pub const BARRACKS: CardId = 717;
+    pub const CROP_ROTATION: CardId = 718;
+    pub const INNOVATION: CardId = 719;
+    pub const CANAL: CardId = 720;
+    pub const CITADEL: CardId = 721;
     // The Artifacts, the highest ids.
-    pub const FLAG: CardId = 652;
-    pub const HORN: CardId = 653;
-    pub const KEY: CardId = 654;
-    pub const LANTERN: CardId = 655;
-    pub const TREASURE_CHEST: CardId = 656;
+    pub const FLAG: CardId = 722;
+    pub const HORN: CardId = 723;
+    pub const KEY: CardId = 724;
+    pub const LANTERN: CardId = 725;
+    pub const TREASURE_CHEST: CardId = 726;
 }
 
 /// A Project: no types, no bonuses (what it does is looked up where it applies); its cost is the cost to buy it.

@@ -1001,13 +1001,19 @@ fn highwayman_stops_the_first_treasure_each_other_player_plays_until_its_next_tu
         // Player 1's turn: the Treasures are played at the start of the Buy phase.
         reset_turn(&mut g, 1);
         set_hand(&mut g, 1, &[I::SILVER, I::SILVER, I::GOLD]);
-        let d = expect_decision(&mut g);
+        // Under the Attack the first Treasure played does nothing, so the Treasures are played by choice: the Silver first.
+        let mut d = expect_decision(&mut g);
+        if highwayman {
+            assert_eq!(d.kind, DecisionKind::PlayTreasure, "{d:?}");
+            choose(&mut g, Choice::Card(I::SILVER));
+            d = expect_decision(&mut g);
+        }
         assert_eq!(d.kind, DecisionKind::Buy);
         g.turn.coins
     };
     assert_eq!(coins_of_player_1(false), 7);
     let c = coins_of_player_1(true);
-    assert!(c == 4 || c == 5, "the first Treasure played does nothing: {c}");
+    assert_eq!(c, 5, "the first Treasure played (a Silver) does nothing: the other Silver and the Gold give $2 and $3");
 }
 
 #[test]

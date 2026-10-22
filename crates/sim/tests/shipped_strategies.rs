@@ -172,3 +172,15 @@ fn cardinal_bm_beats_big_money_ultimate() {
     // The Cardinal (Menagerie): a Militia-like Attack that Exiles the better of two cards from the deck (~54%).
     beats_big_money_ultimate("cardinal_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Cardinal", 3000, 0.51);
 }
+
+#[test]
+fn barbarian_bm_beats_big_money_ultimate() {
+    // Allies: a terminal +$2 whose Attack turns the opponent's good top cards into worse ones and cheap ones into Curses (~88%).
+    beats_big_money_ultimate("barbarian_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Barbarian", 2000, 0.8);
+}
+
+#[test]
+fn guildmaster_bm_beats_big_money_ultimate() {
+    // Allies: a terminal +$3 that pays Favors for the cards gained after it (~78%; the Ally of the game is chosen from the seed).
+    beats_big_money_ultimate("guildmaster_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Guildmaster", 2000, 0.7);
+}

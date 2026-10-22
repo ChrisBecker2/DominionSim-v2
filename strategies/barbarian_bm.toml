@@ -1,0 +1,27 @@
+# Barbarian Big Money -- Big Money with up to two Barbarians (Allies). Barbarian is a terminal +$2 whose Attack trashes the top card of each other
+# player's deck: a card costing $3 or more is replaced by a cheaper card that shares a type with it (a Gold by a Silver, a Province by a Duchy),
+# and a cheap card is replaced by a Curse. Played every turn it can be, there is nothing to decide.
+
+name = "Barbarian-BM"
+description = "Big Money with up to two Barbarians: +$2 and an Attack that turns the opponent's good top cards into worse ones and the cheap ones into Curses."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Barbarian"
+if = "count(Barbarian) < 2"
+
+[[gain]]
+card = "Silver"

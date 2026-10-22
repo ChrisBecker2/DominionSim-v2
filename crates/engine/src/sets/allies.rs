@@ -588,8 +588,25 @@ fn initial_order() -> PileOrder {
 
 /// Allies set-up: the Ally and the Favors (1 each, 5 with Importer), the split piles' other cards and their order, which effects are live.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
-    let ally = cfg.kingdom.iter().copied().find(|&k| cards::is_ally(k)).unwrap_or(0);
+    // Games without a card of the set (all but a few) stop here: the state is as `new` made it.
+    let mut ally = 0;
+    let mut any = false;
+    for &k in &cfg.kingdom {
+        if cards::is_ally(k) {
+            ally = k;
+            any = true;
+        } else if (ids::BAUBLE..=cards::LAST_KINGDOM).contains(&k) {
+            any = true;
+        }
+    }
+    if !any {
+        return;
+    }
     let liaison = cfg.kingdom.iter().any(|&k| cards::is(k, LIAISON));
+    // A game with a Liaison has exactly one Ally: the kingdom's if it lists one, else one chosen from the seed.
+    if ally == 0 && liaison {
+        ally = cards::FIRST_ALLY + (cfg.seed % cards::NUM_ALLIES as u64) as CardId;
+    }
     g.al.ally = ally;
     let mut flags = ally_flags(ally);
     for i in 0..AL_PILES {
@@ -955,6 +972,21 @@ impl GameState {
             let owner = &self.players[a as usize];
             a != p && count(&owner.al) > 0 && owner.shielded & (1 << p) == 0
         })
+    }
+
+    /// `Some(answer)` to "does the order the hand's Treasures are played in matter?" when a Voyage turn or a Highwayman's Attack decides it, `None` when they do not.
+    #[inline(never)]
+    pub(crate) fn al_treasures_by_choice(&self) -> Option<bool> {
+        let p = self.turn.player;
+        let hand = &self.players[p as usize].hand;
+        if self.al.hook & AH_LIMIT != 0 {
+            return Some(self.turn.al.hand_plays < VOYAGE_PLAYS && hand.iter().any(|(c, _)| self.is_treasure(c)));
+        }
+        // The first Treasure played is wasted: the player picks which.
+        if !self.turn.al.t1 && self.al_hit_by(p, |a| a.hw) && hand.iter().any(|(c, _)| self.is_treasure(c)) {
+            return Some(true);
+        }
+        None
     }
 
     /// Highwayman: the Treasure `p` is playing is the first of the turn, and a Highwayman's Attack is on against them: it does nothing. (Also remembers that the first

@@ -3064,6 +3064,10 @@ pub struct GameState {
     pub men: MenState,
     /// Allies: the Ally, the order of the split piles, Family of Inventors' tokens, `AF_*` flags and `AH_*` hooks.
     pub al: AlState,
+    /// Layout tuning, nothing more: with every thread of a 16-core / 32-thread machine busy, where the hot fields of two games that share a core fall in the L1 data
+    /// cache decides the speed of the whole benchmark (up to 10%: see "Learned with Allies" in `docs/adding-a-set.md`). These bytes keep the Allies fields from moving the turn and the
+    /// players to a bad spot; if a new field costs speed again, try other sizes here before looking for a leak.
+    pub _pad: [u8; 128],
     /// The Traveller upgrade piles outside the Supply (`cards::FIRST_TRAV + i`: Treasure Hunter, Warrior, Hero, Champion, Soldier, Fugitive,
     /// Disciple, Teacher), five each when the line's first card (Page, Peasant) is in the kingdom.
     pub trav: [u8; cards::NUM_TRAV],
@@ -3222,6 +3226,7 @@ impl GameState {
             ren: RenState::default(),
             men: MenState::default(),
             al: AlState::default(),
+            _pad: [0; 128],
             trav: crate::sets::adventures::traveller_piles(&in_supply),
             adv: 0,
             shelters: da.shelters,

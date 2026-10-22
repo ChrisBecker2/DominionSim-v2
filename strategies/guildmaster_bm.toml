@@ -1,0 +1,26 @@
+# Guildmaster Big Money -- Big Money with up to two Guildmasters (Allies). Guildmaster is a terminal +$3 (a Gold that costs an Action) that also gives a Favor
+# for every card gained after it this turn; the Favors go to the Ally of the game, which the bot uses by its defaults.
+
+name = "Guildmaster-BM"
+description = "Big Money with up to two Guildmasters: a terminal +$3 that pays Favors for what is bought after it."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Guildmaster"
+if = "count(Guildmaster) < 2"
+
+[[gain]]
+card = "Silver"

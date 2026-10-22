@@ -149,8 +149,8 @@ row, split piles showing the top card and the cards left in the pile, log lines 
 
 Everything of the set is implemented: the 25 single piles, the 6 split piles with rotation, the 23 Allies, Favors and the Liaisons. What is approximated or decided:
 
-* **One Ally per game, chosen from the seed.** A kingdom with a Liaison and no Ally gets one from the game's seed (`cards::add_random_ally` for random kingdoms, set-up for a listed
-  kingdom); a kingdom that lists an Ally with no Liaison plays it (the Favors are still dealt out). A kingdom without either has no Favors.
+* **One Ally per game, chosen from the seed.** A kingdom with a Liaison and no Ally gets one from the game's seed (`cards::add_random_ally` for random kingdoms, `allies::setup`
+  for a listed kingdom: `FIRST_ALLY + seed % 23`); a kingdom that lists an Ally with no Liaison plays it (the Favors are still dealt out). A kingdom without either has no Favors.
 * **Battle Plan** offers only the piles that rotating changes (a split pile with different cards under its top run): rotating any other pile is a no-op in the rules too.
 * **"Gain an Augur" (Acolyte)** takes the top card of the Augurs only, as only the top of a pile can be gained.
 * **Royal Galley** follows the 2026 text ("don't set the played card aside"): the card stays in play and is played again next turn if it still is.
@@ -163,6 +163,11 @@ Everything of the set is implemented: the 25 single piles, the 6 split piles wit
 
 ## 8. Measurements
 
-* `GameState` 26,300 -> 27,104 bytes, `PlayerState` 3,648 bytes, a 2-player copy (`dup`) 12,512 bytes (`tests/state_size.rs` bounds 27,200 / 3,700 / 12,600); `Counts` 480 -> 512 bytes.
-* `dominion-sim match big_money_ultimate double_witch --games 200000`, best of 5, built in one folder, builds interleaved: before 282.8k games/s, widening only (`LANES` 512, ids moved) 273.2k,
-  with Allies 279.9k (the widening is the cost; Allies itself costs about 1% beyond it, within the noise of code layout). Same-seed output of non-Allies games is byte-identical to the build before.
+* `GameState` about 26,300 -> 27,232 bytes (of which 128 are `_pad`, see below), `PlayerState` 3,648 bytes, a 2-player copy (`dup`) 12,640 bytes (`tests/state_size.rs` bounds 27,300 / 3,700 / 12,700);
+  `Counts` 480 -> 512 bytes.
+* Speed, `dominion-sim match big_money_ultimate double_witch --games 1000000`, ALL threads (16 cores, 32 threads), 10 rounds interleaved: the build before 1.34M games/s (mean), `LANES` 512 only 1.36M,
+  with Allies 1.32M mean / 1.36M best (-1.2% best, -2.7% mean against `LANES` 512). With 4 threads, or with one thread per core, there is no difference at all.
+* **The leak was the layout, not the code.** With the Allies fields in place the all-threads run lost 7-12% while one thread per core lost nothing: two games on the two hyperthreads of a core share the
+  L1 data cache, and where the hot fields (`turn`, the seats' hands) fall decides the speed. Adding `_pad` bytes after `GameState::al` moves them: 0 bytes -13%, 32 -7%, 64 -4%, 96 -5%, **128 -1%**,
+  160 -6%, 192 -8%, 224 -9%, 288 -3% (best of 6 rounds each, against `LANES` 512). The Highwayman test in `play_all_choice_free_treasures` and the Voyage limit were moved out of the hot loop as well (a Highwayman's Attack makes
+  `treasure_order_matters` true until the first Treasure is played, which is also the right rule: the player picks which one is wasted). Same-seed outputs are identical to the build before.

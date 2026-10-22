@@ -215,6 +215,8 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * **The 512-lane limit**: ids must stay below `LANES - 4`; the bitmap of `Counts` is a `u16` of 16 blocks, so this widening was the last one without the `u32` step.
 * **Tests of forced picks**: a Select with one candidate (or only one canonical continuation: picks are non-decreasing in id) is applied at once; assert the state, and give a hand different cards.
 * **Bot-driven tests are slow with many cards that make choices** (the turn search): few games, few cards in the gain list.
+* **Measure with every thread**: a 4-thread benchmark hid a 7-12% loss that only showed with all 32 hyperthreads busy (two games share a core's L1 data cache). `GameState::_pad` after the
+  Allies fields is a layout tuning; when a new set loses speed with no hot code to blame, scan its size (`profile` with `tools/winprof` at the same thread count, and compare 1 thread per core against all).
 * **Check line endings with `python`, not `grep -c $''`** (the second reports 0 on a CRLF file in this shell).
 
 ## 9. Learned with Menagerie

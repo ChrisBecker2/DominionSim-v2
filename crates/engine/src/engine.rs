@@ -1028,6 +1028,10 @@ impl GameState {
         if self.treasure_order_matters() || self.alms_window() {
             return true;
         }
+        // Allies: a Voyage turn whose plays are used up plays no more Treasures.
+        if self.al.hook & crate::state::AH_LIMIT != 0 {
+            return false;
+        }
         self.play_all_choice_free_treasures(sink);
         false
     }
@@ -1036,9 +1040,12 @@ impl GameState {
     /// Treasure with a choice is in the hand, or a Sauna makes the Silvers' order matter.
     fn treasure_order_matters(&self) -> bool {
         let hand = &self.players[self.turn.player as usize].hand;
-        // Allies: a Voyage turn plays 3 cards from the hand in all, so the Treasures are chosen one by one until they are used up.
-        if self.al.hook & crate::state::AH_LIMIT != 0 {
-            return self.turn.al.hand_plays < crate::state::VOYAGE_PLAYS && hand.iter().any(|(c, _)| self.is_treasure(c));
+        // Allies: a Voyage turn plays 3 cards from the hand in all, so the Treasures are chosen one by one until they are used up; under a Highwayman's Attack the
+        // first Treasure played does nothing, so which one it is matters.
+        if self.al.hook & (crate::state::AH_LIMIT | crate::state::AH_HW) != 0 {
+            if let Some(r) = self.al_treasures_by_choice() {
+                return r;
+            }
         }
         if hand.iter().any(|(c, _)| self.is_treasure(c) && (self.ask_treasures || !self.plain_treasure(c))) {
             return true;
@@ -1057,10 +1064,6 @@ impl GameState {
 
     /// Play every choice-free Treasure in the current player's hand.
     fn play_all_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) {
-        // Allies: a Voyage turn plays its Treasures one at a time, by choice (`treasure_order_matters`); none is played for the player.
-        if self.al.hook & crate::state::AH_LIMIT != 0 {
-            return;
-        }
         let p = self.turn.player;
         let hand = self.players[p as usize].hand;
         // Copper, Silver and Gold are played by a short path unless a card of this game acts on their plays: Envious (Silver and Gold make $1),
@@ -1068,8 +1071,7 @@ impl GameState {
         let plain = !self.turn.noc.envy
             && self.turn.adv.sauna == 0
             && !self.in_supply(id::CORSAIR)
-            && self.turn.men.kiln == 0
-            && self.al.flags & crate::state::AF_HW == 0;
+            && self.turn.men.kiln == 0;
         for (c, n) in hand.iter() {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);

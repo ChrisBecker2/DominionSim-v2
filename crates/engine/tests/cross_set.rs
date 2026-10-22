@@ -326,3 +326,62 @@ fn scheme_putting_a_traveller_on_the_deck_stops_its_exchange() {
     assert!(topdecked);
     assert_eq!(g.trav[0], hunters, "no Treasure Hunter was taken");
 }
+
+
+// ===========================================================================
+// Allies with the other sets
+// ===========================================================================
+
+#[test]
+fn workshop_gains_only_the_top_card_of_a_split_pile_and_a_rotation_changes_it() {
+    let offered = |rotate: bool| {
+        let mut g = new_state(&[id::WORKSHOP, id::TOWN_CRIER], 2);
+        if rotate {
+            g.al_rotate_for(0, id::TOWN_CRIER, id::TOWN_CRIER, &mut NoEvents);
+        }
+        set_hand(&mut g, 0, &[id::WORKSHOP]);
+        play(&mut g, id::WORKSHOP);
+        let d = expect_decision(&mut g);
+        assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, .. }), "{d:?}");
+        choices(&g).into_iter().filter_map(|c| if let Choice::Card(c) = c { Some(c) } else { None }).collect::<Vec<_>>()
+    };
+    let before = offered(false);
+    assert!(before.contains(&id::TOWN_CRIER) && !before.contains(&id::BLACKSMITH) && !before.contains(&id::MILLER), "{before:?}");
+    let after = offered(true);
+    assert!(!after.contains(&id::TOWN_CRIER) && after.contains(&id::BLACKSMITH) && !after.contains(&id::MILLER), "{after:?}");
+}
+
+#[test]
+fn a_villager_buys_the_action_for_a_second_allies_card() {
+    let mut g = new_state(&[id::TOWN, id::PLATEAU_SHEPHERDS], 2);
+    g.players[0].ren.villagers = 1;
+    set_hand(&mut g, 0, &[id::TOWN, id::TOWN]);
+    play(&mut g, id::TOWN);
+    choose(&mut g, Choice::Mode(1)); // +1 Buy, +$2
+    // Out of Actions with a Town in hand: a Villager or end the phase.
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayAction);
+    assert_eq!(choices(&g), vec![Choice::Villager, Choice::Pass]);
+    choose(&mut g, Choice::Villager);
+    play(&mut g, id::TOWN);
+    choose(&mut g, Choice::Mode(1));
+    adv(&mut g);
+    assert_eq!((g.turn.buys, g.turn.coins), (3, 4));
+}
+
+#[test]
+fn coffers_pay_for_a_card_made_cheaper_by_family_of_inventors() {
+    let mut g = new_state(&[id::SMITHY, id::FAMILY_OF_INVENTORS], 2);
+    g.al.fam.add(id::SMITHY, 1);
+    assert_eq!(g.cost(id::SMITHY), 3);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 2;
+    g.players[0].coffers = 1;
+    expect_decision(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(id::SMITHY)));
+    choose(&mut g, Choice::Coffers);
+    assert!(choices(&g).contains(&Choice::Card(id::SMITHY)));
+    choose(&mut g, Choice::Card(id::SMITHY));
+    // (The turn ended with the only Buy.)
+    assert_eq!(g.supply.get(id::SMITHY), 9);
+}

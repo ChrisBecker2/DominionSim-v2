@@ -51,7 +51,7 @@ Menagerie (`docs/menagerie-plan.md`) keeps each player's Exile mat (a `SmallMult
 Allies (`docs/allies-plan.md`) keeps each player's Favors, Coastal Haven's kept cards, Lich skips and lingering Attacks in `PlayerState::al`, the Ally, which effects are live (`flags` / `hook`),
 the order of the six *split piles that rotate* (a `u32` of 2-bit indices per pile: all four cards of a pile are in the Supply, the order says which one is on top and `pile_open` is true for
 that one only) and Family of Inventors' tokens in `GameState::al`, and the per-turn "this turn, when you gain" effects in `TurnState::al`; it hashes as nothing while all zero. The Allies are
-pseudo-cards (never in a zone); spending Favors is an `Ask` / `YesNo` frame whose source is the Ally, decided by a stated `[[favor]]` rule or `SetDefaults::favor_use`. `Counts` has 512 lanes (the
+pseudo-cards (never in a zone); spending Favors is an `Ask` / `YesNo` frame whose source is the Ally, decided by a stated `[[favor]]` rule or `SetDefaults::favor_use`. `GameState::_pad` is layout tuning for all-thread speed (see `docs/allies-plan.md` section 8). `Counts` has 512 lanes (the
 `u16` block bitmap is full: the next set needs the `u32` step of `docs/card-id-capacity.md`).
 
 Dark Ages adds two generic mechanisms (details in `docs/dark-ages-plan.md`): *mixed piles* (the Knights and the Ruins:

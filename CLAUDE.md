@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes), Menagerie (Exile mat, the Horse pile, Ways), Allies (Favors, Allies, Liaisons, split piles that rotate) and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes), Menagerie (Exile mat, the Horse pile, Ways), Allies (Favors, Allies, Liaisons, split piles that rotate), Plunder (Loot pile outside the Supply, Traits on piles, "next time" Durations) and a few
 promos (Prince, Walled Village, Envoy, Captain, Sauna/Avanto, Governor, Dismantle, Church, Marchland, the Event Summon; all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**
@@ -45,6 +45,8 @@ A new card: its id in the set's `ids` and its line in `CARDS` (ids are dense; th
 `play` arm, then whichever other `SetRules` methods it needs, then tests in the set's test file.
 
 Renaissance (`docs/renaissance-plan.md`) keeps per-player Villagers / Project cubes / Cargo Ship and Research cards in `PlayerState::ren`, the game's Projects, Artifact holders and Sinister Plot tokens in `GameState::ren`, and hashes all of it as nothing while it is all zero (so non-Renaissance games hash and play exactly as before). Projects are bought like Events (`is_bought_pseudo`); start-of-turn Projects run as `PendingDuration` entries.
+
+Plunder (`docs/plunder-plan.md`) keeps its state in `PluState` (game), `PluPlayer` (cards set aside under zone codes, "next time" Durations waiting) and `PluTurn`; the 30 Loot cards are a pile in `supply` lanes outside `in_supply`, drawn by the game RNG or as a `Step::Chance` of the pseudo player `LOOT_CHANCE`; a Trait sits on one pile (`PluState::trait_pile`). `PluState::flags` (fixed at set-up) and `live` (kept up to date) gate every hook, so other games pay one byte test. All of it hashes as nothing while zero.
 
 Menagerie (`docs/menagerie-plan.md`) keeps each player's Exile mat (a `SmallMultiset`; its cards count as theirs for scoring and for every "cards you own" count), Invest's copies, the cards set aside by Delay / Reap / Way of the Turtle and Gatekeeper counts in `PlayerState::men`, and the Ways, Way of the Mouse's card and the live-effect hooks (`H_EXILE`, `H_INVEST`, `H_GATE`, `H_COST`) in `GameState::men`; it hashes as nothing while all zero. The Horse pile is outside the Supply (its count sits in the `supply` lane, not in `in_supply`). A game with a Way pays one byte test per Action played: the Way choice is a `PrePlay` frame (`DecisionKind::Way`) pushed only then, and bots decide it with a stated `[[way]]` rule or `SetDefaults::way_choice`.
 

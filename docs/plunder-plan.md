@@ -177,7 +177,30 @@ the Lab (`ALL_SETS`), `build-web.ps1`.
 
 ## 8. Measurements
 
-(filled in at the end)
+`dominion-sim match strategies/big_money_ultimate.toml strategies/double_witch.toml --games 400000 --seed 1`, every thread of the machine busy, the builds compiled in the same
+folder and run interleaved (3-4 rounds each, mean games/sec; `_pad` 128):
+
+| build | games/sec | vs master |
+|---|---|---|
+| master (1526d31) | 1.36 M | 0 |
+| stage 1, capacity only (51a9a88) | 1.34 M | -1.6% |
+| Plunder (this branch) | 1.29-1.30 M | -4.8% .. -5.8% |
+
+One thread (`RAYON_NUM_THREADS=1`): master 72.6 k/s, stage 1 +1.2%, Plunder -1.0%. So Plunder costs about 3% on top of the widening with all threads busy, more than the 1% aimed for.
+What was tried to find it, none of which helped:
+
+* `_pad` from 0 to 320 in steps of 32 (every value is slower than master by 5-9%; the layout noise between pads is larger than any effect we look for), and a hash-neutral pad
+  at the end of `PlayerState` (the stride of the seats), 16..1024 bytes. A `PlayerState` of exactly 4096 bytes (caps 12 / 4 of the waiting and set-aside sets) is a stride that
+  aliases in the L1 cache and is 2% slower again; the shipped caps (24 / 8) give 4160.
+* Smaller `PluPlayer` (caps 4/2, 16/6, 20/6, 12/4): not faster, so the footprint is not the cost.
+* Compiling every `plu.live` / `plu.flags` test out of the engine, the play, gain, Clean-up and shuffle paths: +1.8%, within noise.
+* `#[cold]` / `#[inline(never)]` on the hooks and one flag test in front of `turn_start_entries`: no change.
+* A sampling profile of one thread (`tools/winprof`, 3 x 1.5 M games) shows no function that Plunder added: `advance`, `legal_choices`, `match_gain_list`, `cleanup` and `new` all grow a
+  little, which looks like code layout, not work. Left open.
+
+The same-seed outputs of four `match` runs (2-player and 3-player, plain and search bots, Base to Rising Sun cards) are byte-identical to master (`bench/same.sh`).
+
+State sizes: `GameState` 30,624 bytes (was 29,7xx), `PlayerState` 4,160, `TurnState` 1,344, `Frame` 48, `Counts` 576.
 
 ## 9. Approximated or left out
 

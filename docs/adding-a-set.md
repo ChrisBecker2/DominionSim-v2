@@ -229,3 +229,13 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * A random-pool test (`obvious_play.rs`) with a new set: give the set its own pool and seed, so the older pools keep their draws; a card that counts as a Treasure and an Action card for the marks may need leaving out of the pool.
 * Every `Reaction` that fires on a discard needs `G_DISCARD_HOOK` set in the set's set-up and a line in `discard_hook` / `discard_hook_counts` / `discard_reaction` (Village Green was missing there until a test played it).
 
+## 11. Learned with Plunder
+
+* A card is choice-free only if the search agrees: `crates/sim/tests/obvious_play.rs` has a pool per set, and seven Plunder cards that looked choice-free were not (Flagship replays "the
+  next Action", so which one it hits depends on the order; Taskmaster, Harbor Village, Landing Party, Mining Road, Cabin Boy have a bonus tied to a later gain or play; Swamp Shacks
+  reads the cards in play and gives +Actions). When in doubt mark `has_choice`: the cost is a search for the bot, not a wrong play.
+* "Next time" Durations (Cage, Search, Flagship...) are a generic waiting list (`PluPlayer::wait`) with the card kept in `stays`: add one by giving it an entry kind, not a new field.
+* A hash-neutral zone for cards set aside under several names is one small multiset keyed by `card | zone << 10` (`PluPlayer::z`); a new set-aside place is a new zone code.
+* Benchmark with every thread busy and the builds compiled in one folder; a `PlayerState` whose size is a multiple of 4096 is slower (L1 aliasing between seats). Tuning `_pad` found
+  nothing for Plunder: see `docs/plunder-plan.md` section 8.
+* Traits (an effect tied to a pile) need a per-game record of the pile (`PluState::trait_pile`) and one mask test in the hook; `GameConfig::trait_piles` names them for tests.

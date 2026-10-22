@@ -199,3 +199,11 @@ Resuming the chain inside the discard pile for the children of a Buy was tried a
 
 Tried and left alone: a hash cache with more entries (8 entries: 47% hits instead of 41% in the engine games), fat LTO (no gain on the analysis benchmark or the league run). Left for later, in the order of value: resuming the chain inside the discard pile for the children of a Buy (they differ in one lane: saves about a third of a `Counts` per node),
 caching the root's `all_cards` and the opponents' Curse counts across the leaves of one search (`GainListEvaluator::leaf_value` rebuilds them for each leaf; roughly 5-8% of the bots' search time is `all_cards`/`add_all`), and the cost of `legal_choices` for the Buy phase (13% of the plain bots).
+
+## 12. Plunder: the second widening
+
+Plunder added 40 kingdom piles (487..=526), 15 Loot cards (527..=541) and moved the Ruins and Knights up by 55: `NUM_ZONE_IDS` 503 -> 558, `NUM_CARDS` 701 -> 786 (the 15 Events and
+the 15 Traits are pseudo-cards above the zone ids), `Counts::LANES` 512 -> 576 (18 blocks, a `u32` bitmap, ids below 570), a fifth `SupplyMask` word (`ext2`), the Events as a
+128-bit set (`state::EvMask`, hashing as the old `u64`). Tests that pin the layout: `crates/engine/tests/capacity.rs`. The widening alone (stage 1) measured -1.6% on the match
+benchmark with all threads busy; the numbers for the cards are in `docs/plunder-plan.md` section 8. The next set that needs more than 570 ids has to grow the lane count again (a
+`u64` bitmap of 64 blocks is the next step) and the supply masks with it.

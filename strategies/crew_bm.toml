@@ -1,0 +1,26 @@
+# Crew Big Money -- Big Money with up to two Crews (Plunder). Crew is a terminal +3 Cards that goes back onto the deck at the start of the next turn, so it is drawn again at once:
+# a Smithy that never gets lost in the shuffle.
+
+name = "Crew-BM"
+description = "Big Money with up to two Crews: a terminal +3 Cards that returns to the top of the deck."
+
+[[gain]]
+card = "Province"
+
+[[gain]]
+card = "Duchy"
+if = "provinces_left <= 4"
+
+[[gain]]
+card = "Estate"
+if = "provinces_left <= 2"
+
+[[gain]]
+card = "Gold"
+
+[[gain]]
+card = "Crew"
+if = "count(Crew) < 2"
+
+[[gain]]
+card = "Silver"

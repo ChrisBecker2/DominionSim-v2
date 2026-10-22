@@ -184,3 +184,9 @@ fn guildmaster_bm_beats_big_money_ultimate() {
     // Allies: a terminal +$3 that pays Favors for the cards gained after it (~78%; the Ally of the game is chosen from the seed).
     beats_big_money_ultimate("guildmaster_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Guildmaster", 2000, 0.7);
 }
+
+#[test]
+fn crew_bm_beats_big_money_ultimate() {
+    // Plunder: a terminal +3 Cards that goes back onto the deck at the start of the next turn (~65%).
+    beats_big_money_ultimate("crew_bm.toml", "Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Workshop,Bandit,Crew", 2000, 0.58);
+}

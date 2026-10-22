@@ -674,6 +674,16 @@ impl Strategy {
         self.win_this_turn && Self::game_could_end_soon(view)
     }
 
+    /// The Buy decision from a test on a card, when the state is a plain Buy phase (`GameState::buy_avail`): what `decide` returns for the list of the cards
+    /// `avail` has and Pass, without building it. There the only rule that can speak before the gain list is the lookahead of `win_this_turn` (the searched
+    /// decisions of `decide` all need a Debt payment, a Coffers token or an Event among the choices): `None` when it applies.
+    pub fn decide_buy(&self, view: &PlayerView, avail: &dominion_engine::BuyAvail) -> Option<Choice> {
+        if self.win_this_turn && Self::game_could_end_soon(view) {
+            return None;
+        }
+        Some(self.match_gain_list(view, avail).map(Choice::Card).unwrap_or(Choice::Pass))
+    }
+
     /// `decide` without the `win_this_turn` lookahead: the rules only.
     pub fn decide_by_rules(&self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         match decision.kind {
@@ -1133,9 +1143,9 @@ impl Strategy {
 
     /// First entry in the gain list that's a legal choice and whose condition holds, skipping the gains the don't-lose guard (`Strategy::guard`)
     /// advises against. The guard's cheap precheck (`guard_may_apply`) is the only extra work in the common case.
-    fn match_gain_list(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    fn match_gain_list<C: Offered + ?Sized>(&self, view: &PlayerView, choices: &C) -> Option<CardId> {
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
+            if choices.offers(*card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
                 if self.guard_game_end && Self::guard_may_apply(view, *card) {
                     return self.match_gain_list_guarded(view, choices);
                 }
@@ -1148,12 +1158,12 @@ impl Strategy {
     /// `match_gain_list` when the entry it reaches is one the guard may object to (the end of the game is near: rare).
     #[cold]
     #[inline(never)]
-    fn match_gain_list_guarded(&self, view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    fn match_gain_list_guarded<C: Offered + ?Sized>(&self, view: &PlayerView, choices: &C) -> Option<CardId> {
         // The second-to-last Province (or Colony) that the guard would rather not take: passed over for a Victory card that follows it in the
         // list (a Duchy), taken after all when the next card is not worth points or nothing else is wanted.
         let mut penultimate: Option<CardId> = None;
         for (card, cond) in &self.buy {
-            if has_card(choices, *card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
+            if choices.offers(*card) && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card)) && !(cards::is_event(*card) && self.useless_buy(view, *card)) {
                 match Self::guard(view, *card) {
                     Guard::Free => {
                         return match penultimate {
@@ -1207,7 +1217,7 @@ impl Strategy {
 
     /// With the last Province or Colony (`last`) losing on its own and a second buy to spend: the first card of the gain list that can be bought
     /// together with it (the $ and Buys allow both) and after which gaining `last` does not lose. Only in that rare endgame position.
-    fn gain_to_set_up_last(&self, view: &PlayerView, choices: &[Choice], last: CardId) -> Option<CardId> {
+    fn gain_to_set_up_last<C: Offered + ?Sized>(&self, view: &PlayerView, choices: &C, last: CardId) -> Option<CardId> {
         if !self.guard_game_end
             || !(last == id::PROVINCE || last == id::COLONY)
             || view.phase() != dominion_engine::Phase::Buy
@@ -1222,7 +1232,7 @@ impl Strategy {
             (*x != last
                 && !cards::is_event(*x)
                 && !cards::is_project(*x)
-                && has_card(choices, *x)
+                && choices.offers(*x)
                 && cards::debt_cost(*x) == 0
                 && !cards::potion_cost(*x)
                 && view.cost(*x) as u32 + view.cost(last) as u32 <= money
@@ -2167,6 +2177,26 @@ fn find_mode(card: CardId, choices: &[Choice], pred: impl Fn(&ModeOpt) -> bool) 
 
 fn has_card(choices: &[Choice], c: CardId) -> bool {
     choices.contains(&Choice::Card(c))
+}
+
+/// What a decision offers, asked one card at a time: its list of choices, or (for a plain Buy decision) the engine's test on a card, which saves
+/// building the list. The gain list is matched against either.
+pub(crate) trait Offered {
+    fn offers(&self, c: CardId) -> bool;
+}
+
+impl Offered for [Choice] {
+    #[inline(always)]
+    fn offers(&self, c: CardId) -> bool {
+        has_card(self, c)
+    }
+}
+
+impl Offered for dominion_engine::BuyAvail<'_> {
+    #[inline(always)]
+    fn offers(&self, c: CardId) -> bool {
+        self.has(c)
+    }
 }
 
 /// The cards eligible for a selection: its zone's cards that match the selection's filter (and at

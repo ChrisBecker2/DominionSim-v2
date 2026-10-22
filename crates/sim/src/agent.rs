@@ -1,6 +1,7 @@
 //! Wraps a compiled [`Strategy`] as a `dominion_engine::Agent`.
 
 use dominion_engine::agent::{Agent, PlayerView};
+use dominion_engine::BuyAvail;
 use dominion_engine::engine::{Choice, Decision};
 
 use crate::strategy::Strategy;
@@ -24,5 +25,9 @@ impl<'a> Agent for StrategyAgent<'a> {
     }
     fn choose(&mut self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice {
         self.strategy.decide(view, decision, choices)
+    }
+    #[inline]
+    fn choose_buy(&mut self, view: &PlayerView, avail: &BuyAvail) -> Option<Choice> {
+        self.strategy.decide_buy(view, avail)
     }
 }

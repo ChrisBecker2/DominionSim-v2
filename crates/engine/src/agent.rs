@@ -5,7 +5,7 @@ use crate::rng::Rng;
 use crate::state::KnownStack;
 use crate::counts::Counts;
 use crate::sets::dark_ages::MixedPile;
-use crate::engine::{Choice, ChoiceBuf, Decision, EventSink, Step};
+use crate::engine::{BuyAvail, Choice, ChoiceBuf, Decision, DecisionKind, EventSink, Step};
 use crate::state::{GameState, Phase, TurnState, MAX_PLAYERS};
 
 /// What player `me` legitimately knows. A perfect-memory player knows the full contents of
@@ -1020,6 +1020,12 @@ pub trait Agent: Send {
     fn name(&self) -> &str;
     /// Pick one of `choices` (never empty) for `decision`.
     fn choose(&mut self, view: &PlayerView, decision: &Decision, choices: &[Choice]) -> Choice;
+    /// The same pick for a plain Buy decision (`GameState::buy_avail`), from a test on a card instead of the list: `Some(c)` must be what `choose` would
+    /// return for the list of the cards `avail` has and Pass; `None` (the default) has `play_game` build the list and call `choose`.
+    #[inline]
+    fn choose_buy(&mut self, _view: &PlayerView, _avail: &BuyAvail) -> Option<Choice> {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1040,6 +1046,17 @@ pub fn play_game<S: EventSink>(state: &mut GameState, agents: &mut [&mut dyn Age
     loop {
         match state.advance(sink) {
             Step::Decision(d) => {
+                // A plain Buy decision: a bot that can answer from a test on a card skips building the list of every pile it could buy.
+                if d.kind == DecisionKind::Buy {
+                    let c = match state.buy_avail() {
+                        Some(avail) => agents[d.player as usize].choose_buy(&PlayerView::new(state, d.player), &avail),
+                        None => None,
+                    };
+                    if let Some(c) = c {
+                        state.apply_trusted(c, sink);
+                        continue;
+                    }
+                }
                 state.legal_choices(&mut buf);
                 let view = PlayerView::new(state, d.player);
                 let c = agents[d.player as usize].choose(&view, &d, buf.as_slice());

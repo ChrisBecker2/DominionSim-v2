@@ -244,6 +244,49 @@ impl ChoiceBuf {
     }
 }
 
+/// The cards a plain Buy decision offers (`GameState::buy_avail`), tested one at a time: what a bot that follows a priority list asks is "is this card
+/// in the list", for the first few cards of its list, where building the whole list costs a walk over every pile it could buy.
+#[derive(Clone, Copy)]
+pub struct BuyAvail<'a> {
+    g: &'a GameState,
+    afford: [u128; 5],
+    no_actions: bool,
+}
+
+const _: () = assert!(cards::NUM_ZONE_IDS <= 640, "BuyAvail::afford has five words of 128 card ids");
+
+impl BuyAvail<'_> {
+    /// Whether the Event or Project `c` is in the list (`phase_choices`: those of the game, for their cost, in a state with a Buy left).
+    #[inline(never)]
+    fn has_event_or_project(&self, c: CardId) -> bool {
+        if cards::is_event(c) {
+            self.g.events.has((c - cards::FIRST_EVENT) as u32) && crate::sets::adventures::event_buyable(self.g, c)
+        } else if cards::is_project(c) {
+            self.g.ren.projects & (1 << (c - cards::FIRST_PROJECT)) != 0 && self.g.project_buyable(c)
+        } else {
+            false
+        }
+    }
+
+    /// Whether any card is in the list (the list is then at least two choices long: the card and Pass). Looks at the affordable piles in id order and
+    /// stops at the first that can be bought, so the usual answer (Copper) costs one test.
+    #[inline]
+    pub fn offers_a_card(&self) -> bool {
+        let mut m = crate::state::SupplyCards::from_words(self.afford[0], self.afford[1], self.afford[2], self.afford[3], self.afford[4]);
+        m.any(|c| self.has(c))
+    }
+
+    /// Whether `Choice::Card(c)` is in the list of the Buy decision (the same tests as `phase_choices`).
+    #[inline]
+    pub fn has(&self, c: CardId) -> bool {
+        if c as usize >= cards::NUM_ZONE_IDS {
+            return self.has_event_or_project(c);
+        }
+        let (w, b) = (c as usize / 128, c as usize % 128);
+        self.afford[w] >> b & 1 != 0 && self.g.supply.get(c) > 0 && self.g.may_buy(c) && !(self.no_actions && cards::is(c, ACTION))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Step {
     Decision(Decision),
@@ -443,7 +486,8 @@ impl GameState {
                         target: self.decision_target(),
                     };
                     self.set_pending(Pending::Decision(d));
-                    if self.auto_single {
+                    // A plain Buy decision with a card to buy has at least two choices (the card and Pass): no list to build to know that.
+                    if self.auto_single && !(kind == DecisionKind::Buy && self.buy_avail().is_some_and(|a| a.offers_a_card())) {
                         let mut buf = ChoiceBuf::default();
                         self.legal_choices(&mut buf);
                         debug_assert!(!buf.is_empty(), "decision {:?} with no legal choices", d);
@@ -566,6 +610,71 @@ impl GameState {
         match self.stack.top() {
             Some(f) => self.frame_choices(f, out),
             None => self.phase_choices(d.kind, out),
+        }
+    }
+
+    /// The Supply piles (by card id, as the four words of a `SupplyMask`) whose printed cost the $ cover, with no Potion in the cost unless there is a Potion
+    /// to spend: the Buy list's candidates when no cost modifier is in play (a pile may still be empty, or a card barred by `may_buy`).
+    #[inline(always)]
+    fn affordable_piles(&self) -> [u128; 5] {
+        let masks = cards::buy_masks();
+        let afford = &masks.le[(self.turn.coins as usize).min(masks.le.len() - 1)];
+        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2], self.in_supply.ext & afford[3], self.in_supply.ext2 & afford[4]];
+        if self.turn.potions == 0 {
+            for (w, np) in m.iter_mut().zip(masks.no_potion) {
+                *w &= np;
+            }
+        }
+        m
+    }
+
+    /// Whether no cost modifier is in play, so a card costs its printed cost.
+    #[inline(always)]
+    fn plain_costs(&self) -> bool {
+        self.turn.cost_reduction == 0
+            && !self.in_supply(id::QUARRY)
+            && !self.in_supply(id::PEDDLER)
+            && self.adv & crate::state::G_COST_TOKEN == 0
+            && self.men.flags & crate::state::M_COST == 0
+            && self.plu.flags & crate::state::PF_COST == 0
+    }
+
+    /// The Buy decision of the current player as a test on a card, for a bot that wants one answer and not the list: `Some` when the list of
+    /// `legal_choices` would be exactly the cards `BuyAvail::has` accepts, then `Pass` (the usual Buy phase: no Debt, no Coffers, no cost modifier, a Buy
+    /// left, nothing on the effect stack; the Events and Projects of the game are tested too). `None` for every other state: use the list.
+    #[inline]
+    pub fn buy_avail(&self) -> Option<BuyAvail<'_>> {
+        let p = self.turn.player as usize;
+        if !self.stack.is_empty()
+            || self.players[p].debt > 0
+            || self.players[p].coffers > 0
+            || self.turn.adv.no_buy
+            || !self.can_buy()
+            || !self.plain_costs()
+            // Animal Fair's alternative purchase is a choice of its own.
+            || (self.in_supply(crate::sets::menagerie::ids::ANIMAL_FAIR) && self.alt_buy_possible(crate::sets::menagerie::ids::ANIMAL_FAIR))
+        {
+            return None;
+        }
+        Some(BuyAvail { g: self, afford: self.affordable_piles(), no_actions: self.turn.noc.deluded })
+    }
+
+    /// Apply a choice that is known to be legal for the pending decision (an answer of `BuyAvail`: a card it `has`, or Pass), without the list.
+    /// Checked against the list in debug builds.
+    pub fn apply_trusted<S: EventSink>(&mut self, choice: Choice, sink: &mut S) {
+        let Pending::Decision(d) = self.pending() else {
+            panic!("no decision pending");
+        };
+        #[cfg(debug_assertions)]
+        {
+            let mut buf = ChoiceBuf::default();
+            self.legal_choices(&mut buf);
+            assert!(buf.contains(choice), "apply_trusted: {choice:?} is not legal");
+        }
+        self.set_pending(Pending::None);
+        self.apply_unchecked(d.kind, choice, sink);
+        if self.turn.adv.tax_live {
+            self.settle_coin_tax();
         }
     }
 
@@ -786,24 +895,12 @@ impl GameState {
                 // A Mission turn buys no cards (Events still).
                 if !self.turn.adv.no_buy && self.can_buy() {
                     // No cost modifier in play (the usual case): the printed cost, without `cost`'s per-card checks.
-                    let plain = self.turn.cost_reduction == 0
-                        && !self.in_supply(id::QUARRY)
-                        && !self.in_supply(id::PEDDLER)
-                        && self.adv & crate::state::G_COST_TOKEN == 0
-                        && self.men.flags & crate::state::M_COST == 0
-                        && self.plu.flags & crate::state::PF_COST == 0;
+                    let plain = self.plain_costs();
                     // Nocturne: Deluded, no Action can be bought this turn.
                     let no_actions = self.turn.noc.deluded;
                     if plain {
                         // The piles whose printed cost is within the $ (and has no Potion unless there is one), by mask; those with cards left.
-                        let masks = cards::buy_masks();
-                        let afford = &masks.le[(self.turn.coins as usize).min(masks.le.len() - 1)];
-                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2], self.in_supply.ext & afford[3], self.in_supply.ext2 & afford[4]];
-                        if self.turn.potions == 0 {
-                            for (w, np) in m.iter_mut().zip(masks.no_potion) {
-                                *w &= np;
-                            }
-                        }
+                        let m = self.affordable_piles();
                         for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2], m[3], m[4]) {
                             if self.supply.get(c) > 0 && self.may_buy(c) && !(no_actions && cards::is(c, ACTION)) {
                                 out.push(Choice::Card(c));
@@ -824,7 +921,8 @@ impl GameState {
                 }
                 // Events (Adventures, Empires): bought like cards, for their cost and a Buy.
                 if !self.events.is_empty() && self.can_buy() {
-                    for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
+                    // Only the Events of this game, in id order.
+                    for e in self.events.events() {
                         if crate::sets::adventures::event_buyable(self, e) {
                             out.push(Choice::Card(e));
                         }

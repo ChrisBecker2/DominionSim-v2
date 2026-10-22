@@ -22,6 +22,6 @@ pub mod track;
 pub use agent::{play_game, Agent, GameResult, PlayerView};
 pub use cards::{id, CardId};
 pub use counts::Counts;
-pub use engine::{Choice, ChoiceBuf, Decision, DecisionKind, Event, EventSink, NoEvents, Pending, Step, Upgrade, NO_SOURCE};
+pub use engine::{BuyAvail, Choice, ChoiceBuf, Decision, DecisionKind, Event, EventSink, NoEvents, Pending, Step, Upgrade, NO_SOURCE};
 pub use state::{Act, Dest, EndReason, Filter, GameConfig, GameState, Phase, Zone};
 pub use text::{format_counts, format_state, parse_counts, parse_kingdom, parse_state};

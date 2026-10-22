@@ -120,19 +120,19 @@ const CARDS: &[(CardId, CardDef)] = &[
     (ids::SECLUDED_SHRINE, pl(choice_free(c("Secluded Shrine", 3, ACTION | DURATION, 1, 0, 0, 0, 0)))), // trashes up to 2 when a Treasure is gained
     (ids::SIREN, pl(choice_free(c("Siren", 3, ACTION | DURATION | ATTACK, 0, 0, 0, 0, 0)))), // Curses; draws to 8 next turn; trashed when gained unless an Action is trashed
     (ids::STOWAWAY, pl(choice_free(c("Stowaway", 3, ACTION | DURATION | REACTION, 0, 0, 0, 0, 0)))), // +2 Cards next turn; played when a Duration is gained
-    (ids::TASKMASTER, pl(choice_free(c("Taskmaster", 3, ACTION | DURATION, 1, 0, 0, 1, 0)))), // repeats next turn if a $5 card was gained
+    (ids::TASKMASTER, pl(has_choice(c("Taskmaster", 3, ACTION | DURATION, 1, 0, 0, 1, 0)))), // repeats next turn if a $5 card was gained
     (ids::ABUNDANCE, pl(has_choice(c("Abundance", 4, TREASURE | DURATION, 0, 0, 0, 0, 0)))), // +1 Buy +$3 when an Action is gained
-    (ids::CABIN_BOY, pl(choice_free(c("Cabin Boy", 4, ACTION | DURATION, 0, 0, 1, 1, 0)))), // next turn +$2 or trash it for a Duration
+    (ids::CABIN_BOY, pl(has_choice(c("Cabin Boy", 4, ACTION | DURATION, 0, 0, 1, 1, 0)))), // next turn +$2 or trash it for a Duration
     (ids::CRUCIBLE, pl(has_choice(c("Crucible", 4, TREASURE, 0, 0, 0, 0, 0)))), // trashes a card for $ equal to its cost
-    (ids::FLAGSHIP, pl(choice_free(c("Flagship", 4, ACTION | DURATION | COMMAND, 2, 0, 0, 0, 0)))), // replays the next non-Command Action
+    (ids::FLAGSHIP, pl(has_choice(c("Flagship", 4, ACTION | DURATION | COMMAND, 2, 0, 0, 0, 0)))), // replays the next non-Command Action
     (ids::FORTUNE_HUNTER, pl(order_sensitive(c("Fortune Hunter", 4, ACTION, 2, 0, 0, 0, 0)))), // may play a Treasure from the top 3
     (ids::GONDOLA, pl(has_choice(c("Gondola", 4, TREASURE | DURATION, 0, 0, 0, 0, 0)))), // $2 now or next turn; plays an Action when gained
-    (ids::HARBOR_VILLAGE, pl(choice_free(c("Harbor Village", 4, ACTION, 0, 0, 1, 2, 0)))), // +$1 after the next Action if it gave +$
-    (ids::LANDING_PARTY, pl(choice_free(c("Landing Party", 4, ACTION | DURATION, 0, 0, 2, 2, 0)))), // goes onto the deck when the first card of a turn is a Treasure
+    (ids::HARBOR_VILLAGE, pl(has_choice(c("Harbor Village", 4, ACTION, 0, 0, 1, 2, 0)))), // +$1 after the next Action if it gave +$
+    (ids::LANDING_PARTY, pl(has_choice(c("Landing Party", 4, ACTION | DURATION, 0, 0, 2, 2, 0)))), // goes onto the deck when the first card of a turn is a Treasure
     (ids::MAPMAKER, pl(order_sensitive(c("Mapmaker", 4, ACTION | REACTION, 0, 0, 0, 0, 0)))), // takes 2 of the top 4; played when a Victory card is gained
     (ids::MAROON, pl(order_sensitive(c("Maroon", 4, ACTION, 0, 0, 0, 0, 0)))), // trashes a card for 2 Cards per type
     (ids::ROPE, pl(choice_free(c("Rope", 4, TREASURE | DURATION, 1, 0, 0, 0, 1)))), // next turn +1 Card and a trash
-    (ids::SWAMP_SHACKS, pl(choice_free(c("Swamp Shacks", 4, ACTION, 0, 0, 0, 2, 0)))), // +1 Card per 3 cards in play
+    (ids::SWAMP_SHACKS, pl(has_choice(c("Swamp Shacks", 4, ACTION, 0, 0, 0, 2, 0)))), // +1 Card per 3 cards in play
     (ids::TOOLS, pl(has_choice(c("Tools", 4, TREASURE, 0, 0, 0, 0, 0)))), // gains a copy of a card anyone has in play
     (ids::BURIED_TREASURE, pl(choice_free(c("Buried Treasure", 5, TREASURE | DURATION, 0, 0, 0, 0, 0)))), // next turn +1 Buy +$3; played when gained
     (ids::CREW, pl(choice_free(c("Crew", 5, ACTION | DURATION, 0, 0, 3, 0, 0)))), // goes onto the deck next turn
@@ -142,7 +142,7 @@ const CARDS: &[(CardId, CardDef)] = &[
     (ids::FIRST_MATE, pl(order_sensitive(c("First Mate", 5, ACTION, 0, 0, 0, 0, 0)))), // plays copies of an Action, draws to 6
     (ids::FRIGATE, pl(choice_free(c("Frigate", 5, ACTION | DURATION | ATTACK, 3, 0, 0, 0, 0)))), // others discard to 4 after each Action they play
     (ids::LONGSHIP, pl(choice_free(c("Longship", 5, ACTION | DURATION, 0, 0, 0, 2, 0)))), // +2 Cards next turn
-    (ids::MINING_ROAD, pl(choice_free(c("Mining Road", 5, ACTION, 2, 0, 0, 1, 1)))), // may play a gained Treasure
+    (ids::MINING_ROAD, pl(has_choice(c("Mining Road", 5, ACTION, 2, 0, 0, 1, 1)))), // may play a gained Treasure
     (ids::PENDANT, pl(has_choice(c("Pendant", 5, TREASURE, 0, 0, 0, 0, 0)))), // $1 per differently named Treasure in play
     (ids::PICKAXE, pl(has_choice(c("Pickaxe", 5, TREASURE, 1, 0, 0, 0, 0)))), // trashes a card; a Loot to the hand for $3 or more
     (ids::PILGRIM, pl(order_sensitive(c("Pilgrim", 5, ACTION, 0, 0, 4, 0, 0)))), // puts a card onto the deck
@@ -1838,8 +1838,8 @@ mod tests {
         assert_eq!(
             names(cards::OnPlay::ChoiceFree),
             [
-                "Jewelled Egg", "Search", "Secluded Shrine", "Siren", "Stowaway", "Taskmaster", "Cabin Boy", "Flagship", "Harbor Village", "Landing Party", "Rope",
-                "Swamp Shacks", "Buried Treasure", "Crew", "Cutthroat", "Frigate", "Longship", "Mining Road", "Quartermaster", "Trickster", "Wealthy Village",
+                "Jewelled Egg", "Search", "Secluded Shrine", "Siren", "Stowaway", "Rope",
+                "Buried Treasure", "Crew", "Cutthroat", "Frigate", "Longship", "Quartermaster", "Trickster", "Wealthy Village",
                 "Doubloons", "Endless Chalice", "Figurehead", "Jewels", "Shield",
             ],
             "the choice-free set changed: make sure each card really gives its player no decision and doesn't touch their deck"
@@ -1851,10 +1851,7 @@ mod tests {
         );
         assert_eq!(
             names(cards::OnPlay::Choice),
-            [
-                "Cage", "Abundance", "Crucible", "Gondola", "Tools", "Figurine", "Pendant", "Pickaxe", "Silver Mine", "Sack of Loot", "King's Cache", "Amphora",
-                "Hammer", "Insignia", "Orb", "Prize Goat", "Puzzle Box", "Sextant", "Spell Scroll", "Staff", "Sword",
-            ]
+            ["Cage", "Taskmaster", "Abundance", "Cabin Boy", "Crucible", "Flagship", "Gondola", "Harbor Village", "Landing Party", "Swamp Shacks", "Tools", "Figurine", "Mining Road", "Pendant", "Pickaxe", "Silver Mine", "Sack of Loot", "King's Cache", "Amphora", "Hammer", "Insignia", "Orb", "Prize Goat", "Puzzle Box", "Sextant", "Spell Scroll", "Staff", "Sword"]
         );
         assert_eq!(CARDS.len(), 40 + 15 + 15 + 15);
     }

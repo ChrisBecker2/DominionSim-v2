@@ -273,6 +273,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
           <label class="checkbox-row"><input type="checkbox" id="set-renaissance"> Renaissance</label>
           <label class="checkbox-row"><input type="checkbox" id="set-menagerie"> Menagerie</label>
           <label class="checkbox-row"><input type="checkbox" id="set-allies"> Allies</label>
+          <label class="checkbox-row"><input type="checkbox" id="set-plunder"> Plunder</label>
         </div>
         <div class="hint">Which expansions' kingdom cards are in play. Governs the default fixed kingdom (below) and the random track's draw pool.</div>
 
@@ -482,10 +483,10 @@ function renderChips(container, cardsList, selected) {
 // Form state
 // ---------------------------------------------------------------------------------------------
 
-var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne", "Hinterlands", "Renaissance", "Menagerie", "Allies"];
+var ALL_SETS = ["Base", "Intrigue", "Seaside", "Prosperity", "Alchemy", "Promo", "Cornucopia & Guilds", "Dark Ages", "Adventures", "Empires", "Rising Sun", "Nocturne", "Hinterlands", "Renaissance", "Menagerie", "Allies", "Plunder"];
 // The checkbox id of a set: "set-" and its name's letters ("Cornucopia & Guilds" is set-cornucopiaguilds).
 function setBoxId(s) { return "set-" + s.toLowerCase().replace(/[^a-z]/g, ""); }
-// Alchemy, Promo, Cornucopia & Guilds, Dark Ages, Adventures, Empires, Rising Sun, Nocturne, Hinterlands, Renaissance, Menagerie and Allies are opt-in: the shipped strategies know nothing about Potions, Coffers, Ruins, Events, tokens, Debt, Night, Boons, Villagers, Projects, Exile, Ways or Favors.
+// Alchemy, Promo, Cornucopia & Guilds, Dark Ages, Adventures, Empires, Rising Sun, Nocturne, Hinterlands, Renaissance, Menagerie, Allies and Plunder are opt-in: the shipped strategies know nothing about Potions, Coffers, Ruins, Events, tokens, Debt, Night, Boons, Villagers, Projects, Exile, Ways or Favors.
 var DEFAULT_SETS = ["Base", "Intrigue", "Seaside", "Prosperity"];
 
 var form = {

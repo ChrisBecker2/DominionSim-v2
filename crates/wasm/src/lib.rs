@@ -1754,12 +1754,15 @@ fn card_sets_from_mask(sets_mask: u32) -> Vec<cards::CardSet> {
     if sets_mask & 32768 != 0 {
         v.push(cards::CardSet::Allies);
     }
+    if sets_mask & 65536 != 0 {
+        v.push(cards::CardSet::Plunder);
+    }
     v
 }
 
 /// The kingdom for New Game: the seats' required cards ([`seat_kingdom`]), padded to 10 with
 /// cards drawn at random from `sets_mask` (bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside,
-/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
+/// bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo, bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies, bit 16 = Plunder: the Events and Landmarks of those sets join the kingdom list after the cards), seeded from `seed` so the same seed and set selection reproduce the same
 /// kingdom. A required card outside the selected sets is kept anyway. Any Prosperity card ending
 /// up in the kingdom (drawn or required) brings Platinum and Colony into it too (the official
 /// rule; see `cards::random_kingdom_with_colonies`). Writes JSON {strategySeats, kingdom}
@@ -2900,7 +2903,54 @@ fn supply_json(state: &GameState) -> String {
     if state.has_horse_pile() {
         side(dominion_engine::sets::menagerie::ids::HORSE, state.horses_left());
     }
+    // Plunder: the Loot pile (two of each card, shuffled; not in the Supply), while the game has Loot.
+    if state.plu.flags & dominion_engine::state::PF_LOOT != 0 {
+        for c in cards::FIRST_LOOT..cards::FIRST_LOOT + cards::NUM_LOOT as CardId {
+            let n = state.supply.get(c);
+            if n > 0 {
+                side(c, n);
+            }
+        }
+    }
     format!("[{}]", items.join(","))
+}
+
+/// `[{"name":"Cheap","pile":"Village"},...]`: the Traits of the game (Plunder) and the pile each sits on.
+fn traits_json(state: &GameState) -> String {
+    let items: Vec<String> = (0..cards::NUM_TRAITS as CardId)
+        .filter_map(|i| {
+            let t = cards::FIRST_TRAIT + i;
+            state.trait_pile(t).map(|p| format!("{{\"name\":{},\"pile\":{}}}", jstr(cards::name(t)), jstr(cards::name(p))))
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// `{"waiting":[{"card":"Cage","times":1}],"aside":[{"zone":"Cage","id":..,"name":..,"count":..}]}`: a player's Plunder Durations that wait for their "next time" and the
+/// cards set aside on a Cage / Grotto / Quartermaster or for the end of the turn or Prepare.
+fn plunder_player_json(state: &GameState, p: usize) -> String {
+    use dominion_engine::state as st;
+    let pl = &state.players[p].plu;
+    let waiting: Vec<String> =
+        pl.wait[..pl.wait_len as usize].iter().map(|w| format!("{{\"card\":{},\"times\":{}}}", jstr(cards::name(w.card)), w.times)).collect();
+    let aside: Vec<String> = pl
+        .z
+        .iter()
+        .map(|(k, n)| {
+            let (code, c) = (k >> 10, k & 1023);
+            let zone = match code {
+                st::Z_CAGE => "Cage",
+                st::Z_EOT_UP => "Hand at end of turn",
+                st::Z_EOT_DOWN => "Discard at end of turn",
+                st::Z_EOT_DECK => "Deck at end of turn",
+                st::Z_PREP => "Prepare",
+                x if (st::Z_HOLDER0..st::Z_HOLDERS).contains(&x) => "Holder",
+                _ => "Set aside",
+            };
+            format!("{{\"zone\":{},\"id\":{c},\"name\":{},\"count\":{n}}}", jstr(zone), jstr(cards::name(c)))
+        })
+        .collect();
+    format!("{{\"waiting\":[{}],\"aside\":[{}]}}", waiting.join(","), aside.join(","))
 }
 
 /// `[{"card":"Fishing Village","times":2,"arg":null},...]`, the pending start-of-next-turn
@@ -2938,7 +2988,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             "\"deckTop\":{deck_top},\"deckUnknown\":{deck_unk},\"deckBottom\":{deck_bottom},\"deckSize\":{deck_n},",
             "\"discard\":{discard},\"inPlay\":{in_play},\"setAside\":{set_aside},\"durations\":{durations},",
             "\"nativeVillageMat\":{nv_mat},\"islandMat\":{island_mat},",
-            "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"summonCards\":{summon_cards},\"churchCards\":{church_cards},\"cleanupAside\":{cleanup_aside},",
+            "\"princeCards\":{prince_cards},\"coffers\":{coffers},\"farmCards\":{farm_cards},\"summonCards\":{summon_cards},\"churchCards\":{church_cards},\"cleanupAside\":{cleanup_aside},\"plunder\":{plunder},",
             "\"tavern\":{tavern},\"tokens\":{tokens},\"journeyDown\":{journey},\"minusCard\":{mcard},\"minusCoin\":{mcoin},\"inherit\":{inherit},",
             "\"saved\":{saved},\"boughtEvents\":{bought},\"debt\":{debt},\"archive\":{archive},",
             "\"villagers\":{villagers},\"ownedProjects\":{owned_projects},\"plotTokens\":{plot},\"cargo\":{cargo},\"research\":{research},",
@@ -3006,6 +3056,7 @@ fn player_json(state: &GameState, p: usize) -> String {
             counts_json(&c)
         },
         cleanup_aside = counts_json(&ps.cleanup_aside.counts()),
+        plunder = plunder_player_json(state, p),
         debt = ps.debt,
         archive = counts_json(&ps.archive.counts()),
         states = states_json(state, p),
@@ -3173,7 +3224,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         concat!(
             "{{\"numPlayers\":{n},\"currentPlayer\":{cur},",
             "\"turn\":{{\"number\":{tn},\"player\":{tp},\"phase\":{phase},\"actions\":{ta},\"buys\":{tb},\"coins\":{tc},\"potions\":{tpot}}},",
-            "\"supply\":{supply},\"events\":{events},\"ways\":{ways},\"menagerie\":{menagerie},\"ally\":{ally},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
+            "\"supply\":{supply},\"events\":{events},\"ways\":{ways},\"menagerie\":{menagerie},\"ally\":{ally},\"traits\":{traits},\"projects\":{projects},\"artifacts\":{artifacts},\"landmarks\":{landmarks},\"prophecy\":{prophecy},\"nocturne\":{nocturne},\"pileOrder\":{pile_order},\"trash\":{trash},\"players\":[{players}],",
             "\"scores\":[{scores}],\"gameOver\":{go},\"winners\":{winners},",
             "\"pending\":{pending},\"log\":[{log}]}}"
         ),
@@ -3191,6 +3242,7 @@ fn build_view_json(state: &GameState, log: &[String]) -> String {
         ways = ways_json(state),
         menagerie = menagerie_json(state),
         ally = ally_json(state),
+        traits = traits_json(state),
         projects = projects_json(state),
         artifacts = artifacts_json(state),
         landmarks = landmarks_json(state),

@@ -585,6 +585,13 @@
       if (p.summonCards && p.summonCards.length) panel.appendChild(zoneRow("Set aside by Summon (played next turn)", p.summonCards));
       if (p.churchCards && p.churchCards.length) panel.appendChild(zoneRow("Set aside by Church (face down)", p.churchCards));
       if (p.cleanupAside.length) panel.appendChild(zoneRow("Set aside until Clean-up", p.cleanupAside));
+      // Plunder: Durations waiting for their "next time", and the cards set aside on a Cage / Grotto / Quartermaster, for the end of the turn or by Prepare.
+      if (p.plunder) {
+        if (p.plunder.waiting.length) panel.appendChild(el("div", "zone", "Waiting for their next time: " + p.plunder.waiting.map((w) => w.card + (w.times > 1 ? " x" + w.times : "")).join(", ")));
+        const zones = {};
+        for (const a of p.plunder.aside) (zones[a.zone] = zones[a.zone] || []).push({ id: a.id, name: a.name, count: a.count });
+        for (const z of Object.keys(zones)) panel.appendChild(zoneRow("Set aside (" + z + ")", zones[z]));
+      }
       panel.appendChild(el("div", "zone", `Turns taken: ${p.turnsTaken}`));
 
       row.appendChild(panel);
@@ -640,8 +647,17 @@
     const events = view.events || [], landmarks = view.landmarks || [], p = view.prophecy;
     // An Artifact someone holds is shown in that player's box instead (renderPlayers).
     const projects = view.projects || [], artifacts = (view.artifacts || []).filter((a) => a.holder === null), ways = view.ways || [];
-    const ally = view.ally;
-    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length && !ways.length && !ally;
+    const ally = view.ally, traits = view.traits || [];
+    $("landscape-panel").hidden = !events.length && !landmarks.length && !p && !projects.length && !artifacts.length && !ways.length && !ally && !traits.length;
+    // Plunder: each Trait and the Action or Treasure pile it is on (every card of that pile has it).
+    for (const t of traits) {
+      const row = el("div", "event-row");
+      row.appendChild(el("span", "kind", "Trait"));
+      row.appendChild(cardChip(t.name));
+      row.appendChild(el("span", "cost", " on "));
+      row.appendChild(cardChip(t.pile));
+      list.appendChild(row);
+    }
     // Allies: the Ally of the game (cards that give Favors are the Liaisons; the Favors are on each player's mat).
     if (ally) {
       const row = el("div", "event-row");
@@ -1046,8 +1062,8 @@
 
   const SETS_KEY = "dominion.cardSets";
   // Bit 0 = Base, bit 1 = Intrigue, bit 2 = Seaside, bit 3 = Prosperity, bit 4 = Alchemy, bit 5 = Promo,
-  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies (matches `padded_kingdom`).
-  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192, menagerie: 16384, allies: 32768 };
+  // bit 6 = Cornucopia & Guilds, bit 7 = Dark Ages, bit 8 = Adventures, bit 9 = Empires, bit 10 = Rising Sun, bit 11 = Nocturne, bit 12 = Hinterlands, bit 13 = Renaissance, bit 14 = Menagerie, bit 15 = Allies, bit 16 = Plunder (matches `padded_kingdom`).
+  const SET_BITS = { base: 1, intrigue: 2, seaside: 4, prosperity: 8, alchemy: 16, promo: 32, cornucopia: 64, darkages: 128, adventures: 256, empires: 512, risingsun: 1024, nocturne: 2048, hinterlands: 4096, renaissance: 8192, menagerie: 16384, allies: 32768, plunder: 65536 };
 
   function setCheckboxes() {
     return Array.from(document.querySelectorAll("#ng-sets .ng-set"));

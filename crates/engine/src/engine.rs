@@ -717,7 +717,7 @@ impl GameState {
                     self.turn.actions = self.turn.actions.min(self.turn.men.cap);
                 }
                 if (self.turn.actions > 0 || (self.players[p].ren.villagers > 0 && self.turn.men.flags & crate::state::MT_SNOWY == 0))
-                    && (self.players[p].hand.any_type(ACTION)
+                    && (self.players[p].hand.intersects(&crate::sets::ACTION_LANES)
                         || (self.players[p].inherit != 0 && self.players[p].hand.has(id::ESTATE))
                         || self.rs_can_play_extra(p as u8))
                 {
@@ -1163,6 +1163,11 @@ impl GameState {
                 return r;
             }
         }
+        // Nothing makes a Treasure of another card (Charlatan's Curse, Capitalism's Actions) or a choice of a plain one (a Trait that changes how a card is played): the
+        // Treasure lanes tell. A Treasure with a choice in its play (or, on the page, any Treasure) means the order matters.
+        if !self.ask_treasures && self.ren.hook & crate::state::REN_CAPITAL == 0 && self.plu.flags & crate::state::PF_TRAIT_PLAY == 0 && !self.in_supply(id::CHARLATAN) {
+            return hand.intersects(&crate::sets::CHOICE_TREASURE_LANES) || (self.turn.adv.sauna > 0 && hand.has(id::SILVER));
+        }
         if hand.iter().any(|(c, _)| self.is_treasure(c) && (self.ask_treasures || !self.plain_treasure(c))) {
             return true;
         }
@@ -1181,13 +1186,24 @@ impl GameState {
     /// Play every choice-free Treasure in the current player's hand.
     fn play_all_choice_free_treasures<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player;
-        let hand = self.players[p as usize].hand;
         // Copper, Silver and Gold are played by a short path unless a card of this game acts on their plays: Envious (Silver and Gold make $1),
         // Sauna (a trash for each Silver) or Corsair (the first Silver or Gold of a turn is trashed).
         let plain = !self.turn.noc.envy
             && self.turn.adv.sauna == 0
             && !self.in_supply(id::CORSAIR)
             && self.turn.men.kiln == 0;
+        // Only Coppers, Silvers and Golds in the hand (nearly always): no walk over the hand, the three lanes are read in id order.
+        if plain && !self.players[p as usize].hand.intersects(&crate::sets::OTHER_TREASURE_LANES) {
+            const _: () = assert!(id::COPPER == 0 && id::SILVER == 1 && id::GOLD == 2);
+            for c in id::COPPER..=id::GOLD {
+                let n = self.players[p as usize].hand.get(c);
+                if n > 0 {
+                    self.play_plain_treasure(c, n, sink);
+                }
+            }
+            return;
+        }
+        let hand = self.players[p as usize].hand;
         for (c, n) in hand.iter() {
             if c <= id::GOLD && plain {
                 self.play_plain_treasure(c, n, sink);

@@ -24,6 +24,16 @@ const _: () = assert!(LANES / 32 <= 32, "the block bitmap is a u32");
 #[repr(align(32))]
 pub struct Counts([u8; LANES]);
 
+/// A set of cards as one byte per lane (0xFF in the lanes of its cards, 0 elsewhere, the bookkeeping lanes 0): the question `Counts::intersects` asks.
+/// Built at compile time from the card table (`sets::ACTION_LANES` ...).
+#[derive(Clone, Copy)]
+#[repr(align(32))]
+pub struct LaneMask(pub(crate) [u8; LANES]);
+
+impl LaneMask {
+    pub const EMPTY: LaneMask = LaneMask([0; LANES]);
+}
+
 /// Equal when the card lanes are (the bookkeeping lanes can differ: the block bitmap is a superset).
 impl PartialEq for Counts {
     fn eq(&self, other: &Counts) -> bool {
@@ -270,6 +280,40 @@ impl Counts {
         b.copy_from_slice(&self.0[w * 8..w * 8 + 8]);
         u64::from_le_bytes(b)
     }
+    /// Whether the multiset holds a card whose lane `mask` marks: looks at the blocks that can have cards, 32 lanes in a few instructions, instead of
+    /// asking each card in the hand about its type.
+    #[inline]
+    pub fn intersects(&self, mask: &LaneMask) -> bool {
+        let mut todo = self.blocks();
+        while todo != 0 {
+            let b = todo.trailing_zeros() as usize;
+            todo &= todo - 1;
+            if self.block_intersects(mask, b) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn block_intersects(&self, mask: &LaneMask, block: usize) -> bool {
+        // SAFETY: SSE2 is always available on x86-64; `Counts` and `LaneMask` are 32-byte aligned, `LANES` is a multiple of 32 and
+        // `block < LANES / 32` (it is a bit of the bitmap), so the four 16-byte loads are aligned and in bounds.
+        unsafe {
+            use std::arch::x86_64::*;
+            let (a, m) = (self.0.as_ptr().add(block * 32) as *const __m128i, mask.0.as_ptr().add(block * 32) as *const __m128i);
+            let both = _mm_or_si128(_mm_and_si128(_mm_load_si128(a), _mm_load_si128(m)), _mm_and_si128(_mm_load_si128(a.add(1)), _mm_load_si128(m.add(1))));
+            _mm_movemask_epi8(_mm_cmpeq_epi8(both, _mm_setzero_si128())) != 0xFFFF
+        }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    #[inline(always)]
+    fn block_intersects(&self, mask: &LaneMask, block: usize) -> bool {
+        (0..4).any(|k| self.word(block * 4 + k) & u64::from_le_bytes(mask.0[(block * 4 + k) * 8..(block * 4 + k) * 8 + 8].try_into().unwrap()) != 0)
+    }
+
     /// Each count raised to at least the other's (the union of two multisets).
     #[inline]
     pub fn max_assign(&mut self, other: &Counts) {
@@ -413,6 +457,39 @@ mod tests {
         }
         c.clear();
         check(&c);
+    }
+
+    /// `intersects` a card-type lane mask is the question about each card's type that it replaces, for one card and for sets of cards (also with stale bitmap bits).
+    #[test]
+    fn intersects_matches_the_type_of_the_cards() {
+        use crate::cards::{self, NUM_ZONE_IDS as NUM_CARDS};
+        use crate::sets::{ACTION_LANES, CHOICE_TREASURE_LANES, OTHER_TREASURE_LANES, TREASURE_LANES};
+        let by_type = |c: &Counts, flag: u32| c.iter().any(|(x, _)| cards::is(x, flag));
+        let mut seed = 12345u64;
+        let mut rnd = move |n: u64| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        for c in 0..NUM_CARDS as CardId {
+            let mut one = Counts::EMPTY;
+            one.add(c, 2);
+            assert_eq!(one.intersects(&ACTION_LANES), by_type(&one, cards::ACTION), "{}", cards::name(c));
+            assert_eq!(one.intersects(&TREASURE_LANES), by_type(&one, cards::TREASURE), "{}", cards::name(c));
+            assert_eq!(one.intersects(&OTHER_TREASURE_LANES), by_type(&one, cards::TREASURE) && c > crate::cards::id::GOLD, "{}", cards::name(c));
+            assert_eq!(one.intersects(&CHOICE_TREASURE_LANES), by_type(&one, cards::TREASURE) && !cards::is_choice_free(c), "{}", cards::name(c));
+        }
+        for _ in 0..2000 {
+            let mut set = Counts::EMPTY;
+            for _ in 0..rnd(8) {
+                set.add(rnd(NUM_CARDS as u64) as CardId, 1);
+            }
+            // A stale bitmap bit: a card added and removed again.
+            let ghost = rnd(NUM_CARDS as u64) as CardId;
+            set.add(ghost, 1);
+            set.remove(ghost);
+            assert_eq!(set.intersects(&ACTION_LANES), by_type(&set, cards::ACTION));
+            assert_eq!(set.intersects(&TREASURE_LANES), by_type(&set, cards::TREASURE));
+        }
     }
 
     /// Blocks past the legacy 13 (a wider `Counts`, exercised on a plain lane array) are hashed only when they hold a card, by index and content: no card in them is the

@@ -24,7 +24,7 @@
 //! To add a set, see `docs/adding-a-set.md`.
 
 use crate::cards::{CardDef, CardId, CardSet, ModeOpt};
-use crate::counts::Counts;
+use crate::counts::{Counts, LaneMask};
 use crate::engine::EventSink;
 use crate::state::{Dest, GameState, PendingDuration};
 
@@ -465,6 +465,41 @@ pub(crate) fn safe_alone(card: CardId) -> bool {
 pub(crate) fn vp(card: CardId, all: &Counts, total: i32) -> i32 {
     with_set!(set_of(card), S => S::vp(card, all, total))
 }
+
+/// The lanes of the cards `keep` accepts, for `Counts::intersects`: `keep(def, id)`-style tests as plain `match` on a mode so it can run at compile time.
+const fn lanes_where(mode: u8) -> LaneMask {
+    let mut m = LaneMask::EMPTY;
+    let mut c = 0;
+    while c < NUM_CARDS {
+        let d = &CARDS_CONST[c];
+        let hit = match mode {
+            // Action cards.
+            0 => d.types & crate::cards::ACTION != 0,
+            // Treasures that are not played by the short path (a choice in the play, or they are no choice-free card): the hand's order matters.
+            1 => d.types & crate::cards::TREASURE != 0 && !matches!(d.on_play, crate::cards::OnPlay::ChoiceFree),
+            // Any Treasure.
+            2 => d.types & crate::cards::TREASURE != 0,
+            // Treasures other than Copper, Silver and Gold.
+            _ => d.types & crate::cards::TREASURE != 0 && c > crate::cards::id::GOLD as usize,
+        };
+        if hit {
+            m.0[c] = 0xFF;
+        }
+        c += 1;
+    }
+    m
+}
+
+const CARDS_CONST: [CardDef; NUM_CARDS] = build_cards();
+
+/// The lanes of the Action cards: `hand.intersects(&ACTION_LANES)` is `hand.any_type(ACTION)`.
+pub static ACTION_LANES: LaneMask = lanes_where(0);
+/// The lanes of the Treasures whose play has a choice (not `OnPlay::ChoiceFree`); with `TREASURE_LANES`, the question `treasure_order_matters` asks.
+pub static CHOICE_TREASURE_LANES: LaneMask = lanes_where(1);
+/// The lanes of every Treasure.
+pub static TREASURE_LANES: LaneMask = lanes_where(2);
+/// The lanes of the Treasures other than Copper, Silver and Gold.
+pub static OTHER_TREASURE_LANES: LaneMask = lanes_where(3);
 
 /// Whether a card has a `may_buy` restriction at all (every set's `MAY_BUY_CARDS`).
 static MAY_BUY_RESTRICTED: [bool; NUM_CARDS] = {

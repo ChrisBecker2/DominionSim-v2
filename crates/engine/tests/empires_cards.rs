@@ -127,8 +127,8 @@ fn strip_seed(s: &str) -> String {
 fn the_ids_line_up() {
     assert!(cards::is_event(id::ADVANCE) && cards::is_event(id::WINDFALL) && cards::is_event(id::ALMS) && !cards::is_event(id::AQUEDUCT));
     assert!(cards::is_landmark(id::AQUEDUCT) && cards::is_landmark(id::WOLF_DEN) && !cards::is_landmark(id::WINDFALL));
-    assert_eq!(id::WOODWORKERS_GUILD as usize + 1, cards::NUM_CARDS);
-    assert_eq!(cards::NUM_EVENTS, 64, "20 Adventures, 13 Empires, Summon, 10 Rising Sun and 20 Menagerie");
+    assert_eq!(id::TIRELESS as usize + 1, cards::NUM_CARDS);
+    assert_eq!(cards::NUM_EVENTS, 79, "20 Adventures, 13 Empires, Summon, 10 Rising Sun, 20 Menagerie and 15 Plunder");
     assert_eq!(cards::kingdom_cards_in(CardSet::Empires).count(), 24);
     assert_eq!(cards::kingdom_cards_in(CardSet::RisingSun).count(), 25);
     // Events and Landmarks are above every id that can sit in a zone.

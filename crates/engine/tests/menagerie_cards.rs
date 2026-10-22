@@ -156,11 +156,11 @@ fn the_ids_and_piles_line_up() {
     assert_eq!(cards::set_by_name("menagerie"), Some(CardSet::Menagerie));
     assert_eq!(cards::kingdom_cards_in(CardSet::Menagerie).count(), 30);
     assert!(!cards::is_kingdom(I::HORSE) && cards::is(I::HORSE, cards::ACTION));
-    assert_eq!(cards::LAST_KINGDOM, I::LICH);
+    assert_eq!(cards::LAST_KINGDOM, I::KINGS_CACHE);
     assert!(cards::is_event(I::DELAY) && cards::is_event(I::POPULATE) && !cards::is_event(I::AQUEDUCT));
     assert!(cards::is_way(I::WAY_OF_THE_BUTTERFLY) && cards::is_way(I::WAY_OF_THE_WORM) && !cards::is_way(I::EXILE) && !cards::is_way(I::FLAG));
-    assert_eq!((cards::NUM_EVENTS, cards::NUM_WAYS), (64, 20));
-    assert_eq!(cards::NUM_ZONE_IDS, 503);
+    assert_eq!((cards::NUM_EVENTS, cards::NUM_WAYS), (79, 20));
+    assert_eq!(cards::NUM_ZONE_IDS, 558);
     assert_eq!(cards::cost(I::ANIMAL_FAIR), 7);
     assert_eq!(cards::cost(I::POPULATE), 10);
     assert_eq!(cards::cost(I::HORSE), 3);

@@ -166,17 +166,17 @@ fn holder(g: &GameState, a: CardId) -> Option<u8> {
 fn the_ids_and_counts_line_up() {
     assert_eq!(cards::kingdom_cards_in(CardSet::Renaissance).count(), 25);
     assert_eq!((cards::NUM_PROJECTS, cards::NUM_ARTIFACTS), (20, 5));
-    assert_eq!(cards::NUM_CARDS, id::WOODWORKERS_GUILD as usize + 1);
+    assert_eq!(cards::NUM_CARDS, id::TIRELESS as usize + 1);
     assert_eq!(id::SICKNESS as usize + 1, cards::FIRST_PROJECT as usize);
     assert_eq!(id::CITADEL as usize + 1, cards::FIRST_ARTIFACT as usize);
-    assert_eq!(cards::NUM_ZONE_IDS, 503);
-    assert!(cards::LAST_KINGDOM == id::LICH && cards::is_kingdom(id::BORDER_GUARD) && cards::is_kingdom(id::VILLAIN));
+    assert_eq!(cards::NUM_ZONE_IDS, 558);
+    assert!(cards::LAST_KINGDOM == id::KINGS_CACHE && cards::is_kingdom(id::BORDER_GUARD) && cards::is_kingdom(id::VILLAIN));
     assert!(cards::is_project(id::CATHEDRAL) && cards::is_project(id::CITADEL) && !cards::is_project(id::FLAG) && !cards::is_project(id::SICKNESS));
     assert!(cards::is_artifact(id::FLAG) && cards::is_artifact(id::TREASURE_CHEST) && !cards::is_artifact(id::CITADEL));
     assert!(cards::is_pseudo(id::CATHEDRAL) && cards::is_pseudo(id::KEY) && !cards::is_event(id::CATHEDRAL));
     assert_eq!(cards::set_by_name("Renaissance"), Some(CardSet::Renaissance));
     assert_eq!(cards::by_name("Treasure Chest"), Some(id::TREASURE_CHEST));
-    assert_eq!(CardSet::ALL.len(), 16);
+    assert_eq!(CardSet::ALL.len(), 17);
     let costs = [
         (id::BORDER_GUARD, 2), (id::DUCAT, 2), (id::LACKEYS, 2), (id::ACTING_TROUPE, 3), (id::CARGO_SHIP, 3), (id::EXPERIMENT, 3), (id::IMPROVE, 3),
         (id::FLAG_BEARER, 4), (id::HIDEOUT, 4), (id::INVENTOR, 4), (id::MOUNTAIN_VILLAGE, 4), (id::PATRON, 4), (id::PRIEST, 4), (id::RESEARCH, 4),

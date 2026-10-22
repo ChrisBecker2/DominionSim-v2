@@ -178,9 +178,9 @@ fn favors(g: &GameState, p: usize) -> u8 {
 fn the_ids_and_piles_line_up() {
     assert_eq!(cards::set_by_name("allies"), Some(CardSet::Allies));
     assert_eq!(cards::kingdom_cards_in(CardSet::Allies).count(), 31);
-    assert_eq!(cards::LAST_KINGDOM, I::LICH);
+    assert_eq!(cards::LAST_KINGDOM, I::KINGS_CACHE);
     assert!(cards::is_ally(I::ARCHITECTS_GUILD) && cards::is_ally(I::WOODWORKERS_GUILD) && !cards::is_ally(I::EXILE));
-    assert_eq!(I::WOODWORKERS_GUILD as usize + 1, cards::NUM_CARDS);
+    assert_eq!(I::TIRELESS as usize + 1, cards::NUM_CARDS);
     assert_eq!(I::EXILE + 1, I::ARCHITECTS_GUILD);
     // A split pile is named by its first card; the other cards of the pile are not kingdom cards.
     assert!(cards::is_kingdom(I::TOWN_CRIER) && !cards::is_kingdom(I::BLACKSMITH) && !cards::is_kingdom(I::LICH) && cards::is_kingdom(I::STUDENT));

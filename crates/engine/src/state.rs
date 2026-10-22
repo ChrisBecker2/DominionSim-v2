@@ -1680,9 +1680,9 @@ pub struct AdvTurn {
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 /// Distinct (zone code, card) keys a player's `PluPlayer::z` holds.
-pub const PLU_Z_CAP: usize = 12;
+pub const PLU_Z_CAP: usize = 24;
 /// "Next time" Durations in play at once (`PluPlayer::wait`, one entry per card and multiplier).
-pub const PLU_WAIT_CAP: usize = 4;
+pub const PLU_WAIT_CAP: usize = 8;
 /// `PluState::flags` (fixed at set-up): which Plunder effects are in this game, so that other games skip each check with one byte test.
 /// Some Plunder card, Event or Trait is in the game.
 pub const PF_ANY: u8 = 1;

@@ -149,7 +149,7 @@ macro_rules! with_set {
                 $body
             }
             $crate::cards::CardSet::Plunder => {
-                type $S = $crate::sets::allies::Allies;
+                type $S = $crate::sets::plunder::Plunder;
                 $body
             }
         }

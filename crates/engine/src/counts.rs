@@ -314,6 +314,33 @@ impl Counts {
         (0..4).any(|k| self.word(block * 4 + k) & u64::from_le_bytes(mask.0[(block * 4 + k) * 8..(block * 4 + k) * 8 + 8].try_into().unwrap()) != 0)
     }
 
+    /// In block `b` (not the last): the lane holding the `idx`-th card when the block has more than `idx` cards, else the block's card total.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    unsafe fn block_nth(&self, b: usize, idx: u32) -> (Option<usize>, u32) {
+        use std::arch::x86_64::*;
+        let p = self.0.as_ptr().add(b * 32) as *const __m128i;
+        let (mut lo, mut hi) = (_mm_load_si128(p), _mm_load_si128(p.add(1)));
+        lo = _mm_add_epi8(lo, _mm_slli_si128::<1>(lo));
+        lo = _mm_add_epi8(lo, _mm_slli_si128::<2>(lo));
+        lo = _mm_add_epi8(lo, _mm_slli_si128::<4>(lo));
+        lo = _mm_add_epi8(lo, _mm_slli_si128::<8>(lo));
+        hi = _mm_add_epi8(hi, _mm_slli_si128::<1>(hi));
+        hi = _mm_add_epi8(hi, _mm_slli_si128::<2>(hi));
+        hi = _mm_add_epi8(hi, _mm_slli_si128::<4>(hi));
+        hi = _mm_add_epi8(hi, _mm_slli_si128::<8>(hi));
+        // The low half's total added to every lane of the high half.
+        let t = _mm_srli_si128::<15>(lo);
+        let carry = _mm_shuffle_epi32::<0>(_mm_unpacklo_epi8(_mm_unpacklo_epi8(t, t), _mm_unpacklo_epi8(t, t)));
+        hi = _mm_add_epi8(hi, carry);
+        let total = _mm_cvtsi128_si32(_mm_srli_si128::<15>(hi)) as u32 & 0xFF;
+        let v = _mm_set1_epi8(idx.min(255) as i8);
+        // Lanes whose prefix sum is not above idx (unsigned bytes): a run from lane 0.
+        let le = |x: __m128i| _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_min_epu8(x, v), x)) as u32;
+        let below = le(lo) | le(hi) << 16;
+        if idx < total { (Some(below.count_ones() as usize), total) } else { (None, total) }
+    }
+
     /// Each count raised to at least the other's (the union of two multisets).
     #[inline]
     pub fn max_assign(&mut self, other: &Counts) {
@@ -341,7 +368,28 @@ impl Counts {
     /// The card at position `idx` (0-based) when the multiset is laid out in id order.
     /// Used to sample uniformly: `nth(rng.below(total))`.
     #[inline]
-    pub fn nth(&self, mut idx: u32) -> CardId {
+    pub fn nth(&self, idx: u32) -> CardId {
+        #[cfg(target_arch = "x86_64")]
+        if self.cached_total() <= 255 {
+            // Prefix sums of a block's 32 lanes in bytes (no wrap: the total fits), the lane is the number of prefix sums not above `idx`: no branch per card.
+            let mut todo = self.blocks();
+            let mut left = idx;
+            while todo != 0 {
+                let b = todo.trailing_zeros() as usize;
+                todo &= todo - 1;
+                // The last block holds the bookkeeping lanes: the generic walk below, from the start.
+                if b == LANES / 32 - 1 {
+                    break;
+                }
+                // SAFETY: SSE2 is baseline on x86-64; the block is in bounds and 32-byte aligned.
+                let (lane, total) = unsafe { self.block_nth(b, left) };
+                if let Some(l) = lane {
+                    return (b * 32 + l) as CardId;
+                }
+                left -= total;
+            }
+        }
+        let mut idx = idx;
         for (c, n) in self.iter() {
             if idx < n as u32 {
                 return c;
@@ -457,6 +505,31 @@ mod tests {
         }
         c.clear();
         check(&c);
+    }
+
+    /// `nth` (the SIMD walk for totals up to 255) is the card at that position of the id-ordered multiset.
+    #[test]
+    fn nth_is_the_card_at_that_position() {
+        let mut seed = 99u64;
+        let mut rnd = move |n: u64| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        for round in 0..3000 {
+            let mut c = Counts::EMPTY;
+            let kinds = 1 + rnd(12);
+            let top = if round % 3 == 0 { crate::cards::NUM_ZONE_IDS as u64 } else { 70 };
+            for _ in 0..kinds {
+                c.add(rnd(top) as CardId, 1 + rnd(if round % 5 == 0 { 40 } else { 6 }) as u8);
+            }
+            let mut flat = Vec::new();
+            for (id, n) in c.iter() {
+                flat.extend(std::iter::repeat(id).take(n as usize));
+            }
+            for (i, want) in flat.iter().enumerate() {
+                assert_eq!(c.nth(i as u32), *want, "position {i} of {c:?}");
+            }
+        }
     }
 
     /// `intersects` a card-type lane mask is the question about each card's type that it replaces, for one card and for sets of cards (also with stale bitmap bits).

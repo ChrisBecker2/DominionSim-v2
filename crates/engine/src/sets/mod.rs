@@ -567,16 +567,39 @@ pub(crate) fn overpay<S: EventSink>(g: &mut GameState, p: u8, card: CardId, coin
 // -------------------------------------------------------------------------------------------
 
 /// Start-of-turn entries, after the pending Durations: the order of the entries in the list.
+///
+/// Each set's hook is called only when its own first test (the one it starts with) would not return at once: a game that uses none of these rules
+/// pays a handful of loads and no calls.
 pub(crate) fn turn_start_entries(g: &mut GameState) {
-    Promo::turn_start_entries(g);
-    CornucopiaGuilds::turn_start_entries(g);
-    Prosperity::turn_start_entries(g);
-    Adventures::turn_start_entries(g);
-    Nocturne::turn_start_entries(g);
-    RisingSun::turn_start_entries(g);
-    Renaissance::turn_start_entries(g);
+    let ps = &g.players[g.turn.player as usize];
+    // Promo (Prince, Summon), Cornucopia & Guilds (Farmhands) and Adventures (the Tavern mat) read the player's own mats.
+    let (promo, farm, tavern) = (!ps.prince_cards.is_empty() || !ps.summon_cards.is_empty(), !ps.farm_cards.is_empty(), !ps.tavern.is_empty());
+    let key = g.ren.holder[(crate::cards::id::KEY - crate::cards::FIRST_ARTIFACT) as usize] != 0;
+    if promo {
+        Promo::turn_start_entries(g);
+    }
+    if farm {
+        CornucopiaGuilds::turn_start_entries(g);
+    }
+    if g.in_supply(crate::cards::id::CLERK) {
+        Prosperity::turn_start_entries(g);
+    }
+    if tavern {
+        Adventures::turn_start_entries(g);
+    }
+    if g.noc.flags & (crate::state::N_BOONS | crate::state::N_HEXES) != 0 {
+        Nocturne::turn_start_entries(g);
+    }
+    if g.rs.active != 0 {
+        RisingSun::turn_start_entries(g);
+    }
+    if g.ren.projects != 0 || key {
+        Renaissance::turn_start_entries(g);
+    }
     Allies::turn_start_entries(g);
-    Plunder::turn_start_entries(g);
+    if g.plu.flags & crate::state::PF_ANY != 0 {
+        Plunder::turn_start_entries(g);
+    }
 }
 
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
@@ -649,25 +672,77 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
 
 /// The end of the Buy phase (before the cleanup offers).
 pub(crate) fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
-    CornucopiaGuilds::end_of_buy(g, sink);
-    DarkAges::end_of_buy(g, sink);
-    Adventures::end_of_buy(g, sink);
-    Renaissance::end_of_buy(g, sink);
+    // Each hook is called only when its first test would not return at once (Merchant Guild, Hermit with the Madman pile, Wine Merchant on the Tavern
+    // mat, a Project owned).
+    let ps = &g.players[g.turn.player as usize];
+    let (tavern, projects) = (!ps.tavern.is_empty(), ps.ren.projects != 0);
+    if g.turn.guilds > 0 {
+        CornucopiaGuilds::end_of_buy(g, sink);
+    }
+    if g.madman != 0 {
+        DarkAges::end_of_buy(g, sink);
+    }
+    if tavern {
+        Adventures::end_of_buy(g, sink);
+    }
+    if projects {
+        Renaissance::end_of_buy(g, sink);
+    }
+}
+
+/// The five words of a `SupplyMask` holding `ids` (word `i` has the ids `128 * i ..`).
+const fn mask_words(ids: &[CardId]) -> [u128; 5] {
+    let mut out = [0u128; 5];
+    let mut i = 0;
+    while i < ids.len() {
+        let c = ids[i] as usize;
+        out[c / 128] |= 1u128 << (c % 128);
+        i += 1;
+    }
+    out
+}
+
+/// The Supply cards whose end-of-turn offers are gated on the card being in the game: Herbalist, Treasury, Scheme, Alchemist, Walled Village, Improve and
+/// River Shrine (each hook tests `in_supply` of its card first).
+const EOT_CARDS: [u128; 5] = mask_words(&[
+    crate::cards::id::HERBALIST,
+    crate::cards::id::TREASURY,
+    crate::cards::id::SCHEME,
+    crate::cards::id::ALCHEMIST,
+    crate::cards::id::WALLED_VILLAGE,
+    crate::cards::id::IMPROVE,
+    crate::cards::id::RIVER_SHRINE,
+]);
+
+/// Whether one of the end-of-turn hooks that test the Supply, the Traveller piles or the Horn can have an offer to make (a superset of the cases where it
+/// does: each hook still checks for itself).
+#[inline(always)]
+fn eot_hooks_live(g: &GameState) -> bool {
+    g.in_supply.any(EOT_CARDS[0], EOT_CARDS[1], EOT_CARDS[2], EOT_CARDS[3], EOT_CARDS[4])
+        || g.trav != [0; crate::cards::NUM_TRAV]
+        || g.ren.holder[(crate::cards::id::HORN - crate::cards::FIRST_ARTIFACT) as usize] != 0
 }
 
 /// The offers made at the end of the Buy phase, pushed in the order below: the stack pops the last first, so
 /// they are asked in the reverse order. "When you discard this from play" offers (Treasury, Herbalist) come
 /// last, and "at the start of Clean-up" offers (Alchemist, Walled Village) first, as the rules order them.
 pub(crate) fn end_of_turn_offers(g: &mut GameState) {
-    Alchemy::offers_on_discard(g);
+    // The Supply cards, Traveller piles and Artifact that the hooks below without a flag of their own look at: a game with none of them
+    // (no Herbalist, Treasury, Scheme, Alchemist, Walled Village, Improve, River Shrine, Travellers or Horn) skips those eight calls.
+    let live = eot_hooks_live(g);
+    if live {
+        Alchemy::offers_on_discard(g);
+    }
     // Trickster's Treasures (one byte test in every other game).
     if g.plu.live & crate::state::LV_CLEAN != 0 {
         Plunder::offers_on_discard(g);
     }
-    Seaside::offers_on_discard(g);
-    Adventures::offers_on_discard(g);
-    Hinterlands::offers_on_discard(g);
-    Renaissance::offers_on_discard(g);
+    if live {
+        Seaside::offers_on_discard(g);
+        Adventures::offers_on_discard(g);
+        Hinterlands::offers_on_discard(g);
+        Renaissance::offers_on_discard(g);
+    }
     // Merchant Camp and Tent (one byte test in every other game).
     if g.al.flags & crate::state::AF_DISCARD != 0 {
         Allies::offers_on_discard(g);
@@ -680,10 +755,12 @@ pub(crate) fn end_of_turn_offers(g: &mut GameState) {
     if g.plu.live & crate::state::LV_CLEAN != 0 {
         Plunder::offers_at_cleanup(g);
     }
-    Renaissance::offers_at_cleanup(g);
-    Promo::offers_at_cleanup(g);
-    RisingSun::offers_at_cleanup(g);
-    Alchemy::offers_at_cleanup(g);
+    if live {
+        Renaissance::offers_at_cleanup(g);
+        Promo::offers_at_cleanup(g);
+        RisingSun::offers_at_cleanup(g);
+        Alchemy::offers_at_cleanup(g);
+    }
     // Coastal Haven: the cards to keep are chosen first, as the hand is discarded.
     if g.al.flags & crate::state::AF_KEEP != 0 {
         Allies::offers_at_cleanup(g);

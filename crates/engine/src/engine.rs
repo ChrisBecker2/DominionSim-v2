@@ -1193,7 +1193,8 @@ impl GameState {
             && !self.in_supply(id::CORSAIR)
             && self.turn.men.kiln == 0;
         // Only Coppers, Silvers and Golds in the hand (nearly always): no walk over the hand, the three lanes are read in id order.
-        if plain && !self.players[p as usize].hand.intersects(&crate::sets::OTHER_TREASURE_LANES) {
+        // (Charlatan makes the Curse a Treasure: the walk.)
+        if plain && !self.in_supply(id::CHARLATAN) && !self.players[p as usize].hand.intersects(&crate::sets::OTHER_TREASURE_LANES) {
             const _: () = assert!(id::COPPER == 0 && id::SILVER == 1 && id::GOLD == 2);
             for c in id::COPPER..=id::GOLD {
                 let n = self.players[p as usize].hand.get(c);

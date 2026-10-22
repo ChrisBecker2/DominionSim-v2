@@ -207,3 +207,27 @@ the 15 Traits are pseudo-cards above the zone ids), `Counts::LANES` 512 -> 576 (
 128-bit set (`state::EvMask`, hashing as the old `u64`). Tests that pin the layout: `crates/engine/tests/capacity.rs`. The widening alone (stage 1) measured -1.6% on the match
 benchmark with all threads busy; the numbers for the cards are in `docs/plunder-plan.md` section 8. The next set that needs more than 570 ids has to grow the lane count again (a
 `u64` bitmap of 64 blocks is the next step) and the supply masks with it.
+
+## 13. Fourth speed pass (fast bots: rules only, no turn search)
+
+Scope: the bots that do not search (`Strategy` with `search_play = false`, which is what `dominion-sim match` runs for a strategy that has nothing to search, and what the Strategy Lab's `fast_eval` runs). Same method as the third pass:
+`tools/winprof`, two builds interleaved, results diffed. The benchmark set (a script in the scratch dir, see "Measurement" below) is: `plain` (Big Money Ultimate vs Double Witch, the default kingdom, 400k games), `engine` (Village/Smithy engine vs Kitsune BM,
+`--kingdom auto`), `rising` (Kitsune BM vs Samurai BM on the Rising Sun kingdom of `bench/perf.sh`), `four` (4 players: BMU, Double Witch, Smithy BM, Militia BM) and, for the Lab, `league` (`league_run` with `SEARCH=off FINAL_FULL=0`, 2 islands x 8, 30 generations, 4000 final games) and
+`fast_speed`. The strategies of the match benchmarks are copied with `search_play = false` added: **a stock strategy file searches the play order unless it says otherwise, and then 45% of the time of the engine pairing is `search::hash::finish_turn_hash`**
+(those searching bots are another workload, the third pass's). `league_run` did not read `FINAL_FULL` (it does now, on master too), so a league run with "fast bots only" still played the final stage and the exploiter measurements with full (searching) bots, 37% of its time in the hash; it does now (`FINAL_FULL=0`).
+
+**Profiles before any change** (winprof, 1 thread, samples are few (300-1400 per run), so read the numbers to about +-2 points; the same shape in every workload):
+
+| function | plain (BMU / Double Witch) | engine (fast) | league (fast) |
+|---|---|---|---|
+| `take_top` (the draw: `deck_unknown.nth(rng.below(total))`) | 17-20% | 15.5% | 17% |
+| `advance` (inlined `run_phase` / `run_frame`, the `Decision` assembly) | 15-18% | 20% | 15% (two instances: with and without the `ProfileSink`) |
+| `legal_choices` (nearly all of it the Buy list in `phase_choices`) | 13.6% | 15.5% | 11.5% (+ `frame_choices` 3.8%) |
+| `play_all_choice_free_treasures` + `treasure_order_matters` | 8% + 3% | 2.3% + 2.3% | 4.7% |
+| `Counts::add_all` (cleanup discards, the shuffle) | 4.5% | 3.5% | 4.9% |
+| `Strategy::match_gain_list` + `Expr::eval_in` + `Var::eval` | 5% + 3% + 1.4% | 4% + 2% | 3.4% + 3.4% |
+| `cleanup` | 3-4% | 2% | 2.6% |
+| `GameState::new`, `empty_piles`, `rayon` fold glue | 2%, 2%, 3% | 0.3%, 2.3%, 5% | 1%, 1.7%, 3% |
+
+Reading it: the plain-bot game is one engine loop, and nothing in the `Strategy` is above 5%. The three hot spots (the random draw, the Buy list and the phase machine) are each 13-20%. The Strategy's own rule evaluation
+(`match_gain_list`, `eval_in`, `best_play`, `decide_by_rules`) adds up to about 10%.

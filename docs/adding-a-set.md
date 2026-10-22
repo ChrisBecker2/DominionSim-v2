@@ -206,6 +206,17 @@ searched like the play order: add it to `eval::is_play_decision` and have a stat
 * **Test setup pitfalls**: after a terminal the engine enters Buy and auto-plays Treasures (use non-Treasure fillers); Debt without coins makes the Buy decision
   auto-pass; a state from `new_state` has not resolved its start of turn.
 
+## 10. Learned with Allies
+
+* **Split piles that rotate** are the one pile kind where all the cards are in the Supply at once: keep the order in the state (`AlState::piles`), derive `pile_open` from it, and make every
+  place that offers Supply cards (Buy, Gain frames, Supply selections) ask `pile_open`; a card returned to its pile goes on top, so an order can be 17 cards long only if a card was never taken (tests that return a card must take one first).
+* **A pseudo-card kind with a per-game choice (the Ally)** needs the set-up to pick one when a kingdom lacks it, a `PlayerView` accessor, a JSON field, a landscape row and a test helper that pins a harmless Ally
+  (`game()` in `allies_cards.rs`), or a random Ally's moments leak into other tests.
+* **The 512-lane limit**: ids must stay below `LANES - 4`; the bitmap of `Counts` is a `u16` of 16 blocks, so this widening was the last one without the `u32` step.
+* **Tests of forced picks**: a Select with one candidate (or only one canonical continuation: picks are non-decreasing in id) is applied at once; assert the state, and give a hand different cards.
+* **Bot-driven tests are slow with many cards that make choices** (the turn search): few games, few cards in the gain list.
+* **Check line endings with `python`, not `grep -c $''`** (the second reports 0 on a CRLF file in this shell).
+
 ## 9. Learned with Menagerie
 
 * A new *landscape* kind (Ways) costs nothing in games without it when its check is one byte: `GameState::men.ways != 0` gates the `PrePlay` frame, `men.hook` bits gate the

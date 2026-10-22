@@ -172,6 +172,12 @@ Kitsune BM) and 11% (the Rising Sun kingdom), the position analysis 8%, at 576 l
 3. If the plain bots' speed matters more than the cost of a larger redesign after Plunder: keep `Counts` dense for the Supply and the trash (they are indexed by pile all the time) and make the *player zones* sparse (sorted `(id, count)` pairs, capacity about 32; the `Counts` methods are the whole interface, so the layout can change behind them).
    A 2-player state would copy about 6 KB instead of 13 KB, which is what the 128-lane column measures (+15%), minus the dearer `get` and `add`, plus a cheaper draw (`nth` walks pairs, not 32-lane blocks). Prototype it with the real benchmark first; the 224-416 plateau says that only a large shrink is worth anything.
 
+## 12. After Allies (actual numbers)
+
+Allies added 31 kingdom piles (438..=468), the 18 other cards of its split piles (469..=486) and 23 pseudo-cards (the Allies): `NUM_ZONE_IDS` 454 -> 503, `NUM_CARDS` 629 -> 701, `Counts::LANES`
+480 -> 512 (16 blocks of 32: the `u16` bitmap of occupied blocks is exactly full; ids must stay below 508). `GameState` 27,104 bytes. The next set that adds zone ids needs the `u32` bitmap step of
+section 10 (Plunder: 558 zone ids). The measured cost of the widening alone was about 3% of the match benchmark.
+
 ## 11. What the third speed pass changed (results unchanged)
 
 Profile first (`tools/winprof`: a sampling profiler for Windows that needs no admin rights; `bench/perf.sh` for before/after). The result for the bots that search: **55-60% of the time was the transposition-table key** (`search::hash::turn_hash`), a chain of FxHash steps (rotate, xor, multiply: 5 cycles of latency each, nothing to run in parallel)

@@ -1,6 +1,6 @@
 # Dominion simulator
 
-Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes), Menagerie (Exile mat, the Horse pile, Ways) and a few
+Rust workspace (`cargo` is at `~/.cargo/bin/cargo`). Base Set, Intrigue, Seaside, Prosperity, Alchemy, Cornucopia & Guilds, Dark Ages, Adventures (Events, tokens, Reserve cards on the Tavern mat), Empires (Debt, split piles, Castles, Events, Landmarks), Rising Sun (Debt, Events, Prophecies with Sun tokens, Omen and Shadow cards), Renaissance (Villagers, Artifacts, Projects with cubes), Menagerie (Exile mat, the Horse pile, Ways), Allies (Favors, Allies, Liaisons, split piles that rotate) and a few
 promos (Prince, Walled Village, Envoy, Captain, Sauna/Avanto, Governor, Dismantle, Church, Marchland, the Event Summon; all 2nd edition where there is one).
 
 - `crates/engine` — rules engine. `GameState` is fixed-size `Copy`; **no heap allocation in the game loop**
@@ -47,6 +47,12 @@ A new card: its id in the set's `ids` and its line in `CARDS` (ids are dense; th
 Renaissance (`docs/renaissance-plan.md`) keeps per-player Villagers / Project cubes / Cargo Ship and Research cards in `PlayerState::ren`, the game's Projects, Artifact holders and Sinister Plot tokens in `GameState::ren`, and hashes all of it as nothing while it is all zero (so non-Renaissance games hash and play exactly as before). Projects are bought like Events (`is_bought_pseudo`); start-of-turn Projects run as `PendingDuration` entries.
 
 Menagerie (`docs/menagerie-plan.md`) keeps each player's Exile mat (a `SmallMultiset`; its cards count as theirs for scoring and for every "cards you own" count), Invest's copies, the cards set aside by Delay / Reap / Way of the Turtle and Gatekeeper counts in `PlayerState::men`, and the Ways, Way of the Mouse's card and the live-effect hooks (`H_EXILE`, `H_INVEST`, `H_GATE`, `H_COST`) in `GameState::men`; it hashes as nothing while all zero. The Horse pile is outside the Supply (its count sits in the `supply` lane, not in `in_supply`). A game with a Way pays one byte test per Action played: the Way choice is a `PrePlay` frame (`DecisionKind::Way`) pushed only then, and bots decide it with a stated `[[way]]` rule or `SetDefaults::way_choice`.
+
+Allies (`docs/allies-plan.md`) keeps each player's Favors, Coastal Haven's kept cards, Lich skips and lingering Attacks in `PlayerState::al`, the Ally, which effects are live (`flags` / `hook`),
+the order of the six *split piles that rotate* (a `u32` of 2-bit indices per pile: all four cards of a pile are in the Supply, the order says which one is on top and `pile_open` is true for
+that one only) and Family of Inventors' tokens in `GameState::al`, and the per-turn "this turn, when you gain" effects in `TurnState::al`; it hashes as nothing while all zero. The Allies are
+pseudo-cards (never in a zone); spending Favors is an `Ask` / `YesNo` frame whose source is the Ally, decided by a stated `[[favor]]` rule or `SetDefaults::favor_use`. `Counts` has 512 lanes (the
+`u16` block bitmap is full: the next set needs the `u32` step of `docs/card-id-capacity.md`).
 
 Dark Ages adds two generic mechanisms (details in `docs/dark-ages-plan.md`): *mixed piles* (the Knights and the Ruins:
 one Supply pile of different cards, only the top card known; the members are in `in_supply`, the pile's size sits on the

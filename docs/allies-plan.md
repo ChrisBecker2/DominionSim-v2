@@ -147,4 +147,22 @@ row, split piles showing the top card and the cards left in the pile, log lines 
 
 ## 7. Approximated or left out
 
-(Filled in at the end of the work.)
+Everything of the set is implemented: the 25 single piles, the 6 split piles with rotation, the 23 Allies, Favors and the Liaisons. What is approximated or decided:
+
+* **One Ally per game, chosen from the seed.** A kingdom with a Liaison and no Ally gets one from the game's seed (`cards::add_random_ally` for random kingdoms, set-up for a listed
+  kingdom); a kingdom that lists an Ally with no Liaison plays it (the Favors are still dealt out). A kingdom without either has no Favors.
+* **Battle Plan** offers only the piles that rotating changes (a split pile with different cards under its top run): rotating any other pile is a no-op in the rules too.
+* **"Gain an Augur" (Acolyte)** takes the top card of the Augurs only, as only the top of a pile can be gained.
+* **Royal Galley** follows the 2026 text ("don't set the played card aside"): the card stays in play and is played again next turn if it still is.
+* **Order of Astrologers / Order of Masons** are offered at the shuffle (the `take_top` hook of Star Chart), with the cards picked in a Select; the bots use a value ordering, not a search.
+* **Plateau Shepherds** counts cards costing exactly $2 in the whole deck, the Favors pair up one for one.
+* **Territory** gains at most 12 Golds (more than the number of piles in any game).
+* **Evolve / Lab**: the Lab can select the set and the kingdoms get an Ally, but the genome has no `[[favor]]` rules and no placement hints for the Allies' cards (the Liaisons are gained
+  by the generic rules); a strategy file can state `[[favor]]` rules by hand.
+* **Bots** spend Favors by a cheap default per Ally (`SetDefaults::favor_use`), not by search; a Favor decision is never in `eval::is_play_decision`.
+
+## 8. Measurements
+
+* `GameState` 26,300 -> 27,104 bytes, `PlayerState` 3,648 bytes, a 2-player copy (`dup`) 12,512 bytes (`tests/state_size.rs` bounds 27,200 / 3,700 / 12,600); `Counts` 480 -> 512 bytes.
+* `dominion-sim match big_money_ultimate double_witch --games 200000`, best of 5, built in one folder, builds interleaved: before 282.8k games/s, widening only (`LANES` 512, ids moved) 273.2k,
+  with Allies 279.9k (the widening is the cost; Allies itself costs about 1% beyond it, within the noise of code layout). Same-seed output of non-Allies games is byte-identical to the build before.

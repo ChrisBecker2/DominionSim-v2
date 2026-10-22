@@ -231,3 +231,33 @@ Scope: the bots that do not search (`Strategy` with `search_play = false`, which
 
 Reading it: the plain-bot game is one engine loop, and nothing in the `Strategy` is above 5%. The three hot spots (the random draw, the Buy list and the phase machine) are each 13-20%. The Strategy's own rule evaluation
 (`match_gain_list`, `eval_in`, `best_play`, `decide_by_rules`) adds up to about 10%.
+
+**What was kept** (each a commit; results identical, checked by `bench/perf.sh`-style diffs of the same-seed `match` output on 980 pairings: every shipped strategy and its fast copy, 2-4 players, `auto` and random kingdoms of every set):
+
+1. *No list for a plain Buy decision* (+14 to +28% alone, the biggest find). `advance` builds the legal-choice list of every decision to see whether there is exactly one (`auto_single`), and `play_game` built it again, so the Buy list (a walk over every pile the $ can buy) was built twice per turn. A plain Buy decision with a card
+   to buy has at least two choices, so `advance` skips the check (`BuyAvail::offers_a_card`), and `play_game` asks the agent `Agent::choose_buy(view, &BuyAvail)` first: a bot that follows a priority list only asks "is this card offered" for the first few cards of its list. `BuyAvail::has` tests exactly what `phase_choices`
+   pushes (the affordable-pile mask, pile not empty, `may_buy`, Deluded, and the Events and Projects of the game); any state with Debt, Coffers, a cost modifier, a no-buy turn or a non-empty effect stack, and `win_this_turn` near the end of a game, take the list. `Strategy::match_gain_list` is generic over the list or the test (`Offered`).
+   `tests/buy_fast_path.rs` plays every shipped strategy on random kingdoms both ways and compares the final positions.
+2. *Events by set bit.* The Buy list walked all 44 Events through `event_available` for every Buy decision of a game with any Event (20% of a Rising Sun game, 40% with the list itself): +31% on that kingdom alone; it walks the bits of `GameState::events`.
+3. *Hand scans by lane mask* (+1 to +7%). `Counts::intersects(&LaneMask)` answers "is any card of this set in the hand" with a few SSE2 instructions per occupied block; the masks (Actions, Treasures with a choice, all Treasures, Treasures beyond Gold) are built at compile time from the card table.
+   `treasure_order_matters`, the Action test of the Action phase and the Treasure play (Copper, Silver and Gold read as three lanes, no 448-byte hand copy) use them.
+4. *`Counts::nth` with prefix sums* (+2 to +6%): the random draw finds its card by an SSE2 prefix sum of a block's lanes and a count of sums not above the index, instead of a branch per card (a mispredict per draw). Totals above 255 and the last block (bookkeeping lanes) take the old walk.
+
+**Results** (interleaved, 5 rounds, best / mean in ms, base = the tree before this pass; the match workloads are fast bots as above):
+
+| workload | all threads before | after | | 1 thread before | after | |
+|---|---|---|---|---|---|---|
+| plain: BMU vs Double Witch (400k / 50k games) | 274.1 / 279.6 | 198.0 / 200.4 | +38% | 629.7 / 638.0 | 493.0 / 495.6 | +28% |
+| engine: Village/Smithy vs Kitsune BM, `auto` (600k / 75k) | 687.8 / 689.2 | 543.4 / 545.9 | +27% | 1600 / 1606 | 1300 / 1302 | +23% |
+| rising: Kitsune BM vs Samurai BM, Rising Sun kingdom (500k / 62k) | 628.6 / 630.4 | 368.8 / 369.8 | +70% | 1470 / 1480 | 850 / 854 | +73% |
+| four: 4 players (100k / 12k) | 253.9 / 254.8 | 208.1 / 209.0 | +22% | 560.1 / 561.9 | 476.6 / 478.0 | +18% |
+| league (30 gens, 4000 final, fast only) | 2150 / 2170 | 1769 / 1782 | +22% | 24403 / 24434 | 19253 / 19279 | +27% |
+| `fast_speed` 60k games | 1944 / 1951 | 1618 / 1631 | +20% | 4609 / 4617 | 3841 / 3849 | +20% |
+
+The same binary measured against itself differs by up to 3% in this setup (a copy in another folder is consistently a little faster or slower), so effects under 3% are not claims. The `league` output with a fixed `SEED` is identical before and after.
+
+**Tried / not done.**
+* Skipping the second list build for the other decisions (`advance` builds it, `play_game` again): after change 1 `legal_choices` is 3% of a plain game; not worth caching a `ChoiceBuf` in the state.
+* Merging the two Buy-phase hand scans into one pass, a per-game "all Treasures are plain" flag: superseded by change 3.
+* Left (each now under about 5% of a profile): `take_top` is still 15% (the draw's `deck_known` / Star Chart / shuffle checks and `remove`), `advance` + `run_phase` + `run_frame` about 25% together with no line above 4%, `Counts::add_all` 5% (cleanup discards, the shuffle), `Strategy` rule evaluation (`match_gain_list`, `Expr::eval_in`) about 6%. Sparse player zones were not prototyped: `Counts` operations are no longer the top of a plain-bot profile (the dense layout costs little now that every scan goes through the block bitmap), so the 15% of the 128-lane experiment is no longer where the time is.
+* The stock strategy files search the play order (`search_play` is on unless the file says otherwise); `dominion-sim match` has no flag for fast bots, so the benchmarks use copies with `search_play = false`. A `--fast` flag would make this measurable without copies.

@@ -2611,10 +2611,10 @@ fn sequence_json(iter: impl Iterator<Item = CardId>) -> String {
 
 /// `[{"name":"Alms","cost":0,"buyable":true},...]`: the Events of the game (Adventures), `buyable` for the turn's player right now.
 fn events_json(state: &GameState) -> String {
-    let items: Vec<String> = (0..cards::NUM_EVENTS as CardId)
-        .filter(|i| state.events & (1u64 << i) != 0)
-        .map(|i| {
-            let e = cards::FIRST_EVENT + i;
+    let items: Vec<String> = state
+        .events
+        .events()
+        .map(|e| {
             let buyable = state.turn.phase == Phase::Buy && dominion_engine::sets::adventures::event_buyable(state, e) && state.turn.buys > 0;
             format!("{{\"name\":{},\"cost\":{},\"costLabel\":{},\"buyable\":{buyable}}}", jstr(cards::name(e)), cards::cost(e), jstr(&cards::cost_string(e)))
         })
@@ -2955,10 +2955,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         inherit = if ps.inherit != 0 { jstr(cards::name(ps.inherit)) } else { "null".to_string() },
         saved = if ps.saved != 0 { jstr(cards::name(ps.saved)) } else { "null".to_string() },
         bought = {
-            let items: Vec<String> = (0..cards::NUM_EVENTS as CardId)
-                .filter(|i| ps.events_bought & (1u64 << i) != 0)
-                .map(|i| jstr(cards::name(cards::FIRST_EVENT + i)))
-                .collect();
+            let items: Vec<String> = ps.events_bought.events().map(|e| jstr(cards::name(e))).collect();
             format!("[{}]", items.join(","))
         },
         p = p,

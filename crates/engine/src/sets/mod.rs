@@ -408,6 +408,8 @@ pub const GAIN_TOP: u128 = Empires::GAIN_TOP
     | Promo::GAIN_TOP
     | Renaissance::GAIN_TOP;
 pub const GAIN_EXT: u128 = Renaissance::GAIN_EXT | Menagerie::GAIN_EXT | Allies::GAIN_EXT;
+/// No card of ids from 512 has a gain trigger yet.
+pub const GAIN_EXT2: u128 = 0;
 
 // -------------------------------------------------------------------------------------------
 // Dispatch by card
@@ -535,7 +537,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
 /// Whether any "when you gain" trigger can be live: one mask test (plus the sets' extra conditions).
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
-    g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP, GAIN_EXT)
+    g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP, GAIN_EXT, GAIN_EXT2)
         || Renaissance::gain_live_extra(g)
         || Menagerie::gain_live_extra(g)
         || Allies::gain_live_extra(g)

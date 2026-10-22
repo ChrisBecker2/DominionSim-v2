@@ -534,7 +534,7 @@ fn parse_turn_line(line: &str, lineno: usize) -> Result<TurnFields, String> {
             "gained_in_buy" => {
                 f.gained_in_buy = val.parse().map_err(|_| format!("line {lineno}: invalid gained_in_buy '{val}'"))?
             }
-            "ev_bought" => f.adv.bought = val.parse().map_err(|_| format!("line {lineno}: invalid ev_bought '{val}'"))?,
+            "ev_bought" => f.adv.bought = crate::state::EvMask::from_bits(val.parse().map_err(|_| format!("line {lineno}: invalid ev_bought '{val}'"))?),
             "fair" => f.adv.fair = val.parse().map_err(|_| format!("line {lineno}: invalid fair '{val}'"))?,
             "sauna" => f.adv.sauna = val.parse().map_err(|_| format!("line {lineno}: invalid sauna '{val}'"))?,
             "mission" => f.adv.mission = val.parse().map_err(|_| format!("line {lineno}: invalid mission '{val}'"))?,
@@ -583,11 +583,8 @@ pub fn format_state(state: &GameState) -> String {
     let kingdom_str = kingdom.iter().map(|&c| cards::name(c)).collect::<Vec<_>>().join(", ");
     out.push_str(&format!("kingdom: {kingdom_str}\n"));
     // Adventures: the Events of the game.
-    if state.events != 0 {
-        let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
-            .filter(|i| state.events & (1u64 << i) != 0)
-            .map(|i| cards::name(cards::FIRST_EVENT + i))
-            .collect();
+    if !state.events.is_empty() {
+        let events: Vec<&str> = state.events.events().map(cards::name).collect();
         out.push_str(&format!("events: {}\n", events.join(", ")));
     }
     // Rising Sun: the Prophecy, the Sun tokens on it, Riverboat's card.
@@ -763,8 +760,8 @@ pub fn format_state(state: &GameState) -> String {
     }
     // Adventures: only while nonzero.
     let a = &state.turn.adv;
-    if a.bought != 0 {
-        out.push_str(&format!("  ev_bought: {}", a.bought));
+    if !a.bought.is_empty() {
+        out.push_str(&format!("  ev_bought: {}", a.bought.bits()));
     }
     if a.fair {
         out.push_str("  fair: true");
@@ -1043,11 +1040,8 @@ pub fn format_state(state: &GameState) -> String {
         if ps.rs & crate::state::P_RS_GOLD != 0 {
             out.push_str("rs gold: true\n");
         }
-        if ps.events_bought != 0 {
-            let events: Vec<&str> = (0..cards::NUM_EVENTS as CardId)
-                .filter(|i| ps.events_bought & (1u64 << i) != 0)
-                .map(|i| cards::name(cards::FIRST_EVENT + i))
-                .collect();
+        if !ps.events_bought.is_empty() {
+            let events: Vec<&str> = ps.events_bought.events().map(cards::name).collect();
             out.push_str(&format!("events bought: {}\n", events.join(", ")));
         }
     }
@@ -1790,7 +1784,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                         if !cards::is_event(e) {
                             return Err(format!("line {ln2}: '{}' is not an Event", cards::name(e)));
                         }
-                        ps.events_bought |= 1u64 << (e - cards::FIRST_EVENT);
+                        ps.events_bought.insert((e - cards::FIRST_EVENT) as u32);
                     }
                 }
                 "debt" => ps.debt = val.parse().map_err(|_| format!("line {ln2}: invalid debt '{val}'"))?,

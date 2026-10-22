@@ -258,7 +258,7 @@ mod tests {
     use cards::id;
 
     fn profile(gains: &[(CardId, u64)], trashes: u64, games: u64) -> Profile {
-        let mut g = vec![0; 512];
+        let mut g = vec![0; dominion_sim::batch::PROFILE_IDS];
         for &(c, n) in gains {
             g[c as usize] = n;
         }

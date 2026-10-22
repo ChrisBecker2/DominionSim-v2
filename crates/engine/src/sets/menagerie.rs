@@ -642,7 +642,7 @@ impl GameState {
     pub fn has_horse_pile(&self) -> bool {
         self.supply.get(ids::HORSE) > 0
             || HORSE_GAINERS.iter().any(|&c| self.in_supply(c) || c == self.men.mouse)
-            || HORSE_EVENTS.iter().any(|&e| self.events & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0)
+            || HORSE_EVENTS.iter().any(|&e| self.events.has((e - crate::cards::FIRST_EVENT) as u32))
     }
 
     /// Recomputes `MenState::hook` from the Exile mats, Invest and the Gatekeepers.

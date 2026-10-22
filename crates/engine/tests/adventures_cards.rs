@@ -175,7 +175,7 @@ fn set_up_has_the_piles_the_traveller_lines_and_the_events() {
     assert_eq!(g.supply.get(id::DISTANT_LANDS), 8, "a Victory pile: 8 with two players");
     assert_eq!(g.trav, [5, 5, 5, 5, 0, 0, 0, 0], "Page brings its four upgrades, five of each, outside the Supply");
     assert!(!g.in_supply(id::TREASURE_HUNTER));
-    assert_eq!(g.events, (1 << (id::ALMS - cards::FIRST_EVENT)) | (1 << (id::BALL - cards::FIRST_EVENT)));
+    assert_eq!(g.events.bits(), (1 << (id::ALMS - cards::FIRST_EVENT)) | (1 << (id::BALL - cards::FIRST_EVENT)));
     assert!(!g.in_supply(id::ALMS), "an Event has no pile");
     assert_eq!(g.side_pile_cards(), 20);
     let g3 = new_state(&[id::DISTANT_LANDS, id::PEASANT], 3);
@@ -1717,7 +1717,7 @@ fn events_are_offered_with_the_cards_they_cost_a_buy_and_are_never_gained() {
     assert_eq!(total_cards(&g), before);
     assert_eq!(g.players[0].all_cards().total() + g.supply.total() + g.trash.total() + g.side_pile_cards(), before);
     // It cost $1 and a Buy.
-    assert_eq!(g.players[0].events_bought, 1 << (id::SAVE - cards::FIRST_EVENT));
+    assert_eq!(g.players[0].events_bought.bits(), 1 << (id::SAVE - cards::FIRST_EVENT));
 }
 
 #[test]
@@ -1824,7 +1824,7 @@ fn games_without_alms_or_without_treasures_in_hand_are_unchanged() {
     set_hand(&mut g, 0, &[id::SILVER]);
     set_deck_known(&mut g, 0, &junk());
     g.turn.phase = Phase::Buy;
-    g.turn.adv.bought |= 1 << (id::ALMS - cards::FIRST_EVENT);
+    g.turn.adv.bought.insert((id::ALMS - cards::FIRST_EVENT) as u32);
     adv(&mut g);
     assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Buy);
     assert_eq!(g.turn.coins, 2);

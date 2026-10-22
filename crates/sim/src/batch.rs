@@ -57,8 +57,8 @@ impl Tally for () {
     fn merge(&mut self, _: &()) {}
 }
 
-/// Ids at or above this (Events, Landmarks, Boons, ...) are not counted by [`Profile`].
-pub const PROFILE_IDS: usize = 512;
+/// Ids at or above this (Events, Landmarks, Boons, ...) are not counted by [`Profile`]: the ids that can sit in a zone.
+pub const PROFILE_IDS: usize = cards::NUM_ZONE_IDS;
 
 /// What one strategy did over a batch of games: cards gained (bought or otherwise) and cards
 /// trashed. Cheap statistics for describing a strategy's behaviour.

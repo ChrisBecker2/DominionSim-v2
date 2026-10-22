@@ -157,18 +157,18 @@ impl<'a> PlayerView<'a> {
     }
     /// Whether the Event `e` is in this game.
     pub fn has_event(&self, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.events & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.events.has((e - crate::cards::FIRST_EVENT) as u32)
     }
     /// The Events of this game (card ids), in id order.
     pub fn events(&self) -> impl Iterator<Item = CardId> + '_ {
-        (0..crate::cards::NUM_EVENTS as CardId).filter(|i| self.state.events & (1u64 << i) != 0).map(|i| crate::cards::FIRST_EVENT + i)
+        self.state.events.events()
     }
     /// Whether `p` has bought the Event `e` this game, and whether this turn (Alms, Borrow, Save and Pilgrimage once a turn).
     pub fn event_bought_by(&self, p: u8, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.players[p as usize].events_bought & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.players[p as usize].events_bought.has((e - crate::cards::FIRST_EVENT) as u32)
     }
     pub fn event_bought_this_turn(&self, e: CardId) -> bool {
-        crate::cards::is_event(e) && self.state.turn.adv.bought & (1u64 << (e - crate::cards::FIRST_EVENT)) != 0
+        crate::cards::is_event(e) && self.state.turn.adv.bought.has((e - crate::cards::FIRST_EVENT) as u32)
     }
 
     // --- Empires ---

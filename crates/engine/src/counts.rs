@@ -4,18 +4,19 @@ use crate::cards::{CardId, NUM_ZONE_IDS};
 /// fixed-width (vectorizable). Unused slots are always zero. (128 lanes since Seaside and
 /// Prosperity took the id count past 64; 160 since Cornucopia & Guilds took it past 128; 192 since the Promo cards took it past 160: 176 or 168
 /// lanes, with a smaller alignment, made whole games 5-7% slower than a multiple of 32.)
-pub const LANES: usize = 512;
-/// The last four lanes are bookkeeping, not card lanes (`NUM_ZONE_IDS` leaves them free): a little-endian `u16` bitmap of the 32-lane blocks that
+pub const LANES: usize = 576;
+/// The last six lanes are bookkeeping, not card lanes (`NUM_ZONE_IDS` leaves them free): a little-endian `u32` bitmap of the 32-lane blocks that
 /// may hold a card (bit `b` clear means block `b` is all zero), then the multiset's total count (`u16`). Every mutation keeps them up to date, so
 /// `total` and `is_empty` are a load and `iter`, `add_all` and `clear` visit only the blocks that can have cards (a hand or a discard pile has
-/// cards in a few of the 12 blocks). The bitmap is a superset: `remove` does not clear a bit (except when the last card goes), and a stale bit
-/// costs one more block to look at. `Eq` and `Hash` ignore the bookkeeping lanes.
-const BLOCKS_LANE: usize = LANES - 4;
+/// cards in a few of the 18 blocks). The bitmap is a superset: `remove` does not clear a bit (except when the last card goes), and a stale bit
+/// costs one more block to look at. `Eq` and `Hash` ignore the bookkeeping lanes. (The bitmap was a `u16` and the bookkeeping four lanes while
+/// `LANES` was at most 512.)
+const BLOCKS_LANE: usize = LANES - 6;
 const TOTAL_LANE: usize = LANES - 2;
-/// The card lanes of the last 32-lane block (all but the four bookkeeping lanes), as a mask of `nonzero_mask`.
+/// The card lanes of the last 32-lane block (all but the six bookkeeping lanes), as a mask of `nonzero_mask`.
 const LAST_BLOCK_CARDS: u32 = (1 << (BLOCKS_LANE - (LANES - 32))) - 1;
 const _: () = assert!(crate::cards::NUM_ZONE_IDS <= BLOCKS_LANE, "more card ids that can sit in a zone than Counts lanes: widen LANES");
-const _: () = assert!(LANES / 32 <= 16, "the block bitmap is a u16");
+const _: () = assert!(LANES / 32 <= 32, "the block bitmap is a u32");
 
 /// A multiset of cards stored as per-card counts. `Copy`, `LANES` bytes, never allocates. Big (384 bytes): a zone that is empty in nearly every game belongs in a
 /// `state::SmallMultiset` instead (see "Keeping GameState small" in `docs/adding-a-set.md`).
@@ -116,13 +117,15 @@ impl Counts {
     }
     #[inline(always)]
     fn blocks(&self) -> u32 {
-        u16::from_le_bytes([self.0[BLOCKS_LANE], self.0[BLOCKS_LANE + 1]]) as u32
+        u32::from_le_bytes([self.0[BLOCKS_LANE], self.0[BLOCKS_LANE + 1], self.0[BLOCKS_LANE + 2], self.0[BLOCKS_LANE + 3]])
     }
     #[inline(always)]
     fn set_blocks(&mut self, b: u32) {
-        let b = (b as u16).to_le_bytes();
+        let b = b.to_le_bytes();
         self.0[BLOCKS_LANE] = b[0];
         self.0[BLOCKS_LANE + 1] = b[1];
+        self.0[BLOCKS_LANE + 2] = b[2];
+        self.0[BLOCKS_LANE + 3] = b[3];
     }
     #[inline(always)]
     fn cached_total(&self) -> u16 {
@@ -420,7 +423,7 @@ mod tests {
         const WIDE: usize = 640;
         let hash = |lanes: &[u8; WIDE], blocks: u32| {
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            hash_blocks(lanes, WIDE - 4, blocks, &mut h);
+            hash_blocks(lanes, WIDE - 6, blocks, &mut h);
             h.finish()
         };
         let legacy = |lanes: &[u8; WIDE]| {
@@ -438,10 +441,10 @@ mod tests {
         assert_eq!(hash(&a, low_blocks | 1 << 15), legacy(&a), "a stale bit in an empty upper block changes nothing");
         // The bookkeeping lanes at the end are not cards.
         let mut b = a;
-        b[WIDE - 3] = 77;
+        b[WIDE - 5] = 77;
         assert_eq!(hash(&b, low_blocks), hash(&a, low_blocks));
         let mut seen = vec![hash(&a, low_blocks)];
-        for lane in [416, 417, 447, 448, 500, WIDE - 5] {
+        for lane in [416, 417, 447, 448, 500, 511, 512, 545, WIDE - 7] {
             let mut x = a;
             x[lane] = 1;
             let h = hash(&x, low_blocks | 1 << (lane / 32));
@@ -457,6 +460,42 @@ mod tests {
         let mut z = a;
         z[411] = 1;
         assert_ne!(hash(&z, low_blocks | 1 << 12), hash(&a, low_blocks));
+    }
+
+    /// The layout of the 576-lane `Counts`: 18 blocks, a `u32` bitmap in the lanes before the `u16` total, card lanes up to 570 (the old 512-lane layout's
+    /// bookkeeping lanes 508..512 are card lanes now).
+    #[test]
+    fn the_layout_has_eighteen_blocks_and_a_u32_bitmap() {
+        assert_eq!(LANES, 576);
+        assert_eq!(BLOCKS_LANE, 570);
+        assert_eq!(TOTAL_LANE, 574);
+        assert_eq!(std::mem::size_of::<Counts>(), 576);
+        let mut c = Counts::EMPTY;
+        for id in [0usize, 31, 32, 415, 416, 480, 507, 508, 511, 512, 543, 544, 569] {
+            c.add(id as CardId, 2);
+            c.check_bookkeeping();
+            assert_eq!(c.get(id as CardId), 2);
+        }
+        // The bitmap reaches block 17 (bit 17 is beyond a u16) and the total is not disturbed by it.
+        assert!(c.blocks() & (1 << 17) != 0 && c.blocks() > u16::MAX as u32);
+        assert_eq!(c.total(), 26);
+        assert_eq!(c.iter().map(|(id, _)| id as usize).collect::<Vec<_>>(), vec![0, 31, 32, 415, 416, 480, 507, 508, 511, 512, 543, 544, 569]);
+        let mut d = Counts::EMPTY;
+        d.add_all(&c);
+        d.add_all(&c);
+        d.check_bookkeeping();
+        assert_eq!(d.get(569), 4);
+        assert_eq!(d.total(), 52);
+        assert!(d == { let mut e = c; e.add_all(&c); e });
+        d.clear();
+        assert!(d.is_empty() && d.blocks() == 0);
+        // Removing the last card of the multiset empties the bitmap.
+        let mut s = Counts::EMPTY;
+        s.add(569, 1);
+        assert!(s.remove(569) && s.blocks() == 0 && s.is_empty());
+        // The state the bookkeeping lanes are in never shows as a card: the last block iterates only its 26 card lanes.
+        let full = Counts::EMPTY.max_with(|_| 1);
+        assert_eq!(full.iter().count(), NUM_ZONE_IDS);
     }
 
     #[test]

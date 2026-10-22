@@ -135,16 +135,19 @@ pub const G_CHAMPION: u8 = 8;
 /// Some card in the game does something when it is discarded other than in Clean-up (Faithful Hound, Tunnel, Trail, Weaver): discards are watched.
 pub const G_DISCARD_HOOK: u8 = 16;
 
-/// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255, a third for ids 256-383 and a fourth for ids
-/// 384 and up (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256, Hinterlands past 352, Rising Sun past 384).
+/// The card ids that have a pile in the Supply: a `u128` for ids below 128, another for ids 128-255, a third for ids 256-383, a fourth for ids
+/// 384-511 and a fifth for ids 512 and up (Cornucopia & Guilds took the id count past 128, Dark Ages past 192, Adventures past 256, Hinterlands past 352,
+/// Rising Sun past 384, Plunder past 511).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct SupplyMask {
     pub lo: u128,
     pub hi: u128,
     /// Ids 256-383 (Wild Hunt, the split pile bottoms, the Castles and most of the Nocturne, Hinterlands and Rising Sun cards are in the Supply there).
     pub top: u128,
-    /// Ids 384 and up (the end of the Rising Sun cards' range, the members of the mixed piles).
+    /// Ids 384-511 (the end of the Rising Sun cards' range, Renaissance, Menagerie and Allies).
     pub ext: u128,
+    /// Ids 512 and up (the zone ids past 511: the end of the Plunder cards and the members of the mixed piles).
+    pub ext2: u128,
 }
 
 /// Iterator over the card ids of a `SupplyMask`, in id order.
@@ -153,13 +156,14 @@ pub struct SupplyCards {
     hi: u128,
     top: u128,
     ext: u128,
+    ext2: u128,
 }
 
 impl SupplyCards {
-    /// The cards of a mask given as its four words (see `SupplyMask`).
+    /// The cards of a mask given as its words (see `SupplyMask`).
     #[inline(always)]
-    pub fn from_words(lo: u128, hi: u128, top: u128, ext: u128) -> SupplyCards {
-        SupplyCards { lo, hi, top, ext }
+    pub fn from_words(lo: u128, hi: u128, top: u128, ext: u128, ext2: u128) -> SupplyCards {
+        SupplyCards { lo, hi, top, ext, ext2 }
     }
 }
 
@@ -183,6 +187,10 @@ impl Iterator for SupplyCards {
             let c = 384 + self.ext.trailing_zeros() as CardId;
             self.ext &= self.ext - 1;
             Some(c)
+        } else if self.ext2 != 0 {
+            let c = 512 + self.ext2.trailing_zeros() as CardId;
+            self.ext2 &= self.ext2 - 1;
+            Some(c)
         } else {
             None
         }
@@ -198,9 +206,11 @@ impl SupplyMask {
             self.hi & (1u128 << (c - 128)) != 0
         } else if c < 384 {
             self.top & (1u128 << (c - 256)) != 0
+        } else if c < 512 {
+            self.ext & (1u128 << (c - 384)) != 0
         } else {
-            // (Ids from 512 are Projects and Artifacts: never in the Supply.)
-            c < 512 && self.ext & (1u128 << ((c - 384) & 127)) != 0
+            // (Ids from 640 are Events, Projects and the other pseudo-cards: never in the Supply.)
+            c < 640 && self.ext2 & (1u128 << (c - 512)) != 0
         }
     }
     #[inline]
@@ -211,8 +221,10 @@ impl SupplyMask {
             self.hi |= 1u128 << (c - 128);
         } else if c < 384 {
             self.top |= 1u128 << (c - 256);
-        } else {
+        } else if c < 512 {
             self.ext |= 1u128 << (c - 384);
+        } else {
+            self.ext2 |= 1u128 << (c - 512);
         }
     }
     /// Takes the pile of `c` out of the mask.
@@ -224,14 +236,69 @@ impl SupplyMask {
             self.hi &= !(1u128 << (c - 128));
         } else if c < 384 {
             self.top &= !(1u128 << (c - 256));
-        } else {
+        } else if c < 512 {
             self.ext &= !(1u128 << (c - 384));
+        } else {
+            self.ext2 &= !(1u128 << (c - 512));
         }
     }
     /// Whether any card of the mask words is in the Supply (the gain-trigger gates).
     #[inline(always)]
-    pub fn any(&self, lo: u128, hi: u128, top: u128, ext: u128) -> bool {
-        (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0 || (self.ext & ext) != 0
+    pub fn any(&self, lo: u128, hi: u128, top: u128, ext: u128, ext2: u128) -> bool {
+        (self.lo & lo) != 0 || (self.hi & hi) != 0 || (self.top & top) != 0 || (self.ext & ext) != 0 || (self.ext2 & ext2) != 0
+    }
+}
+
+/// A set of Events, bit `event - cards::FIRST_EVENT` (up to 128 Events: Adventures, Empires, Summon, Rising Sun, Menagerie and Plunder). It hashes as the
+/// `u64` of the first 64 Events did, plus the other 64 only while one of them is in it, so the hashes of games without the later Events are what they were.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct EvMask {
+    /// Events 0-63.
+    pub lo: u64,
+    /// Events 64-127.
+    pub hi: u64,
+}
+
+impl std::hash::Hash for EvMask {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.lo.hash(h);
+        if self.hi != 0 {
+            self.hi.hash(h);
+        }
+    }
+}
+
+impl EvMask {
+    pub const EMPTY: EvMask = EvMask { lo: 0, hi: 0 };
+    /// Whether the Event with index `i` (`event - FIRST_EVENT`) is in the set.
+    #[inline(always)]
+    pub fn has(&self, i: u32) -> bool {
+        (if i < 64 { self.lo >> i } else { self.hi >> (i - 64) }) & 1 != 0
+    }
+    #[inline(always)]
+    pub fn insert(&mut self, i: u32) {
+        if i < 64 {
+            self.lo |= 1u64 << i;
+        } else {
+            self.hi |= 1u64 << (i - 64);
+        }
+    }
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.lo | self.hi == 0
+    }
+    /// The set as one 128-bit number (the text format and the evaluators).
+    pub fn bits(&self) -> u128 {
+        self.lo as u128 | (self.hi as u128) << 64
+    }
+    pub fn from_bits(b: u128) -> EvMask {
+        EvMask { lo: b as u64, hi: (b >> 64) as u64 }
+    }
+    /// The Event ids in the set, in id order.
+    pub fn events(&self) -> impl Iterator<Item = CardId> {
+        let m = self.bits();
+        (0..128u32).filter(move |&i| m & (1u128 << i) != 0).map(|i| crate::cards::FIRST_EVENT + i as CardId)
     }
 }
 
@@ -820,7 +887,7 @@ pub struct PlayerState {
     /// The card Save set aside, returned to the hand after the Clean-up draw (0 = none). Counts as owned.
     pub saved: CardId,
     /// Bitmask of the Events this player has bought so far (bit `event - FIRST_EVENT`).
-    pub events_bought: u64,
+    pub events_bought: EvMask,
     /// Debt tokens (Empires): while there are any the player cannot buy cards or Events. Paid off with $ (`Choice::PayDebt`).
     pub debt: u16,
     /// The cards set aside under this player's Archives, face down (private to them; their owner draws one at the start of each of the next
@@ -1583,7 +1650,7 @@ pub struct EmpTurn {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct AdvTurn {
     /// Bitmask of the Events bought this turn (bit `event - FIRST_EVENT`): the once-per-turn Events are not offered again.
-    pub bought: u64,
+    pub bought: EvMask,
     /// Travelling Fair was bought this turn: cards gained may be put onto the deck.
     pub fair: bool,
     /// Saunas played this turn: each Silver played may trash that many cards from the hand.
@@ -3051,7 +3118,7 @@ pub struct GameState {
     /// Entries at or above the size are 0. Only the top card is public; the rest is face down (`PlayerView::determinize` deals it again).
     pub pile_order: [u8; crate::sets::dark_ages::PILE_ORDER_LEN],
     /// The Events in this game (bit `event - cards::FIRST_EVENT`; Adventures, then Empires). Events are bought, never gained, and are in no zone or pile.
-    pub events: u64,
+    pub events: EvMask,
     /// Empires: Landmarks, tokens on piles, Mountain Pass's bids, `E_*` flags.
     pub emp: EmpState,
     /// Nocturne: the Boons and Hexes decks, Lost in the Woods, the piles outside the Supply, `N_*` flags.
@@ -3166,7 +3233,10 @@ impl GameState {
         // Dark Ages: the Knights and Ruins piles, Spoils / Madman / Mercenary and the Shelters (one pass over the kingdom).
         let da = crate::sets::dark_ages::setup(cfg, bane, ferryman, n);
         // Adventures: the Events are listed with the kingdom, take no Supply pile and are only a mask here.
-        let events = kingdom().filter(|&k| cards::is_event(k)).fold(0u64, |m, k| m | 1 << (k - cards::FIRST_EVENT));
+        let events = kingdom().filter(|&k| cards::is_event(k)).fold(EvMask::EMPTY, |mut m, k| {
+            m.insert((k - cards::FIRST_EVENT) as u32);
+            m
+        });
         let needs_potion = kingdom().any(cards::potion_cost);
         if needs_potion {
             put(id::POTION, crate::sets::pile_size(id::POTION, n).unwrap());
@@ -3385,7 +3455,7 @@ impl GameState {
     /// it costs one step per pile rather than one per card id).
     #[inline]
     pub fn supply_cards(&self) -> SupplyCards {
-        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi, top: self.in_supply.top, ext: self.in_supply.ext }
+        SupplyCards { lo: self.in_supply.lo, hi: self.in_supply.hi, top: self.in_supply.top, ext: self.in_supply.ext, ext2: self.in_supply.ext2 }
     }
 
     /// The cards left in the piles outside the Supply (Ferryman's, the Rewards, Spoils, Madman and Mercenary).
@@ -3404,7 +3474,7 @@ impl GameState {
         // Not piles of their own: the members of the Knights and Ruins piles (ids from `FIRST_PILE_CARD`, counted below as
         // one pile each) and Avanto (the split pile Sauna/Avanto counts once, as Sauna, when Avanto is gone too).
         let mut n = 0u32;
-        let words = [self.in_supply.lo, self.in_supply.hi, self.in_supply.top, self.in_supply.ext];
+        let words = [self.in_supply.lo, self.in_supply.hi, self.in_supply.top, self.in_supply.ext, self.in_supply.ext2];
         for (w, bits) in words.into_iter().enumerate() {
             for k in 0..4 {
                 let block = w * 4 + k;

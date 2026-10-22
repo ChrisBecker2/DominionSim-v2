@@ -552,12 +552,12 @@ pub fn event_buyable(g: &GameState, e: CardId) -> bool {
 /// `event_buyable` without the cost: the Event is in the game and nothing but its price keeps it from being bought (a Coffers token spent
 /// may still pay it).
 pub fn event_available(g: &GameState, e: CardId) -> bool {
-    let bit = 1u64 << (e - FIRST_EVENT);
-    if g.events & bit == 0 {
+    let bit = (e - FIRST_EVENT) as u32;
+    if !g.events.has(bit) {
         return false;
     }
     let p = g.turn.player as usize;
-    if once_per_turn(e) && g.turn.adv.bought & bit != 0 {
+    if once_per_turn(e) && g.turn.adv.bought.has(bit) {
         return false;
     }
     if e == crate::sets::promo::ids::SUMMON {
@@ -587,10 +587,10 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
 /// Whether Alms is still worth buying before the Treasures are played: it is in the game and not yet bought this turn, a Buy is left, no Treasure
 /// is in play and the hand holds one that would be played (`GameState::alms_window`; the caller has tested that Alms is in the game).
 pub(crate) fn alms_window(g: &GameState) -> bool {
-    let bit = 1u64 << (ids::ALMS - FIRST_EVENT);
+    let bit = (ids::ALMS - FIRST_EVENT) as u32;
     let p = g.turn.player;
-    g.events & bit != 0
-        && g.turn.adv.bought & bit == 0
+    g.events.has(bit)
+        && !g.turn.adv.bought.has(bit)
         && g.can_buy()
         && !g.turn.treasures_done
         && g.treasures_in_play(p) == 0

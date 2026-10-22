@@ -412,10 +412,12 @@ impl Evaluator for GainListEvaluator<'_> {
         // Events bought this turn: each is worth its place in the gain list, like a card gained (its effects are counted above as gains and
         // trashes, or are later turns' and have no other value here).
         if leaf.turn.number == root.turn.number {
-            let bought = leaf.turn.adv.bought & !root.turn.adv.bought;
-            for i in 0..dominion_engine::cards::NUM_EVENTS as CardId {
-                if bought & (1 << i) != 0 {
-                    v += self.weight(&view, dominion_engine::cards::FIRST_EVENT + i);
+            let bought = leaf.turn.adv.bought.bits() & !root.turn.adv.bought.bits();
+            if bought != 0 {
+                for i in 0..dominion_engine::cards::NUM_EVENTS as CardId {
+                    if bought & (1u128 << i) != 0 {
+                        v += self.weight(&view, dominion_engine::cards::FIRST_EVENT + i);
+                    }
                 }
             }
         }

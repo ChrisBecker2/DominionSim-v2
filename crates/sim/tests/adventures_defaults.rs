@@ -240,7 +240,7 @@ fn a_bought_event_can_be_asked_about_in_a_condition() {
     let mut g = with_events("Training", 6, 1, "hand: Copper\ndeck: 4 Estate\ndiscard: 3 Smithy, Village");
     let (d, ch) = next_decision(&mut g);
     assert_eq!(decide(&once, &g, &d, &ch), Choice::Card(id::TRAINING));
-    g.players[0].events_bought |= 1 << (id::TRAINING - cards::FIRST_EVENT);
+    g.players[0].events_bought.insert((id::TRAINING - cards::FIRST_EVENT) as u32);
     let (d, ch) = next_decision(&mut g);
     assert_eq!(decide(&once, &g, &d, &ch), Choice::Card(id::GOLD));
 }
@@ -298,7 +298,7 @@ fn a_bot_game_with_alms_listed_plays_to_the_end_and_gains_cards_with_it() {
     let mut agents: [&mut dyn Agent; 2] = [&mut a, &mut b];
     let result = play_game(&mut g, &mut agents[..], &mut NoEvents);
     assert!(result.turns[0] > 0);
-    assert!(g.players.iter().take(2).any(|p| p.events_bought & 1 != 0), "Alms was bought");
+    assert!(g.players.iter().take(2).any(|p| p.events_bought.has(0)), "Alms was bought");
 }
 
 // --- Whole games ---------------------------------------------------------------------------------------------

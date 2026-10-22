@@ -780,13 +780,13 @@ impl GameState {
                         // The piles whose printed cost is within the $ (and has no Potion unless there is one), by mask; those with cards left.
                         let masks = cards::buy_masks();
                         let afford = &masks.le[(self.turn.coins as usize).min(masks.le.len() - 1)];
-                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2], self.in_supply.ext & afford[3]];
+                        let mut m = [self.in_supply.lo & afford[0], self.in_supply.hi & afford[1], self.in_supply.top & afford[2], self.in_supply.ext & afford[3], self.in_supply.ext2 & afford[4]];
                         if self.turn.potions == 0 {
                             for (w, np) in m.iter_mut().zip(masks.no_potion) {
                                 *w &= np;
                             }
                         }
-                        for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2], m[3]) {
+                        for c in crate::state::SupplyCards::from_words(m[0], m[1], m[2], m[3], m[4]) {
                             if self.supply.get(c) > 0 && self.may_buy(c) && !(no_actions && cards::is(c, ACTION)) {
                                 out.push(Choice::Card(c));
                             }
@@ -805,7 +805,7 @@ impl GameState {
                     }
                 }
                 // Events (Adventures, Empires): bought like cards, for their cost and a Buy.
-                if self.events != 0 && self.can_buy() {
+                if !self.events.is_empty() && self.can_buy() {
                     for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
                         if crate::sets::adventures::event_buyable(self, e) {
                             out.push(Choice::Card(e));
@@ -1059,7 +1059,7 @@ impl GameState {
     /// Treasures) instead of playing them. Games without Alms pay one bit test.
     #[inline(always)]
     fn alms_window(&self) -> bool {
-        self.events & (1u64 << (id::ALMS - cards::FIRST_EVENT)) != 0 && crate::sets::adventures::alms_window(self)
+        self.events.has((id::ALMS - cards::FIRST_EVENT) as u32) && crate::sets::adventures::alms_window(self)
     }
 
     /// Play every choice-free Treasure in the current player's hand.
@@ -1129,9 +1129,9 @@ impl GameState {
         if cards::debt_cost(e) > 0 {
             self.take_debt(p, e, cards::debt_cost(e) as u16, sink);
         }
-        let bit = 1u64 << (e - cards::FIRST_EVENT);
-        self.turn.adv.bought |= bit;
-        self.players[p as usize].events_bought |= bit;
+        let bit = (e - cards::FIRST_EVENT) as u32;
+        self.turn.adv.bought.insert(bit);
+        self.players[p as usize].events_bought.insert(bit);
         sink.depth(0);
         sink.event(Event::Buy { player: p, card: e });
         sink.depth(1);

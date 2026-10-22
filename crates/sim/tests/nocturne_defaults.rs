@@ -223,8 +223,13 @@ fn conditions_see_boons_hexes_and_states() {
 
 // --- whole games ---------------------------------------------------------------------------------------------------
 
+// (A thread with a big stack: the bots' search recurses deeply, and every level holds a `GameState`.)
 #[test]
 fn bots_play_whole_games_on_random_nocturne_kingdoms() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(bots_play_whole_games_on_random_nocturne_kingdoms_inner).unwrap().join().unwrap();
+}
+
+fn bots_play_whole_games_on_random_nocturne_kingdoms_inner() {
     let strategies = ["skulk_bm", "sacred_grove_bm", "werewolf_bm", "big_money_ultimate"].map(load);
     let pool: Vec<CardId> = cards::kingdom_cards().filter(|&c| cards::set_of(c) == cards::CardSet::Nocturne).collect();
     let mut rng = dominion_engine::rng::Rng::new(77);

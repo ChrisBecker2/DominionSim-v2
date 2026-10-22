@@ -520,7 +520,15 @@ impl GameState {
 
     /// (remaining min, remaining max, eligible cards at/above the canonical bound) for a Select.
     fn select_bounds(&self, f: &Frame) -> (u8, u8, u32) {
-        self.select_bounds_by(f, |c| self.select_ok(f, c))
+        self.select_bounds_by(f, self.select_takes_all(f), |c| self.select_ok(f, c))
+    }
+
+    /// Whether every card of the zone passes `select_ok` for `f`, which is known without looking at the cards (an unfiltered pick from a zone
+    /// other than the Supply, with no Allies play restriction in force): the lists of such a Select (Cellar, Chapel, Militia's discards) need no
+    /// test per card.
+    #[inline(always)]
+    fn select_takes_all(&self, f: &Frame) -> bool {
+        f.filter == Filter::Any && f.zone != Zone::Supply && (self.al.hook == 0 || !(f.act == Act::Play && f.zone == Zone::Hand))
     }
 
     /// Whether `c` may be picked by the selection `f`: its filter, and (Inheritance) an Estate in the hand of a player whose Estates are
@@ -597,16 +605,22 @@ impl GameState {
     }
 
     #[inline(always)]
-    fn select_bounds_by(&self, f: &Frame, ok: impl Fn(CardId) -> bool) -> (u8, u8, u32) {
+    fn select_bounds_by(&self, f: &Frame, all_ok: bool, ok: impl Fn(CardId) -> bool) -> (u8, u8, u32) {
         let z = self.select_zone(f);
         let lo = if f.ordered || f.count == 0 { 0 } else { f.last + f.distinct as CardId };
         let mut avail_all = 0u32;
         let mut avail_from = 0u32;
-        for (c, n) in z.iter() {
-            if ok(c) {
-                avail_all += n as u32;
-                if c >= lo {
-                    avail_from += n as u32;
+        if all_ok {
+            // Every card passes: the zone's total, and from `lo` on the ones not below it.
+            avail_all = z.total();
+            avail_from = if lo == 0 { avail_all } else { z.iter().filter(|&(c, _)| c >= lo).map(|(_, n)| n as u32).sum() };
+        } else {
+            for (c, n) in z.iter() {
+                if ok(c) {
+                    avail_all += n as u32;
+                    if c >= lo {
+                        avail_from += n as u32;
+                    }
                 }
             }
         }
@@ -1051,7 +1065,12 @@ impl GameState {
                 }
             }
             K::Gain => {
-                for c in self.supply_cards() {
+                // Whether the Supply pile of `c` may be gained from. The tests are in the order that rejects most piles first (a pile that is
+                // empty, then the filter); all of them are pure, so the order does not matter to the result.
+                let ok = |c: CardId| -> bool {
+                    if self.supply.get(c) == 0 || !self.filter_ok(f.player, f.filter, c) {
+                        return false;
+                    }
                     // Potion: "up to $X" admits Potion-cost cards only when the reference cost has a
                     // Potion; "exactly" needs the Potion to match; "less than" is no part larger and not equal.
                     let pc = cards::potion_cost(c);
@@ -1078,8 +1097,18 @@ impl GameState {
                     let top_ok = self.pile_open(c);
                     // Receive Tribute: differently named Actions (the two before this one are not on offer).
                     let excl_ok = f.gf & crate::state::GF_EXCL == 0 || ((f.subject == 0 || c != f.subject) && (f.last == 0 || c != f.last));
-                    if self.supply.get(c) > 0 && top_ok && cost_ok && named_ok && record_ok && excl_ok && self.filter_ok(f.player, f.filter, c) {
-                        out.push(Choice::Card(c));
+                    top_ok && cost_ok && named_ok && record_ok && excl_ok
+                };
+                if let Filter::Card(x) = f.filter {
+                    // A gain of one named card (a Witch's Curse): that pile or none, not a walk over the whole Supply.
+                    if self.in_supply(x) && ok(x) {
+                        out.push(Choice::Card(x));
+                    }
+                } else {
+                    for c in self.supply_cards() {
+                        if ok(c) {
+                            out.push(Choice::Card(c));
+                        }
                     }
                 }
                 if f.optional && !out.is_empty() {
@@ -1093,7 +1122,8 @@ impl GameState {
                 // complete the full set.
                 let need = if f.exact && f.count == 0 { (rem_max as u32).min(avail) } else { rem_min as u32 };
                 let lo = if f.count == 0 { 0 } else { f.last + f.distinct as CardId };
-                select_choices(&z, f.ordered, lo, need, |c| self.select_ok(&f, c), out);
+                let all_ok = self.select_takes_all(&f);
+                select_choices(&z, f.ordered, lo, need, |c| all_ok || self.select_ok(&f, c), out);
                 if rem_min == 0 {
                     out.push(Choice::Pass);
                 }

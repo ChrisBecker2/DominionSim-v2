@@ -2505,6 +2505,7 @@ fn choice_label(state: &GameState, d: &Decision, c: Choice) -> String {
             DecisionKind::Buy => "Done buying".to_string(),
             DecisionKind::Gain { .. } => "Don't gain".to_string(),
             DecisionKind::Way => "Do what the card says".to_string(),
+            DecisionKind::Mode { .. } => "No extra option".to_string(),
             _ => "Done".to_string(),
         },
         Choice::Yes => "Yes".to_string(),

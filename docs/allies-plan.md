@@ -50,7 +50,9 @@ their rotation, the 23 Allies, Favors and the Liaisons. Rulings are from the wik
   (Swap, Way of the Horse) pushes it on top, so a pile can be out of order, exactly as the rules allow. **Rotating** takes the top card and every copy of it directly
   under it and puts them at the bottom (`rotate_pile`). Battle Plan rotates any Supply pile (see section 7 for what is not covered).
 * **Elder.** "When it gives you a choice (with "choose") this turn, you may choose an extra, different option": `TurnState::al.elder` is set while the card Elder
-  played pushes its frames; `Mode` frames (and the `Then` continuations that push one) pushed by that play get one more pick.
+  played pushes its frames; `Mode` frames (and the `Then` continuations that push one, `effects::elder_mode_frame`) pushed by that play get one more pick. The extra pick is
+  optional (the FAQ: "you may take an extra choice, but don't have to"): the frame is `optional` and its last pick offers `Pass`. Each of Count's two "choose one"s
+  (`Then::ModeWindow`) gets its own extra pick.
 * **Extra turns and skips.** Voyage and Island Folk use the Outpost machinery (`outpost_grants_extra`, no third turn in a row); a Voyage turn limits the cards
   played from the hand to 3 (`AlTurn::limited`; the Buy phase offers the Treasures one by one then). Lich's skip is `AlPlayer::skips`, taken when the
   next player is chosen; the skipped turn counts for the tie-break.

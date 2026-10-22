@@ -107,6 +107,14 @@ pub(crate) fn mode_frame(p: u8, source: CardId, picks: u8) -> Frame {
     Frame { max: picks, ..Frame::new(K::Mode, p, source) }
 }
 
+/// Choose `base` options from `cards::modes(source)`, plus one more when `elder` (Allies: a card Elder played "may choose an extra
+/// (different) option"): the extra pick is `optional` (the last pick offers `Pass`), and there is none when the table has no option left.
+pub(crate) fn elder_mode_frame(p: u8, source: CardId, base: usize, elder: bool) -> Frame {
+    let len = cards::modes(source).len();
+    let extra = elder && base < len;
+    Frame { optional: extra, ..mode_frame(p, source, (base + extra as usize).min(len) as u8) }
+}
+
 pub(crate) const ALL: u8 = u8::MAX;
 
 /// The card choices of a `Select`: every eligible card when `ordered`, else the canonical
@@ -1090,6 +1098,10 @@ impl GameState {
                         out.push(Choice::Mode(i as u8));
                     }
                 }
+                // Elder's extra pick (the last one) may be left out.
+                if f.optional && f.count + 1 == f.max {
+                    out.push(Choice::Pass);
+                }
             }
             K::Name if f.zone == Zone::Supply => {
                 // War Chest: the player to the left may name any card in this game's supply.
@@ -1398,6 +1410,11 @@ impl GameState {
                 f.count += 1;
                 self.stack.set_top(f);
             }
+            // No extra option for Elder: the picks are done.
+            (K::Mode, Choice::Pass) => {
+                f.count = f.max;
+                self.stack.set_top(f);
+            }
             (K::Ask, Choice::Yes) => {
                 self.stack.pop();
                 self.ask_yes(f, sink);
@@ -1612,10 +1629,9 @@ impl GameState {
                 if f.count > 0 {
                     // A Curse is also a Treasure in a game with Charlatan: two types.
                     let types = cards::def(f.last).types.count_ones() + (f.last == id::CURSE && self.is_treasure(f.last)) as u32;
-                    let types = types + (f.gf & crate::state::GF_ELDER != 0) as u32;
-                    let picks = types.min(cards::modes(f.source).len() as u32) as u8;
-                    if picks > 0 {
-                        self.stack.push(mode_frame(p, f.source, picks));
+                    let m = elder_mode_frame(p, f.source, types as usize, f.gf & crate::state::GF_ELDER != 0);
+                    if m.max > 0 {
+                        self.stack.push(m);
                     }
                 }
             }

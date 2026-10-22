@@ -1228,12 +1228,28 @@ fn elder_gives_two_coins_and_plays_an_action_with_an_extra_choice() {
     play(&mut g, I::ELDER);
     assert_eq!(g.turn.coins, 2);
     choose(&mut g, Choice::Card(I::TOWN));
-    // Town's choose-one gives two picks now (the second is forced).
+    // Town's choose-one gives two picks now; the first is not optional, the extra one is.
     let d = expect_decision(&mut g);
     assert!(matches!(d.kind, DecisionKind::Mode { picks: 2, distinct: true }), "{d:?}");
+    assert!(!choices(&g).contains(&Choice::Pass));
     choose(&mut g, Choice::Mode(0));
+    expect_decision(&mut g);
+    assert_eq!(choices(&g), vec![Choice::Mode(1), Choice::Pass]);
+    choose(&mut g, Choice::Mode(1));
     adv(&mut g);
     assert_eq!((g.turn.buys, g.turn.coins, g.turn.actions, g.players[0].hand.total()), (2, 4, 2, 1));
+    // The extra option may be left out.
+    let mut g = game(&[I::ELDER, I::TOWN]);
+    set_hand(&mut g, 0, &[I::ELDER, I::TOWN]);
+    play(&mut g, I::ELDER);
+    choose(&mut g, Choice::Card(I::TOWN));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Mode(1));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Pass);
+    adv(&mut g);
+    assert_eq!((g.turn.buys, g.turn.coins), (2, 4));
+    assert_eq!(g.turn.actions, 0);
     // A card without a choice is simply played.
     let mut g = game(&[I::ELDER, I::VILLAGE]);
     set_hand(&mut g, 0, &[I::ELDER, I::VILLAGE]);
@@ -1241,6 +1257,33 @@ fn elder_gives_two_coins_and_plays_an_action_with_an_extra_choice() {
     choose(&mut g, Choice::Card(I::VILLAGE));
     adv(&mut g);
     assert_eq!(g.turn.actions, 2);
+}
+
+#[test]
+fn elder_on_count_gives_each_choose_one_an_optional_extra_pick() {
+    let mut g = game(&[I::ELDER, I::COUNT]);
+    set_hand(&mut g, 0, &[I::ELDER, I::COUNT, I::ESTATE, I::ESTATE, I::ESTATE]);
+    play(&mut g, I::ELDER);
+    choose(&mut g, Choice::Card(I::COUNT));
+    // First choose-one (discard 2 / topdeck 1 / gain a Copper): only one option, no extra.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { picks: 2, .. }), "{d:?}");
+    choose(&mut g, Choice::Mode(2));
+    expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Pass));
+    choose(&mut g, Choice::Pass);
+    // Second choose-one (+$3 / trash the hand / gain a Duchy): both +$3 and a Duchy.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { picks: 2, .. }), "{d:?}");
+    assert_eq!(choices(&g), vec![Choice::Mode(3), Choice::Mode(4), Choice::Mode(5)]);
+    choose(&mut g, Choice::Mode(3));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Mode(5));
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 5);
+    assert_eq!(g.players[0].discard.get(I::COPPER), 1);
+    assert_eq!(g.players[0].discard.get(I::DUCHY), 1);
+    assert_eq!(g.players[0].hand.get(I::ESTATE), 3);
 }
 
 #[test]

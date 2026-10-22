@@ -1354,9 +1354,9 @@ impl GameState {
             Then::ModePerCost => {
                 if f.count > 0 {
                     // (Allies: a card Elder played gives one more pick.)
-                    let picks = (self.cost(f.last) as usize + (f.gf & crate::state::GF_ELDER != 0) as usize).min(cards::modes(f.source).len()) as u8;
-                    if picks > 0 {
-                        self.stack.push(mode_frame(p, f.source, picks));
+                    let m = crate::effects::elder_mode_frame(p, f.source, self.cost(f.last) as usize, f.gf & crate::state::GF_ELDER != 0);
+                    if m.max > 0 {
+                        self.stack.push(m);
                     }
                 }
             }

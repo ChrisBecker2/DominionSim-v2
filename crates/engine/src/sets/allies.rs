@@ -1003,10 +1003,16 @@ impl GameState {
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
             match f.kind {
                 K::Mode if f.count == 0 => {
-                    let len = cards::modes(f.source).len() as u8;
-                    // (A window onto the card's table, Count's, has its own picks.)
-                    if f.then == Then::Nothing && f.max < len {
+                    // A window onto the card's table (Count's two "choose one"s) is a choice of its own: each gets the extra pick.
+                    let len = match f.then {
+                        Then::ModeWindow { count, .. } => count,
+                        Then::Nothing => cards::modes(f.source).len() as u8,
+                        _ => 0,
+                    };
+                    if f.max < len {
                         f.max += 1;
+                        // The extra option is a "may": its pick offers to stop.
+                        f.optional = true;
                     }
                 }
                 K::Select => f.gf |= GF_ELDER,
@@ -1414,9 +1420,7 @@ impl GameState {
             // Broker, Modify: choose what the card trashed buys (the Mode frame knows the card).
             Then::BrokerMode | Then::ModifyMode => {
                 if f.count > 0 {
-                    let picks = 1 + (f.gf & GF_ELDER != 0) as usize;
-                    let picks = picks.min(cards::modes(src).len()) as u8;
-                    self.stack.push(Frame { subject: f.last, depth: d, ..mode_frame(p, src, picks) });
+                    self.stack.push(Frame { subject: f.last, depth: d, ..crate::effects::elder_mode_frame(p, src, 1, f.gf & GF_ELDER != 0) });
                 }
             }
             // Royal Galley: the card is played; afterwards the Galley (and the card, if it is still in play) wait for the next turn.

@@ -755,6 +755,7 @@ pub(crate) fn describe(d: &Decision, choice: Choice) -> String {
             Some(src) => cards::modes(src).get(i as usize).map(|o| o.label()).unwrap_or_else(|| "?".to_string()),
             None => "?".to_string(),
         },
+        (DecisionKind::Mode { .. }, Choice::Pass) => "no extra option".to_string(),
         (DecisionKind::Mode { .. }, _) => "?".to_string(),
         (DecisionKind::Name, Choice::Card(c)) => format!("Name {}", cards::name(c)),
         (DecisionKind::Name, _) => "name nothing".to_string(),

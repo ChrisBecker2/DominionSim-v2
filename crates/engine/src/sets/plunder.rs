@@ -566,10 +566,21 @@ impl SetRules for Plunder {
     }
 
     /// The start-of-turn entries that are not pending Durations: Shaman and Shy for every player in a game with them, Prepare's set-aside hand.
-    #[inline(always)]
     fn turn_start_entries(g: &mut GameState) {
-        if g.plu.flags & PF_ANY != 0 {
-            turn_start_entries_slow(g);
+        let p = g.turn.player;
+        if g.plu.flags & PF_ANY == 0 {
+            return;
+        }
+        if g.plu.flags & PF_START != 0 {
+            if g.in_supply(ids::SHAMAN) {
+                g.turn.start_pending.push(PendingDuration { card: ids::SHAMAN, times: 1, arg: 0, used: 0 });
+            }
+            if g.plu.traits & trait_bit(ids::SHY) != 0 && g.players[p as usize].hand.iter().any(|(c, _)| g.has_trait(ids::SHY, c)) {
+                g.turn.start_pending.push(PendingDuration { card: ids::SHY, times: 1, arg: 0, used: 0 });
+            }
+        }
+        if g.players[p as usize].plu.ztotal(Z_PREP) > 0 {
+            g.turn.start_pending.push(PendingDuration { card: ids::PREPARE, times: 1, arg: 0, used: 0 });
         }
     }
 
@@ -592,8 +603,6 @@ impl SetRules for Plunder {
     }
 
     /// "When you discard this from play" offers: Trickster keeps Treasures for the next hand.
-    #[cold]
-    #[inline(never)]
     fn offers_on_discard(g: &mut GameState) {
         let p = g.turn.player;
         if g.turn.plu.trickster > 0 {
@@ -602,8 +611,6 @@ impl SetRules for Plunder {
     }
 
     /// "At the start of Clean-up" offers: Friendly gains a copy for a discard, Patient sets cards aside to play next turn.
-    #[cold]
-    #[inline(never)]
     fn offers_at_cleanup(g: &mut GameState) {
         let p = g.turn.player;
         if g.plu.traits & trait_bit(ids::FRIENDLY) != 0 && g.players[p as usize].hand.iter().any(|(c, _)| g.has_trait(ids::FRIENDLY, c)) {
@@ -618,26 +625,6 @@ impl SetRules for Plunder {
 // -------------------------------------------------------------------------------------------
 // Set-up
 // -------------------------------------------------------------------------------------------
-
-#[cold]
-#[inline(never)]
-fn turn_start_entries_slow(g: &mut GameState) {
-    let p = g.turn.player;
-    if g.plu.flags & PF_ANY == 0 {
-        return;
-    }
-    if g.plu.flags & PF_START != 0 {
-        if g.in_supply(ids::SHAMAN) {
-            g.turn.start_pending.push(PendingDuration { card: ids::SHAMAN, times: 1, arg: 0, used: 0 });
-        }
-        if g.plu.traits & trait_bit(ids::SHY) != 0 && g.players[p as usize].hand.iter().any(|(c, _)| g.has_trait(ids::SHY, c)) {
-            g.turn.start_pending.push(PendingDuration { card: ids::SHY, times: 1, arg: 0, used: 0 });
-        }
-    }
-    if g.players[p as usize].plu.ztotal(Z_PREP) > 0 {
-        g.turn.start_pending.push(PendingDuration { card: ids::PREPARE, times: 1, arg: 0, used: 0 });
-    }
-}
 
 /// Plunder's set-up: which effects are in the game, the Loot pile, the Traits and the piles they sit on.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {

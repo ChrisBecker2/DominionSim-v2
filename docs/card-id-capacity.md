@@ -243,21 +243,24 @@ Reading it: the plain-bot game is one engine loop, and nothing in the `Strategy`
    `treasure_order_matters`, the Action test of the Action phase and the Treasure play (Copper, Silver and Gold read as three lanes, no 448-byte hand copy) use them.
 4. *`Counts::nth` with prefix sums* (+2 to +6%): the random draw finds its card by an SSE2 prefix sum of a block's lanes and a count of sums not above the index, instead of a branch per card (a mispredict per draw). Totals above 255 and the last block (bookkeeping lanes) take the old walk.
 
-**Results** (interleaved, 5 rounds, best / mean in ms, base = the tree before this pass; the match workloads are fast bots as above):
+**Results.** Interleaved, 5 rounds, best / mean in ms. Base = master a3c5d83 (with Menagerie, Allies and Plunder, `LANES` 576), after = this branch rebased on it. The match workloads are fast bots as above; the 1-thread runs use an eighth of the games.
 
 | workload | all threads before | after | | 1 thread before | after | |
 |---|---|---|---|---|---|---|
-| plain: BMU vs Double Witch (400k / 50k games) | 274.1 / 279.6 | 198.0 / 200.4 | +38% | 629.7 / 638.0 | 493.0 / 495.6 | +28% |
-| engine: Village/Smithy vs Kitsune BM, `auto` (600k / 75k) | 687.8 / 689.2 | 543.4 / 545.9 | +27% | 1600 / 1606 | 1300 / 1302 | +23% |
-| rising: Kitsune BM vs Samurai BM, Rising Sun kingdom (500k / 62k) | 628.6 / 630.4 | 368.8 / 369.8 | +70% | 1470 / 1480 | 850 / 854 | +73% |
-| four: 4 players (100k / 12k) | 253.9 / 254.8 | 208.1 / 209.0 | +22% | 560.1 / 561.9 | 476.6 / 478.0 | +18% |
-| league (30 gens, 4000 final, fast only) | 2150 / 2170 | 1769 / 1782 | +22% | 24403 / 24434 | 19253 / 19279 | +27% |
-| `fast_speed` 60k games | 1944 / 1951 | 1618 / 1631 | +20% | 4609 / 4617 | 3841 / 3849 | +20% |
+| plain: BMU vs Double Witch (400k / 50k games) | 300.1 / 311.5 | 237.6 / 248.5 | +26% | 690.6 / 694.5 | 543.9 / 547.3 | +27% |
+| engine: Village/Smithy vs Kitsune BM, `auto` (600k / 75k) | 750.3 / 790.3 | 622.3 / 633.8 | +21% | 1750 / 1758 | 1440 / 1440 | +22% |
+| rising: Kitsune BM vs Samurai BM, Rising Sun kingdom (500k / 62k) | 807.9 / 835.8 | 440.8 / 459.7 | +83% | 1950 / 1952 | 1010 / 1018 | +93% |
+| four: 4 players (100k / 12k) | 281.4 / 295.7 | 246.9 / 265.9 | +14% | 622.7 / 625.6 | 537.4 / 540.3 | +16% |
+| league (30 gens, 4000 final, `SEARCH=off FINAL_FULL=0`) | 2339 / 2443 | 2154 / 2182 | +9% (noisy: +22% on a quiet machine before the rebase) | 26566 / 26752 | 21994 / 22161 | +21% |
+| `fast_speed` 60k games | 2167 / 2199 | 1884 / 1912 | +15% | 4922 / 4946 | 4319 / 4327 | +14% |
+| stock `match strategies/big_money_ultimate.toml strategies/double_witch.toml`, 400k games (no `search_play` edit) | 312.0 / 314.7 | 240.4 / 241.5 | +30% | 696.0 / 698.9 | 544.4 / 546.1 | +28% |
 
-The same binary measured against itself differs by up to 3% in this setup (a copy in another folder is consistently a little faster or slower), so effects under 3% are not claims. The `league` output with a fixed `SEED` is identical before and after.
+The same binary measured against itself differs by up to 3% in this setup (a copy in another folder is consistently a little faster or slower), so effects under 3% are not claims. Output identity: 1944 same-seed `match` jobs (every shipped strategy and its fast copy, 2-4 players, `auto`, random and explicit kingdoms of Menagerie, Allies and Plunder) are byte-identical between master and this branch; the `league_run` output with a fixed `SEED` too.
+
+**Checks against the later sets.** The Buy test `BuyAvail` returns `None` (the list is built) for Animal Fair's `Choice::Alt` when it is possible, for any cost modifier (`plain_costs`: Quarry, Peddler, cost tokens, Menagerie's and Plunder's cost flags), Debt, Coffers, a no-buy turn and a non-empty effect stack; Events come from the `EvMask`. The Treasure lane paths are skipped under Charlatan, Capitalism, a Trait that changes how a card is played (`PF_TRAIT_PLAY`), the page's `ask_treasures`, Voyage / Highwayman (`al_treasures_by_choice` first), Kiln, Envious, Sauna and Corsair; the three-lane Copper/Silver/Gold play keeps `play_plain_treasure` (Landing Party's first-Treasure hook included). The Action-in-hand test keeps the Snowy Village and Villager conditions. `LaneMask` is 576 lanes (the bookkeeping lanes are never set in a mask) and `nth` hands the last block (index 17, with the `u32` bitmap and the total) to the old walk.
 
 **Tried / not done.**
 * Skipping the second list build for the other decisions (`advance` builds it, `play_game` again): after change 1 `legal_choices` is 3% of a plain game; not worth caching a `ChoiceBuf` in the state.
 * Merging the two Buy-phase hand scans into one pass, a per-game "all Treasures are plain" flag: superseded by change 3.
 * Left (each now under about 5% of a profile): `take_top` is still 15% (the draw's `deck_known` / Star Chart / shuffle checks and `remove`), `advance` + `run_phase` + `run_frame` about 25% together with no line above 4%, `Counts::add_all` 5% (cleanup discards, the shuffle), `Strategy` rule evaluation (`match_gain_list`, `Expr::eval_in`) about 6%. Sparse player zones were not prototyped: `Counts` operations are no longer the top of a plain-bot profile (the dense layout costs little now that every scan goes through the block bitmap), so the 15% of the 128-lane experiment is no longer where the time is.
-* The stock strategy files search the play order (`search_play` is on unless the file says otherwise); `dominion-sim match` has no flag for fast bots, so the benchmarks use copies with `search_play = false`. A `--fast` flag would make this measurable without copies.
+* The stock strategy files search the play order (`search_play` is on unless the file says otherwise); `dominion-sim match --fast` now plays rules-only bots (`search_play` and `win_this_turn` off, what the Lab's fast evaluation does); the benchmarks above used copies of the files with `search_play = false`, which play the same games.

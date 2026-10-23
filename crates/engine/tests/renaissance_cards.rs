@@ -2360,3 +2360,30 @@ fn star_chart_is_offered_for_the_shuffle_of_annex() {
     let d = expect_decision(&mut g);
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }), "{d:?}");
 }
+
+#[test]
+fn old_witch_lets_a_sheepdog_draw_the_curse_that_is_then_trashed() {
+    // "The Curse is gained before you may trash one. So you can gain a Curse, react with Sheepdog, draw a Curse, and then trash that Curse."
+    let mut g = new_state(&[id::OLD_WITCH, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::OLD_WITCH]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    set_hand(&mut g, 1, &[id::SHEEPDOG, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::SILVER]);
+    play(&mut g, id::OLD_WITCH);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    // Sheepdog drew the Silver and, after a reshuffle of the discard pile, the Curse; the Curse is the only one to trash.
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 20 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        let cs = choices(&g);
+        choose(&mut g, if cs.contains(&Choice::Card(id::CURSE)) { Choice::Card(id::CURSE) } else if cs.contains(&Choice::Pass) { Choice::Pass } else { cs[0] });
+        let _ = d;
+    }
+    assert_eq!(g.trash.get(id::CURSE), 1);
+}

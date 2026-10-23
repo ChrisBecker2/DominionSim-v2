@@ -3343,3 +3343,100 @@ fn two_champions_each_give_an_action_per_action_played() {
     play(&mut g, id::SMITHY);
     assert_eq!(g.turn.actions, 2);
 }
+
+#[test]
+fn royal_carriage_is_not_offered_for_a_raze_that_trashed_itself_while_another_raze_is_in_play() {
+    // Royal Carriage FAQ: "cannot respond to Actions that are no longer in play, such as ... a Raze used to trash itself" (stop-moving rule:
+    // the Raze in play from earlier is not the one that was played).
+    let mut g = new_state(&[id::RAZE, id::ROYAL_CARRIAGE], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_in_play(&mut g, 0, &[id::RAZE]);
+    set_hand(&mut g, 0, &[id::RAZE]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.actions = 2;
+    play(&mut g, id::RAZE);
+    // Trash the Raze itself (a Yes), then take a card of the look.
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Trash }), "{d:?}");
+    choose(&mut g, Choice::Yes);
+    while matches!(pending_kind(&g), Some(DecisionKind::Select { .. })) {
+        let c = choices(&g)[0];
+        choose(&mut g, c);
+    }
+    assert!(!call_decision(&g), "{:?}", g.pending_decision());
+    assert_eq!(g.players[0].in_play.get(id::RAZE), 1);
+}
+
+#[test]
+fn a_hireling_played_twice_by_royal_carriage_draws_two_cards_each_turn() {
+    // Hireling FAQ via Throne Room variants: each play is its own "start of each of your turns" effect.
+    let mut g = new_state(&[id::HIRELING, id::ROYAL_CARRIAGE], 2);
+    g.players[0].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_hand(&mut g, 0, &[id::HIRELING]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::HIRELING);
+    assert!(call_decision(&g));
+    choose(&mut g, Choice::Yes);
+    end_turn(&mut g);
+    end_turn(&mut g);
+    assert_eq!(g.players[0].hand.total(), 7);
+}
+
+#[test]
+fn warrior_discarding_a_village_green_lets_it_be_played_and_then_it_is_not_trashed() {
+    // Warrior FAQ: "they can play a Village Green and have it not be trashed."
+    let mut g = new_state(&[id::PAGE, id::VILLAGE_GREEN], 2);
+    set_hand(&mut g, 0, &[id::WARRIOR]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::VILLAGE_GREEN, id::COPPER, id::COPPER]);
+    play(&mut g, id::WARRIOR);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.player == 1 && d.subject == id::VILLAGE_GREEN, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.trash.get(id::VILLAGE_GREEN), 0);
+    assert!(g.players[1].in_play.has(id::VILLAGE_GREEN));
+}
+
+#[test]
+fn several_caravan_guards_can_all_be_played_against_one_attack() {
+    // Caravan Guard FAQ: "After reacting with a Caravan Guard, you can use another one ... you keep going until you have no more Reactions."
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::MILITIA], 2);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD, id::CARAVAN_GUARD, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD, id::GOLD]);
+    play(&mut g, id::MILITIA);
+    choose(&mut g, Choice::Yes);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::CARAVAN_GUARD, "the second Guard is offered: {d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[1].in_play.get(id::CARAVAN_GUARD), 2);
+}
+
+#[test]
+fn a_bridge_troll_token_is_taken_after_the_victims_caravan_guard_reaction() {
+    // Caravan Guard FAQ: the reaction comes first, so the victim's +$1 token (Training) cannot cancel the -$1 token that follows.
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::BRIDGE_TROLL], 2);
+    set_hand(&mut g, 0, &[id::BRIDGE_TROLL]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD]);
+    set_deck_known(&mut g, 1, &junk());
+    g.players[1].tok[TOK_COIN] = id::CARAVAN_GUARD;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    play(&mut g, id::BRIDGE_TROLL);
+    choose(&mut g, Choice::Yes);
+    assert!(g.players[1].adv & ADV_MINUS_COIN != 0, "the token is still there");
+}
+
+#[test]
+fn a_caravan_guard_drawn_by_a_caravan_guard_can_be_played_against_the_same_attack() {
+    // Caravan Guard FAQ: "you can use another one, even one you just drew".
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::MILITIA], 2);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::CARAVAN_GUARD, id::GOLD]);
+    play(&mut g, id::MILITIA);
+    choose(&mut g, Choice::Yes);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::CARAVAN_GUARD, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[1].in_play.get(id::CARAVAN_GUARD), 2);
+}

@@ -1419,6 +1419,15 @@ impl GameState {
                     self.turn.used_up.add_or_drop(f.source, 1);
                 }
                 if f.act == Act::Play {
+                    // Caravan Guard, Guard Dog: another copy of it (one just drawn, too) may be played in response to the same Attack once this
+                    // one has resolved; the offer is dropped when no copy is left in the hand.
+                    if f.zone == Zone::Hand
+                        && f.then == Then::Nothing
+                        && cards::is(f.source, cards::ATTACK)
+                        && cards::ATTACK_REACTIONS.iter().any(|&(c, a, _)| c == f.subject && a == Act::Play)
+                    {
+                        self.stack.push(Frame { depth: f.depth, ..f });
+                    }
                     self.resolve_effects(f.subject, p, f.depth, sink);
                 }
                 match f.then {

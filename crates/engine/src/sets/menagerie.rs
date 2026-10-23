@@ -499,7 +499,7 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {
     if g.in_supply(ids::DESTRIER) || g.in_supply(ids::WAYFARER) || has(ids::COMMERCE) {
         g.men.flags |= M_GAINS;
     }
-    if g.in_supply(ids::GOATHERD) {
+    if g.in_supply(ids::GOATHERD) || g.men.mouse == ids::GOATHERD {
         g.men.flags |= M_TRASHES;
     }
     // Discards are watched when Village Green can be played from a discard.
@@ -580,12 +580,13 @@ pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, si
             // First count the differently named cards gained this turn, then gain that many Golds.
             let n = g.turn.men.names.iter().count();
             for _ in 0..n {
-                g.gain(p, id::GOLD, Dest::Discard, false, e, sink);
+                g.stack.push(Frame { gf: GF_ANY_COST, ..gain_frame(p, e, u8::MAX, Filter::Card(id::GOLD), Dest::Discard) });
             }
         }
         ids::DEMAND => {
-            g.gain_horses(p, e, 1, Dest::DeckTop, sink);
+            // The Horse is gained (and its reactions resolved) before the card is: the card's frame waits under them.
             g.stack.push(gain_frame(p, e, 4, Filter::Any, Dest::DeckTop));
+            g.gain_horses(p, e, 1, Dest::DeckTop, sink);
         }
         ids::STAMPEDE => {
             if g.players[pi].in_play.total() <= 5 {
@@ -598,8 +599,9 @@ pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, si
             g.stack.push(Frame { gf: GF_EXILE | GF_ANY_COST, ..gain_frame(p, e, u8::MAX, Filter::Card(id::DUCHY), Dest::Discard) });
         }
         ids::ALLIANCE => {
-            for c in [id::PROVINCE, id::DUCHY, id::ESTATE, id::GOLD, id::SILVER, id::COPPER] {
-                g.gain(p, c, Dest::Discard, false, e, sink);
+            // One gain at a time: each card's reactions resolve before the next is gained (the frames are pushed in reverse).
+            for c in [id::COPPER, id::SILVER, id::GOLD, id::ESTATE, id::DUCHY, id::PROVINCE] {
+                g.stack.push(Frame { gf: GF_ANY_COST, ..gain_frame(p, e, u8::MAX, Filter::Card(c), Dest::Discard) });
             }
         }
         ids::POPULATE => {
@@ -760,8 +762,13 @@ impl GameState {
     pub(crate) fn cost_when_gained(&self, p: u8, c: CardId, to: Dest) -> u8 {
         if self.men.flags & M_COST != 0 && p == self.turn.player {
             let discard_was_empty = self.players[p as usize].discard.total() == (to == Dest::Discard) as u32;
-            if c == ids::FISHERMAN && !discard_was_empty {
-                return self.cost(c);
+            if c == ids::FISHERMAN {
+                if !discard_was_empty {
+                    return self.cost(c);
+                }
+                // It cost $3 less as it was gained (now the discard pile holds it).
+                let fam = if self.al.flags & crate::state::AF_FAMILY != 0 { self.al_fam_less(c) as u32 } else { 0 };
+                return 2u32.saturating_sub(fam) as u8;
             }
             if c == ids::DESTRIER {
                 return (self.cost(c) as u32 + 1).min(6) as u8;
@@ -1040,7 +1047,15 @@ impl GameState {
                     sink.bonus(p, id::CHAMPION, champions, 0, 0, 0);
                 }
             }
+            // Empires: a Way replaces Enchantress's +1 Card +1 Action, which is for the first Action only, so this play uses it up.
+            if self.emp.flags & crate::state::E_ENCHANT != 0 && p == self.turn.player {
+                self.turn.emp.acted = true;
+            }
             self.way_effect(way, card, p, f.tok, sink);
+            // Rising Sun: Great Leader's +1 Action and Approaching Army's +$1 follow any play, a Way's included.
+            if self.rs.active != 0 && p == self.turn.player {
+                self.rs_after_play(card, p, sink);
+            }
         }
         self.turn.led.cur = outer;
         self.stamp_frames(base, f);

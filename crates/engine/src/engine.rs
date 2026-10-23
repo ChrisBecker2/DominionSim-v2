@@ -1313,10 +1313,6 @@ impl GameState {
         if self.rs.active != 0 {
             self.rs_treasure_plays(c, n, sink);
         }
-        // Kiln: the card played now may come with a copy first (asked before anything else of the play).
-        if self.turn.men.kiln > 0 {
-            self.kiln_hook(c, p);
-        }
         let coins_before = self.turn.coins;
         let ps = &mut self.players[p as usize];
         if fresh {
@@ -1411,6 +1407,10 @@ impl GameState {
             for _ in 0..back {
                 sink.event(Event::Return { player: p, card: c });
             }
+        }
+        // Kiln: the card played now may come with a copy first (asked before anything else of the play: its frame goes on top of the others).
+        if self.turn.men.kiln > 0 {
+            self.kiln_hook(c, p);
         }
     }
 

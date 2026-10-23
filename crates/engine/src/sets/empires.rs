@@ -837,7 +837,9 @@ impl GameState {
                 self.gain_vp_tokens(p, ids::DEFILED_SHRINE, n as u16, sink);
             }
         }
-        if lm & lm_bit(ids::BASILICA) != 0 && buy_phase && self.turn.coins >= 2 {
+        // A Nomads gained in the Buy phase gives its +$2 first: the player orders the two triggers, and this order is never worse for them.
+        let nomads_coins = (c == crate::sets::hinterlands::ids::NOMADS) as u16 * 2;
+        if lm & lm_bit(ids::BASILICA) != 0 && buy_phase && self.turn.coins + nomads_coins >= 2 {
             self.take_landmark_vp(p, ids::BASILICA, 2, sink);
         }
         if lm & lm_bit(ids::BATTLEFIELD) != 0 && victory {

@@ -1114,6 +1114,7 @@ impl GameState {
     /// Enter the buy phase; treasures are auto-played by the first `run_phase` call for it.
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
+        self.turn.buy_gain_base = self.turn.gained_in_buy;
         sink.event(Event::PhaseStart { player: self.turn.player, phase: Phase::Buy });
         // Nocturne: Deluded and Envious are returned now and apply for the rest of the turn.
         if self.players[self.turn.player as usize].noc & (crate::state::P_DELUDED | crate::state::P_ENVIOUS) != 0 {

@@ -1795,6 +1795,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         extra_draw: tf.extra_draw,
         guilds: tf.guilds,
         gained_in_buy: tf.gained_in_buy,
+        buy_gain_base: 0,
         adv: tf.adv,
         emp: tf.emp,
         noc: tf.noc,

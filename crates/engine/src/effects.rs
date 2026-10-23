@@ -740,7 +740,10 @@ impl GameState {
                     }
                     Some(c) => {
                         self.players[pi].set_aside.add(c, 1);
-                        self.reveal_card(p, c, sink);
+                        // `exact` = "look at the top cards": nothing is revealed (no log line, no Patron).
+                        if !f.exact {
+                            self.reveal_card(p, c, sink);
+                        }
                         f.max -= 1;
                         if f.max == 0 { self.finish_reveal_top(f, sink); } else { self.stack.set_top(f); }
                     }
@@ -1330,8 +1333,12 @@ impl GameState {
                 self.plu_count_pick(&mut f, c);
                 f.count += 1;
                 f.last = c;
-                if f.then == Then::WitchsHut && cards::is(c, ACTION) {
-                    f.subject += 1;
+                // Witch's Hut: the discarded cards are revealed, whatever they are.
+                if f.then == Then::WitchsHut {
+                    self.reveal_card(p, c, sink);
+                    if cards::is(c, ACTION) {
+                        f.subject += 1;
+                    }
                 }
                 // Allies: a Voyage turn counts the cards played from the hand (the Throne Room's pick counts, its replay does not).
                 if self.al.hook & crate::state::AH_LIMIT != 0 && f.act == Act::Play && f.zone == Zone::Hand {
@@ -1562,7 +1569,7 @@ impl GameState {
                 }
             }
             // Nocturne: back to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling).
-            Act::Return => self.return_to_pile(p, c, sink),
+            Act::Return => self.return_to_own_pile(p, c, sink),
             Act::Archive => ps.archive.add(c, 1),
             // Menagerie: onto the Exile mat (not a gain, not a trash).
             Act::Exile => {

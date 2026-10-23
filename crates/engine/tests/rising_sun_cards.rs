@@ -1830,3 +1830,38 @@ fn great_leader_gives_its_action_after_a_card_played_as_a_way() {
     choose(&mut g, Choice::Card(id::WAY_OF_THE_OWL));
     assert_eq!(g.turn.actions, 1, "the Action used and Great Leader's +1");
 }
+
+#[test]
+fn a_shadow_card_goes_to_the_bottom_when_annex_shuffles_the_discard_pile_into_the_deck() {
+    // Shadow: "When shuffling Shadow cards, put them on the bottom." (Every shuffle, not only a draw's reshuffle.)
+    let mut g = new_state(&[id::ANNEX, id::ALLEY, id::SMITHY], 2);
+    set_discard(&mut g, 0, &[id::ALLEY, id::COPPER, id::COPPER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::PROVINCE]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 10]);
+    buy_phase(&mut g, 0, 2);
+    adv(&mut g);
+    pick(&mut g, id::ANNEX);
+    // Keep nothing.
+    pass(&mut g);
+    let ps = &g.players[0];
+    assert_eq!(ps.deck_known_bottom.len, 1, "the Alley is at the bottom of the shuffled deck");
+    assert!(!ps.deck_unknown.has(id::ALLEY));
+}
+
+#[test]
+fn a_shadow_card_goes_to_the_bottom_when_inn_shuffles_actions_into_the_deck() {
+    let mut g = new_state(&[id::INN, id::ALLEY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::GOLD, id::GOLD]);
+    set_discard(&mut g, 0, &[id::ALLEY, id::VILLAGE, id::ESTATE]);
+    set_deck_unknown(&mut g, 0, &[id::CURSE; 12]);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    g.turn.buys = 2;
+    buy(&mut g, id::INN);
+    pick(&mut g, id::VILLAGE);
+    pick(&mut g, id::ALLEY);
+    pass(&mut g);
+    let ps = &g.players[0];
+    assert_eq!(ps.deck_known_bottom.len, 1, "Alley at the bottom");
+    assert!(!ps.deck_unknown.has(id::ALLEY));
+}

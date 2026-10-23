@@ -580,6 +580,14 @@ impl GameState {
         self.players[p as usize].in_play.iter().filter(|&(c, _)| self.is_action(c)).map(|(_, n)| n as u32).sum::<u32>().min(u8::MAX as u32) as u8
     }
 
+    /// `p`'s deck was just shuffled by an effect other than a draw's reshuffle (Annex, Donate, Inn, Famine): the Shadow cards go to the bottom.
+    #[inline]
+    pub(crate) fn rs_shuffled(&mut self, p: u8) {
+        if self.rs.flags & R_SHADOW != 0 {
+            self.players[p as usize].sink_shadows();
+        }
+    }
+
     /// Whether some Shadow card is in `p`'s deck, to be played from there (only in a game with a Shadow card).
     #[inline]
     pub fn shadow_playable(&self, p: u8) -> bool {

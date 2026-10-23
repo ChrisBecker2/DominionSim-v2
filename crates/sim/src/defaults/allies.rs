@@ -214,6 +214,8 @@ impl SetDefaults for Allies {
                 let coins = view.turn().coins as i32;
                 yn(coins >= 2 && view.turn().actions > 0 && coins - 2 + Strategy::money_in_hand(view) as i32 >= 5)
             }
+            // Bauble: a gained card is put onto the deck unless it is dead there (a Curse, a Victory card).
+            (id::BAUBLE, Act::Topdeck) => yn(!dead(decision.subject)),
             // Acolyte: trash itself for an Augur the strategy wants.
             (id::ACOLYTE, Act::Trash) => {
                 let top = view.split_top(id::HERB_GATHERER);

@@ -971,7 +971,7 @@ impl GameState {
         // What the cards played this turn do (the turn's player's gains only).
         if own && self.turn.al.live != 0 {
             let t = self.turn.al;
-            if t.galleria > 0 && matches!(self.cost_when_gained(p, c, to), 3 | 4) {
+            if t.galleria > 0 && matches!(self.cost_when_gained(p, c, to), 3 | 4) && !cards::potion_cost(c) && cards::debt_cost(c) == 0 {
                 self.turn.buys = self.turn.buys.saturating_add(t.galleria);
                 sink.bonus(p, ids::GALLERIA, 0, t.galleria, 0, 0);
             }

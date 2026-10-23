@@ -165,7 +165,7 @@ impl SetRules for Hinterlands {
                 // Look at the top 4; discard any, put the rest back in any order.
                 g.stack.push(Frame { ordered: true, ..select(p, card, Zone::Revealed, Topdeck, Filter::Any, ALL, ALL, Then::Nothing) });
                 g.stack.push(select(p, card, Zone::Revealed, Discard, Filter::Any, 0, ALL, Then::Nothing));
-                g.stack.push(Frame { max: 4, ..Frame::new(K::RevealTop, p, card) });
+                g.stack.push(Frame { max: 4, exact: true, ..Frame::new(K::RevealTop, p, card) });
             }
             ids::CAULDRON => {
                 g.turn.hint.cauldrons = g.turn.hint.cauldrons.saturating_add(1);

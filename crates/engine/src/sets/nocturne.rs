@@ -1008,7 +1008,7 @@ impl GameState {
     pub(crate) fn look_at_top_discard_one(&mut self, p: u8, source: CardId) {
         self.stack.push(Frame { ordered: true, ..select(p, source, Zone::Revealed, Act::Topdeck, Filter::Any, ALL, ALL, Then::Nothing) });
         self.stack.push(select(p, source, Zone::Revealed, Act::Discard, Filter::Any, 0, 1, Then::Nothing));
-        self.stack.push(Frame { max: 1, then: Then::Nothing, ..Frame::new(K::RevealTop, p, source) });
+        self.stack.push(Frame { max: 1, then: Then::Nothing, exact: true, ..Frame::new(K::RevealTop, p, source) });
     }
 
     // ---- gains and discards ----

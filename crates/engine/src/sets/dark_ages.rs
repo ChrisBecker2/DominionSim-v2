@@ -409,7 +409,7 @@ impl SetRules for DarkAges {
             }
             id::CATACOMBS => {
                 g.stack.push(mode_frame(p, card, 1));
-                g.stack.push(Frame { max: 3, ..Frame::new(K::RevealTop, p, card) });
+                g.stack.push(Frame { max: 3, exact: true, ..Frame::new(K::RevealTop, p, card) });
             }
             id::COUNT => {
                 // Two choices, the first made and done before the second.
@@ -498,7 +498,7 @@ impl SetRules for DarkAges {
                 // Look at the top 2: discard both or put both back in any order.
                 g.stack.push(Frame { ordered: true, ..select(p, card, Zone::Revealed, Topdeck, Filter::Any, ALL, ALL, Then::Nothing) });
                 g.stack.push(Frame { then: Then::DiscardRevealedAsk, ..Frame::new(K::Ask, p, card) });
-                g.stack.push(Frame { max: 2, ..Frame::new(K::RevealTop, p, card) });
+                g.stack.push(Frame { max: 2, exact: true, ..Frame::new(K::RevealTop, p, card) });
             }
             _ => {}
         }

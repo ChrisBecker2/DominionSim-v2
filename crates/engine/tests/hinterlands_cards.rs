@@ -2025,3 +2025,223 @@ fn nomads_gained_in_the_buy_phase_gives_two_coins_that_count_for_basilica() {
     assert_eq!(g.turn.coins, 2, "the $2 of gaining Nomads");
     assert_eq!(g.players[0].vp_tokens, 2, "Basilica: $2 left after the gain");
 }
+
+#[test]
+fn scheme_still_works_after_procession_trashed_it_and_counts_both_plays() {
+    let mut g = new_state(&[id::SCHEME, id::PROCESSION, id::SMITHY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::PROCESSION, id::SCHEME]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::VILLAGE);
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::SCHEME);
+    pick(&mut g, id::SMITHY);
+    buy_phase_check(&mut g);
+    choose(&mut g, Choice::Pass);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, max: 2, .. }), "two Action cards may be put back: {d:?}");
+}
+
+#[test]
+fn a_weaver_played_when_a_vassal_discards_it_is_played_only_once() {
+    let mut g = new_state(&[id::WEAVER, id::VASSAL], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_deck_known(&mut g, 0, &[id::WEAVER, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::VASSAL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::WEAVER, "{d:?}");
+    yes(&mut g);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Mode { .. }));
+    choose(&mut g, Choice::Mode(0));
+    assert_eq!(g.players[0].discard.get(id::SILVER), 2);
+    // Vassal lost track of the Weaver: it is not offered to be played a second time.
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })));
+    assert_eq!(g.players[0].in_play.get(id::WEAVER), 1);
+}
+
+#[test]
+fn discarding_down_to_three_discards_everything_first_and_then_the_trail_is_played_without_discarding_again() {
+    let mut g = new_state(&[id::TRAIL, id::MILITIA], 2);
+    set_hand(&mut g, 1, &[id::MILITIA]);
+    set_hand(&mut g, 0, &[id::TRAIL, id::ESTATE, id::ESTATE, id::DUCHY, id::DUCHY]);
+    set_deck_known(&mut g, 0, &junk());
+    reset_turn(&mut g, 1);
+    play(&mut g, id::MILITIA);
+    // (Picks are made in card order, so the Trail, the highest id, is the last pick.)
+    pick(&mut g, id::ESTATE);
+    pick(&mut g, id::TRAIL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::TRAIL, "{d:?}");
+    yes(&mut g);
+    assert_eq!(hand_total(&g, 0), 3 + 1, "the Trail drew a card; no further discarding");
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::Select { act: Act::Discard, .. })));
+}
+
+#[test]
+fn a_trail_trashed_by_remodel_is_played_back_into_play_and_remodel_still_gains() {
+    let mut g = new_state(&[id::TRAIL, id::REMODEL], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::TRAIL]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::REMODEL);
+    // (The Trail is the only card in the hand: trashed without asking.)
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::TRAIL, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.players[0].in_play.get(id::TRAIL), 1);
+    assert_eq!(g.trash.get(id::TRAIL), 0, "back in play, out of the trash");
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "Remodel's gain follows: {d:?}");
+}
+
+#[test]
+fn a_berserker_costing_nothing_gains_no_card_but_still_attacks() {
+    let mut g = new_state(&[id::BERSERKER, id::SMITHY], 2);
+    set_in_play(&mut g, 0, &[id::SMITHY]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::DUCHY, id::PROVINCE, id::ESTATE, id::DUCHY]);
+    g.turn.cost_reduction = 5;
+    g.gain_card(0, id::BERSERKER, Dest::Discard, &mut NoEvents);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }) && d.player == 1, "no Gain decision first: {d:?}");
+}
+
+#[test]
+fn a_cartographer_discard_is_not_a_reveal() {
+    let mut g = new_state(&[id::CARTOGRAPHER, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::CARTOGRAPHER]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::PATRON, id::DUCHY, id::DUCHY, id::PROVINCE, id::PROVINCE]);
+    play(&mut g, id::CARTOGRAPHER);
+    assert_eq!(g.players[0].coffers, 0, "looking at the cards reveals nothing");
+    pick(&mut g, id::PATRON);
+    assert_eq!(g.players[0].coffers, 0, "Patron's reaction is not triggered by a discard that reveals nothing");
+    assert!(g.players[0].discard.has(id::PATRON));
+}
+
+#[test]
+fn highway_played_as_a_way_other_than_the_chameleon_gives_no_cost_reduction() {
+    let mut g = new_state(&[id::HIGHWAY, id::WAY_OF_THE_HORSE], 2);
+    set_hand(&mut g, 0, &[id::HIGHWAY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::HIGHWAY);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Way));
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_HORSE));
+    assert_eq!(g.turn.cost_reduction, 0);
+    let mut g = new_state(&[id::HIGHWAY, id::WAY_OF_THE_CHAMELEON], 2);
+    set_hand(&mut g, 0, &[id::HIGHWAY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::HIGHWAY);
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_CHAMELEON));
+    assert_eq!(g.turn.cost_reduction, 1, "Chameleon follows the card's own instructions");
+}
+
+#[test]
+fn procession_on_a_highway_reduces_costs_by_two() {
+    let mut g = new_state(&[id::HIGHWAY, id::PROCESSION], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::HIGHWAY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::HIGHWAY);
+    assert_eq!(g.turn.cost_reduction, 2);
+}
+
+#[test]
+fn an_inn_gained_through_a_border_village_can_shuffle_the_border_village_in_too() {
+    let mut g = new_state(&[id::INN, id::BORDER_VILLAGE], 2);
+    set_deck_known(&mut g, 0, &junk());
+    buy_phase(&mut g, &[id::GOLD, id::GOLD]);
+    g.apply(Choice::Card(id::BORDER_VILLAGE), &mut NoEvents).unwrap();
+    pick(&mut g, id::INN);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::ShuffleIn, .. }), "{d:?}");
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::INN)) && c.contains(&Choice::Card(id::BORDER_VILLAGE)), "{c:?}");
+}
+
+#[test]
+fn a_moat_drawn_off_a_margrave_cannot_stop_that_attack() {
+    let mut g = new_state(&[id::MARGRAVE, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::MARGRAVE]);
+    set_hand(&mut g, 1, &[id::ESTATE; 4]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::MOAT, id::ESTATE]);
+    play(&mut g, id::MARGRAVE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }) && d.player == 1, "no Moat reveal is offered: {d:?}");
+}
+
+#[test]
+fn stables_draws_after_discarding_so_the_discarded_treasure_is_shuffled_in() {
+    let mut g = new_state(&[id::STABLES], 2);
+    set_hand(&mut g, 0, &[id::STABLES, id::COPPER]);
+    clear_deck(&mut g, 0);
+    set_discard(&mut g, 0, &[id::ESTATE, id::ESTATE]);
+    play(&mut g, id::STABLES);
+    pick(&mut g, id::COPPER);
+    // The Copper was shuffled in and drawn (and played at once, as the Buy phase begins).
+    assert_eq!(hand_total(&g, 0) + g.players[0].in_play.get(id::COPPER) as u32, 3);
+    assert!(g.players[0].in_play.has(id::COPPER) || g.players[0].hand.has(id::COPPER), "the discarded Copper was shuffled in and drawn");
+    assert_eq!(g.turn.actions, 1);
+}
+
+#[test]
+fn wheelwright_must_gain_an_action_if_it_discarded_a_card() {
+    let mut g = new_state(&[id::WHEELWRIGHT, id::SMITHY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::WHEELWRIGHT, id::GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::WHEELWRIGHT);
+    pick(&mut g, id::GOLD);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    assert!(!choices(&g).contains(&Choice::Pass), "not optional");
+}
+
+#[test]
+fn witchs_hut_reveals_the_discards_and_a_card_with_another_type_still_counts_as_an_action() {
+    let mut g = new_state(&[id::WITCHS_HUT, id::MILL], 2);
+    set_hand(&mut g, 0, &[id::WITCHS_HUT, id::MILL, id::MILL]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::WITCHS_HUT);
+    // (After one Mill, the second discard can only be the other Mill: it is made at once.)
+    let mut log: Vec<Event> = Vec::new();
+    expect_decision(&mut g);
+    choose_ev(&mut g, Choice::Card(id::MILL), &mut log);
+    assert!(log.iter().any(|e| matches!(e, Event::Reveal { card, .. } if *card == id::MILL)), "revealed: {log:?}");
+    assert_eq!(g.players[1].discard.get(id::CURSE), 1);
+}
+
+#[test]
+fn an_overgrown_estate_trashed_by_a_bought_farmland_draws_at_once() {
+    let mut g = new_state(&[id::FARMLAND, id::SMITHY], 2);
+    set_deck_known(&mut g, 0, &junk());
+    buy_phase(&mut g, &[id::GOLD, id::GOLD, id::OVERGROWN_ESTATE]);
+    let mut log: Vec<Event> = Vec::new();
+    g.apply(Choice::Card(id::FARMLAND), &mut log).unwrap();
+    // (The Overgrown Estate is the only card left in the hand: trashed without asking; the Silver is the only card costing $3: gained.)
+    let _ = g.advance(&mut log);
+    assert_eq!(g.trash.get(id::OVERGROWN_ESTATE), 1);
+    let draw = log.iter().position(|e| matches!(e, Event::Draw { player: 0, .. }));
+    let silver = log.iter().position(|e| matches!(e, Event::Gain { card, .. } if *card == id::SILVER));
+    assert!(draw.is_some() && silver.is_some() && draw < silver, "drew a card for the trashed Overgrown Estate before the gain: {log:?}");
+}
+
+#[test]
+fn an_enchanted_crossroads_counts_as_played_so_the_next_gives_no_actions() {
+    let mut g = new_state(&[id::CROSSROADS, id::ENCHANTRESS], 2);
+    set_hand(&mut g, 0, &[id::ENCHANTRESS]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &junk());
+    set_hand(&mut g, 1, &[id::CROSSROADS, id::CROSSROADS, id::ESTATE]);
+    play(&mut g, id::ENCHANTRESS);
+    for _ in 0..2000 {
+        adv(&mut g);
+        if g.turn.player == 1 && matches!(g.pending_decision(), Some(Decision { kind: DecisionKind::PlayAction, .. })) {
+            break;
+        }
+        let c = choices(&g);
+        let pick = if c.contains(&Choice::Pass) { Choice::Pass } else { c[0] };
+        g.apply(pick, &mut NoEvents).unwrap();
+    }
+    g.turn.actions = 2;
+    play(&mut g, id::CROSSROADS);
+    assert_eq!(g.turn.actions, 2, "enchanted: +1 Card +1 Action instead (2 - 1 + 1)");
+    play(&mut g, id::CROSSROADS);
+    assert_eq!(g.turn.actions, 1, "no +3 Actions the second time (2 - 1)");
+}

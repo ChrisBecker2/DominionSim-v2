@@ -2202,3 +2202,161 @@ fn capitalism_affects_every_action_the_wiki_lists() {
 fn renaissance_capitalism(c: CardId) -> bool {
     dominion_engine::sets::renaissance::capitalism_card(c)
 }
+
+#[test]
+fn the_lantern_affects_a_border_guard_played_by_band_of_misfits_and_as_way_of_the_chameleon() {
+    // "Lantern will still affect Border Guards you play from the Supply (with e.g. Band of Misfits)"; Way of the Chameleon: "you'll still reveal 3 cards".
+    let mut g = new_state(&[id::BORDER_GUARD, id::BAND_OF_MISFITS], 2);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    play(&mut g, id::BAND_OF_MISFITS);
+    // Three cards revealed: one to the hand, two discarded.
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].discard.total(), 2);
+    let mut g = new_state(&[id::BORDER_GUARD, id::WAY_OF_THE_CHAMELEON], 2);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    play(&mut g, id::BORDER_GUARD);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Way), "{d:?}");
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_CHAMELEON));
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].discard.total(), 2);
+}
+
+#[test]
+fn a_reckless_border_guard_reveals_twice_with_the_lantern_and_the_horn_saves_only_one() {
+    // "If Border Guard is Reckless, Lantern affects both iterations, so you'll reveal a total of 6 cards." "...you can topdeck one of your Border Guards with Horn,
+    // while the others will return to the Supply."
+    let mut g = new_state(&[id::BORDER_GUARD, id::VILLAGE], 2);
+    g.put_trait(id::RECKLESS, id::BORDER_GUARD);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_holder(&mut g, id::HORN, 0);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    deck_of(&mut g, 1, 10);
+    play(&mut g, id::BORDER_GUARD);
+    pick(&mut g, id::GOLD);
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].in_play.get(id::GOLD) + g.players[0].hand.get(id::GOLD), 2);
+    assert_eq!(g.players[0].discard.total(), 4, "two cards discarded by each reveal of three");
+}
+
+#[test]
+fn with_reckless_border_guards_the_horn_saves_one_and_the_others_return_to_the_supply() {
+    let mut g = new_state(&[id::BORDER_GUARD, id::VILLAGE], 2);
+    g.put_trait(id::RECKLESS, id::BORDER_GUARD);
+    set_holder(&mut g, id::HORN, 0);
+    g.turn.actions = 3;
+    set_hand(&mut g, 0, &[id::BORDER_GUARD, id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 8]);
+    deck_of(&mut g, 0, 10);
+    deck_of(&mut g, 1, 10);
+    let pile = g.supply.get(id::BORDER_GUARD);
+    play(&mut g, id::BORDER_GUARD);
+    for _ in 0..4 {
+        if has_choice(&g, Choice::Card(id::COPPER)) {
+            pick(&mut g, id::COPPER);
+        }
+    }
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 60 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        if d.kind == DecisionKind::PlayAction && g.players[0].hand.has(id::BORDER_GUARD) && g.turn.actions > 0 {
+            let _ = play(&mut g, id::BORDER_GUARD);
+            continue;
+        }
+        if matches!(d.kind, DecisionKind::YesNo { act: Act::Topdeck }) {
+            choose(&mut g, Choice::Yes);
+        } else {
+            let c = if has_choice(&g, Choice::Pass) { Choice::Pass } else { choices(&g)[0] };
+            choose(&mut g, c);
+        }
+    }
+    // Four Border Guard plays (two each) happened: two cards in play. One went on the deck (and was drawn), the other back to its pile.
+    assert_eq!(g.supply.get(id::BORDER_GUARD), pile + 1, "one returned to the pile");
+    assert_eq!(g.players[0].hand.get(id::BORDER_GUARD), 1, "the other was topdecked with the Horn and drawn");
+}
+
+#[test]
+fn improve_trashing_a_fortress_sends_it_to_the_hand_and_it_is_discarded_with_the_rest_of_cleanup() {
+    // "If you put cards into your hand using Improve (e.g. you trash a Fortress...), they will get discarded during the remainder of Clean-up."
+    let mut g = new_state(&[id::IMPROVE, id::FORTRESS, id::SMITHY, id::VILLAGE], 2);
+    g.turn.actions = 2;
+    set_hand(&mut g, 0, &[id::IMPROVE, id::FORTRESS]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
+    deck_of(&mut g, 0, 12);
+    deck_of(&mut g, 1, 12);
+    play(&mut g, id::IMPROVE);
+    play(&mut g, id::FORTRESS);
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 30 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        if matches!(d.kind, DecisionKind::Select { act: Act::Trash, from: Zone::InPlay, .. }) {
+            pick(&mut g, id::FORTRESS);
+        } else if matches!(d.kind, DecisionKind::Gain { .. }) {
+            pick(&mut g, id::SMITHY);
+        } else {
+            let c = if has_choice(&g, Choice::Pass) { Choice::Pass } else { choices(&g)[0] };
+            choose(&mut g, c);
+        }
+    }
+    assert_eq!(g.trash.get(id::FORTRESS), 0, "the Fortress left the trash for the hand");
+    assert_eq!(g.players[0].discard.get(id::FORTRESS) + g.players[0].deck_unknown.get(id::FORTRESS), 1, "discarded in the rest of Clean-up");
+    assert_eq!(g.players[0].hand.get(id::FORTRESS), 0);
+}
+
+#[test]
+fn border_guard_revealing_two_patrons_gives_two_coffers_and_a_discarded_patron_gives_none() {
+    // "if you play a Border Guard and reveal two Patrons, you will get +2 Coffers." "if another player plays a Villain and you discard a Patron, you do not get +1 Coffers."
+    let mut g = new_state(&[id::BORDER_GUARD, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::PATRON, id::PATRON, id::COPPER]);
+    play(&mut g, id::BORDER_GUARD);
+    assert_eq!(g.players[0].coffers, 2);
+    let mut g = new_state(&[id::VILLAIN, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::VILLAIN]);
+    set_hand(&mut g, 1, &[id::PATRON, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::VILLAIN);
+    adv(&mut g);
+    assert_eq!(g.players[1].coffers, 0);
+    assert_eq!(g.players[1].discard.get(id::PATRON), 1);
+}
+
+#[test]
+fn trashing_an_acting_troupe_with_priest_in_effect_gives_two_dollars() {
+    // "you will get +$2 for trashing an Acting Troupe due to playing it".
+    let mut g = new_state(&[id::PRIEST, id::ACTING_TROUPE], 2);
+    g.turn.actions = 2;
+    set_hand(&mut g, 0, &[id::PRIEST, id::ACTING_TROUPE, id::COPPER]);
+    play(&mut g, id::PRIEST);
+    pick(&mut g, id::COPPER);
+    let before = g.turn.coins;
+    play(&mut g, id::ACTING_TROUPE);
+    assert_eq!(g.turn.coins, before + 2);
+}
+
+#[test]
+#[ignore = "audit: Star Chart is only offered for the shuffle of a draw, not for Annex, Donate, Inn or Famine (docs/renaissance-plan.md section 6)"]
+fn star_chart_is_offered_for_the_shuffle_of_annex() {
+    let mut g = new_state(&[id::STAR_CHART, id::SMITHY, id::ANNEX], 2);
+    own(&mut g, 0, id::STAR_CHART);
+    set_discard(&mut g, 0, &[id::PROVINCE, id::ESTATE, id::SILVER]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    buy_phase(&mut g, 0, 2);
+    adv(&mut g);
+    pick(&mut g, id::ANNEX);
+    pass(&mut g);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }), "{d:?}");
+}

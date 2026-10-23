@@ -97,14 +97,14 @@ impl SetRules for Intrigue {
                         g.reveal_card(p, c, sink);
                     }
                 }
-                if !hand.any_type(ACTION) {
+                if !hand.iter().any(|(c, _)| g.acts_as_action(p, c)) {
                     g.stack.push(draw_frame(p, card, 2));
                 }
             }
             id::CONSPIRATOR => {
                 // `turn.played` already counts this play (added above); count Action cards only,
                 // since it also holds treasures played this turn.
-                let actions_played: u32 = g.turn.played.iter().filter(|&(c, _)| cards::is(c, ACTION)).map(|(_, n)| n as u32).sum();
+                let actions_played: u32 = g.turn.played.iter().filter(|&(c, _)| g.acts_as_action(p, c)).map(|(_, n)| n as u32).sum();
                 if actions_played >= 3 {
                     g.turn.actions += 1;
                     sink.bonus(p, card, 1, 0, 0, 0);
@@ -186,6 +186,20 @@ impl SetRules for Intrigue {
 }
 
 impl GameState {
+    /// Whether `c` is an Action card for `p` right now: printed, a Treasure under Enlightenment, or an Estate under
+    /// Inheritance (Shanty Town, Conspirator, Ironworks and Courtier count the types a card has now).
+    pub(crate) fn acts_as_action(&self, p: u8, c: CardId) -> bool {
+        self.is_action(c) || (c == id::ESTATE && self.estates_are_actions(p))
+    }
+
+    /// The number of types `c` has for `p` right now (Courtier): the printed ones, plus Treasure (Charlatan's Curse,
+    /// Capitalism) and Action (Enlightenment, Inheritance) when the game makes it one.
+    pub(crate) fn types_now(&self, p: u8, c: CardId) -> u32 {
+        cards::def(c).types.count_ones()
+            + (self.is_treasure(c) && !cards::is(c, TREASURE)) as u32
+            + (self.acts_as_action(p, c) && !cards::is(c, ACTION)) as u32
+    }
+
     /// The distinct cards Wishing Well may name: the player's whole deck (known + unknown), or
     /// their discard if the deck is empty (since drawing it would shuffle the discard in first).
     pub(crate) fn name_offer(&self, p: u8) -> Counts {

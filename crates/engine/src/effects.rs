@@ -1249,7 +1249,7 @@ impl GameState {
                         }
                         Then::TokenOnGained { tok } => self.place_token(p, tok as usize, cards::pile_of(c), sink),
                         Then::GainedTypeStatBonus => {
-                            let (a, k) = (cards::is(c, ACTION) as u8, self.is_treasure(c) as u16);
+                            let (a, k) = (self.acts_as_action(p, c) as u8, self.is_treasure(c) as u16);
                             self.turn.actions += a;
                             self.turn.coins += k;
                             sink.bonus(p, f.source, a, 0, k, 0);
@@ -1285,9 +1285,15 @@ impl GameState {
                             // moved it elsewhere (Watchtower trashing/topdecking it), there's
                             // nothing to set aside or schedule.
                             let gt = self.turn.led.gain;
-                            self.tok_moved(gt, p, Self::gain_dest_zone(dest), c);
+                            // Where the copy actually landed (Ghost Town goes to the hand, Progress onto the deck).
+                            let landed = match self.turn.led.landed {
+                                1 => Dest::Hand,
+                                2 => Dest::DeckTop,
+                                _ => Dest::Discard,
+                            };
+                            self.tok_moved(gt, p, Self::gain_dest_zone(landed), c);
                             let ps = &mut self.players[p as usize];
-                            let moved = match dest {
+                            let moved = match landed {
                                 Dest::Discard => ps.discard.remove(c),
                                 Dest::Hand => ps.hand.remove(c),
                                 Dest::DeckTop => ps.deck_known.peek_top() == Some(c) && ps.deck_known.pop_top().is_some(),
@@ -1690,7 +1696,7 @@ impl GameState {
             Then::ModePerType => {
                 if f.count > 0 {
                     // A Curse is also a Treasure in a game with Charlatan: two types.
-                    let types = cards::def(f.last).types.count_ones() + (f.last == id::CURSE && self.is_treasure(f.last)) as u32;
+                    let types = self.types_now(p, f.last);
                     let m = elder_mode_frame(p, f.source, types as usize, f.gf & crate::state::GF_ELDER != 0);
                     if m.max > 0 {
                         self.stack.push(m);

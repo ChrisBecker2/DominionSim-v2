@@ -2663,3 +2663,277 @@ fn laboratory_draws_two_keeps_action_alt() {
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::DUCHY]));
     assert_eq!(g.turn.actions, 1, "1 - 1 + 1");
 }
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ / rules clarifications)
+// ===========================================================================
+
+#[test]
+fn ruling_cellar_and_chapel_cannot_pick_themselves() {
+    // "You cannot discard / trash the Cellar / Chapel itself, since it is not in your hand after you play it."
+    let mut g = new_state(&[id::CELLAR], 2);
+    set_hand(&mut g, 0, &[id::CELLAR, id::ESTATE]);
+    play(&mut g, id::CELLAR);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::ESTATE)) && !cs.contains(&Choice::Card(id::CELLAR)), "{cs:?}");
+    let mut g = new_state(&[id::CHAPEL], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::ESTATE]);
+    play(&mut g, id::CHAPEL);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::ESTATE)) && !cs.contains(&Choice::Card(id::CHAPEL)), "{cs:?}");
+}
+
+#[test]
+fn ruling_chapel_trashes_all_chosen_cards_then_resolves_their_trash_effects() {
+    // "You trash all the cards first, then pick an order to resolve things that happen due to trashing them."
+    let mut g = new_state(&[id::CHAPEL], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::OVERGROWN_ESTATE, id::OVERGROWN_ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE, id::CURSE]);
+    play(&mut g, id::CHAPEL);
+    choose(&mut g, Choice::Card(id::OVERGROWN_ESTATE));
+    choose(&mut g, Choice::Card(id::OVERGROWN_ESTATE));
+    assert_eq!(g.trash, counts_of(&[id::OVERGROWN_ESTATE, id::OVERGROWN_ESTATE]));
+    assert_eq!(g.players[0].hand.total(), 2, "each Overgrown Estate drew a card");
+}
+
+#[test]
+fn ruling_merchant_played_after_the_first_silver_gives_nothing() {
+    // "If you play Merchant after you play your first Silver, you do not get +$1 for the Silver you already played."
+    let mut g = new_state(&[id::MERCHANT], 2);
+    g.turn.silvers_played = 1;
+    set_hand(&mut g, 0, &[id::MERCHANT, id::SILVER]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::MERCHANT);
+    assert_eq!(g.turn.coins, 2, "only the Silver's own $2");
+}
+
+#[test]
+fn ruling_vassal_discarding_a_faithful_hound_uses_the_hound_or_the_play_not_both() {
+    // "If you discard a Faithful Hound with Vassal, you can use Faithful Hound's Reaction ability to set it aside, or use Vassal's
+    // ability to play it, but not both."
+    let mut g = new_state(&[id::VASSAL, id::FAITHFUL_HOUND], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::ESTATE]);
+    play(&mut g, id::VASSAL);
+    let d = g.pending_decision().unwrap();
+    assert_eq!(d.subject, id::FAITHFUL_HOUND, "{d:?}");
+    // Set it aside (Yes to the first question, whichever it is); then no offer to play it remains.
+    let mut guard = 0;
+    while let Some(d) = g.pending_decision() {
+        if d.kind == (DecisionKind::YesNo { act: Act::SetAside }) {
+            choose(&mut g, Choice::Yes);
+        } else if d.kind == (DecisionKind::YesNo { act: Act::Play }) {
+            panic!("the Hound was set aside and can no longer be played: {d:?}");
+        } else {
+            break;
+        }
+        guard += 1;
+        assert!(guard < 5);
+    }
+    assert_eq!(g.players[0].hounds, 1, "set aside, not played");
+    assert!(!g.players[0].in_play.has(id::FAITHFUL_HOUND));
+}
+
+#[test]
+fn ruling_workshop_and_artisan_use_the_costs_cards_have_now() {
+    // "Workshop cares about the costs cards have when you play it": with a Bridge played, a Duchy costs $4.
+    let mut g = new_state(&[id::WORKSHOP, id::ARTISAN], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    play(&mut g, id::WORKSHOP);
+    assert!(choices(&g).contains(&Choice::Card(id::DUCHY)));
+    // Artisan: up to $5, so a Gold (costs $5 with one Bridge) and not a Province ($7).
+    let mut g = new_state(&[id::ARTISAN], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::ARTISAN, id::ESTATE]);
+    play(&mut g, id::ARTISAN);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::GOLD)) && !cs.contains(&Choice::Card(id::PROVINCE)), "{cs:?}");
+}
+
+#[test]
+fn ruling_artisan_may_put_the_card_it_just_gained_onto_the_deck() {
+    // "After gaining the card, you put a card from your hand onto your deck; that can be the card you just gained."
+    let mut g = new_state(&[id::ARTISAN], 2);
+    set_hand(&mut g, 0, &[id::ARTISAN, id::ESTATE]);
+    play(&mut g, id::ARTISAN);
+    choose(&mut g, Choice::Card(id::SILVER));
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::SILVER)), "{cs:?}");
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER));
+    assert!(g.players[0].hand.has(id::ESTATE));
+}
+
+#[test]
+fn ruling_bureaucrat_victim_with_an_empty_deck_gets_the_victory_card_as_the_only_deck_card() {
+    // "A player with no cards in their deck will have the card they put on top become the only card in their deck."
+    let mut g = new_state(&[id::BUREAUCRAT], 2);
+    set_hand(&mut g, 0, &[id::BUREAUCRAT]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::COPPER]);
+    clear_deck(&mut g, 1);
+    set_discard(&mut g, 1, &[]);
+    play(&mut g, id::BUREAUCRAT);
+    assert_eq!(g.players[1].deck_known.iter_top_down().collect::<Vec<_>>(), vec![id::ESTATE]);
+    assert_eq!(g.players[1].deck_size(), 1);
+}
+
+#[test]
+fn ruling_victory_kingdom_piles_hold_8_cards_with_two_players_and_12_with_more() {
+    // Gardens: "Use 8 copies of Gardens in a 2-player game, 12 for 3 or more players."
+    assert_eq!(new_state(&[id::GARDENS], 2).supply.get(id::GARDENS), 8);
+    assert_eq!(new_state(&[id::GARDENS], 3).supply.get(id::GARDENS), 12);
+    assert_eq!(new_state(&[id::GARDENS], 4).supply.get(id::GARDENS), 12);
+}
+
+#[test]
+fn ruling_poacher_counts_every_empty_supply_pile_including_curses_and_itself_but_not_side_piles() {
+    // "This includes all Supply piles, including Curses, Coppers, Poacher itself, etc."; "Non-Supply piles, such as Spoils, do not matter."
+    let mut g = new_state(&[id::POACHER], 2);
+    set_hand(&mut g, 0, &[id::POACHER, id::ESTATE, id::DUCHY, id::PROVINCE]);
+    set_deck_known(&mut g, 0, &[id::GOLD]);
+    empty_pile(&mut g, id::CURSE);
+    empty_pile(&mut g, id::POACHER);
+    g.spoils = 0;
+    play(&mut g, id::POACHER);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Select { from: Zone::Hand, act: Act::Discard, min: 2, max: 2, .. }), "{d:?}");
+    let mut g = new_state(&[id::POACHER], 2);
+    set_hand(&mut g, 0, &[id::POACHER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY]);
+    g.spoils = 0;
+    play(&mut g, id::POACHER);
+    assert_eq!(g.players[0].hand.total(), 2, "an empty Spoils pile (not in the Supply) makes no discard");
+}
+
+#[test]
+fn ruling_remodel_may_gain_a_copy_of_the_trashed_card_but_not_use_coins_to_gain_more() {
+    // "The gained card ... can even be another copy of the trashed card"; "You cannot use $ to increase how expensive a card you gain."
+    let mut g = new_state(&[id::REMODEL], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::ESTATE]);
+    g.turn.coins = 8;
+    play(&mut g, id::REMODEL);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::ESTATE)), "a copy of the trashed card");
+    assert!(cs.contains(&Choice::Card(id::SILVER)), "$2 + 2 = $4 and less");
+    assert!(!cs.contains(&Choice::Card(id::GOLD)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::DUCHY)), "{cs:?}");
+}
+
+#[test]
+fn ruling_throne_room_plays_a_card_that_leaves_play_a_second_time() {
+    // "If you use Throne Room to play a card that removes itself from the play area, such as Horse, Throne Room will still play the
+    // card a second time."
+    let mut g = new_state(&[id::THRONE_ROOM], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HORSE]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::ESTATE, id::DUCHY, id::DUCHY, id::PROVINCE]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::HORSE));
+    assert_eq!(g.players[0].hand.total(), 4, "Horse's +2 Cards twice");
+    assert_eq!(g.turn.actions, 2, "1 - 1 for Throne Room, +1 Action twice");
+    assert!(!g.players[0].in_play.has(id::HORSE), "returned to the Horse pile");
+}
+
+#[test]
+fn ruling_library_with_the_minus_one_card_token_removes_it_and_draws_to_seven() {
+    // "If you have 6 or fewer cards in hand and your -1 Card token is on your deck, you'll remove the token and will draw until you
+    // have 7 cards."
+    let mut g = new_state(&[id::LIBRARY], 2);
+    g.players[0].adv |= state::ADV_MINUS_CARD;
+    set_hand(&mut g, 0, &[id::LIBRARY, id::ESTATE, id::ESTATE, id::DUCHY, id::DUCHY]);
+    set_deck_known(&mut g, 0, &[id::PROVINCE; 8]);
+    play(&mut g, id::LIBRARY);
+    assert_eq!(g.players[0].hand.total(), 7);
+    assert_eq!(g.players[0].adv & state::ADV_MINUS_CARD, 0, "the token is gone");
+    // With 7 or more cards in hand to start, nothing is drawn and the token stays.
+    let mut g = new_state(&[id::LIBRARY], 2);
+    g.players[0].adv |= state::ADV_MINUS_CARD;
+    set_hand(&mut g, 0, &[id::LIBRARY, id::ESTATE, id::ESTATE, id::DUCHY, id::DUCHY, id::PROVINCE, id::PROVINCE, id::CURSE]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 8]);
+    play(&mut g, id::LIBRARY);
+    assert_eq!(g.players[0].hand.total(), 7);
+    assert_eq!(g.players[0].adv & state::ADV_MINUS_CARD, state::ADV_MINUS_CARD);
+}
+
+#[test]
+fn ruling_library_does_not_shuffle_in_the_set_aside_cards_and_discards_them_afterwards() {
+    // "If you shuffle in the middle of doing this, you do not shuffle in the set aside cards."; "You are not forced to set aside
+    // Action cards" (covered by library_keeps_actions_when_told_to).
+    let mut g = new_state(&[id::LIBRARY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::LIBRARY]);
+    set_deck_known(&mut g, 0, &[id::VILLAGE]);
+    set_discard(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::LIBRARY);
+    // Village is drawn first: set it aside; then the deck is empty, the discard (Estate only) is shuffled in.
+    choose(&mut g, Choice::Yes);
+    assert!(g.players[0].hand.has(id::ESTATE));
+    assert!(!g.players[0].hand.has(id::VILLAGE));
+    assert!(g.players[0].discard.has(id::VILLAGE), "discarded at the end, not shuffled into the deck");
+}
+
+#[test]
+fn ruling_militia_and_moat_the_attacker_keeps_the_coin_when_the_victim_reveals_moat() {
+    // "Moat does not stop anything an Attack does ... for the player who played it": Militia's +$2 still happens.
+    let mut g = new_state(&[id::MILITIA, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::MOAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::MILITIA);
+    moat(&mut g, true);
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.players[1].hand.total(), 5);
+}
+
+#[test]
+fn ruling_moat_revealed_to_bureaucrat_still_lets_the_attacker_gain_the_silver() {
+    let mut g = new_state(&[id::BUREAUCRAT, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::BUREAUCRAT]);
+    set_hand(&mut g, 1, &[id::MOAT, id::ESTATE]);
+    play(&mut g, id::BUREAUCRAT);
+    moat(&mut g, true);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SILVER));
+    assert!(g.players[1].deck_known.is_empty());
+}
+
+#[test]
+fn ruling_sentry_resolves_trash_then_discard_then_the_put_back() {
+    // "You finish trashing any cards you choose to before you decide whether to discard any of the remaining cards."
+    let mut g = new_state(&[id::SENTRY], 2);
+    set_hand(&mut g, 0, &[id::SENTRY]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::COPPER, id::SILVER]);
+    play(&mut g, id::SENTRY);
+    let mut kinds = vec![];
+    for _ in 0..4 {
+        match g.pending_decision().map(|d| d.kind) {
+            Some(DecisionKind::Select { act, .. }) => kinds.push(act),
+            _ => break,
+        }
+        if kinds.len() == 3 {
+            break;
+        }
+        pass(&mut g);
+    }
+    assert_eq!(kinds, vec![Act::Trash, Act::Discard, Act::Topdeck], "trash, then discard, then the put-back");
+}
+
+#[test]
+fn ruling_bandit_gains_the_gold_before_the_attack() {
+    // "First you gain a Gold from the Supply, putting it into your discard pile."
+    let mut g = new_state(&[id::BANDIT], 2);
+    set_hand(&mut g, 0, &[id::BANDIT]);
+    set_deck_known(&mut g, 1, &[id::SILVER, id::GOLD]);
+    play(&mut g, id::BANDIT);
+    assert!(g.players[0].discard.has(id::GOLD));
+}
+
+#[test]
+fn ruling_council_room_other_players_draw_whether_they_want_to_or_not() {
+    let mut g = new_state(&[id::COUNCIL_ROOM], 3);
+    set_hand(&mut g, 0, &[id::COUNCIL_ROOM]);
+    set_deck_known(&mut g, 0, &[id::ESTATE; 4]);
+    set_deck_known(&mut g, 1, &[id::COPPER]);
+    set_deck_known(&mut g, 2, &[id::COPPER]);
+    let step = play(&mut g, id::COUNCIL_ROOM);
+    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "no decision for the others: {step:?}");
+    assert_eq!(g.players[1].hand.total(), 1);
+    assert_eq!(g.players[2].hand.total(), 1);
+}

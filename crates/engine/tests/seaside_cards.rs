@@ -2402,3 +2402,161 @@ fn blockade_sets_the_gained_card_aside_before_watchtower_and_trader_can_move_it(
     assert_eq!(g.players[0].set_aside.get(id::SILVER), 1);
     assert_eq!(g.turn.led.n, 0);
 }
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ / rules clarifications)
+// ===========================================================================
+
+#[test]
+fn ruling_haven_and_its_set_aside_card_count_for_scoring_while_in_play() {
+    // "If Haven is still in play when the game ends, it and the card set aside with it are returned to your deck before scoring."
+    let mut g = new_state(&[id::HAVEN], 2);
+    set_in_play(&mut g, 0, &[id::HAVEN]);
+    set_set_aside(&mut g, 0, &[id::ESTATE]);
+    set_hand(&mut g, 0, &[id::GARDENS]);
+    let all = g.players[0].all_cards();
+    assert_eq!((all.get(id::HAVEN), all.get(id::ESTATE), all.total()), (1, 1, 3));
+}
+
+#[test]
+fn ruling_sailor_may_play_a_gained_treasure_duration() {
+    // "The Duration doesn't need to be an Action; you can also play Night-Durations and Treasure-Durations when you gain them
+    // (like Cobbler and Astrolabe)."
+    let mut g = new_state(&[id::SAILOR, id::WORKSHOP, id::ASTROLABE], 2);
+    set_hand(&mut g, 0, &[id::SAILOR, id::WORKSHOP]);
+    g.turn.actions = 2;
+    play(&mut g, id::SAILOR);
+    play(&mut g, id::WORKSHOP);
+    let step = choose(&mut g, Choice::Card(id::ASTROLABE));
+    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::YesNo { act: Act::Play }, source: Some(id::SAILOR), .. })), "{step:?}");
+    choose(&mut g, Choice::Yes);
+    assert!(g.players[0].in_play.has(id::ASTROLABE));
+    assert_eq!((g.turn.coins, g.turn.buys), (1, 2), "Astrolabe's $1 and +1 Buy now");
+}
+
+#[test]
+fn ruling_lookout_trash_effects_draw_from_below_the_looked_at_cards() {
+    // "The three cards you look at are not considered to still be the top cards of your deck while you are resolving Lookout. Thus ...
+    // if you trash a card with an on-trash draw bonus, such as Overgrown Estate, you will not draw one of the remaining two cards you're
+    // looking at, but rather the next one down."
+    let mut g = new_state(&[id::LOOKOUT], 2);
+    set_hand(&mut g, 0, &[id::LOOKOUT]);
+    set_deck_known(&mut g, 0, &[id::OVERGROWN_ESTATE, id::DUCHY, id::PROVINCE, id::CURSE]);
+    play(&mut g, id::LOOKOUT);
+    choose(&mut g, Choice::Card(id::OVERGROWN_ESTATE));
+    assert_eq!(g.players[0].hand, counts_of(&[id::CURSE]), "drew the card below the three");
+    choose(&mut g, Choice::Card(id::DUCHY));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::PROVINCE));
+}
+
+#[test]
+fn ruling_sea_chart_counts_a_duration_in_play_from_a_previous_turn() {
+    // "If you have a copy of the revealed card in play - including the just played Sea Chart, or a Duration card that you have in play
+    // from a previous turn - then you put the revealed card into your hand."
+    let mut g = new_state(&[id::SEA_CHART, id::WHARF], 2);
+    set_in_play(&mut g, 0, &[id::WHARF]);
+    set_hand(&mut g, 0, &[id::SEA_CHART]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::WHARF, id::DUCHY]);
+    play(&mut g, id::SEA_CHART);
+    assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE, id::WHARF]));
+}
+
+#[test]
+fn ruling_smugglers_never_offers_cards_with_potions_and_is_not_an_attack() {
+    // "Cards with P or Debt in their cost can never be gained with Smugglers."; "This is not an Attack, so Lighthouse and Moat do not
+    // stop it."
+    let mut g = new_state(&[id::SMUGGLERS, id::GOLEM, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::SMUGGLERS]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    g.players[1].last_turn_gains.add(id::GOLEM, 1);
+    g.players[1].last_turn_gains.add(id::SILVER, 1);
+    let step = play(&mut g, id::SMUGGLERS);
+    // Silver is the only candidate: gained at once, with no Moat question.
+    assert!(matches!(step, Step::Decision(Decision { kind: DecisionKind::Buy, .. })), "{step:?}");
+    assert_eq!(g.players[0].discard, counts_of(&[id::SILVER]));
+}
+
+#[test]
+fn ruling_blockade_sets_the_gained_card_aside_without_visiting_the_discard_pile() {
+    // "The card you gain is immediately set aside, and doesn't visit your discard pile. So if you gain a Nomad Camp or Ghost Town,
+    // their abilities won't trigger."
+    let mut g = new_state(&[id::BLOCKADE, id::GHOST_TOWN], 2);
+    set_hand(&mut g, 0, &[id::BLOCKADE]);
+    play(&mut g, id::BLOCKADE);
+    choose(&mut g, Choice::Card(id::GHOST_TOWN));
+    assert_eq!(g.players[0].set_aside, counts_of(&[id::GHOST_TOWN]));
+    assert!(g.players[0].hand.is_empty(), "Ghost Town did not go to the hand");
+}
+
+#[test]
+fn ruling_blockade_only_curses_a_gain_on_the_gainers_own_turn() {
+    // "This only Curses another player if they gain a copy of a Blockaded card during their own turn."
+    let mut g = new_state(&[id::BLOCKADE, id::SWINDLER], 2);
+    g.players[0].set_aside = counts_of(&[id::SILVER]);
+    inject_pending(&mut g, 0, id::BLOCKADE, 1, id::SILVER);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_deck_known(&mut g, 1, &[id::COPPER]);
+    // Player 0's Swindler (cost $0 Copper) makes player 1 gain a Silver ... which needs a $0 card; use a cost reduction of 3.
+    g.turn.cost_reduction = 3;
+    play(&mut g, id::SWINDLER);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }));
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert!(g.players[1].all_cards().has(id::SILVER));
+    assert!(!g.players[1].all_cards().has(id::CURSE), "gained on player 0's turn: no Curse");
+}
+
+#[test]
+fn ruling_salvager_gives_nothing_for_the_potion_in_a_cost() {
+    // "If you trash a card with P or Debt in the cost, you get nothing for those symbols."
+    let mut g = new_state(&[id::SALVAGER, id::GOLEM], 2);
+    set_hand(&mut g, 0, &[id::SALVAGER, id::GOLEM]);
+    play(&mut g, id::SALVAGER);
+    assert_eq!(g.turn.coins, 4);
+    assert_eq!(g.turn.buys, 2);
+}
+
+#[test]
+fn ruling_tide_pools_discards_one_or_none_when_the_hand_is_short() {
+    // "If you have only one card left in hand you discard that one, and if you have no cards you don't discard any."
+    let mut g = new_state(&[id::TIDE_POOLS], 2);
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    inject_pending(&mut g, 0, id::TIDE_POOLS, 1, 0);
+    expect_decision(&mut g);
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE]));
+    let mut g = new_state(&[id::TIDE_POOLS], 2);
+    set_hand(&mut g, 0, &[]);
+    inject_pending(&mut g, 0, id::TIDE_POOLS, 1, 0);
+    let d = expect_decision(&mut g);
+    assert!(!matches!(d.kind, DecisionKind::Select { .. }), "{d:?}");
+}
+
+#[test]
+fn ruling_only_one_card_is_trashed_when_under_several_corsairs() {
+    // "If you're under multiple Corsair attacks, you'll only trash one card, whether it is a Silver or a Gold."
+    let mut g = new_state(&[id::CORSAIR], 3);
+    set_in_play(&mut g, 0, &[id::CORSAIR]);
+    set_in_play(&mut g, 1, &[id::CORSAIR]);
+    set_hand(&mut g, 2, &[id::SILVER, id::GOLD]);
+    reset_turn(&mut g, 2);
+    expect_decision(&mut g);
+    assert_eq!(g.trash.total(), 1, "{:?}", g.trash);
+}
+
+#[test]
+fn ruling_outpost_and_merchant_ship_the_extra_turn_is_the_next_turn() {
+    // "If you play Merchant Ship and Outpost on the same turn, the extra turn will be your next turn, and you'll get +$2 from Merchant
+    // Ship then."
+    let mut g = new_state(&[id::VILLAGE, id::MERCHANT_SHIP, id::OUTPOST], 2);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::MERCHANT_SHIP, id::OUTPOST]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 10]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::VILLAGE);
+    play(&mut g, id::MERCHANT_SHIP);
+    play(&mut g, id::OUTPOST);
+    pass(&mut g);
+    assert_eq!(g.turn.player, 0);
+    assert!(g.turn.is_extra_turn);
+    assert_eq!(g.turn.coins, 2, "Merchant Ship's start-of-turn $2 on the extra turn");
+}

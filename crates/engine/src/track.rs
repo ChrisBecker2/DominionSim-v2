@@ -81,6 +81,9 @@ pub struct Ledger {
     pub want: bool,
     /// The token of the card a Vassal has just discarded, while its discard reactions are queued (0 outside).
     pub disc: u8,
+    /// Where the card of the last finished gain landed (0 discard pile, 1 hand, 2 deck top): a gain effect that moves the card at once
+    /// (Blockade) reads it, as a Ghost Town goes to the hand and Progress puts the card onto the deck.
+    pub landed: u8,
     /// Cards that were in play when the turn started (Durations held over): not "played this turn", whatever the counts say.
     pub carried: SmallMultiset<4>,
     marks: [Mark; LEDGER_CAP],
@@ -121,6 +124,7 @@ impl Ledger {
         ingain: 0,
         want: false,
         disc: 0,
+        landed: 0,
         carried: SmallMultiset::EMPTY,
         marks: [Mark { tok: 0, owner: 0, zone: TZone::InPlay, holders: 0, card: 0 }; LEDGER_CAP],
     };

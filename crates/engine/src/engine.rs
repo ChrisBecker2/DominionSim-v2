@@ -1848,6 +1848,7 @@ impl GameState {
         if self.rs.hook != 0 {
             self.rs_gain_post(p, c, from_supply, sink);
         }
+        self.turn.led.landed = to as u8;
     }
 
     /// A gain with reactions waiting (or a gainer that wants to move the card afterwards) names the gained copy by a token; the `Release`

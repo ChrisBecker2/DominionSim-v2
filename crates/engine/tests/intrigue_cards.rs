@@ -2516,3 +2516,293 @@ fn replace_puts_the_gained_card_on_the_deck_not_an_older_copy_in_the_discard_pil
     assert_eq!(g.players[0].discard.get(id::SILVER), 1, "and the older one stays where it was");
     assert_eq!(g.turn.led.n, 0);
 }
+
+// ===========================================================================
+// Audit: card types as they are now (Inheritance's Estate is an Action card)
+// ===========================================================================
+
+#[test]
+fn audit_shanty_town_sees_an_inherited_estate_as_an_action() {
+    // "If it has no Action cards in it ... then you draw 2 cards": under Inheritance an Estate in hand is an Action card.
+    let mut g = new_state(&[id::SHANTY_TOWN, id::VILLAGE], 2);
+    g.players[0].inherit = id::VILLAGE;
+    set_hand(&mut g, 0, &[id::SHANTY_TOWN, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::GOLD, id::GOLD]);
+    play(&mut g, id::SHANTY_TOWN);
+    assert_eq!(g.players[0].hand.total(), 1, "an Estate that is an Action card: no draw");
+}
+
+#[test]
+fn audit_ironworks_gaining_an_inherited_estate_gives_action_and_card() {
+    // Ironworks FAQ: "If you gain an Estate after buying Inheritance, you get +1 Action and +1 Card."
+    let mut g = new_state(&[id::IRONWORKS, id::VILLAGE], 2);
+    g.players[0].inherit = id::VILLAGE;
+    set_hand(&mut g, 0, &[id::IRONWORKS]);
+    set_deck_known(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::IRONWORKS);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert_eq!(g.turn.actions, 1);
+    assert_eq!(g.players[0].hand.total(), 1, "+1 Card for the Victory type");
+}
+
+#[test]
+fn audit_courtier_counts_the_action_type_of_an_inherited_estate() {
+    // Courtier FAQ: Inheritance changes the number of types a card has: Estate is Action-Victory, so two picks.
+    let mut g = new_state(&[id::COURTIER, id::VILLAGE], 2);
+    g.players[0].inherit = id::VILLAGE;
+    set_hand(&mut g, 0, &[id::COURTIER, id::ESTATE, id::CURSE]);
+    play(&mut g, id::COURTIER);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert_eq!(g.pending_decision().unwrap().kind, DecisionKind::Mode { picks: 2, distinct: true });
+}
+
+#[test]
+fn audit_conspirator_counts_the_estate_played_with_inheritance() {
+    // Inheritance: the Estate played as the Village is an Action played, and so is the Village it plays: Conspirator is the 3rd.
+    let mut g = new_state(&[id::CONSPIRATOR, id::VILLAGE], 2);
+    g.players[0].inherit = id::VILLAGE;
+    set_hand(&mut g, 0, &[id::CONSPIRATOR, id::CONSPIRATOR, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::SILVER, id::SILVER, id::SILVER, id::SILVER]);
+    play(&mut g, id::ESTATE);
+    play(&mut g, id::CONSPIRATOR);
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.players[0].hand, counts_of(&[id::SILVER, id::SILVER, id::CONSPIRATOR]), "Village's card and Conspirator's bonus card");
+}
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ / rules clarifications)
+// ===========================================================================
+
+#[test]
+fn ruling_courtyard_may_put_back_a_card_that_was_not_drawn() {
+    // "The card you put on top does not have to be one of the 3 you just drew."
+    let mut g = new_state(&[id::COURTYARD], 2);
+    set_hand(&mut g, 0, &[id::COURTYARD, id::CURSE]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY, id::PROVINCE]);
+    play(&mut g, id::COURTYARD);
+    assert!(choices(&g).contains(&Choice::Card(id::CURSE)));
+    choose(&mut g, Choice::Card(id::CURSE));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::CURSE));
+    assert_eq!(g.players[0].hand.total(), 3);
+}
+
+#[test]
+fn ruling_lurker_can_trash_and_gain_a_dual_type_action() {
+    // "The card trashed or gained has to be an Action card, but can have other types too. For example Lurker can trash Nobles from the
+    // Supply and can gain Nobles from the trash."
+    let trash_i = mode_idx(id::LURKER, |o| matches!(o, ModeOpt::TrashFromSupply(_)));
+    let gain_i = mode_idx(id::LURKER, |o| matches!(o, ModeOpt::GainFromTrash(_)));
+    let mut g = new_state(&[id::LURKER, id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert!(choices(&g).contains(&Choice::Card(id::NOBLES)));
+    choose(&mut g, Choice::Card(id::NOBLES));
+    assert_eq!(g.trash, counts_of(&[id::NOBLES]));
+    let mut g = new_state(&[id::LURKER, id::NOBLES], 2);
+    g.trash = counts_of(&[id::NOBLES, id::ESTATE]);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(gain_i));
+    assert_eq!(g.players[0].discard, counts_of(&[id::NOBLES]), "gained into the discard pile");
+}
+
+#[test]
+fn ruling_lurker_trashing_a_fortress_from_the_supply_triggers_its_when_trashed_effect() {
+    // "Trashing a card from the Supply will activate its when-trash abilities. For example, if you trash a Fortress from the Supply,
+    // it will move itself into your hand."
+    let trash_i = mode_idx(id::LURKER, |o| matches!(o, ModeOpt::TrashFromSupply(_)));
+    let mut g = new_state(&[id::LURKER, id::FORTRESS], 2);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    choose(&mut g, Choice::Mode(trash_i));
+    choose(&mut g, Choice::Card(id::FORTRESS));
+    assert!(g.players[0].hand.has(id::FORTRESS), "Fortress moved itself into the hand");
+    assert!(g.trash.is_empty());
+}
+
+#[test]
+fn ruling_masquerade_is_not_an_attack_and_passing_is_not_gaining() {
+    // "This is not an Attack and so cannot be stopped with Moat."; "Passed cards are not 'gained'."
+    let mut g = new_state(&[id::MASQUERADE, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::MASQUERADE, id::ESTATE]);
+    set_hand(&mut g, 1, &[id::MOAT, id::DUCHY]);
+    set_deck_known(&mut g, 0, &[id::GOLD, id::GOLD]);
+    let mut ev: Vec<Event> = Vec::new();
+    play_ev(&mut g, id::MASQUERADE, &mut ev);
+    // No Moat question: the first decision is the passing player's own choice.
+    let d = g.pending_decision().unwrap();
+    assert!(!matches!(d.kind, DecisionKind::YesNo { act: Act::Reveal }), "{d:?}");
+    choose_ev(&mut g, Choice::Card(id::ESTATE), &mut ev);
+    let d = g.pending_decision().unwrap();
+    assert_eq!(d.player, 1);
+    choose_ev(&mut g, Choice::Card(id::MOAT), &mut ev);
+    assert!(!ev.iter().any(|e| matches!(e, Event::Gain { .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, Event::Pass { .. })));
+}
+
+#[test]
+fn ruling_shanty_town_counts_a_dual_type_card_as_an_action() {
+    // "If it has no Action cards in it (including Action cards with other types too, such as Nobles), then you draw 2 cards."
+    let mut g = new_state(&[id::SHANTY_TOWN, id::NOBLES], 2);
+    set_hand(&mut g, 0, &[id::SHANTY_TOWN, id::NOBLES]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::SHANTY_TOWN);
+    assert_eq!(g.players[0].hand.total(), 1);
+}
+
+#[test]
+fn ruling_steward_trash_option_with_one_or_two_plus_cards() {
+    // "If you pick 'trash 2 cards from your hand' and only have one card in hand, you trash that card; with 2 or more you have to trash 2."
+    let trash_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::TrashFromHand(_)));
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::ESTATE]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert_eq!(g.trash, counts_of(&[id::ESTATE]));
+    let mut g = new_state(&[id::STEWARD], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::ESTATE, id::DUCHY, id::CURSE]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, min: 2, max: 2, .. }), "{d:?}");
+}
+
+#[test]
+fn ruling_swindler_victims_when_trashed_effect_comes_before_the_attackers_choice() {
+    // "When-trashed effects trigger before the player who played Swindler has to choose which card the opponent gains."
+    let mut g = new_state(&[id::SWINDLER], 2);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_deck_known(&mut g, 1, &[id::OVERGROWN_ESTATE, id::DUCHY, id::CURSE]);
+    g.turn.cost_reduction = 1; // the Overgrown Estate costs $0, so there is a card to give
+    play(&mut g, id::SWINDLER);
+    // The victim trashed the Overgrown Estate and drew the Duchy before the attacker picks a $1 card.
+    assert!(g.players[1].hand.has(id::DUCHY), "drew from Overgrown Estate first");
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    assert_eq!(d.player, 0, "the attacker chooses");
+}
+
+#[test]
+fn ruling_conspirator_counts_actions_that_left_play_but_not_durations_from_before() {
+    // "Conspirator does count one-shots and other Actions that have been played but left the play area, but does not count Durations
+    // that are still in play left over from the previous turn."
+    let mut g = new_state(&[id::MINING_VILLAGE, id::CONSPIRATOR], 2);
+    set_hand(&mut g, 0, &[id::MINING_VILLAGE, id::CONSPIRATOR, id::CONSPIRATOR]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY, id::PROVINCE, id::PROVINCE]);
+    play(&mut g, id::MINING_VILLAGE);
+    choose(&mut g, Choice::Yes); // trash it for +$2
+    play(&mut g, id::CONSPIRATOR);
+    let before = g.players[0].hand.total();
+    play(&mut g, id::CONSPIRATOR);
+    assert_eq!(g.players[0].hand.total(), before - 1 + 1, "third Action played: Conspirator drew a card");
+    let mut g = new_state(&[id::WHARF, id::CONSPIRATOR], 2);
+    set_in_play(&mut g, 0, &[id::WHARF]);
+    set_hand(&mut g, 0, &[id::CONSPIRATOR, id::CONSPIRATOR]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::DUCHY]);
+    g.turn.actions = 2;
+    play(&mut g, id::CONSPIRATOR);
+    let before = g.players[0].hand.total();
+    play(&mut g, id::CONSPIRATOR);
+    assert_eq!(g.players[0].hand.total(), before - 1, "the Wharf from last turn is not an Action played this turn: no bonus");
+}
+
+#[test]
+fn ruling_diplomat_can_be_revealed_while_protected_by_a_lighthouse() {
+    // "You can still react with Diplomat even if you are protected by attack immunity."
+    let mut g = new_state(&[id::MILITIA, id::DIPLOMAT, id::LIGHTHOUSE], 2);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_in_play(&mut g, 1, &[id::LIGHTHOUSE]);
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 1, &[id::DUCHY, id::DUCHY]);
+    play(&mut g, id::MILITIA);
+    let d = g.pending_decision().unwrap();
+    assert_eq!((d.player, d.subject), (1, id::DIPLOMAT), "{d:?}");
+}
+
+#[test]
+fn ruling_ironworks_bonus_comes_even_if_the_gained_card_was_trashed_and_curse_gives_none() {
+    // "If the gained card is trashed ... after being gained (Watchtower), Ironworks still gives bonuses for the card."; "If you gain a
+    // card that has none of the listed types (such as Curse), you get no bonus."
+    let mut g = new_state(&[id::IRONWORKS, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::IRONWORKS]);
+    play(&mut g, id::IRONWORKS);
+    choose(&mut g, Choice::Card(id::CURSE));
+    assert_eq!((g.turn.actions, g.turn.coins), (0, 0));
+    assert!(g.players[0].hand.is_empty());
+    let mut g = new_state(&[id::IRONWORKS, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::IRONWORKS, id::WATCHTOWER]);
+    set_deck_known(&mut g, 0, &[id::DUCHY]);
+    play(&mut g, id::IRONWORKS);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    // Watchtower: reveal it to trash the Estate.
+    let d = g.pending_decision().unwrap();
+    assert_eq!(d.source, Some(id::WATCHTOWER), "{d:?}");
+    choose(&mut g, Choice::Card(id::ESTATE));
+    assert!(g.trash.has(id::ESTATE), "the Watchtower trashed it");
+    assert!(g.players[0].hand.has(id::DUCHY), "+1 Card for the Victory card gained, trashed or not");
+}
+
+#[test]
+fn ruling_mining_village_is_not_worth_coins_when_trashed_in_another_way() {
+    // "You only get +$2 if Mining Village trashes itself, not if it is trashed in another way, for example by Steward."
+    let trash_i = mode_idx(id::STEWARD, |o| matches!(o, ModeOpt::TrashFromHand(_)));
+    let mut g = new_state(&[id::STEWARD, id::MINING_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::STEWARD, id::MINING_VILLAGE, id::ESTATE]);
+    play(&mut g, id::STEWARD);
+    choose(&mut g, Choice::Mode(trash_i));
+    assert_eq!(g.trash.total(), 2);
+    assert_eq!(g.turn.coins, 0);
+}
+
+#[test]
+fn ruling_minion_redraw_with_no_cards_left_in_hand_still_draws_four() {
+    // "You still draw 4 cards if you choose the discard option with no cards left in hand."
+    let redraw_i = mode_idx(id::MINION, |o| matches!(o, ModeOpt::DiscardHandDraw { .. }));
+    let mut g = new_state(&[id::MINION], 2);
+    set_hand(&mut g, 0, &[id::MINION]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::DUCHY, id::PROVINCE, id::CURSE, id::COPPER]);
+    play(&mut g, id::MINION);
+    choose(&mut g, Choice::Mode(redraw_i));
+    assert_eq!(g.players[0].hand.total(), 4);
+}
+
+#[test]
+fn ruling_torturer_victim_may_pick_an_option_they_cannot_do() {
+    // "A player can choose to gain a Curse even with no Curses left, or to discard 2 cards even with one or zero cards in hand."
+    let discard_i = mode_idx(id::TORTURER, |o| matches!(o, ModeOpt::DiscardFromHand(_)));
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_hand(&mut g, 1, &[id::ESTATE]);
+    play(&mut g, id::TORTURER);
+    assert!(choices(&g).contains(&Choice::Mode(discard_i)));
+    choose(&mut g, Choice::Mode(discard_i));
+    assert_eq!(g.players[1].discard, counts_of(&[id::ESTATE]));
+    let mut g = new_state(&[id::TORTURER], 2);
+    set_hand(&mut g, 0, &[id::TORTURER]);
+    set_hand(&mut g, 1, &[]);
+    play(&mut g, id::TORTURER);
+    choose(&mut g, Choice::Mode(discard_i));
+    assert!(g.players[1].discard.is_empty() && g.players[1].hand.is_empty());
+}
+
+#[test]
+fn ruling_upgrade_resolves_the_trashed_cards_effects_before_the_gain() {
+    // "First you trash a card, and resolve all of its on-trash effects; then you gain a card."
+    let mut g = new_state(&[id::UPGRADE], 2);
+    set_hand(&mut g, 0, &[id::UPGRADE, id::OVERGROWN_ESTATE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE]);
+    play(&mut g, id::UPGRADE);
+    choose(&mut g, Choice::Card(id::OVERGROWN_ESTATE));
+    assert_eq!(g.players[0].hand.total(), 2, "Duchy (Upgrade) and Province (Overgrown Estate)");
+    assert_eq!(g.players[0].discard, counts_of(&[id::ESTATE]), "the only $2 card, gained once the draw was done");
+}
+
+#[test]
+fn ruling_intrigue_victory_kingdom_piles_hold_8_cards_with_two_players_and_12_with_more() {
+    // "Use 8 Dukes / Mills / Nobles (Harem, Island ...) for games with 2 players, 12 for games with 3 or more players."
+    for c in [id::DUKE, id::MILL, id::NOBLES, id::HAREM] {
+        assert_eq!(new_state(&[c], 2).supply.get(c), 8, "{}", cards::def(c).name);
+        assert_eq!(new_state(&[c], 3).supply.get(c), 12, "{}", cards::def(c).name);
+    }
+}

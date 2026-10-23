@@ -197,3 +197,60 @@ fn a_strategy_naming_a_split_pile_card_or_an_ally_parses() {
     Strategy::parse("name = \"P\"\n[[gain]]\ncard = \"Blacksmith\"\n[[gain]]\ncard = \"Gold\"\n[[favor]]\nally = \"Island Folk\"\nuse = true\n").unwrap();
     assert!(Strategy::parse("name = \"P\"\n[[favor]]\nally = \"Smithy\"\nuse = true\n").is_err());
 }
+
+// ---- audit: policies ----
+
+fn plain_text(extra: &str, hand1: &str, hand2: &str) -> String {
+    format!(
+        "players: 2\nkingdom: {KINGDOM}, {extra}\nturn: 5  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: {hand1}\ndeck: 5 Copper\n\n[player 2]\nhand: {hand2}\ndeck: 5 Estate\n"
+    )
+}
+
+#[test]
+fn the_archers_victim_keeps_the_best_card_and_the_attacker_discards_the_best_of_the_rest() {
+    let strat = load("big_money_ultimate.toml");
+    let t = plain_text("Battle Plan", "Archer, Copper", "Gold, Silver, Copper, Estate, Estate");
+    let (d, c) = decide_with(&t, &strat, Some(a::ARCHER));
+    assert_eq!(d.player, 1, "{d:?}");
+    assert_eq!(c, Choice::Card(id::GOLD), "the victim hides the Gold");
+    // The attacker picks among the revealed cards: the Silver is the best of them.
+    let mut g = parse_state(&t).unwrap();
+    let Step::Decision(_) = g.advance(&mut NoEvents) else { panic!() };
+    g.apply(Choice::Card(a::ARCHER), &mut NoEvents).unwrap();
+    let Step::Decision(_) = g.advance(&mut NoEvents) else { panic!() };
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    assert_eq!((d.player, d.for_player), (0, 1), "{d:?}");
+    assert_eq!(strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice()), Choice::Card(id::SILVER));
+}
+
+#[test]
+fn capital_city_discards_the_dead_cards() {
+    let strat = load("big_money_ultimate.toml");
+    let t = plain_text("Capital City", "Capital City, Copper, Copper, Estate, Estate", "5 Copper");
+    let (d, c) = decide_with(&t, &strat, Some(a::CAPITAL_CITY));
+    assert!(matches!(d.kind, DecisionKind::Select { .. }), "{d:?}");
+    assert_eq!(c, Choice::Card(id::ESTATE));
+}
+
+#[test]
+fn bauble_does_not_put_a_gained_victory_card_onto_the_deck() {
+    // (The rules of the fast bots; a bot that searches also searches this question, a Bauble being a Treasure with an effect.)
+    let strat = Strategy::parse("name = \"B\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n").unwrap();
+    let t = format!(
+        "players: 2\nkingdom: {KINGDOM}, Bauble, Plateau Shepherds\nally: Plateau Shepherds\nturn: 5  player: 1  phase: buy  actions: 1  buys: 1  coins: 8\nal turn: bauble\n\n[player 1]\nhand: Estate\ndeck: 5 Copper\nfavors: 1\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\nfavors: 1\n"
+    );
+    let mut g = parse_state(&t).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
+    assert_eq!(c, Choice::Card(id::PROVINCE));
+    g.apply(c, &mut NoEvents).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::PROVINCE, "{d:?}");
+    g.legal_choices(&mut buf);
+    assert_eq!(strat.decide_by_rules(&PlayerView::new(&g, d.player), &d, buf.as_slice()), Choice::No, "{d:?}");
+}

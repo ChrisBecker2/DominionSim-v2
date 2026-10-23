@@ -2106,23 +2106,22 @@ fn prince_cannot_set_aside_a_command_card_that_cost_reduction_made_cheap() {
     // Band of Misfits ($5, Action-Command) costs $4 after a reduction, but Prince takes a "non-Duration, non-Command Action".
     let mut g = new_state(&[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE], 2);
     g.turn.cost_reduction = 1;
-    set_hand(&mut g, 0, &[id::PRINCE, id::BAND_OF_MISFITS]);
+    assert_eq!(g.cost(id::BAND_OF_MISFITS), 4);
+    set_hand(&mut g, 0, &[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE]);
     play(&mut g, id::PRINCE);
-    assert!(g.players[0].prince_cards.is_empty());
-    assert!(g.players[0].hand.has(id::BAND_OF_MISFITS));
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::BAND_OF_MISFITS)), "{c:?}");
 }
 
 #[test]
 fn captain_cannot_play_a_command_card_that_cost_reduction_made_cheap() {
-    let mut g = new_state(&[id::CAPTAIN, id::BAND_OF_MISFITS], 2);
+    let mut g = new_state(&[id::CAPTAIN, id::BAND_OF_MISFITS, id::VILLAGE], 2);
     g.turn.cost_reduction = 1;
-    assert_eq!(g.cost(id::BAND_OF_MISFITS), 4);
     set_hand(&mut g, 0, &[id::CAPTAIN]);
-    let step = play(&mut g, id::CAPTAIN);
-    // Nothing legal to play: no Supply pick is asked.
-    let Step::Decision(d) = step else { panic!("{step:?}") };
-    assert_eq!(d.kind, DecisionKind::Buy, "{d:?}");
-    assert!(g.players[0].in_play.has(id::CAPTAIN));
+    play(&mut g, id::CAPTAIN);
+    // The Village is the only legal pick, so it is played without asking (+2 Actions).
+    assert_eq!(g.turn.actions, 2);
 }
 
 #[test]

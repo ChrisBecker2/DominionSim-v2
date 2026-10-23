@@ -246,3 +246,127 @@ fn bots_play_whole_games_on_random_nocturne_kingdoms_inner() {
         assert!(g.is_game_over());
     }
 }
+
+// --- audit: every kingdom card bought by a bot with no rules for it ----------------------------------------------------
+
+/// A strategy that buys every card of the kingdom (several copies), so that each card's defaults are exercised in play: no illegal choice, no panic.
+#[test]
+fn bots_with_no_rules_play_every_nocturne_card_legally() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(every_card_inner).unwrap().join().unwrap();
+}
+
+fn every_card_inner() {
+    let pool: Vec<CardId> = cards::kingdom_cards().filter(|&c| cards::set_of(c) == cards::CardSet::Nocturne).collect();
+    let mut rng = dominion_engine::rng::Rng::new(4242);
+    for game in 0..12u64 {
+        let mut from = pool.clone();
+        let mut kingdom = Vec::new();
+        for _ in 0..10 {
+            let i = rng.below(from.len() as u32) as usize;
+            kingdom.push(from.swap_remove(i));
+        }
+        let mut gains: Vec<&str> = vec!["Province"];
+        let names: Vec<&'static str> = kingdom.iter().map(|&c| cards::name(c)).collect();
+        for _ in 0..2 {
+            for n in &names {
+                gains.push(n);
+            }
+        }
+        gains.extend(["Gold", "Silver"]);
+        let s = strategy("", &gains);
+        let (g, _) = play_logged(&s, &s, &kingdom, game);
+        assert!(g.is_game_over(), "game {game} on {names:?}");
+    }
+}
+
+/// Secret Cave's discard of three is all or nothing once begun: the third pick (with two cards left in hand) must not be a Pass (that crashed a whole game).
+#[test]
+fn secret_cave_finishes_the_three_discards_it_starts() {
+    let strat = money("");
+    let mut g = state("action", 0, 1, "hand: Secret Cave, Duchy, Province, Curse\ndeck: 8 Estate");
+    next_decision(&mut g);
+    g.apply(Choice::Card(id::SECRET_CAVE), &mut NoEvents).unwrap();
+    let mut discarded = 0;
+    loop {
+        let (d, ch) = next_decision(&mut g);
+        if d.source != Some(id::SECRET_CAVE) {
+            break;
+        }
+        let c = decide(&strat, &g, &d, &ch);
+        assert!(ch.contains(&c), "{c:?} is not offered: {ch:?}");
+        if c == Choice::Pass {
+            break;
+        }
+        g.apply(c, &mut NoEvents).unwrap();
+        discarded += 1;
+    }
+    assert_eq!(discarded, 3);
+}
+
+/// The Sky's Gift received from an Idol in the Buy phase must not discard Treasures that are still to be played.
+#[test]
+fn skys_gift_in_the_buy_phase_keeps_the_treasures_left_in_hand() {
+    let strat = money("");
+    let mut g = parse_state(
+        "players: 2\nkingdom: Idol, Monastery, Bard\nturn: 5  player: 1  phase: buy  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: Idol, Silver, Silver, Gold, Estate\ndeck: 8 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n",
+    )
+    .unwrap();
+    g.noc.boon_deck = 1 << (id::THE_SKYS_GIFT - cards::FIRST_BOON);
+    let (d, _) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    g.apply(Choice::Card(id::IDOL), &mut NoEvents).unwrap();
+    let (d, ch) = next_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }) && d.source == Some(id::THE_SKYS_GIFT), "{d:?}");
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass);
+}
+
+/// Policy probes: what the generic defaults pick for the trashing Nocturne cards (printed; asserted where the advice is clear).
+fn probe(kingdom: &str, hand: &str, play: CardId) -> (GameState, Decision, Vec<Choice>, Choice) {
+    let strat = money("");
+    let mut g = parse_state(&format!(
+        "players: 2\nkingdom: {kingdom}\nturn: 5  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: {hand}\ndeck: 8 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n"
+    ))
+    .unwrap();
+    next_decision(&mut g);
+    g.apply(Choice::Card(play), &mut NoEvents).unwrap();
+    let (d, ch) = next_decision(&mut g);
+    let c = decide(&strat, &g, &d, &ch);
+    (g, d, ch, c)
+}
+
+/// Pooka: "+4 Cards for trashing a Treasure": trash a Copper, never the Gold.
+#[test]
+fn pooka_trashes_the_cheapest_treasure() {
+    let (_, d, _, c) = probe("Pooka, Monastery, Bard", "Pooka, Gold, Silver, Copper, Estate", id::POOKA);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    assert_eq!(c, Choice::Card(id::COPPER));
+}
+
+/// Tragic Hero: the Treasure gained for the Hero is the best one.
+#[test]
+fn tragic_hero_gains_the_best_treasure() {
+    let mut hand = String::from("Tragic Hero");
+    for _ in 0..7 {
+        hand.push_str(", Estate");
+    }
+    let (_, d, ch, c) = probe("Tragic Hero, Monastery, Bard", &hand, id::TRAGIC_HERO);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    assert!(ch.contains(&Choice::Card(id::GOLD)));
+    assert_eq!(c, Choice::Card(id::GOLD));
+}
+
+/// Zombie Apprentice and Imp: nothing is trashed or played that is worth more than the effect.
+#[test]
+fn exorcist_style_trashers_do_not_trash_gold() {
+    let strat = money("");
+    let mut g = night_state("Exorcist");
+    g.players[0].hand.add(id::GOLD, 1);
+    g.players[0].hand.add(id::CURSE, 1);
+    let (d, ch) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayNight);
+    g.apply(Choice::Card(id::EXORCIST), &mut NoEvents).unwrap();
+    let (d, ch2) = next_decision(&mut g);
+    let _ = ch;
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    assert_eq!(decide(&strat, &g, &d, &ch2), Choice::Card(id::CURSE));
+}

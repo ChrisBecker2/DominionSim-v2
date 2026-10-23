@@ -385,12 +385,10 @@ impl SetRules for Nocturne {
                 }
             }
             ids::LEPRECHAUN => {
+                // The cards in play are counted after the Gold is gained, reactions to it included (a Sheepdog played then counts): the check is
+                // pushed first so that it runs last.
+                g.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 0, 0, Then::LeprechaunCheck));
                 g.gain(p, id::GOLD, Dest::Discard, false, card, sink);
-                if g.players[pi].in_play.total() == 7 {
-                    g.gain_side(p, ids::WISH, Dest::Discard, card, sink);
-                } else {
-                    g.stack.push(Frame { min: 1 << p, ..Frame::new(K::ReceiveHex, p, card) });
-                }
             }
             ids::NIGHT_WATCHMAN => g.look_at_top(p, card, 5),
             ids::SECRET_CAVE => g.stack.push(Frame { exact: true, ..select(p, card, Zone::Hand, Discard, Filter::Any, 0, 3, Then::SecretCave) }),
@@ -577,8 +575,8 @@ impl SetRules for Nocturne {
             });
         }
         // Changeling: a card costing $3 or more gained while Changeling is in the Supply may be exchanged for one (asked first: the other
-        // effects of the gain still happen).
-        if g.in_supply(ids::CHANGELING) && g.supply.get(ids::CHANGELING) > 0 && c != ids::CHANGELING && g.cost(c) >= 3 {
+        // effects of the gain still happen). The cost is the one the card had as it was gained (a Fisherman gained to an empty discard pile cost $2).
+        if g.in_supply(ids::CHANGELING) && g.supply.get(ids::CHANGELING) > 0 && c != ids::CHANGELING && g.cost_when_gained(p, c, to) >= 3 {
             g.stack.push(Frame {
                 zone: GameState::gain_dest_zone(to), act: Act::Return, subject: c, then: Then::ChangelingSwap,
                 ..Frame::new(K::YesNo, p, ids::CHANGELING)
@@ -1106,7 +1104,7 @@ impl GameState {
                     } else {
                         // A cheaper card that shares a type with it (every part of the cost no larger, and not equal).
                         self.stack.push(Frame {
-                            less: true, potion, depth: f.depth, ..gain_frame(p, f.source, cost, Filter::SharesTypeWith(c), Dest::Discard)
+                            less: true, potion, min: cards::debt_cost(c), depth: f.depth, ..gain_frame(p, f.source, cost, Filter::SharesTypeWith(c), Dest::Discard)
                         });
                     }
                 } else {
@@ -1229,7 +1227,7 @@ impl GameState {
                 if f.count > 0 {
                     let c = f.last;
                     self.stack.push(Frame {
-                        gf: crate::state::GF_SPIRITS, less: true, potion: cards::potion_cost(c), depth: f.depth,
+                        gf: crate::state::GF_SPIRITS, less: true, potion: cards::potion_cost(c), min: cards::debt_cost(c), depth: f.depth,
                         ..gain_frame(p, f.source, self.cost(c), Filter::Any, Dest::Discard)
                     });
                 }
@@ -1252,6 +1250,13 @@ impl GameState {
                     if self.leave_play_self(p, f.source, f.tok) {
                         self.trash_card(p, f.source, true, sink);
                     }
+                }
+            }
+            Then::LeprechaunCheck => {
+                if self.players[pi].in_play.total() == 7 {
+                    self.gain_side(p, ids::WISH, Dest::Discard, f.source, sink);
+                } else {
+                    self.stack.push(Frame { min: 1 << p, depth: f.depth, ..Frame::new(K::ReceiveHex, p, f.source) });
                 }
             }
             Then::SecretCave => {

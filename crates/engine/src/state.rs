@@ -2567,6 +2567,8 @@ pub enum Then {
     MonasteryCopper,
     /// Select (a zero-pick frame under Tragic Hero's draw): with 8 or more cards in hand, trash the Tragic Hero and gain a Treasure.
     TragicHero,
+    /// Select (a zero-pick frame under Leprechaun's Gold gain, so it runs after the gain's reactions): with exactly 7 cards in play gain a Wish, else receive a Hex.
+    LeprechaunCheck,
     /// Select (Secret Cave, 3 cards discarded): the Duration is kept for +$3 next turn.
     SecretCave,
     /// RevealTop (Will-o'-Wisp): a revealed card costing $2 or less goes to the hand, any other stays on the deck.

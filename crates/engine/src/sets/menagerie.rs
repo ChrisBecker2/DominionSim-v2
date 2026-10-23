@@ -765,12 +765,8 @@ impl GameState {
         if self.men.flags & M_COST != 0 && p == self.turn.player {
             let discard_was_empty = self.players[p as usize].discard.total() == (to == Dest::Discard) as u32;
             if c == ids::FISHERMAN {
-                if !discard_was_empty {
-                    return self.cost(c);
-                }
-                // It cost $3 less as it was gained (now the discard pile holds it).
-                let fam = if self.al.flags & crate::state::AF_FAMILY != 0 { self.al_fam_less(c) as u32 } else { 0 };
-                return 2u32.saturating_sub(fam) as u8;
+                // The card is already in the discard pile, so `cost` reads $5; it cost $3 less if the pile was empty before it arrived.
+                return if discard_was_empty { self.cost(c).saturating_sub(3) } else { self.cost(c) };
             }
             if c == ids::DESTRIER {
                 return (self.cost(c) as u32 + 1).min(6) as u8;

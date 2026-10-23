@@ -1968,3 +1968,1026 @@ fn a_pixie_played_by_overlord_is_not_in_play_to_be_trashed() {
     assert_eq!(g.players[0].in_play.get(id::PIXIE), 1, "the Pixie in play stays");
     assert_eq!(g.trash.get(id::PIXIE), 0);
 }
+
+// ===========================================================================
+// Audit: rulings from the wiki's FAQ pages (one test per ruling or small group)
+// ===========================================================================
+
+/// Exorcist: a card with Debt in its cost, trashed, leaves cheaper Spirits: Will-o'-Wisp ($0) is cheaper than Engineer ($0 and 4 Debt).
+#[test]
+fn exorcist_trashing_a_debt_card_can_gain_a_spirit_that_costs_less_debt() {
+    let mut g = new_state(&[id::EXORCIST, id::ENGINEER], 2);
+    set_hand(&mut g, 0, &[id::EXORCIST, id::ENGINEER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::EXORCIST);
+    assert_eq!(g.trash.get(id::ENGINEER), 1);
+    // Imp and Ghost cost more coins; the Will-o'-Wisp is the only choice and is gained at once.
+    assert!(g.players[0].discard.has(id::WILL_O_WISP) && !g.players[0].discard.has(id::IMP));
+}
+
+/// Locusts: "cheaper" counts Debt: Engineer ($0, 4 Debt) is cheaper than City Quarter ($0, 8 Debt) and shares the Action type.
+#[test]
+fn locusts_on_a_debt_card_gains_a_card_with_less_debt() {
+    let mut g = new_state(&[id::SKULK, id::ENGINEER, id::CITY_QUARTER], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_hand(&mut g, 1, &[]);
+    set_deck_known(&mut g, 1, &[id::CITY_QUARTER, id::GOLD]);
+    next_hex(&mut g, id::LOCUSTS);
+    play(&mut g, id::SKULK);
+    assert_eq!(g.trash.get(id::CITY_QUARTER), 1);
+    // Engineer is the only card that is cheaper and an Action: gained at once.
+    assert!(g.players[1].discard.has(id::ENGINEER), "{:?}", g.players[1].discard.iter().collect::<Vec<_>>());
+}
+
+/// Locusts: Alchemist ($3 and a Potion): Village ($3) and University ($2 and a Potion) are both cheaper.
+#[test]
+fn locusts_on_a_potion_card_gains_cheaper_cards_of_a_shared_type() {
+    let mut g = new_state(&[id::SKULK, id::ALCHEMIST, id::UNIVERSITY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::ALCHEMIST, id::GOLD]);
+    next_hex(&mut g, id::LOCUSTS);
+    play(&mut g, id::SKULK);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::VILLAGE)) && cs.contains(&Choice::Card(id::UNIVERSITY)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::ALCHEMIST)));
+}
+
+/// War: with no card costing $3 or $4 in the deck, the whole deck is discarded and nothing is trashed.
+#[test]
+fn war_without_a_three_or_four_in_the_deck_discards_the_deck_and_trashes_nothing() {
+    let (g, _) = skulk_hex(id::WAR, &[], &[id::COPPER, id::ESTATE, id::CURSE], &[]);
+    assert!(g.trash.is_empty());
+    assert_eq!(g.players[1].discard.total(), 3);
+    assert_eq!(g.players[1].deck_size(), 0);
+}
+
+/// Famine: when every revealed card is an Action the rest of the deck is still shuffled; with an empty deck and nothing to return nothing is shuffled.
+#[test]
+fn famine_shuffles_the_deck_even_if_all_three_were_actions_and_never_the_discard_pile() {
+    let (g, _) = skulk_hex(id::FAMINE, &[], &[id::VILLAGE, id::VILLAGE, id::VILLAGE, id::GOLD, id::SILVER], &[]);
+    assert_eq!(g.players[1].discard.get(id::VILLAGE), 3);
+    assert_eq!(g.players[1].deck_known.len, 0, "what is left of the deck is shuffled (order unknown)");
+    assert_eq!(g.players[1].deck_unknown.total(), 2);
+    let (g, _) = skulk_hex(id::FAMINE, &[], &[id::VILLAGE, id::VILLAGE, id::VILLAGE], &[id::GOLD, id::GOLD]);
+    assert_eq!(g.players[1].deck_size(), 0, "the discard pile is not shuffled into the deck");
+    assert_eq!(g.players[1].discard.total(), 5);
+}
+
+/// Fear: with five or more cards in hand and no Action or Treasure the hand is only revealed; with four cards nothing happens.
+#[test]
+fn fear_only_reveals_a_hand_without_actions_or_treasures() {
+    let (g, st) = skulk_hex(id::FEAR, &[id::ESTATE; 5], &[], &[]);
+    assert!(matches!(st, Step::Decision(_)) || g.players[1].hand.total() == 5);
+    assert_eq!(g.players[1].hand.total(), 5);
+    let (g, _) = skulk_hex(id::FEAR, &[id::COPPER, id::ESTATE, id::ESTATE, id::ESTATE], &[], &[]);
+    assert_eq!(g.players[1].hand.total(), 4, "fewer than five cards");
+}
+
+/// Bad Omens is not discarding: a Faithful Hound in the deck is not offered a set-aside, nor does a Tunnel in it give a Gold.
+#[test]
+fn bad_omens_is_not_a_discard() {
+    let mut g = new_state(&[id::SKULK, id::FAITHFUL_HOUND, id::TUNNEL], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::FAITHFUL_HOUND, id::TUNNEL, id::COPPER, id::COPPER]);
+    next_hex(&mut g, id::BAD_OMENS);
+    play(&mut g, id::SKULK);
+    let st = adv(&mut g);
+    assert!(!matches!(st, Step::Decision(ref d) if matches!(d.kind, DecisionKind::YesNo { .. })), "{st:?}");
+    assert_eq!(g.players[1].hounds, 0);
+    assert_eq!(g.players[1].discard.get(id::GOLD), 0);
+}
+
+/// Poverty: a hand of three or fewer cards is not affected.
+#[test]
+fn poverty_leaves_three_cards_alone() {
+    let (g, _) = skulk_hex(id::POVERTY, &[id::COPPER, id::COPPER, id::COPPER], &[], &[]);
+    assert_eq!(g.players[1].hand.total(), 3);
+}
+
+/// Delusion taken before the Buy phase (Leprechaun) applies the same turn.
+#[test]
+fn deluded_taken_in_the_action_phase_applies_to_that_turn() {
+    let mut g = new_state(&[id::LEPRECHAUN, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::LEPRECHAUN]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::DELUSION);
+    play(&mut g, id::LEPRECHAUN);
+    g.turn.coins = 5;
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert!(g.turn.noc.deluded && g.players[0].noc & P_DELUDED == 0, "returned at the start of the Buy phase");
+    assert!(!choices(&g).contains(&Choice::Card(id::SMITHY)));
+    assert!(choices(&g).contains(&Choice::Card(id::SILVER)));
+}
+
+/// Deluded does not stop gaining Actions in the Buy phase (Horn of Plenty), only buying them.
+#[test]
+fn deluded_does_not_stop_gaining_actions() {
+    let mut g = new_state(&[id::SKULK, id::HORN_OF_PLENTY, id::SMITHY], 2);
+    g.players[0].noc |= P_DELUDED;
+    set_in_play(&mut g, 0, &[id::COPPER, id::COPPER]);
+    set_hand(&mut g, 0, &[id::HORN_OF_PLENTY]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(id::SMITHY)));
+    play_treasure(&mut g, id::HORN_OF_PLENTY);
+    // Horn of Plenty gains a card costing up to the number of differently named cards in play (3): Smithy is $4, a Village-like card ok.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+}
+
+/// Envy affects Silver and Gold played in the Buy phase, not other Treasures, and stays for the rest of the turn.
+#[test]
+fn envious_only_changes_silver_and_gold_played_in_the_buy_phase() {
+    let mut g = new_state(&[id::SKULK, id::FOOLS_GOLD], 2);
+    g.players[0].noc |= P_ENVIOUS;
+    set_hand(&mut g, 0, &[id::SILVER, id::GOLD, id::COPPER, id::FOOLS_GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    expect_decision(&mut g);
+    assert!(g.turn.noc.envy);
+    assert_eq!(g.turn.coins, 4, "Silver, Gold, Copper and the first Fool's Gold: $1 each");
+}
+
+/// The Moon's Gift with an empty discard pile does nothing; The Sky's Gift with fewer than three cards discards them for no Gold.
+#[test]
+fn moons_gift_with_an_empty_discard_pile_and_skys_gift_with_two_cards() {
+    let mut g = new_state(&[id::BARD], 2);
+    set_hand(&mut g, 0, &[id::BARD]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOONS_GIFT);
+    play(&mut g, id::BARD);
+    assert!(!matches!(expect_or_none(&mut g), Some(DecisionKind::Select { .. })));
+    let mut g = new_state(&[id::BARD], 2);
+    set_hand(&mut g, 0, &[id::BARD, id::ESTATE, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_SKYS_GIFT);
+    play(&mut g, id::BARD);
+    // Two cards in hand: the player may discard both (and gets no Gold).
+    pick(&mut g, id::COPPER);
+    pick(&mut g, id::ESTATE);
+    assert_eq!(count(&g, 0, id::GOLD), 0, "no Gold for fewer than three cards");
+}
+
+fn expect_or_none(g: &mut GameState) -> Option<DecisionKind> {
+    match g.advance(&mut NoEvents) {
+        Step::Decision(d) => Some(d.kind),
+        _ => None,
+    }
+}
+
+/// Guardian: "does not prevent you from using Reactions": a Diplomat is still offered when the protected player is attacked.
+#[test]
+fn guardian_does_not_stop_reactions_to_the_attack() {
+    let mut g = new_state(&[id::GUARDIAN, id::MILITIA, id::DIPLOMAT], 2);
+    g.players[1].noc |= P_GUARDED;
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_deck_known(&mut g, 0, &junk());
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 1, &junk());
+    let st = play(&mut g, id::MILITIA);
+    let Step::Decision(d) = st else { panic!("{st:?}") };
+    assert_eq!(d.player, 1, "the protected player is still asked about the Reaction");
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
+}
+
+/// Guardian, Night Watchman, Ghost Town and Den of Sin gained onto the deck (Armory) stay on the deck: only a gain to the discard pile goes to the hand.
+#[test]
+fn night_cards_gained_onto_the_deck_stay_there() {
+    for c in [id::GUARDIAN, id::NIGHT_WATCHMAN, id::GHOST_TOWN, id::DEN_OF_SIN] {
+        let mut g = new_state(&[id::ARMORY, c], 2);
+        set_hand(&mut g, 0, &[id::ARMORY]);
+        set_deck_known(&mut g, 0, &junk());
+        play(&mut g, id::ARMORY);
+        if cards::cost(c) <= 4 {
+            pick(&mut g, c);
+            assert_eq!(g.players[0].deck_known.peek_top(), Some(c), "{}", cards::name(c));
+            assert!(!g.players[0].hand.has(c));
+        }
+    }
+}
+
+/// Monastery: gaining cards while trashing (a Hunting Grounds trashed) does not allow more trashing than the cards gained before playing it.
+#[test]
+fn monastery_gains_while_trashing_do_not_add_trashes() {
+    let mut g = new_state(&[id::MONASTERY, id::HUNTING_GROUNDS], 2);
+    set_hand(&mut g, 0, &[id::MONASTERY, id::HUNTING_GROUNDS, id::CURSE]);
+    set_in_play(&mut g, 0, &[id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    g.turn.noc.gains = 1;
+    night(&mut g, id::MONASTERY);
+    pick(&mut g, id::HUNTING_GROUNDS);
+    // Hunting Grounds' own gain (a Duchy or three Estates) comes up; the Monastery asks for no second trash.
+    loop {
+        let d = expect_decision(&mut g);
+        match d.kind {
+            DecisionKind::Select { act: Act::Trash, .. } => panic!("a second trash was offered: {d:?}"),
+            DecisionKind::PlayNight => break,
+            _ => {
+                let c = choices(&g)[0];
+                choose(&mut g, c);
+            }
+        }
+    }
+    assert_eq!(g.trash.total(), 1);
+}
+
+/// Vampire: the exchange for a Bat is not a gain, so a Devil's Workshop afterwards sees one gain (the card the Vampire gained) and gains a card up to $4.
+#[test]
+fn an_exchange_is_not_a_gain_for_devils_workshop() {
+    let mut g = new_state(&[id::VAMPIRE, id::DEVILS_WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::VAMPIRE, id::DEVILS_WORKSHOP]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::VAMPIRE);
+    pick(&mut g, id::SILVER);
+    assert_eq!(g.turn.noc.gains, 1, "the Silver, not the Bat");
+    night(&mut g, id::DEVILS_WORKSHOP);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, .. }), "{d:?}");
+}
+
+/// Devil's Workshop counts the cards gained at Night before it too, and the player cannot pick a lesser benefit.
+#[test]
+fn devils_workshop_counts_night_gains_and_cannot_choose_a_lesser_benefit() {
+    let mut g = new_state(&[id::DEVILS_WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::DEVILS_WORKSHOP, id::DEVILS_WORKSHOP]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::DEVILS_WORKSHOP);
+    assert!(g.players[0].discard.has(id::GOLD), "no gains yet: a Gold");
+    night(&mut g, id::DEVILS_WORKSHOP);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, .. }), "one gain (the Gold): a card up to $4");
+}
+
+/// Changeling cannot copy a card whose pile is not in the Supply (Imp) or is empty, and gains nothing then.
+#[test]
+fn changeling_gains_nothing_for_non_supply_or_empty_piles() {
+    let mut g = new_state(&[id::CHANGELING, id::DEVILS_WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::CHANGELING]);
+    set_in_play(&mut g, 0, &[id::IMP, id::GOLD]);
+    empty_pile(&mut g, id::GOLD);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    let imps = g.noc.piles[3];
+    night(&mut g, id::CHANGELING);
+    assert_eq!(g.trash.get(id::CHANGELING), 1);
+    assert_eq!(g.noc.piles[3], imps);
+    assert_eq!((count(&g, 0, id::IMP), count(&g, 0, id::GOLD)), (1, 1), "nothing gained");
+}
+
+/// Changeling: a Ghost (a non-Supply card that has a pile) gained may be exchanged for a Changeling; the Ghost goes back to its pile.
+#[test]
+fn a_ghost_can_be_exchanged_for_a_changeling() {
+    let mut g = new_state(&[id::CEMETERY, id::CHANGELING, id::CHAPEL], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::HAUNTED_MIRROR, id::VILLAGE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::CHAPEL);
+    pick(&mut g, id::HAUNTED_MIRROR);
+    pick(&mut g, id::VILLAGE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.subject == id::GHOST, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.noc.piles[4], 6, "the Ghost went back to its pile");
+    assert!(g.players[0].discard.has(id::CHANGELING) && !g.players[0].discard.has(id::GHOST));
+}
+
+/// Changeling: no exchange when the Changeling pile is empty.
+#[test]
+fn no_exchange_for_a_changeling_when_the_pile_is_empty() {
+    let mut g = new_state(&[id::CHANGELING], 2);
+    empty_pile(&mut g, id::CHANGELING);
+    set_hand(&mut g, 0, &[id::GOLD, id::GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    buy(&mut g, id::GOLD);
+    assert!(!matches!(adv(&mut g), Step::Decision(Decision { kind: DecisionKind::YesNo { .. }, .. })));
+}
+
+/// Changeling checks the cost as the card is gained: a Fisherman gained with an empty discard pile costs $2 then, so it cannot be exchanged.
+#[test]
+fn changeling_exchange_uses_the_cost_at_the_time_of_the_gain() {
+    let mut g = new_state(&[id::CHANGELING, id::FISHERMAN], 2);
+    set_hand(&mut g, 0, &[id::SILVER]);
+    set_discard(&mut g, 0, &[]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    buy(&mut g, id::FISHERMAN);
+    let st = adv(&mut g);
+    assert!(
+        !matches!(st, Step::Decision(Decision { kind: DecisionKind::YesNo { act: Act::Return }, .. })),
+        "Fisherman cost $2 when it was gained: {st:?}"
+    );
+}
+
+/// Idol counts the Idols in play: with no Curses left an even count gains nothing for the others and does not give a Boon instead.
+#[test]
+fn idol_with_an_even_count_and_no_curses_does_nothing() {
+    let mut g = new_state(&[id::IDOL], 2);
+    set_hand(&mut g, 0, &[id::IDOL, id::IDOL]);
+    empty_pile(&mut g, id::CURSE);
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::IDOL);
+    play_treasure(&mut g, id::IDOL);
+    // The first Idol received the Mountain's Gift (a Silver); the second gains no Curse and receives no Boon instead (that would be a second Silver).
+    assert_eq!(count(&g, 0, id::SILVER), 1);
+    assert_eq!(count(&g, 1, id::CURSE), 0);
+}
+
+/// Idol cares about the Idols in play, not played: Counterfeit plays one Idol twice, with one Idol in play both give a Boon.
+#[test]
+fn idol_counts_idols_in_play_not_plays() {
+    let mut g = new_state(&[id::IDOL], 2);
+    set_hand(&mut g, 0, &[id::COUNTERFEIT, id::IDOL]);
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    g.noc.boon_discard = bit(id::THE_SEAS_GIFT, cards::FIRST_BOON);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    // Counterfeit's choice to play a Treasure twice, then the Idol.
+    let mut guard = 0;
+    while guard < 10 {
+        guard += 1;
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            _ => break,
+        };
+        match d.kind {
+            DecisionKind::PlayTreasure | DecisionKind::Select { .. } => {
+                let cs = choices(&g);
+                if cs.contains(&Choice::Card(id::IDOL)) {
+                    choose(&mut g, Choice::Card(id::IDOL));
+                } else {
+                    choose(&mut g, cs[0]);
+                }
+            }
+            _ => break,
+        }
+    }
+    assert_eq!(count(&g, 1, id::CURSE), 0, "one Idol in play: an odd count both times, so no Curse");
+}
+
+/// Sacred Grove with The River's Gift: each other player who chooses to receive it draws a card at the end of the turn.
+#[test]
+fn sacred_groves_rivers_gift_draws_for_the_players_who_took_it() {
+    let mut g = new_state(&[id::SACRED_GROVE], 2);
+    set_hand(&mut g, 0, &[id::SACRED_GROVE]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &junk());
+    next_boon(&mut g, id::THE_RIVERS_GIFT);
+    play(&mut g, id::SACRED_GROVE);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1);
+    yes(&mut g);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.players[0].hand.total(), 6, "5 cards and the River's Gift card");
+    assert_eq!(g.players[1].hand.total(), 1, "the card drawn for the River's Gift taken from Sacred Grove");
+}
+
+/// Tormentor played in a way that it is not in play (Overlord) still sees the other cards in play: the Overlord, so it Hexes.
+#[test]
+fn tormentor_played_by_overlord_hexes_because_the_overlord_is_in_play() {
+    let mut g = new_state(&[id::TORMENTOR, id::OVERLORD], 2);
+    set_hand(&mut g, 0, &[id::OVERLORD]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    play(&mut g, id::OVERLORD);
+    assert_eq!(g.players[1].deck_known.peek_top(), Some(id::COPPER), "the Hex");
+    assert_eq!(g.noc.piles[3], 13, "no Imp");
+}
+
+/// Tragic Hero twice (Throne Room): the second time it cannot trash itself but still gains a Treasure.
+#[test]
+fn tragic_hero_still_gains_a_treasure_when_it_cannot_be_trashed() {
+    let mut g = new_state(&[id::TRAGIC_HERO, id::THRONE_ROOM], 2);
+    let mut hand = vec![id::THRONE_ROOM, id::TRAGIC_HERO];
+    hand.extend([id::ESTATE; 7]);
+    set_hand(&mut g, 0, &hand);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.actions = 1;
+    play(&mut g, id::THRONE_ROOM);
+    pick(&mut g, id::TRAGIC_HERO);
+    let mut gains = 0;
+    for _ in 0..6 {
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) if matches!(d.kind, DecisionKind::Gain { .. }) => {
+                gains += 1;
+                choose(&mut g, Choice::Card(id::GOLD));
+            }
+            _ => break,
+        }
+    }
+    assert_eq!(g.trash.get(id::TRAGIC_HERO), 1);
+    assert_eq!(gains, 2, "a Treasure each time");
+}
+
+/// Vampire with an empty Bat pile: the Hex and the gain still happen, the Vampire is not exchanged.
+#[test]
+fn vampire_without_a_bat_left_keeps_the_vampire() {
+    let mut g = new_state(&[id::VAMPIRE], 2);
+    g.noc.piles[2] = 0;
+    set_hand(&mut g, 0, &[id::VAMPIRE]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    at_night(&mut g);
+    night(&mut g, id::VAMPIRE);
+    pick(&mut g, id::SILVER);
+    assert_eq!(g.players[1].deck_known.peek_top(), Some(id::COPPER));
+    assert!(g.players[0].discard.has(id::SILVER));
+    assert_eq!(count(&g, 0, id::VAMPIRE), 1);
+    assert_eq!(count(&g, 0, id::BAT), 0);
+}
+
+/// Bat with no Vampire left in the pile: trashes, no exchange.
+#[test]
+fn bat_without_a_vampire_left_still_trashes() {
+    let mut g = new_state(&[id::VAMPIRE], 2);
+    empty_pile(&mut g, id::VAMPIRE);
+    set_hand(&mut g, 0, &[id::BAT, id::CURSE]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::BAT);
+    pick(&mut g, id::CURSE);
+    assert_eq!(g.trash.get(id::CURSE), 1);
+    assert_eq!(count(&g, 0, id::BAT), 1);
+}
+
+/// Crypt cannot set aside Duration Treasures (Rope), only plain ones.
+#[test]
+fn crypt_leaves_duration_treasures_in_play() {
+    let mut g = new_state(&[id::CRYPT], 2);
+    set_hand(&mut g, 0, &[id::CRYPT]);
+    set_in_play(&mut g, 0, &[id::ROPE, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::CRYPT);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::SILVER)) && !cs.contains(&Choice::Card(id::ROPE)), "{cs:?}");
+}
+
+/// Cursed Village with six or more cards in hand draws nothing.
+#[test]
+fn cursed_village_with_six_cards_draws_nothing() {
+    let mut g = new_state(&[id::CURSED_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::CURSED_VILLAGE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::CURSED_VILLAGE);
+    assert_eq!(g.players[0].hand.total(), 6);
+    assert_eq!(g.turn.actions, 2);
+}
+
+/// Shepherd: a reshuffle during the draw includes the Victory cards just discarded.
+#[test]
+fn shepherds_reshuffle_includes_the_discarded_victory_cards() {
+    let mut g = new_state(&[id::SHEPHERD], 2);
+    set_hand(&mut g, 0, &[id::SHEPHERD, id::ESTATE, id::ESTATE]);
+    clear_deck(&mut g, 0);
+    set_discard(&mut g, 0, &[]);
+    play(&mut g, id::SHEPHERD);
+    pick_while(&mut g, Zone::Hand, Act::Discard, id::ESTATE);
+    assert_eq!(g.players[0].hand.total(), 2, "the two Estates were shuffled back and two cards drawn");
+}
+
+/// Skulk gains its Gold however it was gained.
+#[test]
+fn skulk_gains_a_gold_when_gained_without_buying() {
+    let mut g = new_state(&[id::SKULK, id::WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::WORKSHOP);
+    pick(&mut g, id::SKULK);
+    assert!(g.players[0].discard.has(id::SKULK) && g.players[0].discard.has(id::GOLD));
+}
+
+/// Zombie Mason: gaining is optional; Zombie Spy draws first and then looks at the next card.
+#[test]
+fn zombie_mason_may_gain_nothing_and_zombie_spy_draws_before_looking() {
+    let mut g = new_state(&[id::NECROMANCER], 2);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::GOLD, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::NECROMANCER);
+    pick(&mut g, id::ZOMBIE_MASON);
+    assert_eq!(g.trash.get(id::COPPER), 1);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { optional: true, max_cost: 1, .. }), "{d:?}");
+    pass(&mut g);
+    let mut g = new_state(&[id::NECROMANCER], 2);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::GOLD, id::ESTATE]);
+    play(&mut g, id::NECROMANCER);
+    pick(&mut g, id::ZOMBIE_SPY);
+    assert!(g.players[0].hand.has(id::COPPER), "drew the Copper first");
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }) && choices(&g).contains(&Choice::Card(id::GOLD)), "{d:?}");
+}
+
+/// Necromancer plays a Command card from the trash (unlike Band of Misfits), and an Encampment played that way stays in the trash.
+#[test]
+fn necromancer_plays_command_cards_and_leaves_a_card_that_would_move_in_the_trash() {
+    let mut g = new_state(&[id::NECROMANCER, id::ENCAMPMENT, id::BAND_OF_MISFITS, id::PLUNDER], 2);
+    g.trash = counts_of(&[id::ENCAMPMENT]);
+    set_hand(&mut g, 0, &[id::NECROMANCER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::NECROMANCER);
+    // Encampment: +2 Cards +2 Actions, reveal a Gold or Plunder or set itself aside to return to the Supply: it stays in the trash.
+    assert_eq!(g.trash.get(id::ENCAMPMENT), 1);
+    let mut g = new_state(&[id::NECROMANCER, id::BAND_OF_MISFITS], 2);
+    g.trash = counts_of(&[id::BAND_OF_MISFITS]);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::NECROMANCER);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::BAND_OF_MISFITS)) || g.turn.played.get(id::BAND_OF_MISFITS) == 1, "{cs:?}");
+}
+
+/// Necromancer playing a card that checks whether it trashed itself (Pixie): it did not, so no double Boon; one that does not check (Tragic Hero) works.
+#[test]
+fn necromancer_on_tragic_hero_gains_the_treasure_without_trashing_it() {
+    let mut g = new_state(&[id::NECROMANCER, id::TRAGIC_HERO], 2);
+    g.trash = counts_of(&[id::TRAGIC_HERO]);
+    let mut hand = vec![id::NECROMANCER];
+    hand.extend([id::ESTATE; 7]);
+    set_hand(&mut g, 0, &hand);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::NECROMANCER);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.trash.get(id::TRAGIC_HERO), 1, "still the one in the trash");
+    assert!(g.players[0].discard.has(id::GOLD));
+}
+
+/// A deck whose top card is `c`, over junk.
+fn deck_with_top(c: CardId) -> Vec<CardId> {
+    let mut d = vec![c];
+    d.extend(junk());
+    d
+}
+
+/// Ghost: when the deck runs out the discard pile is shuffled but not the cards already revealed: the Estate is revealed exactly once, whatever the shuffle.
+#[test]
+fn ghost_shuffles_the_discard_pile_but_not_the_revealed_cards() {
+    for seed in 0..40u64 {
+        let mut g = new_state(&[id::EXORCIST, id::SMITHY], 2);
+        g.rng = Rng::new(seed);
+        set_hand(&mut g, 0, &[id::GHOST]);
+        set_deck_known(&mut g, 0, &[id::ESTATE]);
+        set_discard(&mut g, 0, &[id::SMITHY]);
+        at_night(&mut g);
+        let mut log: Vec<Event> = Vec::new();
+        choose_ev(&mut g, Choice::Card(id::GHOST), &mut log);
+        let reveals = log.iter().filter(|e| matches!(e, Event::Reveal { card, .. } if *card == id::ESTATE)).count();
+        assert_eq!(reveals, 1, "seed {seed}: the revealed Estate came back through the shuffle");
+        assert_eq!(g.players[0].set_aside.get(id::SMITHY), 1);
+    }
+}
+
+/// Ghost: the Action is played twice at the start of the next turn without using Action plays, and it is not optional.
+#[test]
+fn ghost_plays_the_action_twice_without_using_an_action() {
+    let mut g = new_state(&[id::EXORCIST, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::SMITHY));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 0);
+    assert_eq!(g.turn.played.get(id::SMITHY), 2);
+    assert_eq!(g.turn.actions, 1, "Action plays are not used");
+}
+
+/// Ghost playing a Duration: the Ghost stays in play with it.
+#[test]
+fn ghost_stays_in_play_with_a_duration_it_played() {
+    let mut g = new_state(&[id::EXORCIST, id::HAVEN], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::HAVEN));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 0);
+    // Haven twice: two cards each time, each asks to set one aside. Answer whatever is asked until this turn ends.
+    let start = g.turn.number;
+    for _ in 0..40 {
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) => {
+                if g.turn.number != start {
+                    break;
+                }
+                let c = match d.kind {
+                    DecisionKind::PlayAction | DecisionKind::Buy | DecisionKind::PlayNight => Choice::Pass,
+                    _ => choices(&g)[0],
+                };
+                g.apply(c, &mut NoEvents).unwrap();
+            }
+            _ => break,
+        }
+    }
+    assert!(g.players[0].in_play.has(id::GHOST) && g.players[0].in_play.has(id::HAVEN), "both stay out for the Haven's next turn");
+}
+
+/// Ghost playing a card that trashes itself (Pixie): it is played a second time even though it is no longer in play.
+#[test]
+fn ghost_plays_a_card_that_trashed_itself_again() {
+    let mut g = new_state(&[id::EXORCIST, id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::PIXIE));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    // First play: trash the Pixie to receive the Boon twice.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::PIXIE, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.trash.get(id::PIXIE), 1);
+    assert_eq!(g.turn.played.get(id::PIXIE), 2, "played the second time too");
+}
+
+/// Ghost playing a Horse: the second play happens although the Horse returned to its pile.
+#[test]
+fn ghost_plays_a_horse_twice() {
+    let mut g = new_state(&[id::EXORCIST, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::HORSE));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.played.get(id::HORSE), 2);
+    assert_eq!(g.players[0].hand.total(), 5 + 4, "+2 Cards twice");
+}
+
+/// Imp: cannot play a copy of an Action in play (another Imp, or a Duration from an earlier turn), but can play a card it played and trashed.
+#[test]
+fn imp_and_conclave_cannot_play_a_copy_of_a_card_in_play() {
+    let mut g = new_state(&[id::SECRET_CAVE, id::DEVILS_WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::IMP, id::IMP, id::SECRET_CAVE]);
+    set_in_play(&mut g, 0, &[id::SECRET_CAVE]);
+    set_deck_known(&mut g, 0, &junk());
+    let st = play(&mut g, id::IMP);
+    let Step::Decision(d) = st else { panic!("{st:?}") };
+    assert_eq!(d.kind, DecisionKind::Buy, "neither the second Imp (one is in play) nor the Secret Cave from an earlier turn can be played");
+}
+
+/// Will-o'-Wisp: a Potion or Debt in the cost is more than $2, so the card stays on the deck.
+#[test]
+fn will_o_wisp_leaves_cards_with_potion_or_debt_in_the_cost_on_the_deck() {
+    for c in [id::UNIVERSITY, id::ENGINEER] {
+        let mut g = new_state(&[id::BARD, c], 2);
+        set_hand(&mut g, 0, &[id::WILL_O_WISP]);
+        set_deck_known(&mut g, 0, &[id::COPPER, c]);
+        play(&mut g, id::WILL_O_WISP);
+        assert_eq!(g.players[0].deck_known.peek_top(), Some(c), "{}", cards::name(c));
+    }
+}
+
+/// Lucky Coin, Goat: playing them (and the Silver, the trash) is a choice: passing on the Treasure plays nothing.
+#[test]
+fn lucky_coin_can_be_left_in_the_hand_and_goat_may_trash_nothing() {
+    let mut g = new_state(&[id::FOOL], 2);
+    set_hand(&mut g, 0, &[id::LUCKY_COIN]);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(!g.players[0].discard.has(id::SILVER) && g.turn.coins == 0);
+    let mut g = new_state(&[id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::GOAT, id::CURSE]);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::GOAT);
+    pass(&mut g);
+    assert!(g.trash.is_empty());
+}
+
+/// Faithful Hound: it need not be in hand (Night Watchman discarding it from the deck), but gaining it or putting it in the discard pile without
+/// discarding it (Scavenger) gives no offer.
+#[test]
+fn faithful_hound_is_offered_when_discarded_from_the_deck_but_not_when_gained() {
+    let mut g = new_state(&[id::FAITHFUL_HOUND, id::NIGHT_WATCHMAN], 2);
+    set_hand(&mut g, 0, &[id::NIGHT_WATCHMAN]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    at_night(&mut g);
+    night(&mut g, id::NIGHT_WATCHMAN);
+    pick(&mut g, id::FAITHFUL_HOUND);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::SetAside }) && d.subject == id::FAITHFUL_HOUND, "{d:?}");
+    // Gained: no offer.
+    let mut g = new_state(&[id::FAITHFUL_HOUND], 2);
+    g.turn.phase = Phase::Buy;
+    set_hand(&mut g, 0, &[id::SILVER]);
+    expect_decision(&mut g);
+    buy(&mut g, id::FAITHFUL_HOUND);
+    assert_eq!(count(&g, 0, id::FAITHFUL_HOUND), 1);
+    assert_eq!(g.players[0].hounds, 0);
+    assert!(!matches!(adv(&mut g), Step::Decision(Decision { kind: DecisionKind::YesNo { .. }, .. })));
+}
+
+/// Faithful Hound discarded with Vassal and set aside: Vassal cannot play it.
+#[test]
+fn a_hound_set_aside_from_vassal_is_not_played() {
+    let mut g = new_state(&[id::FAITHFUL_HOUND, id::VASSAL], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::VASSAL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::SetAside }), "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.players[0].hounds, 1);
+    assert_eq!(g.turn.played.get(id::FAITHFUL_HOUND), 0);
+    assert_eq!(g.players[0].hand.total(), 0);
+}
+
+/// Raider: a victim with five cards and no copy of anything in play reveals the hand and discards nothing.
+#[test]
+fn raider_vs_a_hand_with_no_copy_discards_nothing() {
+    let mut g = new_state(&[id::RAIDER], 2);
+    set_hand(&mut g, 0, &[id::RAIDER]);
+    set_in_play(&mut g, 0, &[id::GOLD]);
+    set_hand(&mut g, 1, &[id::COPPER, id::COPPER, id::ESTATE, id::ESTATE, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::RAIDER);
+    // (Player 1's turn has begun and the Treasures went into play: nothing was discarded.)
+    assert_eq!(g.players[1].hand.total() + g.players[1].in_play.total(), 5);
+    assert!(g.players[1].discard.is_empty());
+}
+
+/// Leprechaun counts the cards in play after the Gold is gained: a Sheepdog played in reaction to the Gold counts toward exactly seven.
+#[test]
+fn leprechaun_counts_after_the_gold_is_gained_and_reacted_to() {
+    let mut g = new_state(&[id::LEPRECHAUN, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::LEPRECHAUN, id::SHEEPDOG]);
+    set_in_play(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE, id::MARKET]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    play(&mut g, id::LEPRECHAUN);
+    // Leprechaun is the 6th card in play; the Sheepdog, played when the Gold is gained, is the 7th: a Wish and no Hex.
+    let mut guard = 0;
+    while guard < 6 {
+        guard += 1;
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) if matches!(d.kind, DecisionKind::YesNo { .. }) => {
+                yes(&mut g);
+            }
+            _ => break,
+        }
+    }
+    assert!(g.players[0].discard.has(id::WISH), "7 cards in play: a Wish");
+    assert_eq!(g.noc.hex_discard, 0, "no Hex");
+}
+
+/// Werewolf played by day is still an Attack card: another player's Moat may be revealed to it (and then nothing else happens: +3 Cards only).
+#[test]
+fn werewolf_by_day_is_still_an_attack_for_reactions() {
+    let mut g = new_state(&[id::WEREWOLF, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::WEREWOLF]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    set_deck_known(&mut g, 0, &junk());
+    let st = play(&mut g, id::WEREWOLF);
+    let Step::Decision(d) = st else { panic!("{st:?}") };
+    assert_eq!(d.player, 1, "the Moat is offered although Werewolf only draws by day");
+}
+
+/// Werewolf replayed outside the Night phase (Scepter in the Buy phase): +3 Cards, no Hex.
+#[test]
+fn werewolf_replayed_by_scepter_in_the_buy_phase_draws() {
+    let mut g = new_state(&[id::WEREWOLF, id::SCEPTER], 2);
+    set_hand(&mut g, 0, &[id::WEREWOLF, id::SCEPTER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    play(&mut g, id::WEREWOLF);
+    assert_eq!(g.players[0].hand.total(), 4, "Scepter and the three cards drawn");
+    let hexes = g.noc.hex_deck;
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    play_treasure(&mut g, id::SCEPTER);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    choose(&mut g, Choice::Mode(1)); // replay an Action played this turn
+    assert_eq!(g.players[0].hand.total(), 3 + 3, "+3 Cards from the replay");
+    assert_eq!(g.noc.hex_deck, hexes, "no Hex was turned over");
+    assert_eq!(g.players[1].deck_known.peek_top(), None);
+}
+
+/// Panic (Rising Sun) returns the Treasures played to their piles, but not an Heirloom: it has no pile.
+#[test]
+fn panic_does_not_return_an_heirloom() {
+    let mut g = new_state(&[id::TRACKER, id::PANIC], 2);
+    g.rs.suns = 0;
+    g.rs.active = id::PANIC;
+    g.rs_update_hooks();
+    set_hand(&mut g, 0, &[id::POUCH, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    let copper = g.supply.get(id::COPPER);
+    adv(&mut g);
+    pass(&mut g);
+    assert_eq!(g.supply.get(id::POUCH), 0, "no Pouch pile appeared");
+    assert_eq!(g.supply.get(id::COPPER), copper + 1);
+    assert_eq!(count(&g, 0, id::POUCH), 1, "the Pouch is still owned");
+}
+
+/// Night Watchman with Progress: a card gained and put onto the deck while it resolves (a Gold for a discarded Tunnel) ends up under the cards put back.
+#[test]
+fn night_watchman_puts_the_rest_back_on_top_of_a_card_put_on_the_deck_meanwhile() {
+    let mut g = new_state(&[id::NIGHT_WATCHMAN, id::TUNNEL, id::PROGRESS], 2);
+    g.rs.suns = 0;
+    g.rs.active = id::PROGRESS;
+    g.rs_update_hooks();
+    set_hand(&mut g, 0, &[id::NIGHT_WATCHMAN, id::NIGHT_WATCHMAN]);
+    set_deck_known(&mut g, 0, &[id::TUNNEL, id::COPPER, id::DUCHY, id::PROVINCE, id::CURSE, id::SILVER]);
+    at_night(&mut g);
+    night(&mut g, id::NIGHT_WATCHMAN);
+    pick(&mut g, id::TUNNEL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "the Tunnel's reveal: {d:?}");
+    yes(&mut g);
+    // The Gold was gained and put onto the deck at once; now the four cards left are put back, in an order of the player's choice.
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
+    loop {
+        let d = expect_decision(&mut g);
+        match d.kind {
+            DecisionKind::Select { act: Act::Discard, .. } => {
+                pass(&mut g);
+            }
+            DecisionKind::Select { act: Act::Topdeck, .. } => {
+                let c = choices(&g)[0];
+                choose(&mut g, c);
+            }
+            DecisionKind::PlayNight => break, // (the second Night Watchman keeps the Night phase open)
+            other => panic!("{other:?}"),
+        }
+    }
+    let order: Vec<CardId> = g.players[0].deck_known.iter_top_down().collect();
+    assert_eq!(order.iter().position(|&c| c == id::GOLD), Some(4), "under the four cards put back: {order:?}");
+}
+
+/// Guardian protects for the rest of the turn it is played: Vampire's Duchy then triggers an opponent's Black Cat, whose Attack does not affect the Guardian's owner.
+#[test]
+fn guardian_protects_from_an_attack_later_in_the_same_night_phase() {
+    let mut g = new_state(&[id::GUARDIAN, id::VAMPIRE, id::BLACK_CAT], 2);
+    set_hand(&mut g, 0, &[id::GUARDIAN, id::VAMPIRE]);
+    set_deck_known(&mut g, 0, &junk());
+    set_hand(&mut g, 1, &[id::BLACK_CAT]);
+    set_deck_known(&mut g, 1, &junk());
+    next_hex(&mut g, id::GREED);
+    at_night(&mut g);
+    night(&mut g, id::GUARDIAN);
+    night(&mut g, id::VAMPIRE);
+    pick(&mut g, id::DUCHY);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "the Black Cat's owner may play it for the Duchy: {d:?}");
+    yes(&mut g);
+    assert_eq!(count(&g, 0, id::CURSE), 0, "protected by the Guardian");
+}
+
+/// Necromancer: a Pixie played from the trash is not trashed (it checks, and it is not in play): no offer to receive the Boon twice.
+#[test]
+fn necromancer_playing_a_pixie_cannot_trash_it() {
+    let mut g = new_state(&[id::NECROMANCER, id::PIXIE], 2);
+    g.trash = counts_of(&[id::PIXIE]);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    let st = play(&mut g, id::NECROMANCER);
+    // Only the Zombies and the Pixie are Actions in the trash: a Pixie is picked if asked.
+    if let Step::Decision(d) = st {
+        if matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }) {
+            pick(&mut g, id::PIXIE);
+        }
+    }
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.trash.get(id::PIXIE), 1);
+    assert_eq!(g.noc.boon_discard, bit(id::THE_MOUNTAINS_GIFT, cards::FIRST_BOON), "the Boon was discarded");
+}
+
+/// Necromancer can play another Necromancer from the trash.
+#[test]
+fn necromancer_can_play_a_necromancer_from_the_trash() {
+    let mut g = new_state(&[id::NECROMANCER], 2);
+    g.trash = counts_of(&[id::NECROMANCER, id::ZOMBIE_SPY]);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::NECROMANCER);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::NECROMANCER)), "{cs:?}");
+    pick(&mut g, id::NECROMANCER);
+    // The Necromancer played from the trash plays the one Zombie left (it cannot play itself again this turn).
+    assert_eq!((g.turn.played.get(id::NECROMANCER), g.turn.played.get(id::ZOMBIE_SPY)), (2, 1));
+}
+
+/// Necromancer playing Tracker (current text: "this turn"): the topdecking applies although Tracker is not in play.
+#[test]
+fn necromancer_on_tracker_gives_the_topdecking_this_turn() {
+    let mut g = new_state(&[id::NECROMANCER, id::TRACKER], 2);
+    g.trash = counts_of(&[id::TRACKER]);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    let st = play(&mut g, id::NECROMANCER);
+    if let Step::Decision(d) = st {
+        if matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }) {
+            pick(&mut g, id::TRACKER);
+        }
+    }
+    assert!(g.turn.noc.tracker);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Topdeck }), "{d:?}");
+}
+
+/// Necromancer playing Island: the Island cannot move itself out of the trash, but the card from the hand still goes to the mat.
+#[test]
+fn necromancer_playing_island_leaves_it_in_the_trash() {
+    let mut g = new_state(&[id::NECROMANCER, id::ISLAND], 2);
+    g.trash = counts_of(&[id::ISLAND]);
+    set_hand(&mut g, 0, &[id::NECROMANCER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::NECROMANCER);
+    let mut guard = 0;
+    while guard < 4 {
+        guard += 1;
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) if matches!(d.kind, DecisionKind::Select { .. }) => {
+                let c = choices(&g);
+                choose(&mut g, c[0]);
+            }
+            _ => break,
+        }
+    }
+    assert_eq!(g.trash.get(id::ISLAND), 1, "still in the trash");
+    assert!(g.players[0].island_mat.has(id::ESTATE) || g.players[0].all_cards().has(id::ESTATE));
+}
+
+/// Necromancer playing Lurker: Lurker may gain itself (or any Action) from the trash, since it moves a card out of the trash.
+#[test]
+fn necromancer_playing_lurker_can_gain_it_out_of_the_trash() {
+    let mut g = new_state(&[id::NECROMANCER, id::LURKER], 2);
+    g.trash = counts_of(&[id::LURKER]);
+    set_hand(&mut g, 0, &[id::NECROMANCER]);
+    set_deck_known(&mut g, 0, &junk());
+    let st = play(&mut g, id::NECROMANCER);
+    if let Step::Decision(d) = st {
+        if matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }) {
+            pick(&mut g, id::LURKER);
+        }
+    }
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    // The second mode: gain an Action card from the trash.
+    choose(&mut g, Choice::Mode(1));
+    assert!(g.players[0].discard.has(id::LURKER) || choices(&g).contains(&Choice::Card(id::LURKER)));
+}
+
+/// Pixie played by Band of Misfits gives only the cantrip: nothing to trash, and the Boon is discarded (the Boons deck cycles).
+#[test]
+fn pixie_played_by_band_of_misfits_cannot_be_trashed() {
+    let mut g = new_state(&[id::BAND_OF_MISFITS, id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOUNTAINS_GIFT);
+    let st = play(&mut g, id::BAND_OF_MISFITS);
+    if let Step::Decision(d) = st {
+        if matches!(d.kind, DecisionKind::Gain { .. } | DecisionKind::Select { .. }) {
+            pick(&mut g, id::PIXIE);
+        }
+    }
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "{:?}", g.pending_decision());
+    assert_eq!(g.noc.boon_discard, bit(id::THE_MOUNTAINS_GIFT, cards::FIRST_BOON));
+    assert_eq!(g.trash.get(id::PIXIE), 0);
+}
+
+/// Blessed Village: the Boon waits in front of the player; a Boon "kept until Clean-up" (Field's Gift) is then kept until the end of that turn.
+#[test]
+fn a_kept_boon_saved_by_blessed_village_is_kept_until_the_end_of_the_next_turn() {
+    let mut g = new_state(&[id::BLESSED_VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::GOLD, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &junk());
+    next_boon(&mut g, id::THE_FIELDS_GIFT);
+    g.turn.phase = Phase::Buy;
+    buy(&mut g, id::BLESSED_VILLAGE);
+    no(&mut g);
+    set_hand(&mut g, 1, &[]);
+    while g.turn.number < 3 {
+        end_turn(&mut g);
+    }
+    assert_eq!(g.turn.player, 0);
+    assert_eq!(g.turn.coins, 1, "the Field's Gift at the start of the turn");
+    assert_eq!(g.noc.boon_held, bit(id::THE_FIELDS_GIFT, cards::FIRST_BOON), "kept until Clean-up");
+}

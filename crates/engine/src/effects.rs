@@ -1074,10 +1074,10 @@ impl GameState {
                 }
             }
             K::Gain if f.gf & crate::state::GF_SPIRITS != 0 => {
-                // Exorcist: a Spirit pile with a card left that costs less than the card trashed (`max`, with `potion` for a Potion in it).
+                // Exorcist: a Spirit pile with a card left that costs less than the card trashed (`max`, with `potion` for a Potion and `min` for the Debt in it).
                 for c in [id::WILL_O_WISP, id::IMP, id::GHOST] {
                     let cost = self.cost(c);
-                    if self.noc.piles[(c - id::WILL_O_WISP) as usize] > 0 && cost <= f.max && !(cost == f.max && !f.potion) {
+                    if self.noc.piles[(c - id::WILL_O_WISP) as usize] > 0 && cost <= f.max && !(cost == f.max && !f.potion && f.min == 0) {
                         out.push(Choice::Card(c));
                     }
                 }
@@ -2034,6 +2034,7 @@ impl GameState {
             | Then::ExorcistGain
             | Then::MonasteryCopper
             | Then::TragicHero
+            | Then::LeprechaunCheck
             | Then::SecretCave
             | Then::BatExchange
             | Then::VampireBat

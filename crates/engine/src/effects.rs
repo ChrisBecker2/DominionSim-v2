@@ -155,6 +155,11 @@ impl GameState {
             self.stack.push(Frame { tok, depth: depth + 1, ..Frame::new(K::Release, player, card) });
         }
         let base = self.stack.len as usize;
+        // Allies: an Ally that acts after a play (Circle of Witches, Fellowship of Scribes, League of Shopkeepers) waits under its effects too; it is
+        // the last to act, after the replays (Daimyo, Citadel, Royal Carriage) of the play are done.
+        if self.al.flags & crate::state::AF_PLAYS != 0 && player == self.turn.player {
+            self.al_push_after_play(card, player, tok);
+        }
         // Daimyo: the next non-Command Action played this turn is replayed afterwards (once per Daimyo played); the replays wait under its effects.
         if self.turn.rs.daimyo > 0 {
             self.push_daimyo_replays(card, player, tok);
@@ -166,10 +171,6 @@ impl GameState {
         // Adventures: the calls that follow an Action's play (Coin of the Realm, Royal Carriage) wait under its effects.
         if self.after_play_possible(player) && cards::is(card, ACTION) {
             self.stack.push(Frame { subject: card, tok, ..Frame::new(K::AfterPlay, player, card) });
-        }
-        // Allies: an Ally that acts after a play (Circle of Witches, Fellowship of Scribes, League of Shopkeepers) waits under its effects too.
-        if self.al.flags & crate::state::AF_PLAYS != 0 && player == self.turn.player {
-            self.al_push_after_play(card, player, tok);
         }
         // Plunder: Flagship and Reckless play the card again, and Harbor Village, Inspiring, a Frigate and Landing Party act after it.
         if self.plu.live & crate::state::LV_PLAY != 0 {
@@ -2499,6 +2500,12 @@ impl GameState {
         let pi = p as usize;
         // Corsair and Blockade end now ("until your next turn"), and so do Enchantress's marks on the other players.
         self.players[pi].shielded = 0;
+        // Allies: Highwayman's and Warlord's Attacks end as the turn starts, before any start-of-turn effect (a Royal Galley's Archer).
+        if self.al.hook & (crate::state::AH_HW | crate::state::AH_WL) != 0 && (self.players[pi].al.hw | self.players[pi].al.wl) > 0 {
+            self.players[pi].al.hw = 0;
+            self.players[pi].al.wl = 0;
+            self.al_update_hook();
+        }
         // So does Gatekeeper's Attack (before anything else of the start of the turn).
         if self.players[pi].men.gk > 0 {
             self.players[pi].men.gk = 0;

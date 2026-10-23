@@ -358,6 +358,17 @@ impl DurationHeld {
         self.entries[i] = (card, n);
         self.len += 1;
     }
+    /// No copy of `card` is held any more (Garrison with no tokens).
+    pub fn remove_all(&mut self, card: CardId) {
+        for i in 0..self.len as usize {
+            if self.entries[i].0 == card {
+                self.len -= 1;
+                self.entries[i] = self.entries[self.len as usize];
+                self.entries[self.len as usize] = (0, 0);
+                return;
+            }
+        }
+    }
     pub fn get(&self, card: CardId) -> u8 {
         self.entries[..self.len as usize].iter().find(|e| e.0 == card).map_or(0, |e| e.1)
     }
@@ -1553,6 +1564,8 @@ pub struct AlTurn {
     pub galleria: u8,
     pub guild: u8,
     pub skirm: u8,
+    /// The players every Skirmisher played this turn missed (immune when it was played: a Moat revealed, a Lighthouse in play): its gain ability leaves them alone.
+    pub skirm_imm: u8,
     pub garrison: u8,
     pub bauble: bool,
     /// The turn is a Voyage turn: only `VOYAGE_PLAYS` cards may be played from the hand; this many have been.
@@ -1575,6 +1588,7 @@ impl std::hash::Hash for AlTurn {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
         if *self != AlTurn::default() {
             (self.live, self.galleria, self.guild, self.skirm, self.garrison, self.bauble, self.limited, self.hand_plays).hash(h);
+            self.skirm_imm.hash(h);
             (self.t1, self.shuffles, self.elder, self.voyage, self.voyage_next, self.island_done).hash(h);
         }
     }

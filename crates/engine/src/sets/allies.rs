@@ -565,7 +565,8 @@ impl SetRules for Allies {
                     g.players[p as usize].discard.add(card, 1);
                     sink.event(Event::Discard { player: p, card });
                 }
-                let max = cards::cost(card) - 1;
+                // Cheaper than it costs now (Family of Inventors' tokens change that), not than its printed cost.
+                let max = g.cost(card).saturating_sub(1);
                 g.stack.push(select(p, card, Zone::Trash, Act::Gain, Filter::CostRange(0, max), 1, 1, Then::Nothing));
             }
             _ => {}
@@ -868,10 +869,15 @@ impl GameState {
             .players[p as usize]
             .all_cards()
             .iter()
-            .filter(|&(c, _)| cards::cost(c).saturating_sub(less) == 2 && !cards::potion_cost(c) && cards::debt_cost(c) == 0)
+            .filter(|&(c, _)| cards::cost(c).saturating_sub(less + self.score_cheap(c)) == 2 && !cards::potion_cost(c) && cards::debt_cost(c) == 0)
             .map(|(_, n)| n as u32)
             .sum();
         2 * (self.players[p as usize].al.favors as u32).min(twos) as i32
+    }
+
+    /// Cheap (Plunder's Trait) still lowers a card's cost when scoring.
+    fn score_cheap(&self, c: CardId) -> u8 {
+        if self.plu.flags & crate::state::PF_COST != 0 { self.plu_cost_reduction(c) } else { 0 }
     }
 
     // ---- plays and gains ----
@@ -881,18 +887,69 @@ impl GameState {
         if p != self.turn.player {
             return;
         }
+        // Skirmisher: the players that are immune to this play (a Moat revealed to it) are left alone by its ability for the rest of the turn.
+        let mut immune = 0u8;
+        if card == ids::SKIRMISHER {
+            let (vs, n) = self.victims(sink);
+            let mut hit = 0u8;
+            for &v in &vs[..n] {
+                hit |= 1 << v;
+            }
+            for v in self.others(p) {
+                immune |= (1 << v) & !hit;
+            }
+        }
         let t = &mut self.turn.al;
         match card {
             ids::GALLERIA => t.galleria = t.galleria.saturating_add(1),
             ids::GUILDMASTER => t.guild = t.guild.saturating_add(1),
-            ids::SKIRMISHER => t.skirm = t.skirm.saturating_add(1),
+            ids::SKIRMISHER => {
+                // Several plays keep a player out only if every one missed them.
+                t.skirm_imm = if t.skirm == 0 { immune } else { t.skirm_imm & immune };
+                t.skirm = t.skirm.saturating_add(1);
+            }
             ids::GARRISON => t.garrison = t.garrison.saturating_add(1),
             _ => {}
         }
         t.live |= 1;
-        if card == ids::SKIRMISHER {
-            self.shield_lingering_attack(p, sink);
+    }
+
+    /// The extra turn Voyage gave `p` was skipped (Lich): the Voyage has nothing left to wait for and is discarded.
+    #[inline(never)]
+    pub(crate) fn al_voyage_skipped(&mut self, p: u8) {
+        let ps = &mut self.players[p as usize];
+        let n = ps.in_play.get(ids::VOYAGE);
+        ps.in_play.set(ids::VOYAGE, 0);
+        ps.discard.add(ids::VOYAGE, n);
+        let mut kept = 0;
+        for i in 0..ps.pending_durations_len as usize {
+            if ps.pending_durations[i].card != ids::VOYAGE {
+                ps.pending_durations[kept] = ps.pending_durations[i];
+                kept += 1;
+            }
         }
+        for i in kept..ps.pending_durations_len as usize {
+            ps.pending_durations[i] = Default::default();
+        }
+        ps.pending_durations_len = kept as u8;
+    }
+
+    /// A Garrison that has no tokens at Clean-up is discarded like any other card: its pending start-of-turn entry goes and it is no longer held.
+    #[inline(never)]
+    pub(crate) fn al_garrison_unschedule(&mut self, p: u8) {
+        self.turn.duration_held.remove_all(ids::GARRISON);
+        let ps = &mut self.players[p as usize];
+        let mut kept = 0;
+        for i in 0..ps.pending_durations_len as usize {
+            if ps.pending_durations[i].card != ids::GARRISON {
+                ps.pending_durations[kept] = ps.pending_durations[i];
+                kept += 1;
+            }
+        }
+        for i in kept..ps.pending_durations_len as usize {
+            ps.pending_durations[i] = Default::default();
+        }
+        ps.pending_durations_len = kept as u8;
     }
 
     /// The "when you gain" triggers of the set: the card's own (Sycophant, Territory), the effects of the cards played this turn and the Ally's ability.
@@ -927,8 +984,15 @@ impl GameState {
             }
             if t.skirm > 0 && cards::is(c, ATTACK) {
                 for _ in 0..t.skirm {
-                    let (vs, n) = self.victims(sink);
-                    for &v in vs[..n].iter().rev() {
+                    let mut order = [0u8; MAX_PLAYERS];
+                    let mut k = 0;
+                    for v in self.others(p) {
+                        if t.skirm_imm & (1 << v) == 0 {
+                            order[k] = v;
+                            k += 1;
+                        }
+                    }
+                    for &v in order[..k].iter().rev() {
                         self.stack.push(Frame { down_to_target: true, ..select(v, ids::SKIRMISHER, Zone::Hand, Act::Discard, Filter::Any, 0, 3, Then::Nothing) });
                     }
                 }
@@ -1421,6 +1485,13 @@ impl GameState {
             Then::BrokerMode | Then::ModifyMode => {
                 if f.count > 0 {
                     self.stack.push(Frame { subject: f.last, depth: d, ..crate::effects::elder_mode_frame(p, src, 1, f.gf & GF_ELDER != 0) });
+                } else if f.then == Then::ModifyMode {
+                    // Nothing to trash (an empty hand): "choose one" still happens, and only +1 Card +1 Action can do anything.
+                    if p == self.turn.player {
+                        self.turn.actions += 1;
+                        sink.bonus(p, src, 1, 0, 0, 0);
+                    }
+                    self.stack.push(Frame { depth: d, ..draw_frame(p, src, 1) });
                 }
             }
             // Royal Galley: the card is played; afterwards the Galley (and the card, if it is still in play) wait for the next turn.

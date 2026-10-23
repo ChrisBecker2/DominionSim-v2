@@ -441,7 +441,7 @@ fn parse_men_turn(s: &str) -> Result<MenTurn, String> {
 /// The `al turn:` line: Allies' per-turn bookkeeping, `key value` entries separated by `;` (flags are a key alone).
 fn format_al_turn(a: &AlTurn) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for (k, v) in [("galleria", a.galleria), ("guild", a.guild), ("skirm", a.skirm), ("garrison", a.garrison), ("plays", a.hand_plays), ("shuffles", a.shuffles)] {
+    for (k, v) in [("galleria", a.galleria), ("guild", a.guild), ("skirm", a.skirm), ("skirm imm", a.skirm_imm), ("garrison", a.garrison), ("plays", a.hand_plays), ("shuffles", a.shuffles)] {
         if v > 0 {
             parts.push(format!("{k} {v}"));
         }
@@ -475,6 +475,7 @@ fn parse_al_turn(s: &str) -> Result<AlTurn, String> {
             "galleria" => a.galleria = num()?,
             "guild" => a.guild = num()?,
             "skirm" => a.skirm = num()?,
+            "skirm imm" => a.skirm_imm = num()?,
             "garrison" => a.garrison = num()?,
             "plays" => a.hand_plays = num()?,
             "shuffles" => a.shuffles = num()?,

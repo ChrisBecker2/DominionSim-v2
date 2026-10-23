@@ -806,6 +806,10 @@ impl GameState {
                                 self.players[next as usize].turns_taken += 1;
                             }
                             sink.event(Event::Skip { player: next });
+                            // A skipped Voyage turn: the Voyage is discarded (in the next Clean-up that happens).
+                            if extra && voyage_next {
+                                self.al_voyage_skipped(next);
+                            }
                             number += 1;
                             extra = false;
                             no_buy = false;
@@ -1555,6 +1559,11 @@ impl GameState {
                 ps.pending_durations[i] = Default::default();
             }
             ps.pending_durations_len = kept as u8;
+        }
+
+        // Allies: a Garrison with no tokens has nothing left to do next turn and is discarded now.
+        if self.turn.al.garrison > 0 && self.players[p].al.tokens == 0 {
+            self.al_garrison_unschedule(p as u8);
         }
 
         // Rising Sun: Panic returns the Treasures discarded from play to their piles, Biding Time sets the hand aside.

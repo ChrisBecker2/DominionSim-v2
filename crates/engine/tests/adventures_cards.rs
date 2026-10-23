@@ -3498,3 +3498,53 @@ fn an_inherited_estate_is_an_action_card_so_champion_gives_an_action_for_it_and_
     play(&mut g, id::ESTATE);
     assert_eq!(g.turn.actions, 1 - 1 + 1 + 1, "the Estate (an Action card) and the Smithy it plays each give +1 Action with Champion");
 }
+
+#[test]
+fn storyteller_keeps_potions_and_leaves_the_played_treasures_in_play() {
+    // Storyteller FAQ: Potion is not $, so it is not lost and gets no cards; the Treasures stay in play after being "spent".
+    let mut g = new_state(&[id::STORYTELLER, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::STORYTELLER, id::POTION, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::STORYTELLER);
+    pick(&mut g, id::SILVER);
+    try_choose(&mut g, Choice::Card(id::POTION));
+    assert_eq!(g.turn.potions, 1);
+    assert_eq!(g.turn.coins, 0, "the $2 were spent");
+    assert_eq!(g.players[0].in_play.get(id::SILVER), 1);
+    assert_eq!(g.players[0].hand.total(), 3, "+1 Card, then 2 cards for $2");
+}
+
+#[test]
+fn pilgrimage_can_copy_a_called_reserve_card_but_not_one_on_the_mat() {
+    // Reserve rules: "Pilgrimage cannot gain copies of cards on the Tavern mat, but can gain copies of Reserve cards called into play the same turn."
+    let mut g = new_state(&[id::GUIDE, id::RATCATCHER, id::PILGRIMAGE], 2);
+    g.players[0].tavern.add(id::GUIDE, 1);
+    g.players[0].tavern.add(id::RATCATCHER, 1);
+    g.players[0].adv |= ADV_JOURNEY_DOWN;
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    adv(&mut g);
+    // Call the Guide, leave the Ratcatcher on the mat (answer whatever order / call decisions come up).
+    for _ in 0..6 {
+        let Some(d) = g.pending_decision() else { break };
+        match d.kind {
+            DecisionKind::YesNo { act: Act::Call } => {
+                let yes = d.subject == id::GUIDE;
+                choose(&mut g, if yes { Choice::Yes } else { Choice::No });
+            }
+            DecisionKind::PlayAction | DecisionKind::Buy => break,
+            _ => {
+                let c = choices(&g)[0];
+                choose(&mut g, c);
+            }
+        }
+    }
+    assert!(g.players[0].in_play.has(id::GUIDE) && g.players[0].tavern.has(id::RATCATCHER));
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 4;
+    g.pending = Pending::None;
+    adv(&mut g);
+    buy(&mut g, id::PILGRIMAGE);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::GUIDE)) && !cs.contains(&Choice::Card(id::RATCATCHER)), "{cs:?}");
+}

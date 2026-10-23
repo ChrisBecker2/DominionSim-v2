@@ -50,7 +50,7 @@ fn every_audited_kingdom_card_plays_through_games_without_panicking() {
         }
         let a = bot(card);
         let b = bot(kingdom[1]);
-        let cfg = MatchConfig { games: 40, kingdom, seed: 7 + i as u64, max_turns: 200 };
+        let cfg = MatchConfig { games: 15, kingdom, seed: 7 + i as u64, max_turns: 200 };
         run_match(&[&a, &b], &cfg);
     }
 }

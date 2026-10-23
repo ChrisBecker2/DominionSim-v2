@@ -1898,3 +1898,130 @@ fn trader_exchanges_a_card_gained_from_a_pile_outside_the_supply() {
     assert_eq!(g.players[0].discard.get(id::SILVER), 1);
     assert!(!g.players[0].discard.has(id::SPOILS));
 }
+
+// ===========================================================================
+// Ruling coverage (audit): the wiki's FAQ / clarification bullets that no test above names
+// ===========================================================================
+
+#[test]
+fn a_crossroads_played_as_a_way_counts_as_the_first_one_so_the_next_gives_no_actions() {
+    let mut g = new_state(&[id::CROSSROADS, id::WAY_OF_THE_HORSE], 2);
+    set_hand(&mut g, 0, &[id::CROSSROADS, id::CROSSROADS]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::CROSSROADS);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Way));
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_HORSE));
+    // The Horse: +2 Cards +1 Action (1 - 1 + 1).
+    assert_eq!(g.turn.actions, 1);
+    play(&mut g, id::CROSSROADS);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Way));
+    choose(&mut g, Choice::Pass);
+    assert_eq!(g.turn.actions, 0, "no +3 Actions: a Crossroads was played already this turn");
+}
+
+#[test]
+fn develop_gains_cards_that_go_to_the_hand_onto_the_deck_except_villa_which_moves_itself_to_the_hand() {
+    // Ghost Town is normally gained to the hand; Develop puts it on the deck.
+    let mut g = new_state(&[id::DEVELOP, id::GHOST_TOWN, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::DEVELOP, id::SMITHY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::DEVELOP);
+    pick(&mut g, id::GHOST_TOWN);
+    assert!(!g.players[0].hand.has(id::GHOST_TOWN), "gained onto the deck");
+    assert!(g.players[0].deck_known.iter_top_down().take(3).any(|c| c == id::GHOST_TOWN));
+    // Villa ($4): its own ability moves it to the hand after it was gained.
+    let mut g = new_state(&[id::DEVELOP, id::VILLA], 2);
+    set_hand(&mut g, 0, &[id::DEVELOP, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::DEVELOP);
+    pick(&mut g, id::VILLA);
+    assert!(g.players[0].hand.has(id::VILLA), "Villa moved to the hand after being gained onto the deck");
+}
+
+#[test]
+fn develop_gains_one_card_and_its_on_gain_effect_resolves_before_the_other_is_chosen() {
+    // Trash a Duchy ($5): a $6 Border Village first; its "gain a cheaper card" is resolved before the $4 card is chosen.
+    let mut g = new_state(&[id::DEVELOP, id::BORDER_VILLAGE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::DEVELOP, id::DUCHY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::DEVELOP);
+    pick(&mut g, id::BORDER_VILLAGE);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.source, Some(id::BORDER_VILLAGE), "{d:?}");
+}
+
+#[test]
+fn trader_gives_silvers_for_the_current_cost_a_potion_or_debt_part_gives_nothing() {
+    // With a Highway played, an Estate costs $1: one Silver.
+    let mut g = new_state(&[id::TRADER, id::HIGHWAY], 2);
+    set_hand(&mut g, 0, &[id::HIGHWAY, id::TRADER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::HIGHWAY);
+    play(&mut g, id::TRADER);
+    // (Only Estates are left in the hand: one is trashed without asking.)
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    // An Apothecary costs $2 and a Potion: two Silvers, nothing for the Potion.
+    let mut g = new_state(&[id::TRADER, id::APOTHECARY], 2);
+    set_hand(&mut g, 0, &[id::TRADER, id::APOTHECARY, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::TRADER);
+    pick(&mut g, id::APOTHECARY);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 2);
+    // A Debt cost gives nothing either: Engineer costs $0 and 4 Debt.
+    let mut g = new_state(&[id::TRADER, id::ENGINEER], 2);
+    set_hand(&mut g, 0, &[id::TRADER, id::ENGINEER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::TRADER);
+    pick(&mut g, id::ENGINEER);
+    assert_eq!(g.players[0].discard.get(id::SILVER), cards::cost(id::ENGINEER) as u8);
+}
+
+#[test]
+fn trader_trashing_a_silver_gives_three_silvers() {
+    let mut g = new_state(&[id::TRADER], 2);
+    set_hand(&mut g, 0, &[id::TRADER, id::SILVER, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::TRADER);
+    pick(&mut g, id::SILVER);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 3);
+}
+
+#[test]
+fn a_mill_gained_by_ironworks_and_exchanged_for_a_silver_still_gives_its_action_and_card() {
+    let mut g = new_state(&[id::TRADER, id::IRONWORKS, id::MILL], 2);
+    set_hand(&mut g, 0, &[id::IRONWORKS, id::TRADER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::IRONWORKS);
+    pick(&mut g, id::MILL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.subject == id::MILL, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    assert_eq!(g.turn.actions, 1, "Ironworks used the Action, Mill's +1 Action");
+    assert_eq!(hand_total(&g, 0), 1 + 1, "the Trader and a card for the Victory type");
+}
+
+#[test]
+fn a_trader_gained_into_the_hand_can_be_exchanged_for_a_silver() {
+    let mut g = new_state(&[id::TRADER, id::ARTISAN], 2);
+    set_hand(&mut g, 0, &[id::ARTISAN, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::ARTISAN);
+    pick(&mut g, id::TRADER);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.subject == id::TRADER, "{d:?}");
+    yes(&mut g);
+    assert!(!g.players[0].hand.has(id::TRADER));
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+}
+
+#[test]
+fn nomads_gained_in_the_buy_phase_gives_two_coins_that_count_for_basilica() {
+    let mut g = new_state(&[id::NOMADS, id::BASILICA], 2);
+    set_deck_known(&mut g, 0, &junk());
+    buy_phase(&mut g, &[id::GOLD, id::COPPER]);
+    assert_eq!(g.turn.coins, 4);
+    g.apply(Choice::Card(id::NOMADS), &mut NoEvents).unwrap();
+    assert_eq!(g.turn.coins, 2, "the $2 of gaining Nomads");
+    assert_eq!(g.players[0].vp_tokens, 2, "Basilica: $2 left after the gain");
+}

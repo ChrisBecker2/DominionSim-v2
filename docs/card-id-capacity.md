@@ -287,3 +287,35 @@ Moneylender, Chapel, `SEARCH=off FINAL_FULL=0 ISLANDS=2 ISLAND_SIZE=8 EXPLOIT_RO
 Leads for a fifth pass, by size: the draw (13-23%; the RNG and the prefix-sum `nth` are the whole line); the `Decision` assembly in `advance` (fields computed for every decision, most of them never read by a fast bot);
 the Select / Gain choice lists in trashing and discarding kingdoms (17% of the league; a per-filter fast path or a mask of the hand's cards that pass); `end_of_turn_offers` behind one per-game mask of the sets that have offers in the kingdom;
 `empty_piles` kept as a count updated when a pile empties; `alt_buy_possible` by the Action lane mask; rayon batch sizes for the league's small batches.
+
+## 14. Fifth speed pass (fast bots)
+
+Method as in section 13: `git archive` of master (575d010) and of the branch into one folder and one target dir, the executables copied out, interleaved 5 rounds, same workloads (`--fast` for the match ones; `newsets` is the Crew/Cutthroat/Sack of Loot/Shaman/Buried Treasure/Flagship/Barbarian/Townsfolk/Animal Fair/Livery kingdom; the 1-thread runs use an eighth of the games and a shorter league, 3 generations and 500 final games). The machine was quiet: the spread within a build was under 1%. Output identity: 1200 same-seed `match` jobs (every shipped strategy, 2-4 players, `auto` and random kingdoms of all 17 sets, fast and searching bots) and the `league_run` output are identical to master (one job, `courtyard_bm` vs `governor_bm` on `random:plunder`, panics with "agent chose an illegal option" on master and on the branch alike, at the same place).
+
+**Kept** (one commit each):
+1. *The per-turn set hooks* (`sets::end_of_turn_offers`, `turn_start_entries`, `end_of_buy`): each is called only when its own first test would not return at once (the end-of-turn ones by one 5-word mask test of the Supply cards the hooks look for, plus the Traveller piles and the Horn; the others by the mat / Project / flag they start with). The mask is the hooks' own `in_supply` conditions, so a Divine Wind swap or cards gained from outside the kingdom behave as before. Plain +6.8%, four players +4.6%, newsets +3.1%.
+2. *Select and Gain lists* (`frame_choices`): a Gain of one named card (Witch's Curse, found by `auto_single` in `advance`) checks that pile only; the other Gains test the empty pile and the filter before the cost arithmetic; an unfiltered Select (`Filter::Any`, not from the Supply, no Allies play restriction) uses the zone total instead of a test per card. League +11% (1 thread), +13% (all threads), four players +7.8%, `fast_speed` +3%.
+3. *`alt_buy_possible`* asks the Action lane mask (the per-card `is_action` walk only under Enlightenment): newsets +2.9% (1 thread), +1.2% (all). At the edge of the noise; kept because it is a plain simplification.
+
+**Dropped** (measured, no gain or a loss):
+* *Decision assembly in `advance`*: the profile attributes about 1% to the five `decision_*` lines (the rest of the 17% is `run_phase`, inlined); not worth touching.
+* *`empty_piles`*: the per-block range tests replaced by a compile-time table of the ids that are not piles of their own: +0.6% (plain +1.8% when measured against master alone, +0.6% on top of change 1). Below the noise, dropped. A count kept up to date was not tried: `supply` is written in some forty places, including tests and the text loader.
+* *`ProfileSink` sparse `absorb`* (a bitmap of the ids gained, so `absorb` adds only those): league +1.2%. The `mod.rs:432` line that holds 4-12% of the profiles is not the sink: it is `play_game` inlined into the rayon fold (the Buy dispatch), found by marking `play_game` `#[inline(never)]`.
+* *The draw* (`take_top`, 23-27% of a plain game): `rng.below` is a few instructions; the cost is `Counts::nth` (a prefix sum per block visited, a data-dependent exit that mispredicts). A micro-benchmark (`nth` + `remove` over a 14-card deck with the hand/discard traffic of a turn) is 17 ns per draw, the same as in a real game. Tried, all with the same card drawn: (a) `nth` and `remove` fused, the block written back as two 16-byte stores so the next draw's loads forward: 15.8 ns in the micro, nothing in real games (newsets 4% slower); (b) the block found without a branch from `psadbw` block totals and running sums: 35 ns while LLVM made branches of the selects, 20 ns with arithmetic masks, +5% slower in real games (it reads every block). Dropped.
+* *`GameState::new`*: 450 ns of a ~11 µs plain game (about 4%, with the `dup` copy); the struct literal is already built without the unused seats. Not changed.
+* *rayon batching for the league*: not tried; the fold already runs a game per item and rayon is 1.5-3% of the profiles.
+* *Auto-single skip for a Select that may be declined* (such a list always has a card and Pass, so `advance` need not build it): +0.3%, noise; dropped.
+
+**Results** (master 575d010 against this branch, best / mean ms):
+
+| workload | all threads before | after | | 1 thread before | after | |
+|---|---|---|---|---|---|---|
+| plain | 236.0 / 240.7 | 222.2 / 224.3 | +6.2% | 552.1 / 553.3 | 532.1 / 534.4 | +3.8% |
+| engine | 624.2 / 625.5 | 597.6 / 599.0 | +4.5% | 1444.9 / 1456.7 | 1397.4 / 1401.7 | +3.4% |
+| rising | 432.9 / 434.1 | 412.8 / 413.8 | +4.9% | 1000.0 / 1000.6 | 966.6 / 974.7 | +3.5% |
+| newsets | 507.5 / 509.1 | 465.9 / 466.8 | +8.9% | 1205.6 / 1209.9 | 1102.8 / 1104.1 | +9.3% |
+| four | 188.9 / 189.4 | 167.2 / 167.6 | +13% | 422.0 / 422.9 | 380.1 / 380.8 | +11% |
+| league | 3753 / 3787 | 3218 / 3250 | +17% | 11060 / 11103 | 9656 / 9684 | +15% |
+| `fast_speed` | 1293 / 1315 | 1201 / 1214 | +7.7% | 2874 / 2881 | 2710 / 2718 | +6.0% |
+
+**Profile after the pass** (1 thread, winprof, 728 samples plain / 1491 league; read to +-2-3 points): plain: `take_top` 23.4%, `advance` 16.6%, `run_frame` 5.4%, play_game inlined in the rayon helper 4.8%, `cleanup` 4.7%, `decide_buy` 4.1%, `buy_avail` 3.8%, `Counts::add_all` 3.8%, `play_all_choice_free_treasures` 3.8%, `Expr::eval_in` 3.6%, `empty_piles` 3.4%. League: `take_top` 18.8% (both instances), play_game inlined 9.2%, `advance` 5.3%, `decide_buy` 4.0%, `eval_in` 3.4%, `add_all` 3.2%, `legal_choices` 2.7% (`frame_choices` and `filter_ok` are no longer above 2%), `buy_avail` 2.5%, `empty_piles` 2.3%, `GameState::new` 2.1%.

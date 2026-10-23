@@ -56,7 +56,7 @@ impl SetDefaults for Nocturne {
             }
             // Secret Cave: discarding 3 is for a hand of dead cards (all or nothing: once started the rest follow).
             id::SECRET_CAVE if act == Act::Discard => {
-                if view.hand().total() >= 3 && (hand_junk() >= 3 || !choices.contains(&Choice::Pass)) {
+                if !choices.contains(&Choice::Pass) || (view.hand().total() >= 3 && hand_junk() >= 3) {
                     worst()
                 } else {
                     Some(Choice::Pass)
@@ -64,7 +64,9 @@ impl SetDefaults for Nocturne {
             }
             // The Sky's Gift: three cards for a Gold. Free once the Buy phase is over (the hand is spent); in the Action phase only dead cards.
             id::THE_SKYS_GIFT if act == Act::Discard => {
-                let spent = view.phase() != Phase::Action;
+                // Spent: the Night phase, or the Buy phase with no Treasure left to play (an Idol's Boon comes before the other Treasures are played).
+                let spent = view.phase() == Phase::Night
+                    || (view.phase() == Phase::Buy && !view.hand().iter().any(|(c, _)| cards::is(c, TREASURE)));
                 if !choices.contains(&Choice::Pass) || (view.hand().total() >= 3 && (spent || hand_junk() >= 3)) {
                     worst()
                 } else {

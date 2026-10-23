@@ -562,7 +562,8 @@ impl SetRules for DarkAges {
             return;
         }
         let p = g.turn.player;
-        if g.turn.gained_in_buy == 0 {
+        // ("In it": a turn with several Buy phases asks about each one.)
+        if g.turn.gained_in_buy == g.turn.buy_gain_base {
             let n = g.players[p as usize].in_play.get(id::HERMIT);
             for _ in 0..n {
                 if g.madman == 0 {

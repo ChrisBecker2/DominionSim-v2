@@ -82,7 +82,7 @@ impl SetDefaults for Hinterlands {
         }
     }
 
-    fn yes_no(s: &Strategy, _view: &PlayerView, decision: &Decision, source: CardId) -> Option<Choice> {
+    fn yes_no(s: &Strategy, view: &PlayerView, decision: &Decision, source: CardId) -> Option<Choice> {
         Some(match source {
             // Fool's Gold for a Gold onto the deck: always.
             id::FOOLS_GOLD => Choice::Yes,
@@ -95,7 +95,8 @@ impl SetDefaults for Hinterlands {
                 let c = decision.subject;
                 if is_junk(c) && !(cards::is(c, VICTORY) && s.lists(c)) || c == id::COPPER {
                     Choice::Yes
-                } else if s.lists(c) || cards::is(c, VICTORY) {
+                } else if s.lists(c) || cards::is(c, VICTORY) || (!view.in_supply(c) && c != id::SPOILS) {
+                    // (A card from a pile outside the Supply - Madman, Mercenary, a Horse - is worth more than a Silver; a one-shot Spoils is not.)
                     Choice::No
                 } else {
                     Choice::Yes

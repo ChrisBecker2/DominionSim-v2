@@ -71,3 +71,22 @@ fn fools_gold_and_tunnel_reactions_are_taken_by_default() {
         }
     }
 }
+
+/// The Trader's exchange: a card from a pile outside the Supply is kept unless it is a one-shot Spoils or junk.
+#[test]
+fn trader_exchanges_spoils_and_junk_but_keeps_a_mercenary_or_a_madman() {
+    use dominion_engine::{Decision, DecisionKind};
+    let s = bm();
+    let g = GameState::new(&GameConfig { kingdom: vec![id::TRADER, id::URCHIN, id::HERMIT, id::BANDIT_CAMP], seed: 3, ..Default::default() });
+    let ask = |card: CardId| {
+        let d = Decision {
+            player: 0, for_player: 0, kind: DecisionKind::YesNo { act: dominion_engine::Act::Return }, source: Some(id::TRADER),
+            subject: card, upgrade: None, play_times: 1, target: 0,
+        };
+        s.decide(&PlayerView::new(&g, 0), &d, &[Choice::Yes, Choice::No])
+    };
+    assert_eq!(ask(id::SPOILS), Choice::Yes);
+    assert_eq!(ask(id::CURSE), Choice::Yes);
+    assert_eq!(ask(id::MERCENARY), Choice::No);
+    assert_eq!(ask(id::MADMAN), Choice::No);
+}

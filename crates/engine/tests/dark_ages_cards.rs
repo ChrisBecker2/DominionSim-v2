@@ -2832,3 +2832,551 @@ fn hermit_is_exchanged_only_while_it_is_in_play() {
     assert_eq!(g.madman, 9, "one exchange");
     assert_eq!(g.supply.get(id::HERMIT), hermits + 1, "back in its pile");
 }
+
+// ===========================================================================
+// Ruling coverage (audit): the wiki's FAQ / clarification bullets that no test above names
+// ===========================================================================
+
+#[test]
+fn a_squire_cannot_gain_the_mercenary_or_other_attacks_outside_the_supply() {
+    let mut g = new_state(&[id::SQUIRE, id::URCHIN, id::CHAPEL], 2);
+    assert!(g.mercenary > 0);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::SQUIRE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::CHAPEL);
+    pick(&mut g, id::SQUIRE);
+    // The Urchin is the only Attack in the Supply: gained without asking. The Mercenary is not in the Supply.
+    assert!(g.players[0].discard.has(id::URCHIN));
+    assert!(!g.players[0].discard.has(id::MERCENARY));
+}
+
+#[test]
+fn rogue_can_gain_an_urchin_it_just_made_the_player_trash() {
+    // The Urchin is trashed (for a Mercenary) before the Rogue resolves, so the Rogue finds it in the trash.
+    let mut g = new_state(&[id::URCHIN, id::ROGUE], 2);
+    set_in_play(&mut g, 0, &[id::URCHIN]);
+    set_hand(&mut g, 0, &[id::ROGUE]);
+    play(&mut g, id::ROGUE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::URCHIN, "{d:?}");
+    yes(&mut g);
+    assert!(g.players[0].discard.has(id::MERCENARY));
+    assert!(g.players[0].discard.has(id::URCHIN), "Rogue gained the Urchin from the trash");
+}
+
+#[test]
+fn armory_gains_onto_the_deck_even_a_card_that_goes_to_the_hand() {
+    let mut g = new_state(&[id::ARMORY, id::GHOST_TOWN], 2);
+    set_hand(&mut g, 0, &[id::ARMORY]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::ARMORY);
+    pick(&mut g, id::GHOST_TOWN);
+    assert!(!g.players[0].hand.has(id::GHOST_TOWN));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GHOST_TOWN));
+}
+
+#[test]
+fn armory_card_exchanged_by_a_trader_gives_a_silver_in_the_discard_pile_not_on_the_deck() {
+    let mut g = new_state(&[id::ARMORY, id::TRADER, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::ARMORY, id::TRADER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::ARMORY);
+    pick(&mut g, id::SMITHY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::SMITHY, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    assert_ne!(g.players[0].deck_known.peek_top(), Some(id::SILVER));
+}
+
+#[test]
+fn death_cart_gains_as_many_ruins_as_are_left() {
+    let mut g = new_state(&[id::DEATH_CART], 2);
+    let top = g.pile_top(&RUINS_PILE).unwrap();
+    for m in RUINS_PILE.members() {
+        g.supply.set(m, 0);
+    }
+    g.supply.set(top, 1);
+    assert!(gain0(&mut g, id::DEATH_CART));
+    adv(&mut g);
+    let ruins = g.players[0].discard.iter().filter(|&(c, _)| cards::is(c, cards::RUINS)).map(|(_, n)| n as u32).sum::<u32>();
+    assert_eq!(ruins, 1);
+}
+
+#[test]
+fn feodum_trashed_gains_as_many_silvers_as_are_left() {
+    let mut g = new_state(&[id::FEODUM, id::CHAPEL], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::FEODUM]);
+    set_deck_known(&mut g, 0, &junk(10));
+    set_supply(&mut g, id::SILVER, 2);
+    play(&mut g, id::CHAPEL);
+    pick(&mut g, id::FEODUM);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 2);
+}
+
+#[test]
+fn a_fortress_put_into_the_hand_after_a_trash_is_not_gained_so_a_trader_cannot_react() {
+    let mut g = new_state(&[id::FORTRESS, id::CHAPEL, id::TRADER], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::FORTRESS, id::TRADER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::CHAPEL);
+    pick(&mut g, id::FORTRESS);
+    choose(&mut g, Choice::Pass);
+    assert!(g.players[0].hand.has(id::FORTRESS));
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })));
+}
+
+#[test]
+fn procession_of_a_card_with_plus_one_action_leaves_two_actions_and_uses_only_its_own() {
+    let mut g = new_state(&[id::PROCESSION, id::VAGRANT, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::VAGRANT]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::VAGRANT);
+    assert_eq!(g.turn.actions, 2, "1 - 1 + 1 + 1");
+}
+
+#[test]
+fn procession_on_a_procession_plays_two_cards_twice_and_trashes_the_inner_procession_for_a_five() {
+    let mut g = new_state(&[id::PROCESSION, id::VILLAGE, id::SMITHY, id::LABORATORY], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::PROCESSION, id::VILLAGE, id::VILLAGE]);
+    set_deck_known(&mut g, 0, &junk(30));
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::PROCESSION);
+    // The inner Procession, played twice: a Village each time, upgraded to a Smithy.
+    pick(&mut g, id::VILLAGE);
+    pick(&mut g, id::SMITHY);
+    pick(&mut g, id::VILLAGE);
+    pick(&mut g, id::SMITHY);
+    // Then the inner Procession itself is trashed and the only $5 Action gained.
+    assert_eq!(g.trash.get(id::VILLAGE), 2);
+    assert_eq!(g.trash.get(id::PROCESSION), 1);
+    assert_eq!(g.players[0].discard.get(id::SMITHY), 2);
+    assert_eq!(g.players[0].discard.get(id::LABORATORY), 1);
+    assert_eq!(g.players[0].in_play.get(id::PROCESSION), 1);
+}
+
+#[test]
+fn procession_on_an_island_or_a_horse_does_not_trash_it_and_still_gains() {
+    let mut g = new_state(&[id::PROCESSION, id::ISLAND, id::LABORATORY], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::ISLAND, id::ESTATE, id::DUCHY]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::ISLAND);
+    pick(&mut g, id::ESTATE);
+    assert_eq!(g.trash.get(id::ISLAND), 0, "the Island is on its mat");
+    assert!(g.players[0].island_mat.has(id::ISLAND));
+    assert!(g.players[0].discard.has(id::LABORATORY), "the Action costing $5 is gained anyway");
+    let mut g = new_state(&[id::PROCESSION, id::SLEIGH, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::HORSE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::PROCESSION);
+    pick(&mut g, id::HORSE);
+    pick(&mut g, id::SMITHY);
+    assert_eq!(g.trash.get(id::HORSE), 0, "returned to its pile");
+    assert!(g.players[0].discard.has(id::SMITHY), "the Action costing $4 is gained anyway");
+}
+
+#[test]
+fn procession_can_gain_a_duration_card_and_cannot_play_one() {
+    let mut g = new_state(&[id::PROCESSION, id::SMITHY, id::WHARF], 2);
+    set_hand(&mut g, 0, &[id::PROCESSION, id::SMITHY, id::WHARF]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::PROCESSION);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::SMITHY)) && !c.contains(&Choice::Card(id::WHARF)), "a Duration card cannot be played: {c:?}");
+    choose(&mut g, Choice::Card(id::SMITHY));
+    assert!(g.players[0].discard.has(id::WHARF), "Wharf costs $5: a Duration card may be gained");
+}
+
+#[test]
+fn rats_with_a_hand_of_only_rats_trash_nothing_and_with_none_left_gain_nothing() {
+    let mut g = new_state(&[id::RATS], 2);
+    set_hand(&mut g, 0, &[id::RATS, id::RATS, id::RATS]);
+    set_deck_known(&mut g, 0, &[id::RATS, id::RATS]);
+    play(&mut g, id::RATS);
+    assert_eq!(g.trash.total(), 0, "a hand of Rats: revealed, nothing trashed");
+    assert_eq!(g.players[0].discard.get(id::RATS), 1);
+    let mut g = new_state(&[id::RATS], 2);
+    set_hand(&mut g, 0, &[id::RATS, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::RATS, id::RATS]);
+    set_supply(&mut g, id::RATS, 0);
+    play(&mut g, id::RATS);
+    assert_eq!(g.players[0].discard.get(id::RATS), 0);
+    assert_eq!(g.trash.get(id::ESTATE), 1);
+}
+
+#[test]
+fn the_rats_pile_has_twenty_cards_whatever_the_number_of_players() {
+    for n in [2, 3, 4] {
+        let g = new_state(&[id::RATS], n);
+        assert_eq!(g.supply.get(id::RATS), 20, "{n} players");
+    }
+}
+
+#[test]
+fn scavenger_putting_the_deck_into_the_discard_pile_does_not_discard_it_for_a_tunnel() {
+    let mut g = new_state(&[id::SCAVENGER, id::TUNNEL], 2);
+    set_hand(&mut g, 0, &[id::SCAVENGER]);
+    set_deck_known(&mut g, 0, &[id::TUNNEL, id::TUNNEL]);
+    set_discard(&mut g, 0, &[id::GOLD]);
+    play(&mut g, id::SCAVENGER);
+    yes(&mut g);
+    assert!(!matches!(g.pending_decision().map(|d| d.kind), Some(DecisionKind::YesNo { .. })), "no Tunnel reaction");
+    assert_eq!(g.players[0].discard.get(id::GOLD), 1);
+    assert_eq!(g.players[0].discard.get(id::TUNNEL), 2);
+}
+
+#[test]
+fn band_of_misfits_playing_death_cart_cannot_trash_the_cart_and_trashes_an_action_from_the_hand() {
+    let mut g = new_state(&[id::BAND_OF_MISFITS, id::DEATH_CART], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS, id::ABANDONED_MINE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.actions = 2;
+    play(&mut g, id::BAND_OF_MISFITS);
+    pick(&mut g, id::DEATH_CART);
+    pick(&mut g, id::ABANDONED_MINE);
+    assert_eq!(g.turn.coins, 5);
+    assert_eq!(g.supply.get(id::DEATH_CART), 10, "the Death Cart stays in the Supply");
+    // With no Action in the hand there is nothing to trash and no $5: the card itself cannot be trashed.
+    let mut g = new_state(&[id::BAND_OF_MISFITS, id::DEATH_CART], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.actions = 2;
+    play(&mut g, id::BAND_OF_MISFITS);
+    pick(&mut g, id::DEATH_CART);
+    assert_eq!(g.turn.coins, 0);
+    assert_eq!(g.trash.total(), 0);
+}
+
+#[test]
+fn band_of_misfits_playing_acting_troupe_still_gives_its_villagers() {
+    let mut g = new_state(&[id::BAND_OF_MISFITS, id::ACTING_TROUPE], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::BAND_OF_MISFITS);
+    assert_eq!(g.players[0].ren.villagers, 4, "the Troupe could not trash itself, but the rest happens");
+    assert_eq!(g.supply.get(id::ACTING_TROUPE), 10);
+}
+
+#[test]
+fn trashing_catacombs_with_remodel_gains_its_card_before_remodels() {
+    let mut g = new_state(&[id::CATACOMBS, id::REMODEL, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::CATACOMBS]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::REMODEL);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.source, Some(id::CATACOMBS), "{d:?}");
+}
+
+#[test]
+fn a_counterfeit_played_by_a_counterfeit_gives_its_coin_and_buy_and_its_choice_twice() {
+    let mut g = new_state(&[id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::COUNTERFEIT, id::COUNTERFEIT, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::COUNTERFEIT);
+    pick(&mut g, id::COUNTERFEIT);
+    // The inner Counterfeit is played twice: each time it offers a Treasure from the hand to play twice.
+    pick(&mut g, id::COPPER);
+    assert_eq!(g.turn.coins, 1 + 1 + 1 + 2, "outer, inner (twice), and the Copper played twice");
+    assert_eq!(g.turn.buys, 4);
+}
+
+#[test]
+fn a_cultist_trashed_by_a_knight_does_not_draw_the_cards_about_to_be_discarded() {
+    let mut g = new_state(&[id::CULTIST, id::KNIGHTS], 2);
+    set_hand(&mut g, 0, &[id::DAME_JOSEPHINE]);
+    set_deck_known(&mut g, 1, &[id::CULTIST, id::COPPER, id::GOLD, id::SILVER, id::SILVER, id::GOLD]);
+    play(&mut g, id::DAME_JOSEPHINE);
+    assert!(g.trash.has(id::CULTIST));
+    assert_eq!(g.players[1].hand.total(), 3, "three cards drawn");
+    assert!(!g.players[1].hand.has(id::COPPER), "the revealed Copper is discarded, not drawn");
+    assert!(g.players[1].discard.has(id::COPPER));
+}
+
+#[test]
+fn a_knight_cannot_trash_a_card_with_a_potion_in_its_cost() {
+    let mut g = new_state(&[id::KNIGHTS, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::DAME_JOSEPHINE]);
+    set_deck_known(&mut g, 1, &[id::FAMILIAR, id::COPPER, id::GOLD]);
+    play(&mut g, id::DAME_JOSEPHINE);
+    assert_eq!(g.trash.total(), 0);
+    assert!(g.players[1].discard.has(id::FAMILIAR));
+}
+
+#[test]
+fn graverobber_gaining_a_villa_from_the_trash_ends_with_it_in_the_hand() {
+    let mut g = new_state(&[id::GRAVEROBBER, id::VILLA], 2);
+    set_hand(&mut g, 0, &[id::GRAVEROBBER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.trash.add(id::VILLA, 1);
+    play(&mut g, id::GRAVEROBBER);
+    mode(&mut g, 0);
+    assert!(g.players[0].hand.has(id::VILLA), "Villa moves itself to the hand after the gain");
+}
+
+#[test]
+fn mystic_naming_one_knight_does_not_match_another() {
+    let mut g = new_state(&[id::MYSTIC, id::KNIGHTS], 2);
+    set_hand(&mut g, 0, &[id::MYSTIC]);
+    set_deck_known(&mut g, 0, &[id::SIR_MARTIN, id::SIR_DESTRY, id::ESTATE]);
+    play(&mut g, id::MYSTIC);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Name));
+    pick(&mut g, id::SIR_DESTRY);
+    assert!(!g.players[0].hand.has(id::SIR_MARTIN));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SIR_MARTIN));
+}
+
+#[test]
+fn rogue_is_an_attack_even_when_it_gains_so_a_diplomat_may_be_revealed() {
+    let mut g = new_state(&[id::ROGUE, id::DIPLOMAT, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::ROGUE]);
+    set_hand(&mut g, 1, &[id::DIPLOMAT, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    g.trash.add(id::SMITHY, 1);
+    play(&mut g, id::ROGUE);
+    let d = expect_decision(&mut g);
+    assert!(d.player == 1 && d.subject == id::DIPLOMAT, "{d:?}");
+}
+
+#[test]
+fn ruins_with_different_names_count_as_different_cards() {
+    let mut g = new_state(&[id::MENAGERIE], 2);
+    set_hand(&mut g, 0, &[id::MENAGERIE, id::COPPER, id::RUINED_MARKET, id::RUINED_LIBRARY]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::MENAGERIE);
+    assert_eq!(g.players[0].hand.total(), 3 + 3);
+}
+
+#[test]
+fn a_necropolis_played_as_way_of_the_horse_stays_in_play() {
+    let mut g = new_state(&[id::WAY_OF_THE_HORSE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::NECROPOLIS]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::NECROPOLIS);
+    assert!(matches!(expect_decision(&mut g).kind, DecisionKind::Way));
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_HORSE));
+    assert_eq!(g.players[0].in_play.get(id::NECROPOLIS), 1, "no pile to return to");
+    assert_eq!(g.players[0].hand.total(), 2);
+}
+
+#[test]
+fn a_mint_cannot_gain_a_copy_of_a_spoils() {
+    let mut g = new_state(&[id::MINT, id::BANDIT_CAMP], 2);
+    set_hand(&mut g, 0, &[id::MINT, id::SPOILS, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::MINT);
+    pick(&mut g, id::SPOILS);
+    assert!(!g.players[0].discard.has(id::SPOILS), "Spoils is not in the Supply: no copy is gained");
+    assert_eq!(g.players[0].discard.total(), 0);
+}
+
+#[test]
+fn a_beggar_is_asked_before_a_mercenary_decides_to_trash_and_one_card_in_hand_fails_the_if_you_did() {
+    let mut g = new_state(&[id::BEGGAR, id::URCHIN], 2);
+    set_hand(&mut g, 0, &[id::MERCENARY, id::ESTATE]);
+    set_hand(&mut g, 1, &[id::BEGGAR, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::MERCENARY);
+    let d = expect_decision(&mut g);
+    assert!(d.player == 1 && d.subject == id::BEGGAR, "{d:?}");
+    no(&mut g);
+    // One card in hand: it may be trashed, but then the bonus fails ("if you did" needs two cards).
+    pick(&mut g, id::ESTATE);
+    assert_eq!(g.trash.get(id::ESTATE), 1);
+    assert_eq!(g.turn.coins, 0);
+    assert_eq!(g.players[0].hand.total(), 0);
+}
+
+#[test]
+fn a_hermit_cannot_be_exchanged_after_a_card_was_gained_by_an_event_in_the_buy_phase() {
+    let mut g = new_state(&[id::HERMIT, id::ALMS], 2);
+    set_in_play(&mut g, 0, &[id::HERMIT]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    pick(&mut g, id::ALMS);
+    pick(&mut g, id::SILVER);
+    choose(&mut g, Choice::Pass);
+    assert_eq!(g.madman, 10, "no Madman: a card was gained in the Buy phase");
+}
+
+
+#[test]
+fn an_urchin_trashed_for_a_mercenary_by_playing_a_tormentor_lets_it_gain_an_imp() {
+    let mut g = new_state(&[id::URCHIN, id::TORMENTOR], 2);
+    set_in_play(&mut g, 0, &[id::URCHIN]);
+    set_hand(&mut g, 0, &[id::TORMENTOR]);
+    play(&mut g, id::TORMENTOR);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::URCHIN, "{d:?}");
+    yes(&mut g);
+    assert!(g.players[0].discard.has(id::MERCENARY));
+    assert!(g.players[0].discard.has(id::IMP), "no other card in play once the Urchin is trashed");
+}
+
+#[test]
+fn an_urchin_played_as_a_way_is_still_in_play_to_be_trashed_for_a_mercenary() {
+    let mut g = new_state(&[id::URCHIN, id::MILITIA, id::WAY_OF_THE_SHEEP], 2);
+    set_hand(&mut g, 0, &[id::URCHIN, id::MILITIA]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.actions = 3;
+    play(&mut g, id::URCHIN);
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_SHEEP));
+    assert_eq!(g.players[0].in_play.get(id::URCHIN), 1);
+    play(&mut g, id::MILITIA);
+    choose(&mut g, Choice::Pass);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::URCHIN, "{d:?}");
+}
+
+#[test]
+fn marauder_stops_giving_ruins_when_the_pile_runs_out() {
+    let mut g = new_state(&[id::MARAUDER], 3);
+    let top = g.pile_top(&RUINS_PILE).unwrap();
+    for m in RUINS_PILE.members() {
+        g.supply.set(m, 0);
+    }
+    g.supply.set(top, 1);
+    set_hand(&mut g, 0, &[id::MARAUDER]);
+    play(&mut g, id::MARAUDER);
+    adv(&mut g);
+    let ruins = |p: usize| g.players[p].discard.iter().filter(|&(c, _)| cards::is(c, cards::RUINS)).map(|(_, n)| n as u32).sum::<u32>();
+    assert_eq!(ruins(1) + ruins(2), 1, "only one Ruins was left");
+    assert!(g.players[0].discard.has(id::SPOILS));
+}
+
+#[test]
+fn an_overgrown_estate_trashed_by_altar_draws_before_the_gain() {
+    let mut g = new_state(&[id::ALTAR, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::ALTAR, id::OVERGROWN_ESTATE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    let mut log: Vec<Event> = Vec::new();
+    play_ev(&mut g, id::ALTAR, &mut log);
+    pick_ev(&mut g, id::SMITHY, &mut log);
+    let draw = log.iter().position(|e| matches!(e, Event::Draw { player: 0, .. }));
+    let gain = log.iter().position(|e| matches!(e, Event::Gain { card, .. } if *card == id::SMITHY));
+    assert!(draw.is_some() && gain.is_some() && draw < gain, "{log:?}");
+}
+
+fn pick_ev(g: &mut GameState, c: CardId, log: &mut Vec<Event>) {
+    if !choices(g).contains(&Choice::Card(c)) {
+        expect_decision(g);
+    }
+    choose_ev(g, Choice::Card(c), log);
+}
+
+#[test]
+fn shelters_do_not_change_the_estate_pile() {
+    let g = GameState::new(&GameConfig { num_players: 2, kingdom: da_kingdom(), shelters: Some(true), ..Default::default() });
+    assert_eq!(g.supply.get(id::ESTATE), 8);
+    let g = GameState::new(&GameConfig { num_players: 3, kingdom: da_kingdom(), shelters: Some(true), ..Default::default() });
+    assert_eq!(g.supply.get(id::ESTATE), 12);
+}
+
+#[test]
+fn a_treasurer_can_take_a_spoils_out_of_the_trash() {
+    let mut g = new_state(&[id::TREASURER, id::BANDIT_CAMP], 2);
+    set_hand(&mut g, 0, &[id::TREASURER]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.trash.add(id::SPOILS, 1);
+    play(&mut g, id::TREASURER);
+    mode(&mut g, 1);
+    assert_eq!(g.trash.get(id::SPOILS), 0, "taken out of the trash (and played at once, back to its pile)");
+}
+
+#[test]
+fn sir_martin_on_top_of_the_knights_pile_costs_four_and_can_be_gained_with_an_armory() {
+    let mut g = new_state(&[id::KNIGHTS, id::ARMORY], 2);
+    for m in KNIGHTS_PILE.members() {
+        let n = g.supply.get(m);
+        if n > 0 {
+            g.supply.set(m, 0);
+            g.supply.set(id::SIR_MARTIN, n);
+        }
+    }
+    set_hand(&mut g, 0, &[id::ARMORY]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::ARMORY);
+    pick(&mut g, id::SIR_MARTIN);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::SIR_MARTIN));
+}
+
+#[test]
+fn forager_counts_the_treasures_in_the_trash_as_they_are_when_it_trashes() {
+    let mut g = new_state(&[id::FORAGER], 2);
+    set_hand(&mut g, 0, &[id::FORAGER, id::FORAGER, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.trash.add(id::COPPER, 4);
+    g.trash.add(id::SILVER, 1);
+    g.turn.actions = 2;
+    play(&mut g, id::FORAGER);
+    pick(&mut g, id::ESTATE);
+    assert_eq!(g.turn.coins, 2, "Copper and Silver: two differently named Treasures");
+    g.trash.remove(id::SILVER);
+    play(&mut g, id::FORAGER);
+    assert_eq!(g.turn.coins, 2 + 1, "a Treasure was taken out of the trash: later Foragers give less");
+}
+
+#[test]
+fn a_haunted_mirror_trashed_with_a_market_square_in_hand_lets_the_square_serve_only_one_of_them() {
+    let mut g = new_state(&[id::MARKET_SQUARE, id::CEMETERY, id::CHAPEL], 2);
+    set_hand(&mut g, 0, &[id::CHAPEL, id::HAUNTED_MIRROR, id::MARKET_SQUARE]);
+    set_deck_known(&mut g, 0, &junk(10));
+    play(&mut g, id::CHAPEL);
+    pick(&mut g, id::HAUNTED_MIRROR);
+    choose(&mut g, Choice::Pass);
+    // Both the Market Square and the Haunted Mirror want to discard the one Market Square (an Action): whichever goes first, only once.
+    let mut guard = 0;
+    while let Some(d) = g.pending_decision() {
+        guard += 1;
+        assert!(guard < 20);
+        let c = if matches!(d.kind, DecisionKind::YesNo { .. }) { Choice::Yes } else { choices(&g)[0] };
+        choose(&mut g, c);
+        if g.turn.phase != Phase::Action {
+            break;
+        }
+    }
+    let gold = g.players[0].discard.get(id::GOLD);
+    let ghost = g.players[0].discard.get(id::GHOST);
+    assert_eq!(gold + ghost, 1, "one reaction only: gold {gold} ghost {ghost}");
+}
+
+#[test]
+fn a_hermit_is_exchanged_if_the_last_buy_phase_gained_nothing_even_after_a_villa_bought_in_the_first() {
+    let mut g = new_state(&[id::HERMIT, id::VILLA], 2);
+    set_in_play(&mut g, 0, &[id::HERMIT]);
+    set_deck_known(&mut g, 0, &junk(10));
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 4;
+    expect_decision(&mut g);
+    pick(&mut g, id::VILLA);
+    // Villa returned the turn to the Action phase; nothing to play, then a second, empty Buy phase.
+    while let Some(d) = g.pending_decision() {
+        if g.turn.number != 1 && g.turn.player != 0 {
+            break;
+        }
+        let c = if choices(&g).contains(&Choice::Pass) { Choice::Pass } else { choices(&g)[0] };
+        let _ = d;
+        choose(&mut g, c);
+        if g.madman != 10 {
+            break;
+        }
+    }
+    assert_eq!(g.madman, 9, "the Hermit was exchanged for a Madman");
+}
+
+#[test]
+fn looking_at_cards_with_catacombs_or_survivors_does_not_reveal_a_patron() {
+    let mut g = new_state(&[id::CATACOMBS, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::CATACOMBS]);
+    set_deck_known(&mut g, 0, &[id::PATRON, id::ESTATE, id::ESTATE, id::DUCHY, id::DUCHY, id::DUCHY]);
+    play(&mut g, id::CATACOMBS);
+    assert_eq!(g.players[0].coffers, 0);
+    let mut g = new_state(&[id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::SURVIVORS]);
+    set_deck_known(&mut g, 0, &[id::PATRON, id::ESTATE, id::DUCHY]);
+    play(&mut g, id::SURVIVORS);
+    assert_eq!(g.players[0].coffers, 0);
+}

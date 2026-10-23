@@ -1197,6 +1197,9 @@ pub struct TurnState {
     pub guilds: u8,
     /// Cards the turn's player has gained during this Buy phase (Merchant Guild).
     pub gained_in_buy: u8,
+    /// `gained_in_buy` when the current Buy phase began: a turn can have several (Villa, Cavalry), and Hermit asks about the cards gained in
+    /// this one (transient: not part of the text format).
+    pub buy_gain_base: u8,
     /// Adventures per-turn bookkeeping.
     pub adv: AdvTurn,
     /// Empires per-turn bookkeeping.
@@ -1957,6 +1960,7 @@ impl TurnState {
             extra_draw: 0,
             guilds: 0,
             gained_in_buy: 0,
+            buy_gain_base: 0,
             adv: AdvTurn::default(),
             emp: EmpTurn::default(),
             noc: NocTurn::default(),

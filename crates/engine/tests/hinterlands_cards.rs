@@ -2278,3 +2278,17 @@ fn haggler_compares_coin_and_debt_parts_so_a_fortune_bought_gains_an_overlord_or
     assert!(c.contains(&Choice::Card(id::OVERLORD)) && c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
     assert!(!c.contains(&Choice::Card(id::FORTUNE)), "not cheaper than itself");
 }
+
+#[test]
+#[ignore = "audit: Trader's FAQ lets a Silver be exchanged for a Silver (it matters against Gatekeeper's Exile); the engine never offers it"]
+fn trader_can_exchange_a_silver_for_a_silver() {
+    let mut g = new_state(&[id::TRADER], 2);
+    set_hand(&mut g, 0, &[id::TRADER, id::GOLD, id::GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    g.turn.buys = 2;
+    buy(&mut g, id::SILVER);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.subject == id::SILVER, "{d:?}");
+}

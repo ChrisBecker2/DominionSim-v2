@@ -606,6 +606,7 @@ pub(crate) fn turn_start_entries(g: &mut GameState) {
 #[inline(always)]
 pub(crate) fn gain_triggers_possible(g: &GameState) -> bool {
     g.in_supply.any(GAIN_LO, GAIN_HI, GAIN_TOP, GAIN_EXT, GAIN_EXT2)
+        || Hinterlands::gain_live_extra(g)
         || Renaissance::gain_live_extra(g)
         || Menagerie::gain_live_extra(g)
         || Allies::gain_live_extra(g)
@@ -645,7 +646,7 @@ pub(crate) fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, t
         Promo::gain_triggers(g, p, c, to, on_buy, sink);
     }
     // Hinterlands: the card's own effect, the plays when gained, and the Trader's exchange (asked before the card's own effect, after Changeling's).
-    if g.in_supply.top & Hinterlands::GAIN_TOP != 0 {
+    if g.in_supply.top & Hinterlands::GAIN_TOP != 0 || Hinterlands::gain_live_extra(g) {
         Hinterlands::gain_triggers(g, p, c, to, on_buy, sink);
     }
     // Renaissance: the card's own effect, Cargo Ship's set-aside, and the Projects that answer gains.
@@ -720,6 +721,7 @@ const EOT_CARDS: [u128; 5] = mask_words(&[
 fn eot_hooks_live(g: &GameState) -> bool {
     g.in_supply.any(EOT_CARDS[0], EOT_CARDS[1], EOT_CARDS[2], EOT_CARDS[3], EOT_CARDS[4])
         || g.trav != [0; crate::cards::NUM_TRAV]
+        || g.ferryman != 0
         || g.ren.holder[(crate::cards::id::HORN - crate::cards::FIRST_ARTIFACT) as usize] != 0
 }
 

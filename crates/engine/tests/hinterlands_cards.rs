@@ -1826,3 +1826,59 @@ fn a_gained_trail_that_was_played_cannot_then_be_trashed_by_watchtower_with_an_o
     assert!(g.trash.is_empty());
     assert_eq!(g.turn.led.n, 0);
 }
+
+// ===========================================================================
+// Audit additions
+// ===========================================================================
+
+/// `new_state` for a game whose Ferryman pile (outside the Supply) is `pile`.
+fn ferryman_state(pile: CardId) -> GameState {
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::FERRYMAN, id::SMITHY], ferryman: Some(pile), seed: 0x5EED_1234, max_turns: 500, ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    let _ = g.advance(&mut NoEvents);
+    reset_turn(&mut g, 0);
+    for p in 0..2 {
+        g.players[p] = dominion_engine::state::PlayerState::default();
+    }
+    g
+}
+
+#[test]
+fn a_scheme_from_the_ferryman_pile_still_puts_an_action_on_the_deck() {
+    let mut g = ferryman_state(id::SCHEME);
+    set_hand(&mut g, 0, &[id::SCHEME, id::SMITHY, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SCHEME);
+    play(&mut g, id::SMITHY);
+    buy_phase_check(&mut g);
+    choose(&mut g, Choice::Pass);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, from: Zone::InPlay, .. }), "{d:?}");
+}
+
+#[test]
+fn a_trader_from_the_ferryman_pile_exchanges_a_gained_card() {
+    let mut g = ferryman_state(id::TRADER);
+    set_hand(&mut g, 0, &[id::TRADER, id::GOLD, id::GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    buy(&mut g, id::DUCHY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.source == Some(id::TRADER), "{d:?}");
+}
+
+#[test]
+fn nomads_and_trail_from_the_ferryman_pile_react_when_gained() {
+    // Gaining the Ferryman gains a card of its pile: Nomads give +$2 when gained.
+    let mut g = ferryman_state(id::NOMADS);
+    g.turn.phase = Phase::Buy;
+    assert!(g.gain_card(0, id::FERRYMAN, Dest::Discard, &mut NoEvents));
+    assert!(g.players[0].discard.has(id::NOMADS));
+    assert_eq!(g.turn.coins, 2);
+    let mut g = ferryman_state(id::TRAIL);
+    g.turn.phase = Phase::Buy;
+    assert!(g.gain_card(0, id::FERRYMAN, Dest::Discard, &mut NoEvents));
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::TRAIL, "{d:?}");
+}

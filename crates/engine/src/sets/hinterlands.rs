@@ -85,6 +85,13 @@ impl SetRules for Hinterlands {
     /// Guard Dog: played from the hand in response to an Attack.
     const ATTACK_REACTIONS: &'static [(CardId, Act, Then)] = &[(ids::GUARD_DOG, Act::Play, Then::Nothing)];
 
+    /// A Hinterlands card that is the Ferryman pile (outside the Supply, so not in the `GAIN_TOP` mask) still has its gain triggers (Nomads,
+    /// Trail, Trader).
+    #[inline(always)]
+    fn gain_live_extra(g: &GameState) -> bool {
+        (ids::CROSSROADS..=ids::FARMLAND).contains(&g.ferryman)
+    }
+
     fn modes(card: CardId) -> &'static [ModeOpt] {
         match card {
             // Two Silvers or a card costing up to $4.
@@ -268,7 +275,7 @@ impl SetRules for Hinterlands {
             g.stack.push(Frame { zone, act: Act::Play, subject: c, ..Frame::new(K::YesNo, p, c) });
         }
         // Trader: a card gained may be exchanged for a Silver by revealing a Trader (asked first). A Silver is never worth exchanging.
-        if g.in_supply(ids::TRADER) && c != id::SILVER && g.players[p as usize].hand.has(ids::TRADER) && g.supply.get(id::SILVER) > 0
+        if (g.in_supply(ids::TRADER) || g.ferryman == ids::TRADER) && c != id::SILVER && g.players[p as usize].hand.has(ids::TRADER) && g.supply.get(id::SILVER) > 0
             && (g.in_supply(c) || g.in_supply(cards::pile_of(c)))
         {
             g.stack.push(Frame { zone, act: Act::Return, subject: c, then: Then::TraderSwap, ..Frame::new(K::YesNo, p, ids::TRADER) });
@@ -293,7 +300,7 @@ impl SetRules for Hinterlands {
     /// Scheme: for each one played this turn, an Action card may be put onto the deck instead of being discarded from play.
     #[inline(never)]
     fn offers_on_discard(g: &mut GameState) {
-        if g.in_supply(ids::SCHEME) {
+        if g.in_supply(ids::SCHEME) || g.ferryman == ids::SCHEME {
             let n = g.turn.played.get(ids::SCHEME);
             if n > 0 {
                 let p = g.turn.player;

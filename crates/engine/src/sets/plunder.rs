@@ -1654,6 +1654,15 @@ impl GameState {
         let _ = pi;
     }
 
+    /// A token gave `n` $ with the play of a card: they are not the Action's own, so Harbor Village does not count them.
+    pub(crate) fn plu_token_coins(&mut self, base: usize, n: u16) {
+        for fr in &mut self.stack.frames[base..self.stack.len as usize] {
+            if fr.kind == K::PluAfter && fr.min & A_HARBOR != 0 {
+                fr.cost_sum += n;
+            }
+        }
+    }
+
     /// After a card's effects: Harbor Village's $, Inspiring's extra play, a Frigate's discard, Landing Party going onto the deck.
     #[inline(never)]
     pub(crate) fn run_plu_after<S: EventSink>(&mut self, f: Frame, sink: &mut S) -> Run {

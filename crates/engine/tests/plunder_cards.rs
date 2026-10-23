@@ -2384,8 +2384,8 @@ fn a_mapmaker_taken_by_a_mapmaker_played_in_response_can_be_played_in_response_t
     g.pending = Pending::None;
     expect_decision(&mut g);
     yes(&mut g);
-    pick(&mut g, I::MAPMAKER);
     pick(&mut g, I::COPPER);
+    pick(&mut g, I::MAPMAKER);
     let d = expect_decision(&mut g);
     assert_eq!((d.player, d.subject), (1, I::MAPMAKER), "offered again");
 }
@@ -2841,4 +2841,191 @@ fn an_inherited_split_pile_gives_the_first_card_to_the_first_players() {
     assert_eq!(plu, vec![0, 0, 0, 0, 0, 1]);
 }
 
+
+#[test]
+fn jewelled_egg_gives_the_loot_to_the_player_who_trashes_it_whoever_caused_it() {
+    let mut g = game(&[I::JEWELLED_EGG, I::MAELSTROM]);
+    only_loot(&mut g, &[I::SHIELD]);
+    set_hand(&mut g, 0, &[I::COPPER, I::ESTATE, I::DUCHY]);
+    set_hand(&mut g, 1, &[I::JEWELLED_EGG, I::ESTATE, I::ESTATE, I::ESTATE, I::ESTATE]);
+    buy_event(&mut g, I::MAELSTROM);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "player 0 has exactly three cards: all are trashed");
+    pick(&mut g, I::JEWELLED_EGG);
+    adv(&mut g);
+    assert_eq!(g.players[1].discard.get(I::SHIELD), 1, "the trasher gets the Loot");
+    assert_eq!(discard(&g, I::SHIELD), 0);
+}
+
+#[test]
+fn a_search_played_by_a_gondola_gained_from_the_last_pile_does_not_fire() {
+    let mut g = game(&[I::SEARCH, I::GONDOLA]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_supply(&mut g, I::GONDOLA, 1);
+    set_hand(&mut g, 0, &[I::SEARCH]);
+    gain_now(&mut g, 0, I::GONDOLA);
+    pick(&mut g, I::SEARCH);
+    adv(&mut g);
+    assert_eq!(g.players[0].plu.waiting(I::SEARCH), 1);
+    assert_eq!(discard(&g, I::HAMMER), 0);
+}
+
+#[test]
+fn taskmaster_looks_at_the_cost_a_card_had_when_it_was_gained() {
+    let mut g = game(&[I::TASKMASTER, I::DESTRIER]);
+    set_hand(&mut g, 0, &[I::TASKMASTER]);
+    play(&mut g, I::TASKMASTER);
+    assert_eq!(g.cost(I::DESTRIER), 6);
+    gain_now(&mut g, 0, I::DESTRIER);
+    assert_eq!(g.players[0].pending_durations_len, 0, "a $6 was gained");
+    assert_eq!(g.cost(I::DESTRIER), 5);
+    gain_now(&mut g, 0, I::DESTRIER);
+    assert_eq!(g.players[0].pending_durations_len, 1, "a Destrier that cost $5 when gained repeats the Taskmaster");
+}
+
+#[test]
+#[ignore = "audit: a $5 card whose gain causes the Taskmaster to be gained and played (Haggler, then Rush) is not counted: the gain's triggers have already been looked at"]
+fn a_five_whose_gain_causes_the_taskmaster_to_be_played_lets_it_repeat() {
+    let mut g = game(&[I::TASKMASTER, I::HAGGLER, I::RUSH]);
+    set_hand(&mut g, 0, &[I::HAGGLER]);
+    play(&mut g, I::HAGGLER);
+    buy_event(&mut g, I::RUSH);
+    g.turn.coins = 5;
+    buy(&mut g, I::DUCHY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    choose(&mut g, Choice::Card(I::TASKMASTER));
+    adv(&mut g);
+    assert_eq!(in_play(&g, I::TASKMASTER), 1);
+    assert_eq!(g.players[0].pending_durations_len, 1, "the Taskmaster repeats next turn");
+}
+
+#[test]
+fn flagship_replays_a_card_that_trashed_itself() {
+    let mut g = game(&[I::FLAGSHIP, I::MINING_VILLAGE]);
+    set_hand(&mut g, 0, &[I::FLAGSHIP, I::MINING_VILLAGE]);
+    g.turn.actions = 2;
+    play(&mut g, I::FLAGSHIP);
+    play(&mut g, I::MINING_VILLAGE);
+    yes(&mut g);
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::MINING_VILLAGE), 1);
+    assert_eq!(g.turn.coins, 2 + 2);
+    assert_eq!(g.players[0].hand.total(), 2, "+1 Card twice, and no second chance to trash it");
+}
+
+#[test]
+fn harbor_village_counts_the_coins_a_way_gave() {
+    let mut g = game(&[I::HARBOR_VILLAGE, I::SMITHY, I::WAY_OF_THE_SHEEP]);
+    set_hand(&mut g, 0, &[I::HARBOR_VILLAGE, I::SMITHY]);
+    play(&mut g, I::HARBOR_VILLAGE);
+    skip(&mut g);
+    play(&mut g, I::SMITHY);
+    let d = expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(I::WAY_OF_THE_SHEEP)), "{d:?}");
+    choose(&mut g, Choice::Card(I::WAY_OF_THE_SHEEP));
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 2 + 1, "Way of the Sheep's $2 and Harbor Village's $1");
+}
+
+#[test]
+fn harbor_village_does_not_count_the_coin_of_a_token() {
+    let mut g = game(&[I::HARBOR_VILLAGE, I::VILLAGE]);
+    g.players[0].tok[dominion_engine::state::TOK_COIN] = I::VILLAGE;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    set_hand(&mut g, 0, &[I::HARBOR_VILLAGE, I::VILLAGE]);
+    play(&mut g, I::HARBOR_VILLAGE);
+    play(&mut g, I::VILLAGE);
+    assert_eq!(g.turn.coins, 1, "only the Training token's $1: the Village itself gave no $");
+}
+
+#[test]
+fn two_mining_roads_cannot_play_the_same_treasure_twice() {
+    let mut g = game(&[I::MINING_ROAD]);
+    set_hand(&mut g, 0, &[I::MINING_ROAD, I::MINING_ROAD]);
+    g.turn.actions = 2;
+    play(&mut g, I::MINING_ROAD);
+    play(&mut g, I::MINING_ROAD);
+    gain_now(&mut g, 0, I::GOLD);
+    yes(&mut g);
+    assert_eq!(in_play(&g, I::GOLD), 1);
+    match adv(&mut g) {
+        Step::Decision(d) => assert!(!matches!(d.kind, DecisionKind::YesNo { .. }), "offered again: {d:?}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn pendant_and_wealthy_village_count_duration_treasures_and_loot_in_play() {
+    let mut g = game(&[I::PENDANT, I::GONDOLA]);
+    set_hand(&mut g, 0, &[I::PENDANT]);
+    set_in_play(&mut g, 0, &[I::GONDOLA, I::COPPER]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::PENDANT);
+    assert_eq!(g.turn.coins, 3, "Gondola played last turn, Copper and Pendant");
+    let mut g = game(&[I::WEALTHY_VILLAGE, I::GONDOLA]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_in_play(&mut g, 0, &[I::GONDOLA, I::AMPHORA, I::COPPER]);
+    gain_now(&mut g, 0, I::WEALTHY_VILLAGE);
+    assert_eq!(discard(&g, I::HAMMER), 1);
+}
+
+#[test]
+fn a_trait_works_after_its_pile_is_empty() {
+    let mut g = traited(&[I::VILLAGE, I::SMITHY], I::RECKLESS, I::SMITHY);
+    set_supply(&mut g, I::SMITHY, 0);
+    set_hand(&mut g, 0, &[I::SMITHY]);
+    play(&mut g, I::SMITHY);
+    assert_eq!(g.players[0].hand.total(), 6, "+3 Cards twice");
+}
+
+#[test]
+fn search_fires_when_a_card_exiled_from_the_supply_empties_a_pile() {
+    let mut g = game(&[I::SEARCH, I::CAMEL_TRAIN, I::VILLAGE]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_hand(&mut g, 0, &[I::SEARCH, I::CAMEL_TRAIN]);
+    g.turn.actions = 2;
+    play(&mut g, I::SEARCH);
+    set_supply(&mut g, I::VILLAGE, 1);
+    play(&mut g, I::CAMEL_TRAIN);
+    choose(&mut g, Choice::Card(I::VILLAGE));
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SEARCH), 1);
+    assert_eq!(discard(&g, I::HAMMER), 1);
+}
+
+#[test]
+fn inherited_can_replace_a_shelter() {
+    let cfg = GameConfig {
+        num_players: 2,
+        kingdom: vec![I::VILLAGE, I::SMITHY, I::INHERITED],
+        seed: 7,
+        shelters: Some(true),
+        trait_piles: vec![(I::INHERITED, I::SMITHY)],
+        ..Default::default()
+    };
+    let mut g = GameState::new(&cfg);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { from: Zone::StartDeck, .. }), "{d:?}");
+    let ch = choices(&g);
+    assert!(ch.contains(&Choice::Card(I::HOVEL)) && ch.contains(&Choice::Card(I::COPPER)) && !ch.contains(&Choice::Card(I::ESTATE)), "{ch:?}");
+    choose(&mut g, Choice::Card(I::HOVEL));
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1);
+    choose(&mut g, Choice::Card(I::COPPER));
+    adv(&mut g);
+    assert_eq!(g.players[0].all_cards().get(I::HOVEL), 0);
+    assert_eq!(g.players[0].all_cards().get(I::SMITHY), 1);
+}
+
 // ==== END ====
+
+#[test]
+fn maelstrom_with_exactly_three_cards_still_asks_the_others() {
+    let mut g = game(&[I::VILLAGE, I::MAELSTROM]);
+    set_hand(&mut g, 0, &[I::COPPER, I::ESTATE, I::DUCHY]);
+    set_hand(&mut g, 1, &[I::ESTATE, I::DUCHY, I::PROVINCE, I::CURSE, I::COPPER]);
+    buy_event(&mut g, I::MAELSTROM);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "{d:?}");
+}

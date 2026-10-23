@@ -261,3 +261,12 @@ fn game_page_is_served_from_the_repo_or_explains_how_to_build_it() {
     assert_eq!(resp.status, 404);
     assert!(String::from_utf8_lossy(&resp.body).contains("build-web.ps1"));
 }
+
+#[test]
+#[ignore = "audit: /api/cards does not list the Plunder Traits (nor the Ways), so a Lab kingdom cannot name them"]
+fn cards_lists_the_plunder_traits() {
+    let state = AppState::new(strategies_fixture());
+    let (_, resp) = call(&state, "GET", "/api/cards", b"");
+    let kingdom = resp["kingdom"].as_array().unwrap();
+    assert!(kingdom.iter().any(|c| c["name"] == "Cheap"), "no Trait in the card list");
+}

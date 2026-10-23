@@ -184,7 +184,12 @@ impl GameState {
         }
         // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
         if self.adv & G_PLAY_TOKENS != 0 {
+            let coins0 = self.turn.coins;
             self.play_tokens(card, player, sink);
+            // Plunder's Harbor Village only cares about the +$ the Action itself gave, not a token's.
+            if self.turn.coins > coins0 && self.plu.live & crate::state::LV_PLAY != 0 {
+                self.plu_token_coins(base, self.turn.coins - coins0);
+            }
         }
         self.turn.led.cur = outer;
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
@@ -1223,7 +1228,12 @@ impl GameState {
                 let base = self.stack.len as usize;
                 let gained = if f.gf & crate::state::GF_EXILE != 0 {
                     // Menagerie: Exiled from the Supply (not gained: no triggers).
-                    self.exile_from_supply(p, c, f.then == Then::InvestExile, sink)
+                    let exiled = self.exile_from_supply(p, c, f.then == Then::InvestExile, sink);
+                    // Plunder's Search: a Supply pile may have emptied.
+                    if exiled && self.plu.live & crate::state::LV_WAIT != 0 {
+                        self.plu_check_empty(sink);
+                    }
+                    exiled
                 } else if f.gf & (crate::state::GF_FROM_SIDE | crate::state::GF_SPIRITS) != 0 {
                     self.gain_side(p, c, dest, f.source, sink)
                 } else {

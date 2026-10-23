@@ -348,3 +348,26 @@ fn a_change_game_finishes_with_the_stated_debt_rules() {
     let stats = run_match(&[&s, &s], &cfg);
     assert_eq!(stats.len(), 2);
 }
+
+// --- Audit: policy tests ---
+
+#[test]
+fn crown_in_the_buy_phase_is_played_even_with_no_action_in_the_hand() {
+    let strat = money("");
+    let mut g = state("buy", 0, 1, "hand: Crown, Gold\ndeck: 8 Estate");
+    let (d, ch) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure, "{:?}", d.kind);
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::CROWN), "{ch:?}");
+}
+
+#[test]
+fn sprawling_castle_takes_the_estates_when_the_duchies_are_gone() {
+    let strat = money("");
+    let mut g = state_with("Castles, Smithy", "", "buy", 1, 0, 1, "hand: Copper\ndeck: 8 Estate");
+    g.supply.set(id::DUCHY, 0);
+    g.gain_card(0, id::SPRAWLING_CASTLE, dominion_engine::Dest::Discard, &mut NoEvents);
+    let (d, ch) = next_decision(&mut g);
+    assert!(ch.iter().any(|c| matches!(c, Choice::Mode(_))), "{:?} {ch:?}", d.kind);
+    let c = decide(&strat, &g, &d, &ch);
+    assert_eq!(c, Choice::Mode(1), "3 Estates: the Duchy pile is empty");
+}

@@ -2230,3 +2230,70 @@ fn two_archives_keep_separate_sets_of_cards() {
     let c = choices(&g);
     assert!(!c.contains(&Choice::Card(id::GOLD)), "{c:?}");
 }
+
+#[test]
+fn a_training_token_on_a_split_pile_works_for_both_of_its_halves() {
+    let mut g = new_state(&[id::CATAPULT, id::SMITHY], 2);
+    g.players[0].tok[dominion_engine::state::TOK_COIN] = id::CATAPULT;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    set_hand(&mut g, 0, &[id::ROCKS]);
+    g.turn.phase = Phase::Buy;
+    g.pending = Pending::None;
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 1 + 1, "Rocks ($1) and the +$1 token of the Catapult/Rocks pile");
+}
+
+#[test]
+fn wild_hunt_offers_the_estate_option_even_when_the_estates_are_gone() {
+    let mut g = new_state(&[id::WILD_HUNT, id::SMITHY], 2);
+    g.emp.piles.add_vp(id::WILD_HUNT, 3);
+    empty_pile(&mut g, id::ESTATE);
+    set_hand(&mut g, 0, &[id::WILD_HUNT]);
+    play(&mut g, id::WILD_HUNT);
+    assert!(has_choice(&g, Choice::Mode(1)), "{:?}", choices(&g));
+    choose(&mut g, Choice::Mode(1));
+    assert_eq!((g.players[0].vp_tokens, g.emp.piles.vp_on(id::WILD_HUNT)), (0, 3), "no Estate gained: no tokens");
+}
+
+#[test]
+fn a_throne_roomed_groundskeeper_gives_two_vp_tokens_per_victory_card_gained() {
+    let mut g = new_state(&[id::THRONE_ROOM, id::GROUNDSKEEPER], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::GROUNDSKEEPER]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::THRONE_ROOM);
+    pick_if(&mut g, id::GROUNDSKEEPER);
+    g.gain_card(0, id::ESTATE, Dest::Discard, &mut NoEvents);
+    assert_eq!(g.players[0].vp_tokens, 2);
+}
+
+#[test]
+fn legionary_attack_waits_for_moat_before_the_gold_is_revealed() {
+    let mut g = new_state(&[id::LEGIONARY, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::LEGIONARY, id::GOLD, id::COPPER]);
+    set_hand(&mut g, 1, &[id::MOAT, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::LEGIONARY);
+    let d = g.pending_decision().unwrap();
+    assert_eq!((d.player, d.subject), (1, id::MOAT), "the Moat is asked first");
+}
+
+#[test]
+fn forum_gives_its_buy_when_gained_any_way() {
+    let mut g = new_state(&[id::FORUM, id::SMITHY], 2);
+    let before = g.turn.buys;
+    g.gain_card(0, id::FORUM, Dest::Discard, &mut NoEvents);
+    assert_eq!(g.turn.buys, before + 1);
+}
+
+#[test]
+fn a_coin_token_on_the_gladiator_fortune_pile_counts_before_fortune_doubles() {
+    let mut g = new_state(&[id::GLADIATOR, id::SMITHY], 2);
+    g.players[0].tok[dominion_engine::state::TOK_COIN] = id::GLADIATOR;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    set_hand(&mut g, 0, &[id::FORTUNE]);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 3;
+    g.pending = Pending::None;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::FORTUNE);
+    assert_eq!(g.turn.coins, (3 + 1) * 2);
+}

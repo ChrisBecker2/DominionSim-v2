@@ -1752,7 +1752,8 @@ impl GameState {
             Then::GainPerType { action, treasure, victory } => {
                 if f.count > 0 {
                     let c = f.last;
-                    if self.is_action(c) && action != 0 {
+                    // (An Estate is an Action card too on its owner's turns once they have bought Inheritance.)
+                    if (self.is_action(c) || (c == id::ESTATE && self.estates_are_actions(p))) && action != 0 {
                         self.gain(p, action, Dest::Discard, false, f.source, sink);
                     }
                     if self.is_treasure(c) && treasure != 0 {
@@ -1896,6 +1897,11 @@ impl GameState {
                 }
             }
             Then::HoldUntilNextTurn => self.finish_farmhands(&f),
+            Then::DiscardedFromPlay => {
+                if f.count > 0 && f.last == id::CAPITAL {
+                    self.take_debt(p, id::CAPITAL, 6, sink);
+                }
+            }
             Then::TreasureMapGold => self.finish_treasure_map(&f, sink),
             Then::ArtificerGain => {
                 // Any gain costing exactly $1 per card discarded (nothing discarded: a card costing $0), onto the deck, if the player likes.

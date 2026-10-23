@@ -1612,3 +1612,123 @@ fn cost_ranges_and_thresholds_compare_the_coins_only_but_exclude_debt_only_cards
     // A Debt cost never has a Potion; the two orthogonal parts are separate in the table.
     assert!(!cards::potion_cost(id::FORTUNE) && !cards::potion_cost(id::OVERLORD));
 }
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ bullets that had no test of their own)
+// ===========================================================================
+
+#[test]
+fn herbalist_cannot_put_a_spoils_or_a_counterfeited_treasure_on_the_deck() {
+    // Spoils goes back to its pile when played.
+    let mut g = new_state(&[id::HERBALIST, id::MARAUDER], 2);
+    g.spoils = 10;
+    set_hand(&mut g, 0, &[id::HERBALIST, id::SPOILS, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(offered(&g), vec![id::GOLD]);
+
+    // A Treasure Counterfeit trashed is no longer in play.
+    let mut g = new_state(&[id::HERBALIST, id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::COUNTERFEIT, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    play_treasure(&mut g, id::COUNTERFEIT);
+    choose(&mut g, Choice::Card(id::GOLD));
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(offered(&g), vec![id::COUNTERFEIT]);
+    assert!(g.trash.has(id::GOLD));
+}
+
+#[test]
+fn a_treasure_with_a_discard_from_play_effect_still_does_it_when_herbalist_topdecks_it() {
+    // Capital: 6 Debt when discarded from play; topdecked by Herbalist instead of discarded it still charges the Debt.
+    let mut g = new_state(&[id::HERBALIST, id::CAPITAL], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::CAPITAL]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(offered(&g).contains(&id::CAPITAL));
+    let mut log: Vec<Event> = Vec::new();
+    choose_ev(&mut g, Choice::Card(id::CAPITAL), &mut log);
+    assert!(log.iter().any(|e| matches!(e, Event::TakeDebt { n: 6, .. })), "the Debt is taken all the same: {log:?}");
+    assert!(g.players[0].deck_size() > 0 && !g.players[0].in_play.has(id::CAPITAL));
+}
+
+#[test]
+fn herbalist_can_put_itself_on_the_deck_under_capitalism() {
+    let mut g = new_state(&[id::HERBALIST, id::CAPITALISM], 2);
+    let bit = 1u32 << (id::CAPITALISM - cards::FIRST_PROJECT);
+    g.players[0].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+    set_hand(&mut g, 0, &[id::HERBALIST]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(offered(&g).contains(&id::HERBALIST));
+}
+
+#[test]
+fn alchemist_cannot_go_back_when_the_potion_left_play_before_cleanup() {
+    let mut g = new_state(&[id::ALCHEMIST, id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION, id::COUNTERFEIT]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 8]);
+    play(&mut g, id::ALCHEMIST);
+    play_treasure(&mut g, id::COUNTERFEIT);
+    choose(&mut g, Choice::Card(id::POTION)); // played twice, then trashed
+    assert!(g.trash.has(id::POTION));
+    expect_decision(&mut g);
+    pass(&mut g);
+    // No Potion in play at the start of Clean-up: no offer, the turn simply ends.
+    assert!(g.pending_decision().is_none_or(|d| d.kind != DecisionKind::YesNo { act: Act::Topdeck }));
+    assert!(!g.players[0].in_play.has(id::ALCHEMIST));
+}
+
+#[test]
+fn university_cannot_gain_an_action_with_debt_in_its_cost() {
+    let mut g = new_state(&[id::UNIVERSITY, id::ENGINEER, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::UNIVERSITY]);
+    play(&mut g, id::UNIVERSITY);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::SMITHY)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
+}
+
+#[test]
+fn apprentice_ignores_the_debt_in_the_trashed_cards_cost() {
+    let mut g = new_state(&[id::APPRENTICE, id::FORTUNE], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE, id::FORTUNE]);
+    set_deck_known(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::APPRENTICE);
+    assert_eq!(g.players[0].hand.total(), 8, "$8, and the Debt counts for nothing");
+}
+
+#[test]
+fn transmute_treats_an_inherited_estate_as_an_action_and_a_victory_card() {
+    let mut g = new_state(&[id::TRANSMUTE, id::SMITHY, id::INHERITANCE], 2);
+    g.players[0].inherit = id::SMITHY;
+    set_hand(&mut g, 0, &[id::TRANSMUTE, id::ESTATE]);
+    play(&mut g, id::TRANSMUTE);
+    adv(&mut g);
+    assert!(g.players[0].discard.has(id::GOLD) && g.players[0].discard.has(id::DUCHY), "Victory: a Gold, Action: a Duchy");
+}
+
+#[test]
+fn philosophers_stone_played_by_crystal_ball_counts_again() {
+    // 20 cards in the deck when the first is played ($4); Crystal Ball then plays the second from the top: 19 cards, $3.
+    let mut g = new_state(&[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL], 2);
+    set_hand(&mut g, 0, &[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL]);
+    let mut deck = vec![id::PHILOSOPHERS_STONE];
+    deck.extend([id::ESTATE; 19]);
+    set_deck_known(&mut g, 0, &deck);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::PHILOSOPHERS_STONE);
+    assert_eq!(g.turn.coins, 4, "21 cards between deck and discard pile... less the Crystal Ball in hand: 20");
+    play_treasure(&mut g, id::CRYSTAL_BALL);
+    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
+    assert_eq!(g.turn.coins, 4 + 1 + 3);
+}

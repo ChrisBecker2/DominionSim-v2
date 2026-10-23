@@ -2383,6 +2383,9 @@ pub enum Then {
     /// Select (`Act::SetAside`, Farmhands' gain trigger): the picked card, in `set_aside`, is held
     /// until the start of the player's next turn (`PlayerState::farm_cards`).
     HoldUntilNextTurn,
+    /// Select (`Act::Topdeck` from play, Herbalist): the Treasure was discarded from play all the same, so a "when you discard this from
+    /// play" effect still happens (Capital's Debt).
+    DiscardedFromPlay,
     /// Gain (Soothsayer's Curse): the player draws a card if the gain happens.
     DrawIfGained,
     /// Gain (Horn of Plenty): if the gained card is a Victory card, trash the Horn (`source`) from play.

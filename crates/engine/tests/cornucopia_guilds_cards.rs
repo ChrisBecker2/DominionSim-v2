@@ -2665,3 +2665,183 @@ fn journeyman_discards_named_cards_among_the_reveals_and_stops_after_three_other
     }
     assert_eq!(g.players[0].hand, counts_of(&[id::ESTATE]));
 }
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ bullets that had no test of their own)
+// ===========================================================================
+
+/// A game from `cfg` in the same clean state as `new_state` leaves it.
+fn audit_game(cfg: &GameConfig) -> GameState {
+    let mut g = GameState::new(cfg);
+    let _ = g.advance(&mut NoEvents);
+    reset_turn(&mut g, 0);
+    for p in 0..cfg.num_players {
+        g.players[p] = state::PlayerState::default();
+    }
+    g
+}
+
+#[test]
+fn stonemason_is_gained_before_the_overpay_cards_so_a_wayfarer_costs_what_it_does() {
+    let mut g = new_state(&[id::STONEMASON, id::WAYFARER], 2);
+    buy_phase(&mut g, 4);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(id::STONEMASON));
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Overpay(2));
+    expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(id::WAYFARER)), "Wayfarer costs the $2 of the last card gained: {:?}", choices(&g));
+}
+
+#[test]
+fn shop_can_play_an_action_whose_copy_was_played_earlier_but_is_no_longer_in_play() {
+    for (trash_it, offered) in [(true, true), (false, false)] {
+        let mut g = new_state(&[id::SHOP, id::MINING_VILLAGE], 2);
+        set_hand(&mut g, 0, &[id::MINING_VILLAGE, id::MINING_VILLAGE, id::SHOP]);
+        set_deck_known(&mut g, 0, &junk(10));
+        play(&mut g, id::MINING_VILLAGE);
+        choose(&mut g, if trash_it { Choice::Yes } else { Choice::No }); // Mining Village trashes itself, or stays in play
+        play(&mut g, id::SHOP);
+        let shown = g.pending_decision().is_some_and(|d| matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }))
+            && choices(&g).contains(&Choice::Card(id::MINING_VILLAGE));
+        assert_eq!(shown, offered, "trashed: {trash_it}");
+    }
+}
+
+#[test]
+fn remake_can_trash_the_same_fortress_twice() {
+    let mut g = new_state(&[id::REMAKE, id::FORTRESS], 2);
+    set_hand(&mut g, 0, &[id::REMAKE, id::FORTRESS]);
+    play(&mut g, id::REMAKE); // each trash and its gain (the only card costing exactly $5, a Duchy) are forced
+    assert_eq!(g.players[0].discard.get(id::DUCHY), 2);
+    assert!(g.players[0].hand.has(id::FORTRESS) && g.trash.get(id::FORTRESS) == 0, "Fortress returns to the hand each time");
+}
+
+#[test]
+fn renown_lets_remake_turn_a_copper_into_a_silver() {
+    let mut g = new_state(&[id::REMAKE, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::RENOWN, id::REMAKE, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk(6));
+    play(&mut g, id::VILLAGE);
+    play(&mut g, id::RENOWN);
+    play(&mut g, id::REMAKE);
+    choose(&mut g, Choice::Card(id::COPPER));
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { exact: true, .. }), "{d:?}");
+    assert!(choices(&g).contains(&Choice::Card(id::SILVER)), "Silver costs $1 this turn, a Copper $0 + $1");
+}
+
+#[test]
+fn butcher_can_spend_the_coffers_a_trashed_silk_merchant_gave() {
+    // Silk Merchant ($4) gives +1 Coffers when trashed: 2 (Butcher) + 1 makes the $7 King's Court reachable.
+    let mut g = new_state(&[id::BUTCHER, id::SILK_MERCHANT, id::KINGS_COURT], 2);
+    set_hand(&mut g, 0, &[id::BUTCHER, id::SILK_MERCHANT]);
+    play(&mut g, id::BUTCHER);
+    choose(&mut g, Choice::Card(id::SILK_MERCHANT));
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    assert!(choices(&g).contains(&Choice::Card(id::KINGS_COURT)), "{:?}", choices(&g));
+}
+
+#[test]
+fn a_ferryman_gained_from_the_trash_also_gains_a_card_of_its_pile() {
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::FERRYMAN, id::LURKER], ferryman: Some(id::SHOP), ..Default::default() };
+    let mut g = audit_game(&cfg);
+    g.trash.add(id::FERRYMAN, 1);
+    set_hand(&mut g, 0, &[id::LURKER]);
+    play(&mut g, id::LURKER);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Mode(1)); // gain an Action from the trash
+    assert_eq!(g.players[0].discard, counts_of(&[id::FERRYMAN, id::SHOP]));
+}
+
+#[test]
+fn every_card_of_a_split_pile_bane_blocks_young_witch() {
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(id::SETTLERS), ..Default::default() };
+    let mut g = audit_game(&cfg);
+    assert_eq!(g.bane, id::SETTLERS);
+    set_hand(&mut g, 0, &[id::YOUNG_WITCH, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk(6));
+    set_hand(&mut g, 1, &[id::BUSTLING_VILLAGE]); // the other half of the Bane's pile
+    play(&mut g, id::YOUNG_WITCH);
+    drain_selects(&mut g);
+    assert_eq!(g.players[1].discard.get(id::CURSE), 0, "revealed a card of the Bane's pile");
+}
+
+#[test]
+fn a_bane_that_needs_setup_brings_it() {
+    // Tracker: every player starts with a Pouch.
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(id::TRACKER), ..Default::default() };
+    let g = GameState::new(&cfg);
+    for p in 0..2 {
+        assert_eq!(g.players[p].all_cards().get(id::POUCH), 1, "player {p}");
+    }
+    // Liaison (Underling): an Ally is picked, and everyone starts with a Favor.
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(id::UNDERLING), ..Default::default() };
+    let g = GameState::new(&cfg);
+    assert_ne!(g.al.ally, 0);
+    assert_eq!(g.players[0].al.favors, 1);
+}
+
+#[test]
+fn a_reaction_bane_that_leaves_the_hand_cannot_both_react_and_block() {
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(id::BEGGAR), ..Default::default() };
+    let mut g = audit_game(&cfg);
+    set_hand(&mut g, 0, &[id::YOUNG_WITCH, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk(6));
+    set_hand(&mut g, 1, &[id::BEGGAR]);
+    play(&mut g, id::YOUNG_WITCH);
+    // Beggar's own reaction is asked first (a Reaction to an Attack): discarding it for Silvers means it is no longer there to reveal.
+    let mut reacted = false;
+    for _ in 0..6 {
+        let Some(d) = g.pending_decision() else { break };
+        if d.player == 1 && matches!(d.kind, DecisionKind::YesNo { .. }) && !reacted {
+            reacted = true;
+            choose(&mut g, Choice::Yes);
+        } else if d.player == 0 {
+            let first = choices(&g)[0];
+            choose(&mut g, first);
+        } else {
+            let first = choices(&g)[0];
+            choose(&mut g, first);
+        }
+    }
+    assert!(reacted, "the Beggar's reaction was offered");
+    assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "the Beggar left the hand, so it could not be revealed as the Bane");
+}
+
+#[test]
+fn a_patron_a_jester_makes_its_victim_discard_gives_no_coffers() {
+    let mut g = new_state(&[id::JESTER, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::JESTER]);
+    set_deck_known(&mut g, 1, &[id::PATRON]);
+    play(&mut g, id::JESTER);
+    while g.pending_decision().is_some_and(|d| d.player == 0 && !matches!(d.kind, DecisionKind::Buy)) {
+        let first = choices(&g)[0];
+        choose(&mut g, first);
+    }
+    assert!(g.players[1].discard.has(id::PATRON));
+    assert_eq!(g.players[1].coffers, 0, "discarded, not revealed");
+}
+
+#[test]
+fn fairgrounds_counts_differently_named_shelters_ruins_and_knights_as_different_cards() {
+    let vp = |cs: &[CardId]| {
+        let mut p = state::PlayerState::default();
+        for &c in cs {
+            p.discard.add(c, 1);
+        }
+        p.vp()
+    };
+    // Fairgrounds + 2 Knights + 2 Ruins = 5 names; the Knights and Ruins here are worth no VP themselves.
+    assert_eq!(vp(&[id::FAIRGROUNDS, id::DAME_ANNA, id::DAME_NATALIE, id::ABANDONED_MINE, id::RUINED_LIBRARY]) - 0, 2);
+    // Fairgrounds + the three Shelters + a Copper = 5 names.
+    assert_eq!(vp(&[id::FAIRGROUNDS, id::HOVEL, id::NECROPOLIS, id::OVERGROWN_ESTATE, id::COPPER]), 2);
+}
+
+#[test]
+fn joust_sets_up_one_of_each_reward_with_two_players_and_two_with_more() {
+    assert_eq!(new_state(&[id::JOUST], 2).rewards, [1; 6]);
+    assert_eq!(new_state(&[id::JOUST], 3).rewards, [2; 6]);
+    assert_eq!(new_state(&[id::JOUST], 6).rewards, [2; 6]);
+}

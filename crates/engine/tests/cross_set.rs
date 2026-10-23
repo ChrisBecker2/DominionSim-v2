@@ -385,3 +385,90 @@ fn coffers_pay_for_a_card_made_cheaper_by_family_of_inventors() {
     // (The turn ended with the only Buy.)
     assert_eq!(g.supply.get(id::SMITHY), 9);
 }
+
+
+// ===========================================================================
+// Enlightenment (Rising Sun): the Treasures are Action cards for every purpose, scoring included
+// ===========================================================================
+
+fn enlightened(kingdom: &[CardId]) -> GameState {
+    let mut k = kingdom.to_vec();
+    k.push(id::ENLIGHTENMENT);
+    let mut g = new_state(&k, 2);
+    g.rs.suns = 0;
+    g.rs.active = id::ENLIGHTENMENT;
+    g.rs_update_hooks();
+    g
+}
+
+#[test]
+fn peddler_costs_2_less_per_treasure_in_play_under_enlightenment() {
+    let mut g = enlightened(&[id::PEDDLER]);
+    set_in_play(&mut g, 0, &[id::SILVER, id::COPPER]);
+    g.turn.phase = Phase::Buy;
+    assert_eq!(g.cost(id::PEDDLER), 4);
+    let mut g = new_state(&[id::PEDDLER], 2);
+    set_in_play(&mut g, 0, &[id::SILVER, id::COPPER]);
+    g.turn.phase = Phase::Buy;
+    assert_eq!(g.cost(id::PEDDLER), 8, "without the Prophecy Treasures are no Actions");
+}
+
+#[test]
+fn collection_pays_a_vp_for_a_treasure_gained_under_enlightenment() {
+    for (enl, vp) in [(true, 1), (false, 0)] {
+        let mut g = if enl { enlightened(&[id::COLLECTION, id::WORKSHOP]) } else { new_state(&[id::COLLECTION, id::WORKSHOP], 2) };
+        set_in_play(&mut g, 0, &[id::COLLECTION]);
+        set_hand(&mut g, 0, &[id::WORKSHOP]);
+        play(&mut g, id::WORKSHOP);
+        choose(&mut g, Choice::Card(id::SILVER));
+        assert_eq!(g.players[0].vp_tokens, vp, "enlightenment: {enl}");
+    }
+}
+
+#[test]
+fn vineyard_counts_treasures_as_actions_when_scoring_under_enlightenment() {
+    let mut g = enlightened(&[id::VINEYARD]);
+    set_hand(&mut g, 0, &[id::VINEYARD, id::SILVER, id::SILVER, id::SILVER]);
+    assert_eq!(g.player_vp(0), 1);
+    let mut g = new_state(&[id::VINEYARD], 2);
+    set_hand(&mut g, 0, &[id::VINEYARD, id::SILVER, id::SILVER, id::SILVER]);
+    assert_eq!(g.player_vp(0), 0);
+}
+
+#[test]
+fn housecarl_counts_the_treasures_in_play_as_actions_under_enlightenment() {
+    for (enl, drawn) in [(true, 3), (false, 1)] {
+        let mut g = if enl { enlightened(&[id::JOUST]) } else { new_state(&[id::JOUST], 2) };
+        set_in_play(&mut g, 0, &[id::SILVER, id::GOLD]);
+        set_hand(&mut g, 0, &[id::HOUSECARL]);
+        set_deck_known(&mut g, 0, &[id::ESTATE; 5]);
+        play(&mut g, id::HOUSECARL);
+        assert_eq!(g.players[0].hand.total(), drawn, "enlightenment: {enl}");
+    }
+}
+
+#[test]
+fn transmute_gains_a_duchy_for_a_trashed_treasure_under_enlightenment() {
+    for (enl, duchy) in [(true, 1), (false, 0)] {
+        let mut g = if enl { enlightened(&[id::TRANSMUTE]) } else { new_state(&[id::TRANSMUTE], 2) };
+        set_hand(&mut g, 0, &[id::TRANSMUTE, id::SILVER]);
+        play(&mut g, id::TRANSMUTE);
+        adv(&mut g);
+        assert_eq!(g.players[0].discard.get(id::DUCHY), duchy, "enlightenment: {enl}");
+        assert_eq!(g.players[0].discard.get(id::TRANSMUTE), 1);
+    }
+}
+
+#[test]
+fn scrying_pool_keeps_revealing_through_treasures_under_enlightenment() {
+    for (enl, in_hand) in [(true, 3), (false, 1)] {
+        let mut g = if enl { enlightened(&[id::SCRYING_POOL]) } else { new_state(&[id::SCRYING_POOL], 2) };
+        set_hand(&mut g, 0, &[id::SCRYING_POOL]);
+        set_deck_known(&mut g, 0, &[id::SILVER, id::COPPER, id::ESTATE, id::DUCHY]);
+        play(&mut g, id::SCRYING_POOL);
+        choose(&mut g, Choice::Pass); // leave the top card (the opponent has no deck)
+        // (A Treasure drawn into the hand may already have been played in the Buy phase.)
+        let drawn = g.players[0].hand.total() + g.players[0].in_play.total() - 1;
+        assert_eq!(drawn, in_hand, "enlightenment: {enl}");
+    }
+}

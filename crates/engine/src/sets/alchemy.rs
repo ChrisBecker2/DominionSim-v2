@@ -119,7 +119,7 @@ impl SetRules for Alchemy {
             let p = g.turn.player;
             for _ in 0..g.plays_this_turn(p, id::HERBALIST) {
                 g.stack.push(Frame {
-                    zone: Zone::InPlay, act: Act::Topdeck, filter: Filter::TreasureToDiscard, max: 1,
+                    zone: Zone::InPlay, act: Act::Topdeck, filter: Filter::TreasureToDiscard, max: 1, then: Then::DiscardedFromPlay,
                     ..Frame::new(K::Select, p, id::HERBALIST)
                 });
             }

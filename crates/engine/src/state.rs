@@ -2383,6 +2383,9 @@ pub enum Then {
     /// Select (`Act::SetAside`, Farmhands' gain trigger): the picked card, in `set_aside`, is held
     /// until the start of the player's next turn (`PlayerState::farm_cards`).
     HoldUntilNextTurn,
+    /// Select (`Act::Topdeck` from play, Herbalist): the Treasure was discarded from play all the same, so a "when you discard this from
+    /// play" effect still happens (Capital's Debt).
+    DiscardedFromPlay,
     /// Gain (Soothsayer's Curse): the player draws a card if the gain happens.
     DrawIfGained,
     /// Gain (Horn of Plenty): if the gained card is a Victory card, trash the Horn (`source`) from play.
@@ -3664,7 +3667,8 @@ impl GameState {
             reduction += 2 * self.plays_this_turn(self.turn.player, id::QUARRY) as u32;
         }
         if c == id::PEDDLER && self.turn.phase == Phase::Buy {
-            reduction += 2 * self.players[pi].in_play.count_type(cards::ACTION);
+            // (Enlightenment: the Treasures in play are Action cards too.)
+            reduction += 2 * self.actions_in_play(self.turn.player) as u32;
         }
         // Plunder: the Cheap pile costs $1 less.
         if self.plu.flags & PF_COST != 0 {
@@ -3888,6 +3892,21 @@ impl GameState {
             + if self.emp.landmarks != 0 { self.landmark_score(p) } else { 0 }
             // Allies: Plateau Shepherds pairs the Favors with the cards costing $2.
             + if self.al.flags & AF_SCORE != 0 { self.al_score(p) } else { 0 }
+            + if self.rs.active == id::ENLIGHTENMENT { self.enlightened_vineyards(p) } else { 0 }
+    }
+
+    /// Enlightenment: the Treasures count as Action cards for scoring, so each Vineyard is worth more (Treasures that are also Actions
+    /// are counted once, as Actions).
+    #[cold]
+    fn enlightened_vineyards(&self, p: u8) -> i32 {
+        let all = self.players[p as usize].all_cards();
+        let vineyards = all.get(id::VINEYARD) as i32;
+        if vineyards == 0 {
+            return 0;
+        }
+        let actions = all.count_type(cards::ACTION) as i32;
+        let treasures = all.iter().filter(|&(c, _)| self.is_treasure(c) && !cards::is(c, cards::ACTION)).map(|(_, n)| n as i32).sum::<i32>();
+        vineyards * ((actions + treasures) / 3 - actions / 3)
     }
 
     pub fn scores(&self) -> [i32; MAX_PLAYERS] {

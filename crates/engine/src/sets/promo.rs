@@ -94,7 +94,7 @@ impl SetRules for Promo {
             // less": an optional pick (`Then::PrinceHold`); a Prince that holds one stays in play.
             // With Throne Room each play picks another.
             id::PRINCE => g.stack.push(select(
-                p, card, Zone::Hand, Act::SetAside, Filter::ActionCostUpTo(4), 0, 1, Then::PrinceHold,
+                p, card, Zone::Hand, Act::SetAside, Filter::CommandCostUpTo(4), 0, 1, Then::PrinceHold,
             )),
             // Captain, now: play a non-Duration Action costing up to $4 from the Supply, leaving it there
             // (mandatory when one exists). Its start-of-next-turn play is a pending Duration entry
@@ -236,14 +236,14 @@ impl SetRules for Promo {
 /// Captain's pick: a non-Duration Action costing up to $4 in the Supply, played where it is (a play
 /// from the Supply, `Then::PlayPicked`, is a `PlayEffects` frame with `zone: Supply`).
 pub(crate) fn captain_pick(p: u8, source: CardId) -> Frame {
-    select(p, source, Zone::Supply, Act::Play, Filter::ActionCostUpTo(4), 1, 1, Then::PlayPicked { times: 1 })
+    select(p, source, Zone::Supply, Act::Play, Filter::CommandCostUpTo(4), 1, 1, Then::PlayPicked { times: 1 })
 }
 
 /// Summon is available when an Action card costing up to $4 can be gained.
 pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
     debug_assert!(e == ids::SUMMON);
     g.supply_cards().any(|c| {
-        g.supply.get(c) > 0 && g.pile_open(c) && cards::is(c, ACTION) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
+        g.supply.get(c) > 0 && g.pile_open(c) && g.is_action(c) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
     })
 }
 
@@ -339,8 +339,14 @@ impl GameState {
     /// Action cards in play (itself included; Durations still in play from earlier turns count, a card
     /// played from the Supply or held by a Prince is not in play) rules it out.
     pub(crate) fn walled_village_blocked(&self, p: u8) -> bool {
-        let n: u32 = self.players[p as usize].in_play.iter().filter(|&(c, _)| cards::is(c, ACTION)).map(|(_, n)| n as u32).sum();
-        n > 2
+        // (Enlightenment: the Treasures in play are Action cards too.)
+        self.actions_in_play(p) > 2
+    }
+
+    /// Whether the start-of-turn effects of the turn are still being resolved (a Piazza, a Summoned card, a Duration may play cards that
+    /// create "at the start of each of your turns" effects, which then happen this turn too).
+    pub(crate) fn in_start_of_turn(&self) -> bool {
+        self.stack.frames[..self.stack.len as usize].iter().any(|x| x.kind == K::StartOrder)
     }
 
     /// Prince: the card just picked (in `set_aside`) is now held by the Prince, which stays in
@@ -361,6 +367,11 @@ impl GameState {
         }
         if self.turn.multiplier_card != 0 {
             self.turn.multiplier_successes += 1;
+        }
+        // A Prince played while the start of this turn is still being resolved (by Piazza) plays the card it now holds this turn too: its
+        // "at the start of each of your turns" has not been passed yet.
+        if self.in_start_of_turn() {
+            self.turn.start_pending.push(PendingDuration { card: id::PRINCE, times: 1, arg: f.last, used: 0 });
         }
     }
 }

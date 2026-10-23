@@ -291,7 +291,8 @@ impl SetRules for Prosperity {
                     }
                 }
                 GainTrigger::CollectionAction => {
-                    if cards::is(c, cards::ACTION) {
+                    // (Enlightenment: the Treasures are Action cards too.)
+                    if g.is_action(c) {
                         g.players[pi].vp_tokens += count as u16;
                         // One event per copy, so the log can say how many Collections paid.
                         for _ in 0..count {

@@ -519,6 +519,12 @@ impl GameState {
         let slot = &mut self.ren.holder[(a - crate::cards::FIRST_ARTIFACT) as usize];
         let from = std::mem::replace(slot, p + 1);
         sink.event(Event::Artifact { player: p, artifact: a, from: from.wrapping_sub(1) });
+        // The Key taken while the start of the turn is being resolved (a Treasurer played by Piazza) gives its $1 at once: the Key's own entry is
+        // only made at the beginning of the turn for the player who already held it.
+        if a == ids::KEY && from != p + 1 && p == self.turn.player && self.stack.frames[..self.stack.len as usize].iter().any(|f| f.kind == K::StartOrder) {
+            self.turn.coins += 1;
+            sink.bonus(p, ids::KEY, 0, 0, 1, 0);
+        }
     }
 
     /// Whether `p` holds the Artifact `a`.
@@ -801,8 +807,12 @@ impl GameState {
                 let ps = &mut self.players[pi];
                 if ps.set_aside.remove(c) {
                     ps.ren.cargo.add(c, 1);
+                    // (A Cargo Ship that left play before it set the card aside - Improve trashed it - has nothing to bring the card back.)
+                    let ship = ps.in_play.has(ids::CARGO_SHIP);
                     self.turn.ren.cargo = self.turn.ren.cargo.saturating_sub(1);
-                    self.push_duration_pending(p, ids::CARGO_SHIP, 1, c);
+                    if ship {
+                        self.push_duration_pending(p, ids::CARGO_SHIP, 1, c);
+                    }
                 }
             }
             _ => {}

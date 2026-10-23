@@ -760,8 +760,9 @@ impl GameState {
     pub(crate) fn cost_when_gained(&self, p: u8, c: CardId, to: Dest) -> u8 {
         if self.men.flags & M_COST != 0 && p == self.turn.player {
             let discard_was_empty = self.players[p as usize].discard.total() == (to == Dest::Discard) as u32;
-            if c == ids::FISHERMAN && !discard_was_empty {
-                return self.cost(c);
+            if c == ids::FISHERMAN {
+                // The card is already in the discard pile, so `cost` reads $5; it cost $3 less if the pile was empty before it arrived.
+                return if discard_was_empty { self.cost(c).saturating_sub(3) } else { self.cost(c) };
             }
             if c == ids::DESTRIER {
                 return (self.cost(c) as u32 + 1).min(6) as u8;

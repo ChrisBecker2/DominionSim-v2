@@ -577,8 +577,8 @@ impl SetRules for Nocturne {
             });
         }
         // Changeling: a card costing $3 or more gained while Changeling is in the Supply may be exchanged for one (asked first: the other
-        // effects of the gain still happen).
-        if g.in_supply(ids::CHANGELING) && g.supply.get(ids::CHANGELING) > 0 && c != ids::CHANGELING && g.cost(c) >= 3 {
+        // effects of the gain still happen). The cost is the one the card had as it was gained (a Fisherman gained to an empty discard pile cost $2).
+        if g.in_supply(ids::CHANGELING) && g.supply.get(ids::CHANGELING) > 0 && c != ids::CHANGELING && g.cost_when_gained(p, c, to) >= 3 {
             g.stack.push(Frame {
                 zone: GameState::gain_dest_zone(to), act: Act::Return, subject: c, then: Then::ChangelingSwap,
                 ..Frame::new(K::YesNo, p, ids::CHANGELING)

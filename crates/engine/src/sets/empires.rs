@@ -205,9 +205,11 @@ const GAIN_WATCHERS: u32 = lm_bit(ids::AQUEDUCT)
 /// What Empires adds to a new game: the Landmarks and their tokens, Tax's Debt, the split piles' bottoms, the Castles and the Obelisk pile.
 /// Called by `GameState::new` once the Supply piles of the kingdom are in.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, num_players: usize) {
-    let has = |c: CardId| cfg.kingdom.contains(&c);
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires").
+    let extra = [g.bane, g.ferryman];
+    let has = |c: CardId| cfg.kingdom.contains(&c) || (c != 0 && extra.contains(&c));
     let mut emp = EmpState::default();
-    for &k in &cfg.kingdom {
+    for &k in cfg.kingdom.iter().chain(extra.iter().filter(|&&c| c != 0)) {
         if cards::is_landmark(k) {
             emp.landmarks |= lm_bit(k);
         }

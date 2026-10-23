@@ -633,9 +633,11 @@ impl SetRules for Plunder {
 
 /// Plunder's set-up: which effects are in the game, the Loot pile, the Traits and the piles they sit on.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires").
+    let extra = [g.bane, g.ferryman];
     let mut flags = 0u8;
     let mut traits = 0u16;
-    for &k in cfg.kingdom.iter() {
+    for &k in cfg.kingdom.iter().chain(extra.iter().filter(|&&c| c != 0)) {
         if cards::set_of(k) != CardSet::Plunder {
             continue;
         }

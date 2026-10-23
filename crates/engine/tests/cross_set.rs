@@ -472,3 +472,16 @@ fn scrying_pool_keeps_revealing_through_treasures_under_enlightenment() {
         assert_eq!(drawn, in_hand, "enlightenment: {enl}");
     }
 }
+
+/// Young Witch's Bane gets the set-up its card requires, like a kingdom card: a Jewelled Egg Bane brings the Loot pile, a Sleigh Bane the
+/// Horses (found by the Rising Sun fuzz: the text round trip of such a game listed a Loot pile the game never had).
+#[test]
+fn a_bane_gets_the_set_up_its_card_requires() {
+    use dominion_engine::sets::{menagerie::ids as men, plunder::ids as plu};
+    let g = GameState::new(&GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(plu::JEWELLED_EGG), ..Default::default() });
+    assert_eq!(g.bane, plu::JEWELLED_EGG);
+    assert!(g.plu.flags & dominion_engine::state::PF_LOOT != 0, "the Loot pile is set up");
+    assert!(g.supply.get(cards::FIRST_LOOT) > 0);
+    let g = GameState::new(&GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(men::SLEIGH), ..Default::default() });
+    assert!(g.has_horse_pile(), "the Horse pile is set up");
+}

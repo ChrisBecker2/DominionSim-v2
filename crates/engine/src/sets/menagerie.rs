@@ -474,9 +474,11 @@ pub fn default_mouse(in_game: &dyn Fn(CardId) -> bool, seed: u64) -> CardId {
 
 /// Menagerie set-up: the Horse pile, the Ways of the game, Way of the Mouse's card, and the flags of the effects this kingdom has.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {
-    let has = |c: CardId| cfg.kingdom.contains(&c);
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires").
+    let extra = [g.bane, g.ferryman];
+    let has = |c: CardId| cfg.kingdom.contains(&c) || (c != 0 && extra.contains(&c));
     let mut ways = 0u32;
-    for &k in &cfg.kingdom {
+    for &k in cfg.kingdom.iter().chain(extra.iter().filter(|&&c| c != 0)) {
         if cards::is_way(k) {
             ways |= way_bit(k);
         }

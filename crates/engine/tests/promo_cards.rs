@@ -2259,3 +2259,15 @@ fn a_summoned_hireling_draws_when_played_at_the_start_of_the_turn() {
     assert!(g.players[0].in_play.has(id::HIRELING));
     assert_eq!(g.players[0].hand.total(), 5 + 1, "the Hireling's card, drawn when it is played at the start of the turn");
 }
+
+/// Prince sets aside a "non-Duration non-Command Action card costing up to $4" (the costs are the current ones): a Fishing Village ($3, a
+/// Duration) is not offered, a Village is.
+#[test]
+fn prince_does_not_offer_a_cheap_duration() {
+    let mut g = new_state(&[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE, id::COPPER]);
+    play(&mut g, id::PRINCE);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::FISHING_VILLAGE)), "{c:?}");
+}

@@ -401,9 +401,11 @@ pub fn default_riverboat(in_game: &dyn Fn(CardId) -> bool, seed: u64) -> CardId 
 
 /// Rising Sun set-up: the Prophecy and its Sun tokens, the flags for the effects this kingdom has, Riverboat's card.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires").
+    let extra = [g.bane, g.ferryman];
     // What is in the game: the Supply piles (the Bane too), the Events and the Prophecy named by the kingdom.
     let mut shadow = false;
-    for &k in &cfg.kingdom {
+    for &k in cfg.kingdom.iter().chain(extra.iter().filter(|&&c| c != 0)) {
         if cards::is_prophecy(k) && g.rs.prophecy == 0 {
             g.rs.prophecy = k;
             g.rs.suns = crate::state::sun_tokens_for(n);
@@ -415,7 +417,7 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
     if shadow {
         g.rs.flags |= R_SHADOW;
     }
-    let has = |c: CardId| cfg.kingdom.contains(&c);
+    let has = |c: CardId| cfg.kingdom.contains(&c) || (c != 0 && extra.contains(&c));
     if has(ids::KINTSUGI) {
         g.rs.flags |= R_KINTSUGI;
     }

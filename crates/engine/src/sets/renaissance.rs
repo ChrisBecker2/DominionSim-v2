@@ -498,7 +498,9 @@ impl SetRules for Renaissance {
 
 /// Renaissance set-up: the Projects the kingdom lists.
 pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {
-    for &k in &cfg.kingdom {
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires").
+    let extra = [g.bane, g.ferryman];
+    for &k in cfg.kingdom.iter().chain(extra.iter().filter(|&&c| c != 0)) {
         if cards::is_project(k) {
             g.ren.projects |= project_bit(k);
         }

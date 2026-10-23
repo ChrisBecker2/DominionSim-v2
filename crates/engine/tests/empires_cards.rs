@@ -2328,11 +2328,13 @@ fn donate_trashing_a_rocks_gives_the_silver_before_the_shuffle() {
 
 #[test]
 fn overlord_cannot_play_a_duration_or_a_command_card() {
-    let mut g = new_state(&[id::OVERLORD, id::WHARF, id::VILLAGE], 2);
+    // Two Actions it may play (Village, Smithy), so the pick stays a decision; Wharf (a Duration) and Overlord (a Command) are not offered.
+    let mut g = new_state(&[id::OVERLORD, id::WHARF, id::VILLAGE, id::SMITHY], 2);
     set_hand(&mut g, 0, &[id::OVERLORD]);
     play(&mut g, id::OVERLORD);
     let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::VILLAGE)) && !c.contains(&Choice::Card(id::WHARF)), "{c:?}");
+    assert!(c.contains(&Choice::Card(id::VILLAGE)) && c.contains(&Choice::Card(id::SMITHY)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::WHARF)) && !c.contains(&Choice::Card(id::OVERLORD)), "{c:?}");
 }
 
 /// Dominate "does nothing once the Province pile is empty", but it can still be bought (so can Ritual with no Curses): the engine hides such Events.

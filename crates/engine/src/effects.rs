@@ -576,7 +576,7 @@ impl GameState {
             Filter::CostRange(lo, hi) => !cards::potion_cost(c) && cards::debt_cost(c) == 0 && (lo..=hi).contains(&self.cost(c)),
             Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0 && self.pile_open(c),
             Filter::InheritCard => self.action_cost_ok(4, c) && !cards::is(c, cards::COMMAND),
-            Filter::CommandCostUpTo(n) => self.action_cost_ok(n, c) && !cards::is(c, cards::COMMAND),
+            Filter::CommandCostUpTo(n) => self.action_cost_ok(n, c) && !cards::is(c, cards::COMMAND) && !cards::is(c, cards::DURATION),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::TreasureNot(x) => c != x && self.is_treasure(c),
             // Raider: a copy of a card the Attack's player has in play (the turn's player).

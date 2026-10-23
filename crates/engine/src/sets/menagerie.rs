@@ -1453,7 +1453,12 @@ impl GameState {
             && self.supply.get(card) > 0
             && self.pile_open(card)
             && self.may_buy(card)
-            && self.players[p].hand.iter().any(|(c, _)| self.is_action(c))
+            // (Only Enlightenment makes a non-Action an Action: otherwise the lane mask of the Action cards answers.)
+            && if self.rs.active == crate::sets::rising_sun::ids::ENLIGHTENMENT {
+                self.players[p].hand.iter().any(|(c, _)| self.is_action(c))
+            } else {
+                self.players[p].hand.intersects(&crate::sets::ACTION_LANES)
+            }
     }
 
     /// Buy `card` for a Buy and an Action card trashed from the hand instead of its cost.

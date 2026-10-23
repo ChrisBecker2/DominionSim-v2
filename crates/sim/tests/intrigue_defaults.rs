@@ -423,3 +423,21 @@ fn diplomat_default_reveals_when_offered() {
     assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Reveal });
     assert_eq!(decide_for(&strat, &g, 1, &d), Choice::Yes);
 }
+
+#[test]
+fn audit_nobles_with_a_terminal_draw_card_in_hand_takes_the_actions() {
+    // Wiki (Nobles): "if you find Nobles in your starting hand along with another terminal draw card, you can play the Nobles for
+    // +Actions even though you may have acquired it primarily for supplementary draw." The bot does (the terminal Smithy is worth a play).
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let (g, d) = decide_after_play("Nobles, Smithy", "Nobles, Smithy, Copper", "5 Copper", id::NOBLES);
+    let actions_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Actions(_)));
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(actions_i));
+}
+
+#[test]
+fn audit_nobles_default_with_two_actions_in_hand_takes_the_actions() {
+    let strat = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\n").unwrap();
+    let (g, d) = decide_after_play("Nobles, Smithy, Village", "Nobles, Smithy, Village, Copper", "5 Copper", id::NOBLES);
+    let actions_i = mode_idx(id::NOBLES, |o| matches!(o, ModeOpt::Actions(_)));
+    assert_eq!(decide(&strat, &g, &d), Choice::Mode(actions_i));
+}

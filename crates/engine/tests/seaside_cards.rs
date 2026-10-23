@@ -2560,3 +2560,10 @@ fn ruling_outpost_and_merchant_ship_the_extra_turn_is_the_next_turn() {
     assert!(g.turn.is_extra_turn);
     assert_eq!(g.turn.coins, 2, "Merchant Ship's start-of-turn $2 on the extra turn");
 }
+
+#[test]
+fn ruling_island_pile_holds_8_cards_with_two_players_and_12_with_more() {
+    // Island: "Use 8 copies of Island for games with 2 players, 12 for games with 3 or more players."
+    assert_eq!(new_state(&[id::ISLAND], 2).supply.get(id::ISLAND), 8);
+    assert_eq!(new_state(&[id::ISLAND], 3).supply.get(id::ISLAND), 12);
+}

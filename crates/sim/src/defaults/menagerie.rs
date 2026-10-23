@@ -290,16 +290,14 @@ impl SetDefaults for Menagerie {
                 let junk = c == id::HORSE || !(s.states_play(c) || s.lists(c));
                 yes(junk && s.gain_weight(view, cost.saturating_add(1), Filter::Any, true, cards::potion_cost(c)) > 0.0)
             }
-            // Village Green: now when there is an Action to use the Actions on, else for the start of the next turn; Barge: now when the hand has
-            // no Action left to draw dead into.
+            // Village Green: now when there is an Action to use the Actions on, else for the start of the next turn; Barge: now ("Most of the time,
+            // it's best to play your Barges to draw this turn"), unless the draw would reshuffle (fewer than 3 cards in the deck) or it is not my turn.
             id::VILLAGE_GREEN => {
                 let own = view.is_my_turn();
                 yes(own && view.hand().iter().any(|(c, _)| cards::is(c, ACTION)))
             }
             id::BARGE => {
-                let own = view.is_my_turn();
-                let actions_left = view.turn().actions > 0 && view.hand().iter().any(|(c, _)| cards::is(c, ACTION));
-                yes(own && !actions_left)
+                yes(view.is_my_turn() && view.deck_size() >= 3)
             }
             // Hunting Lodge: discard the hand for 5 cards when most of it is dead.
             id::HUNTING_LODGE => {

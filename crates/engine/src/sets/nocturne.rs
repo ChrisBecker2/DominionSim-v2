@@ -1106,7 +1106,7 @@ impl GameState {
                     } else {
                         // A cheaper card that shares a type with it (every part of the cost no larger, and not equal).
                         self.stack.push(Frame {
-                            less: true, potion, depth: f.depth, ..gain_frame(p, f.source, cost, Filter::SharesTypeWith(c), Dest::Discard)
+                            less: true, potion, min: cards::debt_cost(c), depth: f.depth, ..gain_frame(p, f.source, cost, Filter::SharesTypeWith(c), Dest::Discard)
                         });
                     }
                 } else {
@@ -1228,7 +1228,7 @@ impl GameState {
                 if f.count > 0 {
                     let c = f.last;
                     self.stack.push(Frame {
-                        gf: crate::state::GF_SPIRITS, less: true, potion: cards::potion_cost(c), depth: f.depth,
+                        gf: crate::state::GF_SPIRITS, less: true, potion: cards::potion_cost(c), min: cards::debt_cost(c), depth: f.depth,
                         ..gain_frame(p, f.source, self.cost(c), Filter::Any, Dest::Discard)
                     });
                 }

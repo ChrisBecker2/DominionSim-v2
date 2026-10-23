@@ -1968,3 +1968,174 @@ fn a_pixie_played_by_overlord_is_not_in_play_to_be_trashed() {
     assert_eq!(g.players[0].in_play.get(id::PIXIE), 1, "the Pixie in play stays");
     assert_eq!(g.trash.get(id::PIXIE), 0);
 }
+
+// ===========================================================================
+// Audit: rulings from the wiki's FAQ pages (one test per ruling or small group)
+// ===========================================================================
+
+/// Exorcist: a card with Debt in its cost, trashed, leaves cheaper Spirits: Will-o'-Wisp ($0) is cheaper than Engineer ($0 and 4 Debt).
+#[test]
+fn exorcist_trashing_a_debt_card_can_gain_a_spirit_that_costs_less_debt() {
+    let mut g = new_state(&[id::EXORCIST, id::ENGINEER], 2);
+    set_hand(&mut g, 0, &[id::EXORCIST, id::ENGINEER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::EXORCIST);
+    assert_eq!(g.trash.get(id::ENGINEER), 1);
+    // Imp and Ghost cost more coins; the Will-o'-Wisp is the only choice and is gained at once.
+    assert!(g.players[0].discard.has(id::WILL_O_WISP) && !g.players[0].discard.has(id::IMP));
+}
+
+/// Locusts: "cheaper" counts Debt: Engineer ($0, 4 Debt) is cheaper than City Quarter ($0, 8 Debt) and shares the Action type.
+#[test]
+fn locusts_on_a_debt_card_gains_a_card_with_less_debt() {
+    let mut g = new_state(&[id::SKULK, id::ENGINEER, id::CITY_QUARTER], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_hand(&mut g, 1, &[]);
+    set_deck_known(&mut g, 1, &[id::CITY_QUARTER, id::GOLD]);
+    next_hex(&mut g, id::LOCUSTS);
+    play(&mut g, id::SKULK);
+    assert_eq!(g.trash.get(id::CITY_QUARTER), 1);
+    // Engineer is the only card that is cheaper and an Action: gained at once.
+    assert!(g.players[1].discard.has(id::ENGINEER), "{:?}", g.players[1].discard.iter().collect::<Vec<_>>());
+}
+
+/// Locusts: Alchemist ($3 and a Potion): Village ($3) and University ($2 and a Potion) are both cheaper.
+#[test]
+fn locusts_on_a_potion_card_gains_cheaper_cards_of_a_shared_type() {
+    let mut g = new_state(&[id::SKULK, id::ALCHEMIST, id::UNIVERSITY, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::ALCHEMIST, id::GOLD]);
+    next_hex(&mut g, id::LOCUSTS);
+    play(&mut g, id::SKULK);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::VILLAGE)) && cs.contains(&Choice::Card(id::UNIVERSITY)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::ALCHEMIST)));
+}
+
+/// War: with no card costing $3 or $4 in the deck, the whole deck is discarded and nothing is trashed.
+#[test]
+fn war_without_a_three_or_four_in_the_deck_discards_the_deck_and_trashes_nothing() {
+    let (g, _) = skulk_hex(id::WAR, &[], &[id::COPPER, id::ESTATE, id::CURSE], &[]);
+    assert!(g.trash.is_empty());
+    assert_eq!(g.players[1].discard.total(), 3);
+    assert_eq!(g.players[1].deck_size(), 0);
+}
+
+/// Famine: when every revealed card is an Action the rest of the deck is still shuffled; with an empty deck and nothing to return nothing is shuffled.
+#[test]
+fn famine_shuffles_the_deck_even_if_all_three_were_actions_and_never_the_discard_pile() {
+    let (g, _) = skulk_hex(id::FAMINE, &[], &[id::VILLAGE, id::VILLAGE, id::VILLAGE, id::GOLD, id::SILVER], &[]);
+    assert_eq!(g.players[1].discard.get(id::VILLAGE), 3);
+    assert_eq!(g.players[1].deck_known.len, 0, "what is left of the deck is shuffled (order unknown)");
+    assert_eq!(g.players[1].deck_unknown.total(), 2);
+    let (g, _) = skulk_hex(id::FAMINE, &[], &[id::VILLAGE, id::VILLAGE, id::VILLAGE], &[id::GOLD, id::GOLD]);
+    assert_eq!(g.players[1].deck_size(), 0, "the discard pile is not shuffled into the deck");
+    assert_eq!(g.players[1].discard.total(), 5);
+}
+
+/// Fear: with five or more cards in hand and no Action or Treasure the hand is only revealed; with four cards nothing happens.
+#[test]
+fn fear_only_reveals_a_hand_without_actions_or_treasures() {
+    let (g, st) = skulk_hex(id::FEAR, &[id::ESTATE; 5], &[], &[]);
+    assert!(matches!(st, Step::Decision(_)) || g.players[1].hand.total() == 5);
+    assert_eq!(g.players[1].hand.total(), 5);
+    let (g, _) = skulk_hex(id::FEAR, &[id::COPPER, id::ESTATE, id::ESTATE, id::ESTATE], &[], &[]);
+    assert_eq!(g.players[1].hand.total(), 4, "fewer than five cards");
+}
+
+/// Bad Omens is not discarding: a Faithful Hound in the deck is not offered a set-aside, nor does a Tunnel in it give a Gold.
+#[test]
+fn bad_omens_is_not_a_discard() {
+    let mut g = new_state(&[id::SKULK, id::FAITHFUL_HOUND, id::TUNNEL], 2);
+    set_hand(&mut g, 0, &[id::SKULK]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::FAITHFUL_HOUND, id::TUNNEL, id::COPPER, id::COPPER]);
+    next_hex(&mut g, id::BAD_OMENS);
+    play(&mut g, id::SKULK);
+    let st = adv(&mut g);
+    assert!(!matches!(st, Step::Decision(ref d) if matches!(d.kind, DecisionKind::YesNo { .. })), "{st:?}");
+    assert_eq!(g.players[1].hounds, 0);
+    assert_eq!(g.players[1].discard.get(id::GOLD), 0);
+}
+
+/// Poverty: a hand of three or fewer cards is not affected.
+#[test]
+fn poverty_leaves_three_cards_alone() {
+    let (g, _) = skulk_hex(id::POVERTY, &[id::COPPER, id::COPPER, id::COPPER], &[], &[]);
+    assert_eq!(g.players[1].hand.total(), 3);
+}
+
+/// Delusion taken before the Buy phase (Leprechaun) applies the same turn.
+#[test]
+fn deluded_taken_in_the_action_phase_applies_to_that_turn() {
+    let mut g = new_state(&[id::LEPRECHAUN, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::LEPRECHAUN]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::DELUSION);
+    play(&mut g, id::LEPRECHAUN);
+    g.turn.coins = 5;
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert!(g.turn.noc.deluded && g.players[0].noc & P_DELUDED == 0, "returned at the start of the Buy phase");
+    assert!(!choices(&g).contains(&Choice::Card(id::SMITHY)));
+    assert!(choices(&g).contains(&Choice::Card(id::SILVER)));
+}
+
+/// Deluded does not stop gaining Actions in the Buy phase (Horn of Plenty), only buying them.
+#[test]
+fn deluded_does_not_stop_gaining_actions() {
+    let mut g = new_state(&[id::SKULK, id::HORN_OF_PLENTY, id::SMITHY], 2);
+    g.players[0].noc |= P_DELUDED;
+    set_in_play(&mut g, 0, &[id::COPPER, id::COPPER]);
+    set_hand(&mut g, 0, &[id::HORN_OF_PLENTY]);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(id::SMITHY)));
+    play_treasure(&mut g, id::HORN_OF_PLENTY);
+    // Horn of Plenty gains a card costing up to the number of differently named cards in play (3): Smithy is $4, a Village-like card ok.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+}
+
+/// Envy affects Silver and Gold played in the Buy phase, not other Treasures, and stays for the rest of the turn.
+#[test]
+fn envious_only_changes_silver_and_gold_played_in_the_buy_phase() {
+    let mut g = new_state(&[id::SKULK, id::FOOLS_GOLD], 2);
+    g.players[0].noc |= P_ENVIOUS;
+    set_hand(&mut g, 0, &[id::SILVER, id::GOLD, id::COPPER, id::FOOLS_GOLD]);
+    set_deck_known(&mut g, 0, &junk());
+    expect_decision(&mut g);
+    assert!(g.turn.noc.envy);
+    assert_eq!(g.turn.coins, 4, "Silver, Gold, Copper and the first Fool's Gold: $1 each");
+}
+
+/// The Moon's Gift with an empty discard pile does nothing; The Sky's Gift with fewer than three cards discards them for no Gold.
+#[test]
+fn moons_gift_with_an_empty_discard_pile_and_skys_gift_with_two_cards() {
+    let mut g = new_state(&[id::BARD], 2);
+    set_hand(&mut g, 0, &[id::BARD]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_MOONS_GIFT);
+    play(&mut g, id::BARD);
+    assert!(!matches!(expect_or_none(&mut g), Some(DecisionKind::Select { .. })));
+    let mut g = new_state(&[id::BARD], 2);
+    set_hand(&mut g, 0, &[id::BARD, id::ESTATE, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_boon(&mut g, id::THE_SKYS_GIFT);
+    play(&mut g, id::BARD);
+    // Two cards in hand: the player may discard both (and gets no Gold).
+    pick(&mut g, id::COPPER);
+    pick(&mut g, id::ESTATE);
+    assert_eq!(count(&g, 0, id::GOLD), 0, "no Gold for fewer than three cards");
+}
+
+fn expect_or_none(g: &mut GameState) -> Option<DecisionKind> {
+    match g.advance(&mut NoEvents) {
+        Step::Decision(d) => Some(d.kind),
+        _ => None,
+    }
+}

@@ -2297,3 +2297,51 @@ fn a_coin_token_on_the_gladiator_fortune_pile_counts_before_fortune_doubles() {
     play_treasure(&mut g, id::FORTUNE);
     assert_eq!(g.turn.coins, (3 + 1) * 2);
 }
+
+#[test]
+fn tomb_gives_its_token_to_the_player_who_trashes_even_on_another_players_turn() {
+    let mut g = new_state(&[id::TOMB, id::SWINDLER], 2);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &[id::COPPER, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    play(&mut g, id::SWINDLER);
+    assert_eq!((g.players[1].vp_tokens, g.players[0].vp_tokens), (1, 0));
+}
+
+#[test]
+fn donate_trashing_a_rocks_gives_the_silver_before_the_shuffle() {
+    let mut g = event_game(&[id::DONATE, id::CATAPULT]);
+    set_hand(&mut g, 0, &[id::COPPER, id::COPPER]);
+    set_discard(&mut g, 0, &[id::ROCKS, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 7]);
+    buy_phase(&mut g, 0, 1);
+    adv(&mut g);
+    buy(&mut g, id::DONATE);
+    pass_until(&mut g, |g| g.turn.player == 0 && g.turn.number > 1 && matches!(g.pending_decision(), Some(Decision { kind: DecisionKind::Select { act: Act::Trash, .. }, .. })));
+    let all_before = g.players[0].all_cards().total();
+    pick(&mut g, id::ROCKS);
+    pass(&mut g);
+    assert_eq!(g.players[0].all_cards().total(), all_before, "the Rocks became a Silver");
+    assert_eq!(g.players[0].hand.total(), 5);
+    assert_eq!(count(&g, 0, id::SILVER), 1);
+}
+
+#[test]
+fn overlord_cannot_play_a_duration_or_a_command_card() {
+    let mut g = new_state(&[id::OVERLORD, id::WHARF, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::OVERLORD]);
+    play(&mut g, id::OVERLORD);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)) && !c.contains(&Choice::Card(id::WHARF)), "{c:?}");
+}
+
+/// Dominate "does nothing once the Province pile is empty", but it can still be bought (so can Ritual with no Curses): the engine hides such Events.
+#[test]
+#[ignore = "audit: Events that would do nothing are not offered (event_available); the rules allow buying them"]
+fn an_event_that_does_nothing_can_still_be_bought() {
+    let mut g = event_game(&[id::DOMINATE, id::SMITHY]);
+    g.supply.set(id::PROVINCE, 0);
+    buy_phase(&mut g, 14, 1);
+    adv(&mut g);
+    assert!(has_choice(&g, Choice::Card(id::DOMINATE)));
+}

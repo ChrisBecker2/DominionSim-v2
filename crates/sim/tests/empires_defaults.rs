@@ -371,3 +371,16 @@ fn sprawling_castle_takes_the_estates_when_the_duchies_are_gone() {
     let c = decide(&strat, &g, &d, &ch);
     assert_eq!(c, Choice::Mode(1), "3 Estates: the Duchy pile is empty");
 }
+
+/// Wiki (Mountain Pass, Strategy): "you'll almost never want to bid as little as the price of a Province, because winning the bid is almost
+/// strictly better than buying one". The bots bid at most 5 Debt (`BID_WORTH`) and open with 2.
+#[test]
+#[ignore = "audit: policy note - the first bid is far below the price of a Province"]
+fn the_first_bid_for_mountain_pass_is_not_less_than_the_price_of_a_province() {
+    let strat = money("");
+    let mut g = state_with(KINGDOM, "landmarks: Mountain Pass\n", "buy", 1, 8, 1, "hand: Copper\ndeck: 8 Estate");
+    do_card(&mut g, id::PROVINCE);
+    let (d, ch) = until(&mut g, |d| matches!(d.kind, DecisionKind::Bid { .. }));
+    let c = decide(&strat, &g, &d, &ch);
+    assert!(matches!(c, Choice::Bid(n) if n >= 6), "{c:?}");
+}

@@ -578,6 +578,8 @@ impl GameState {
             Filter::NotInPlayAction => self.is_action(c) && !self.players[p as usize].in_play.has(c),
             // Enlightenment: the Treasures are Actions too.
             Filter::Action => self.is_action(c),
+            Filter::NonAction => !self.is_action(c),
+            Filter::ActionNotReward => self.is_action(c) && !cards::is(c, cards::REWARD),
             Filter::ActionNot(x) => c != x && self.is_action(c),
             Filter::Types(TypeSet::Action) => self.is_action(c),
             Filter::Types(TypeSet::ActionNotDuration) => self.is_action(c) && !cards::is(c, cards::DURATION),
@@ -1750,7 +1752,7 @@ impl GameState {
             Then::GainPerType { action, treasure, victory } => {
                 if f.count > 0 {
                     let c = f.last;
-                    if cards::is(c, ACTION) && action != 0 {
+                    if self.is_action(c) && action != 0 {
                         self.gain(p, action, Dest::Discard, false, f.source, sink);
                     }
                     if self.is_treasure(c) && treasure != 0 {

@@ -196,7 +196,7 @@ impl SetRules for CornucopiaGuilds {
                 g.gain(p, id::GOLD, Dest::Discard, false, card, sink);
             }
             id::HOUSECARL => {
-                let names = g.players[p as usize].in_play.iter().filter(|&(c, _)| cards::is(c, ACTION)).count() as u8;
+                let names = g.players[p as usize].in_play.iter().filter(|&(c, _)| g.is_action(c)).count() as u8;
                 if names > 0 {
                     g.stack.push(draw_frame(p, card, names));
                 }

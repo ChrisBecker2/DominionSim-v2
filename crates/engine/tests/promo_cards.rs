@@ -109,7 +109,7 @@ fn prince_sets_an_action_costing_up_to_four_aside_and_stays_in_play() {
     let Step::Decision(d) = step else { panic!("{step:?}") };
     assert_eq!(
         d.kind,
-        DecisionKind::Select { from: Zone::Hand, act: Act::SetAside, filter: Filter::ActionCostUpTo(4), min: 0, max: 1, ordered: false }
+        DecisionKind::Select { from: Zone::Hand, act: Act::SetAside, filter: Filter::CommandCostUpTo(4), min: 0, max: 1, ordered: false }
     );
     // Market costs $5: only the Village and the Smithy are offered, and "may" allows a Pass.
     assert_eq!(choices(&g), vec![Choice::Card(id::VILLAGE), Choice::Card(id::SMITHY), Choice::Pass]);
@@ -818,7 +818,7 @@ fn supply_pick(g: &GameState) -> Decision {
     let d = g.pending_decision().expect("a decision");
     assert_eq!(
         d.kind,
-        DecisionKind::Select { from: Zone::Supply, act: Act::Play, filter: Filter::ActionCostUpTo(4), min: 1, max: 1, ordered: false },
+        DecisionKind::Select { from: Zone::Supply, act: Act::Play, filter: Filter::CommandCostUpTo(4), min: 1, max: 1, ordered: false },
         "{d:?}"
     );
     d
@@ -2095,4 +2095,54 @@ fn a_card_played_by_a_prince_cannot_trash_another_copy_of_itself_that_is_in_play
     assert_eq!(g.players[0].prince_cards.get(id::MINING_VILLAGE), 1);
     assert_eq!(g.turn.actions, 2 + 1, "+2 Actions, and the Prince's play used none");
     assert_eq!(g.turn.led.n, 0);
+}
+
+// ===========================================================================
+// Audit: Command cards, and Enlightenment's Treasures-are-Actions
+// ===========================================================================
+
+#[test]
+fn prince_cannot_set_aside_a_command_card_that_cost_reduction_made_cheap() {
+    // Band of Misfits ($5, Action-Command) costs $4 after a reduction, but Prince takes a "non-Duration, non-Command Action".
+    let mut g = new_state(&[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::PRINCE, id::BAND_OF_MISFITS]);
+    play(&mut g, id::PRINCE);
+    assert!(g.players[0].prince_cards.is_empty());
+    assert!(g.players[0].hand.has(id::BAND_OF_MISFITS));
+}
+
+#[test]
+fn captain_cannot_play_a_command_card_that_cost_reduction_made_cheap() {
+    let mut g = new_state(&[id::CAPTAIN, id::BAND_OF_MISFITS], 2);
+    g.turn.cost_reduction = 1;
+    assert_eq!(g.cost(id::BAND_OF_MISFITS), 4);
+    set_hand(&mut g, 0, &[id::CAPTAIN]);
+    let step = play(&mut g, id::CAPTAIN);
+    // Nothing legal to play: no Supply pick is asked.
+    let Step::Decision(d) = step else { panic!("{step:?}") };
+    assert_eq!(d.kind, DecisionKind::Buy, "{d:?}");
+    assert!(g.players[0].in_play.has(id::CAPTAIN));
+}
+
+#[test]
+fn walled_village_counts_the_treasures_in_play_as_actions_under_enlightenment() {
+    for (enlightened, offered) in [(true, false), (false, true)] {
+        let mut k = vec![id::WALLED_VILLAGE];
+        if enlightened {
+            k.push(id::ENLIGHTENMENT);
+        }
+        let mut g = new_state(&k, 2);
+        if enlightened {
+            g.rs.suns = 0;
+            g.rs.active = id::ENLIGHTENMENT;
+            g.rs_update_hooks();
+        }
+        set_in_play(&mut g, 0, &[id::COPPER, id::SILVER]);
+        set_hand(&mut g, 0, &[id::WALLED_VILLAGE]);
+        set_deck_known(&mut g, 0, &junk());
+        play(&mut g, id::WALLED_VILLAGE);
+        let d = to_cleanup_offer(&mut g);
+        assert_eq!(d.as_ref().is_some_and(|d| is_topdeck_offer(d, id::WALLED_VILLAGE)), offered, "enlightened: {enlightened}");
+    }
 }

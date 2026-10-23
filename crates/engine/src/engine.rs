@@ -1323,6 +1323,12 @@ impl GameState {
         for _ in 0..n {
             sink.event(if fresh { Event::Play { player: p, card: c } } else { Event::PlayAgain { player: p, card: c, source: id::CROWN, nth: 2 } });
         }
+        // Adventures: the tokens on the card's pile (a +$1 token on the Catapult / Rocks pile) give a Treasure of the pile their bonus too.
+        if self.adv & crate::state::G_PLAY_TOKENS != 0 {
+            for _ in 0..n {
+                self.play_tokens(c, p, sink);
+            }
+        }
         // Plunder: a VP token each time it is played.
         if c == id::PLUNDER {
             self.gain_vp_tokens(p, c, n as u16, sink);

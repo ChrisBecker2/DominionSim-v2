@@ -489,6 +489,8 @@ impl SetRules for Empires {
     fn gain_triggers<S: EventSink>(g: &mut GameState, p: u8, c: CardId, to: Dest, on_buy: bool, sink: &mut S) {
         let pi = p as usize;
         let own_turn = p == g.turn.player;
+        // Charm(s) are spent by the first gain, taken before the card's own trigger gains anything else (Rocks' Silver is a later gain).
+        let charms = if own_turn { std::mem::take(&mut g.turn.emp.charms) } else { 0 };
         match c {
             ids::VILLA => {
                 // Into the hand with +1 Action; gained in the Buy phase, back to the Action phase. It moves the gained copy at once: the
@@ -576,9 +578,8 @@ impl SetRules for Empires {
             g.gain_vp_tokens(p, ids::GROUNDSKEEPER, g.turn.emp.groundskeepers as u16, sink);
         }
         // Charm(s): the next gain of the turn may bring a differently named card of the same cost, one per Charm.
-        if g.turn.emp.charms > 0 && own_turn {
-            let n = std::mem::take(&mut g.turn.emp.charms);
-            for _ in 0..n {
+        if charms > 0 {
+            for _ in 0..charms {
                 g.stack.push(Frame {
                     exact: true, optional: true, potion: cards::potion_cost(c), min: cards::debt_cost(c),
                     ..gain_frame(p, ids::CHARM, g.cost(c), Filter::NotCard(c), Dest::Discard)
@@ -1007,18 +1008,18 @@ impl GameState {
                 if f.count > 0 {
                     let c = f.last;
                     let (vs, n) = self.victims(sink);
-                    // The Curses are gained first, in turn order, then the hands are cut down.
-                    if self.cost(c) >= 3 {
-                        for &v in vs[..n].iter().rev() {
-                            self.stack.push(Frame { depth: f.depth, ..gain_frame(v, f.source, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
-                        }
-                    }
+                    // The Curses are gained first, in turn order, then the hands are cut down (the stack runs the last frame pushed first).
                     if self.is_treasure(c) {
                         for &v in vs[..n].iter().rev() {
                             self.stack.push(Frame {
                                 depth: f.depth, down_to_target: true,
                                 ..select(v, f.source, Zone::Hand, Act::Discard, Filter::Any, 0, 3, Then::Nothing)
                             });
+                        }
+                    }
+                    if self.cost(c) >= 3 {
+                        for &v in vs[..n].iter().rev() {
+                            self.stack.push(Frame { depth: f.depth, ..gain_frame(v, f.source, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
                         }
                     }
                 }
@@ -1065,7 +1066,8 @@ impl GameState {
                 }
             }
             Then::AddPileVp => {
-                if f.count > 0 && self.in_supply(f.source) {
+                // Added even when no card could be trashed (empty hand).
+                if self.in_supply(f.source) {
                     self.emp.piles.add_vp(f.source, 1);
                     sink.event(Event::PileVp { pile: f.source, n: 1 });
                 }

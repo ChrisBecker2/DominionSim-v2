@@ -176,6 +176,11 @@ impl GameState {
             self.plu_play_hooks(card, player, tok);
         }
         let outer = std::mem::replace(&mut self.turn.led.cur, tok);
+        // Fortune doubles the $ as it is played: the tokens on its pile come first ("+$1 before you double your $").
+        let tokens_first = self.adv & G_PLAY_TOKENS != 0 && card == crate::sets::empires::ids::FORTUNE;
+        if tokens_first {
+            self.play_tokens(card, player, sink);
+        }
         // Menagerie: a Kiln's gain and the choice of a Way come before the card's own effects (a frame, resolved once the frames above it are).
         if (self.men.flags & crate::state::M_WAYS != 0 && cards::is(card, ACTION)) || self.turn.men.kiln > 0 {
             self.push_preplay(card, player, tok);
@@ -183,7 +188,7 @@ impl GameState {
             self.resolve_effects_inner::<S, false>(card, player, sink);
         }
         // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
-        if self.adv & G_PLAY_TOKENS != 0 {
+        if self.adv & G_PLAY_TOKENS != 0 && !tokens_first {
             self.play_tokens(card, player, sink);
         }
         self.turn.led.cur = outer;

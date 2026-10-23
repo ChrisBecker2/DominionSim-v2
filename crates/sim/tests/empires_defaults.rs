@@ -348,3 +348,39 @@ fn a_change_game_finishes_with_the_stated_debt_rules() {
     let stats = run_match(&[&s, &s], &cfg);
     assert_eq!(stats.len(), 2);
 }
+
+// --- Audit: policy tests ---
+
+#[test]
+fn crown_in_the_buy_phase_is_played_even_with_no_action_in_the_hand() {
+    let strat = money("");
+    let mut g = state("buy", 0, 1, "hand: Crown, Gold\ndeck: 8 Estate");
+    let (d, ch) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure, "{:?}", d.kind);
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Card(id::CROWN), "{ch:?}");
+}
+
+#[test]
+fn sprawling_castle_takes_the_estates_when_the_duchies_are_gone() {
+    let strat = money("");
+    let mut g = state_with("Castles, Smithy", "", "buy", 1, 0, 1, "hand: Copper\ndeck: 8 Estate");
+    g.supply.set(id::DUCHY, 0);
+    g.gain_card(0, id::SPRAWLING_CASTLE, dominion_engine::Dest::Discard, &mut NoEvents);
+    let (d, ch) = next_decision(&mut g);
+    assert!(ch.iter().any(|c| matches!(c, Choice::Mode(_))), "{:?} {ch:?}", d.kind);
+    let c = decide(&strat, &g, &d, &ch);
+    assert_eq!(c, Choice::Mode(1), "3 Estates: the Duchy pile is empty");
+}
+
+/// Wiki (Mountain Pass, Strategy): "you'll almost never want to bid as little as the price of a Province, because winning the bid is almost
+/// strictly better than buying one". The bots bid at most 5 Debt (`BID_WORTH`) and open with 2.
+#[test]
+#[ignore = "audit: policy note - the first bid is far below the price of a Province"]
+fn the_first_bid_for_mountain_pass_is_not_less_than_the_price_of_a_province() {
+    let strat = money("");
+    let mut g = state_with(KINGDOM, "landmarks: Mountain Pass\n", "buy", 1, 8, 1, "hand: Copper\ndeck: 8 Estate");
+    do_card(&mut g, id::PROVINCE);
+    let (d, ch) = until(&mut g, |d| matches!(d.kind, DecisionKind::Bid { .. }));
+    let c = decide(&strat, &g, &d, &ch);
+    assert!(matches!(c, Choice::Bid(n) if n >= 6), "{c:?}");
+}

@@ -189,7 +189,12 @@ impl GameState {
         }
         // The tokens on the card's pile: the bonus comes before anything the card does (the +1 Card token's draw is on top of the stack).
         if self.adv & G_PLAY_TOKENS != 0 && !tokens_first {
+            let coins0 = self.turn.coins;
             self.play_tokens(card, player, sink);
+            // Plunder's Harbor Village only cares about the +$ the Action itself gave, not a token's.
+            if self.turn.coins > coins0 && self.plu.live & crate::state::LV_PLAY != 0 {
+                self.plu_token_coins(base, self.turn.coins - coins0);
+            }
         }
         self.turn.led.cur = outer;
         for f in &mut self.stack.frames[base..self.stack.len as usize] {
@@ -1235,7 +1240,12 @@ impl GameState {
                 let base = self.stack.len as usize;
                 let gained = if f.gf & crate::state::GF_EXILE != 0 {
                     // Menagerie: Exiled from the Supply (not gained: no triggers).
-                    self.exile_from_supply(p, c, f.then == Then::InvestExile, sink)
+                    let exiled = self.exile_from_supply(p, c, f.then == Then::InvestExile, sink);
+                    // Plunder's Search: a Supply pile may have emptied.
+                    if exiled && self.plu.live & crate::state::LV_WAIT != 0 {
+                        self.plu_check_empty(sink);
+                    }
+                    exiled
                 } else if f.gf & (crate::state::GF_FROM_SIDE | crate::state::GF_SPIRITS) != 0 {
                     self.gain_side(p, c, dest, f.source, sink)
                 } else {
@@ -1290,7 +1300,7 @@ impl GameState {
                         Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
                         Then::GroomBonus | Then::DesperationBonus | Then::PopulateGain | Then::ReapAside => self.men_gained(&f, c, dest, sink),
                         Then::HillFortGain => self.al_gained(&f, c, dest),
-                        Then::Plu(_) => self.plu_gained(&f, c, dest, sink),
+                        Then::Plu(_) => self.plu_gained(&f, c, dest, base, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1381,6 +1391,10 @@ impl GameState {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
                     self.pile_taken(c);
+                    // Plunder's Search: this trash may have emptied a Supply pile.
+                    if self.plu.live & crate::state::LV_WAIT != 0 {
+                        self.plu_check_empty(sink);
+                    }
                 } else if !(f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }

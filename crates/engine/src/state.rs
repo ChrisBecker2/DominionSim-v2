@@ -358,6 +358,19 @@ impl DurationHeld {
         self.entries[i] = (card, n);
         self.len += 1;
     }
+    /// One held copy of `card` is released (it will be discarded at this Clean-up): a Throne Room whose Duration was used up in the turn it was played.
+    pub fn remove_one(&mut self, card: CardId) {
+        let n = self.len as usize;
+        if let Some(k) = self.entries[..n].iter().position(|e| e.0 == card) {
+            if self.entries[k].1 > 1 {
+                self.entries[k].1 -= 1;
+            } else {
+                self.entries[k] = self.entries[n - 1];
+                self.entries[n - 1] = (0, 0);
+                self.len -= 1;
+            }
+        }
+    }
     pub fn get(&self, card: CardId) -> u8 {
         self.entries[..self.len as usize].iter().find(|e| e.0 == card).map_or(0, |e| e.1)
     }

@@ -2161,4 +2161,871 @@ fn the_state_round_trips_through_text() {
     assert_eq!(strip(&format_state(&back)), strip(&text));
 }
 
+// ===========================================================================
+// Audit: the rulings of the wiki pages
+// ===========================================================================
+
+#[test]
+fn two_rushes_are_both_used_up_by_the_first_action_gained() {
+    // Rush: "If you Rush twice in a row, you'll still only play the Action once."
+    let mut g = game(&[I::VILLAGE, I::RUSH]);
+    buy_event(&mut g, I::RUSH);
+    g.turn.coins = 20;
+    buy_event(&mut g, I::RUSH);
+    g.turn.coins = 20;
+    g.turn.buys = 3;
+    buy(&mut g, I::VILLAGE);
+    assert_eq!(in_play(&g, I::VILLAGE), 1);
+    buy(&mut g, I::VILLAGE);
+    assert_eq!((in_play(&g, I::VILLAGE), discard(&g, I::VILLAGE)), (1, 1), "the second Village is not played: both Rushes were used by the first");
+}
+
+#[test]
+fn a_gold_gained_by_a_tunnel_the_cutthroat_made_them_discard_does_not_wake_it() {
+    let mut g = game(&[I::CUTTHROAT, I::TUNNEL]);
+    only_loot(&mut g, &[I::SHIELD]);
+    set_hand(&mut g, 0, &[I::CUTTHROAT]);
+    set_hand(&mut g, 1, &[I::ESTATE, I::TUNNEL, I::DUCHY, I::PROVINCE, I::COPPER]);
+    play(&mut g, I::CUTTHROAT);
+    pick(&mut g, I::ESTATE);
+    pick(&mut g, I::TUNNEL);
+    yes(&mut g);
+    adv(&mut g);
+    assert_eq!(g.players[1].discard.get(I::GOLD), 1, "the Tunnel's Gold");
+    assert_eq!(discard(&g, I::SHIELD), 0, "no Loot");
+    assert_eq!(g.players[0].plu.waiting(I::CUTTHROAT), 1, "it waits for the next Treasure");
+    gain_now(&mut g, 1, I::GOLD);
+    assert_eq!(discard(&g, I::SHIELD), 1);
+}
+
+#[test]
+fn spell_scroll_gains_a_card_cheaper_than_its_cost_under_a_reduction() {
+    let mut g = game(&[I::BRIDGE, I::KINGS_CACHE, I::SACK_OF_LOOT]);
+    set_hand(&mut g, 0, &[I::BRIDGE, I::SPELL_SCROLL]);
+    g.turn.actions = 2;
+    play(&mut g, I::BRIDGE);
+    play(&mut g, I::SPELL_SCROLL);
+    let ch = choices(&g);
+    assert!(ch.contains(&Choice::Card(I::GOLD)));
+    assert!(!ch.contains(&Choice::Card(I::KINGS_CACHE)), "the Scroll costs $6 now, as King's Cache does: not cheaper");
+}
+
+#[test]
+fn search_fires_when_a_trash_from_the_supply_empties_a_pile() {
+    let mut g = game(&[I::SEARCH, I::LURKER, I::VILLAGE]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_hand(&mut g, 0, &[I::SEARCH, I::LURKER]);
+    g.turn.actions = 2;
+    play(&mut g, I::SEARCH);
+    set_supply(&mut g, I::VILLAGE, 1);
+    play(&mut g, I::LURKER);
+    choose(&mut g, Choice::Mode(0));
+    choose(&mut g, Choice::Card(I::VILLAGE));
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SEARCH), 1);
+    assert_eq!(discard(&g, I::HAMMER), 1);
+}
+
+#[test]
+fn a_siren_gained_under_insignia_can_be_put_on_the_deck_before_it_is_trashed() {
+    let mut g = game(&[I::SIREN, I::SACK_OF_LOOT]);
+    g.turn.plu.insignia = true;
+    g.plu_refresh();
+    g.gain_card(0, I::SIREN, Dest::Discard, &mut NoEvents);
+    g.pending = Pending::None;
+    expect_decision(&mut g);
+    yes(&mut g);
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SIREN), 0);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SIREN), "moved before the trash: the stop-moving rule");
+}
+
+#[test]
+fn a_siren_gained_with_a_spell_scroll_trashes_itself_and_the_scroll_cannot_play_it() {
+    let mut g = game(&[I::SIREN, I::SACK_OF_LOOT]);
+    set_hand(&mut g, 0, &[I::SPELL_SCROLL]);
+    play(&mut g, I::SPELL_SCROLL);
+    choose(&mut g, Choice::Card(I::SIREN));
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SIREN), 1);
+    assert_eq!(in_play(&g, I::SIREN), 0);
+}
+
+#[test]
+fn a_siren_gained_straight_onto_the_deck_is_still_trashed() {
+    let mut g = game(&[I::SIREN, I::SACK_OF_LOOT]);
+    g.gain_card(0, I::SIREN, Dest::DeckTop, &mut NoEvents);
+    g.pending = Pending::None;
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SIREN), 1);
+}
+
+#[test]
+fn a_siren_may_be_trashed_for_its_when_trash_effects_by_declining_the_action() {
+    let mut g = game(&[I::SIREN, I::SACK_OF_LOOT, I::VILLAGE]);
+    set_hand(&mut g, 0, &[I::VILLAGE]);
+    g.gain_card(0, I::SIREN, Dest::Discard, &mut NoEvents);
+    g.pending = Pending::None;
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, min: 0, max: 1, .. }), "{d:?}");
+    skip(&mut g);
+    assert_eq!((g.trash.get(I::SIREN), hand(&g, I::VILLAGE)), (1, 1));
+}
+
+#[test]
+fn a_throned_search_is_trashed_once_and_gains_two_loot() {
+    let mut g = game(&[I::THRONE_ROOM, I::SEARCH, I::VILLAGE]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_hand(&mut g, 0, &[I::THRONE_ROOM, I::SEARCH]);
+    play(&mut g, I::THRONE_ROOM);
+    pick(&mut g, I::SEARCH);
+    adv(&mut g);
+    set_supply(&mut g, I::VILLAGE, 1);
+    gain_now(&mut g, 0, I::VILLAGE);
+    assert_eq!((g.trash.get(I::SEARCH), discard(&g, I::HAMMER)), (1, 2));
+    assert_eq!(in_play(&g, I::THRONE_ROOM), 1, "stays until the Clean-up");
+    skip_to_end(&mut g);
+    assert_eq!(discard(&g, I::THRONE_ROOM), 1);
+}
+
+#[test]
+fn search_ignores_piles_already_empty_when_played_and_fires_for_the_next_one() {
+    let mut g = game(&[I::SEARCH, I::VILLAGE, I::SMITHY]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_supply(&mut g, I::VILLAGE, 0);
+    set_hand(&mut g, 0, &[I::SEARCH]);
+    play(&mut g, I::SEARCH);
+    gain_now(&mut g, 0, I::SMITHY);
+    assert_eq!(g.players[0].plu.waiting(I::SEARCH), 1);
+    set_supply(&mut g, I::SMITHY, 1);
+    gain_now(&mut g, 0, I::SMITHY);
+    assert_eq!((g.players[0].plu.waiting(I::SEARCH), discard(&g, I::HAMMER)), (0, 1));
+}
+
+#[test]
+fn search_is_woken_by_the_last_province_and_not_by_the_loot_pile_running_out() {
+    let mut g = game(&[I::SEARCH, I::SACK_OF_LOOT]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_supply(&mut g, I::HAMMER, 1);
+    set_hand(&mut g, 0, &[I::SEARCH]);
+    play(&mut g, I::SEARCH);
+    g.push_loot(0, I::SACK_OF_LOOT, Dest::Discard, dominion_engine::state::Then::Nothing);
+    g.pending = Pending::None;
+    adv(&mut g);
+    assert_eq!((g.supply.get(I::HAMMER), g.players[0].plu.waiting(I::SEARCH)), (0, 1), "the Loot pile is not in the Supply");
+    set_supply(&mut g, I::PROVINCE, 1);
+    only_loot(&mut g, &[I::ORB]);
+    gain_now(&mut g, 0, I::PROVINCE);
+    assert_eq!((g.players[0].plu.waiting(I::SEARCH), discard(&g, I::ORB)), (0, 1));
+}
+
+#[test]
+fn a_secluded_shrine_played_by_a_gained_gondola_waits_for_the_next_treasure() {
+    let mut g = game(&[I::SECLUDED_SHRINE, I::GONDOLA]);
+    set_hand(&mut g, 0, &[I::SECLUDED_SHRINE, I::SECLUDED_SHRINE]);
+    g.turn.actions = 2;
+    play(&mut g, I::SECLUDED_SHRINE);
+    gain_now(&mut g, 0, I::GONDOLA);
+    pick(&mut g, I::SECLUDED_SHRINE);
+    adv(&mut g);
+    assert_eq!(in_play(&g, I::SECLUDED_SHRINE), 2);
+    assert_eq!(g.players[0].plu.waiting(I::SECLUDED_SHRINE), 1, "only the first one fired");
+}
+
+#[test]
+fn harbor_village_played_twice_by_throne_room_pays_only_for_the_second_play() {
+    let mut g = game(&[I::HARBOR_VILLAGE, I::THRONE_ROOM, I::MILITIA]);
+    set_hand(&mut g, 0, &[I::THRONE_ROOM, I::HARBOR_VILLAGE, I::MILITIA]);
+    play(&mut g, I::THRONE_ROOM);
+    pick(&mut g, I::HARBOR_VILLAGE);
+    adv(&mut g);
+    play(&mut g, I::MILITIA);
+    while matches!(adv(&mut g), Step::Decision(Decision { player: 1, .. })) {
+        let c = choices(&g)[0];
+        choose(&mut g, c);
+    }
+    assert_eq!(g.turn.coins, 2 + 1, "Militia's $2 and $1 for the second Harbor Village only");
+}
+
+#[test]
+fn landing_party_resolves_a_figurine_draw_before_going_onto_the_deck() {
+    let mut g = game(&[I::LANDING_PARTY, I::FIGURINE]);
+    set_hand(&mut g, 0, &[I::LANDING_PARTY]);
+    play(&mut g, I::LANDING_PARTY);
+    end_turn(&mut g);
+    end_turn(&mut g);
+    set_hand(&mut g, 0, &[I::FIGURINE]);
+    set_deck_known(&mut g, 0, &[I::ESTATE, I::DUCHY, I::PROVINCE]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::FIGURINE);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 2, "the two cards were drawn, not the Landing Party");
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::LANDING_PARTY));
+}
+
+#[test]
+fn mapmaker_with_fewer_than_four_cards_looks_at_what_is_left() {
+    let mut g = game(&[I::MAPMAKER]);
+    clear_deck(&mut g, 0);
+    set_deck_known(&mut g, 0, &[I::DUCHY]);
+    set_hand(&mut g, 0, &[I::MAPMAKER]);
+    play(&mut g, I::MAPMAKER);
+    adv(&mut g);
+    assert_eq!(hand(&g, I::DUCHY), 1);
+}
+
+#[test]
+#[ignore = "audit: a Mapmaker taken by a Mapmaker played in response to a gain is not offered (offers are made per copy in hand when the card is gained)"]
+fn a_mapmaker_taken_by_a_mapmaker_played_in_response_can_be_played_in_response_too() {
+    let mut g = game(&[I::MAPMAKER]);
+    set_hand(&mut g, 1, &[I::MAPMAKER]);
+    set_deck_known(&mut g, 1, &[I::MAPMAKER, I::COPPER, I::SILVER, I::GOLD]);
+    g.gain_card(0, I::ESTATE, Dest::Discard, &mut NoEvents);
+    g.pending = Pending::None;
+    expect_decision(&mut g);
+    yes(&mut g);
+    pick(&mut g, I::COPPER);
+    pick(&mut g, I::MAPMAKER);
+    let d = expect_decision(&mut g);
+    assert_eq!((d.player, d.subject), (1, I::MAPMAKER), "offered again");
+}
+
+
+/// Answer every decision that is not the turn player's Action / Buy / Treasure prompt with its first choice (or Pass / Yes if offered, in that order of preference when `yes_first`).
+fn settle(g: &mut GameState, yes_first: bool) {
+    for _ in 0..60 {
+        match adv(g) {
+            Step::Decision(d) => {
+                if matches!(d.kind, DecisionKind::PlayAction | DecisionKind::Buy | DecisionKind::PlayTreasure) {
+                    return;
+                }
+                let ch = choices(g);
+                let c = if yes_first && ch.contains(&Choice::Yes) {
+                    Choice::Yes
+                } else if ch.contains(&Choice::Pass) {
+                    Choice::Pass
+                } else {
+                    ch[0]
+                };
+                g.apply(c, &mut NoEvents).unwrap();
+            }
+            _ => return,
+        }
+    }
+    panic!("settle did not finish");
+}
+
+#[test]
+fn a_cage_gained_by_haggler_and_played_by_mining_road_waits_for_the_next_victory_card() {
+    let mut g = game(&[I::CAGE, I::HAGGLER, I::MINING_ROAD]);
+    set_hand(&mut g, 0, &[I::HAGGLER, I::MINING_ROAD]);
+    g.turn.actions = 2;
+    play(&mut g, I::HAGGLER);
+    play(&mut g, I::MINING_ROAD);
+    g.turn.coins = 8;
+    g.turn.buys = 2;
+    to_buy(&mut g);
+    buy(&mut g, I::PROVINCE);
+    // Haggler's gain: the Cage; Mining Road plays it; nothing is set aside.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    choose(&mut g, Choice::Card(I::CAGE));
+    yes(&mut g);
+    skip(&mut g);
+    assert_eq!(g.players[0].plu.waiting(I::CAGE), 1, "the Province did not trigger the Cage played because of it");
+    assert_eq!(g.trash.get(I::CAGE), 0);
+}
+
+#[test]
+fn shaman_gain_is_mandatory_and_can_trigger_a_cage() {
+    let mut g = game(&[I::SHAMAN, I::CAGE]);
+    g.trash.add(I::ESTATE, 2);
+    set_hand(&mut g, 0, &[I::CAGE]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::CAGE);
+    skip(&mut g);
+    assert_eq!(g.players[0].plu.waiting(I::CAGE), 1);
+    end_turn(&mut g);
+    pass_to_turn_of(&mut g, 0);
+    assert_eq!(g.trash.get(I::CAGE), 1, "the Estate gained at the start of the turn triggered the Cage");
+    assert_eq!(g.trash.get(I::ESTATE), 0, "each player gained one");
+}
+
+#[test]
+fn abundance_gained_action_on_another_players_turn_uses_it_up_for_nothing() {
+    let mut g = game(&[I::ABUNDANCE, I::VILLAGE]);
+    set_hand(&mut g, 0, &[I::ABUNDANCE]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::ABUNDANCE);
+    reset_turn(&mut g, 1);
+    g.gain_card(0, I::VILLAGE, Dest::Discard, &mut NoEvents);
+    g.pending = Pending::None;
+    adv(&mut g);
+    assert_eq!(g.players[0].plu.waiting(I::ABUNDANCE), 0);
+    assert_eq!((g.turn.coins, g.turn.buys), (0, 1), "the other player's turn gets nothing");
+}
+
+#[test]
+fn a_cabin_boy_can_be_trashed_to_gain_another_cabin_boy() {
+    let mut g = game(&[I::CABIN_BOY, I::CREW]);
+    set_hand(&mut g, 0, &[I::CABIN_BOY]);
+    play(&mut g, I::CABIN_BOY);
+    end_turn(&mut g);
+    end_turn(&mut g);
+    expect_source(&mut g, I::CABIN_BOY);
+    choose(&mut g, Choice::Mode(1));
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    choose(&mut g, Choice::Card(I::CABIN_BOY));
+    adv(&mut g);
+    assert_eq!((g.trash.get(I::CABIN_BOY), discard(&g, I::CABIN_BOY)), (1, 1));
+}
+
+#[test]
+fn crucible_gives_nothing_for_potions_and_debt() {
+    let mut g = game(&[I::CRUCIBLE, I::FAMILIAR]);
+    set_hand(&mut g, 0, &[I::CRUCIBLE, I::FAMILIAR]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::CRUCIBLE);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 3, "$3 and a Potion: only the $3");
+    let mut g = game(&[I::CRUCIBLE, I::OVERLORD]);
+    set_hand(&mut g, 0, &[I::CRUCIBLE, I::OVERLORD]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::CRUCIBLE);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 0, "a Debt cost is worth nothing");
+}
+
+#[test]
+fn fortune_hunter_resolves_the_treasure_before_the_other_cards_go_back() {
+    let mut g = game(&[I::FORTUNE_HUNTER, I::FIGURINE]);
+    set_hand(&mut g, 0, &[I::FORTUNE_HUNTER]);
+    set_deck_known(&mut g, 0, &[I::FIGURINE, I::ESTATE, I::DUCHY, I::PROVINCE, I::CURSE, I::COPPER]);
+    play(&mut g, I::FORTUNE_HUNTER);
+    pick(&mut g, I::FIGURINE);
+    settle(&mut g, false);
+    assert_eq!((hand(&g, I::PROVINCE), hand(&g, I::CURSE)), (1, 1), "Figurine drew the two cards below the three looked at");
+    assert_eq!(g.players[0].deck_known.peek_top().map(|c| c == I::ESTATE || c == I::DUCHY), Some(true));
+}
+
+#[test]
+fn king_cache_on_a_gondola_chooses_each_time_and_stays_with_it() {
+    let mut g = game(&[I::KINGS_CACHE, I::GONDOLA]);
+    set_hand(&mut g, 0, &[I::KINGS_CACHE, I::GONDOLA]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::KINGS_CACHE);
+    pick(&mut g, I::GONDOLA);
+    yes(&mut g);
+    no(&mut g);
+    no(&mut g);
+    assert_eq!(g.turn.coins, 2);
+    end_turn(&mut g);
+    assert_eq!((in_play(&g, I::GONDOLA), in_play(&g, I::KINGS_CACHE)), (1, 1), "both stay in play");
+    pass_to_turn_of(&mut g, 0);
+    assert_eq!(g.turn.coins, 4, "two plays were for next turn");
+}
+
+#[test]
+fn king_cache_on_a_king_cache_plays_three_more_treasures_three_times_each() {
+    let mut g = game(&[I::KINGS_CACHE]);
+    set_hand(&mut g, 0, &[I::KINGS_CACHE, I::KINGS_CACHE, I::GOLD, I::GOLD, I::GOLD]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::KINGS_CACHE);
+    pick(&mut g, I::KINGS_CACHE);
+    for _ in 0..3 {
+        pick(&mut g, I::GOLD);
+    }
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 27);
+}
+
+#[test]
+fn king_cache_on_a_capital_takes_the_debt_once() {
+    let mut g = game(&[I::KINGS_CACHE, I::CAPITAL]);
+    set_hand(&mut g, 0, &[I::KINGS_CACHE, I::CAPITAL]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::KINGS_CACHE);
+    pick(&mut g, I::CAPITAL);
+    assert_eq!(g.turn.coins, 18);
+    g.turn.coins = 0;
+    skip_to_end(&mut g);
+    assert_eq!(g.players[0].debt, 6, "6 Debt, not 18");
+}
+
+#[test]
+fn jewels_played_by_a_king_cache_leaves_it_in_play_until_the_clean_up() {
+    let mut g = game(&[I::KINGS_CACHE, I::SACK_OF_LOOT]);
+    set_hand(&mut g, 0, &[I::KINGS_CACHE, I::JEWELS]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::KINGS_CACHE);
+    pick(&mut g, I::JEWELS);
+    adv(&mut g);
+    assert_eq!((g.turn.coins, g.turn.buys), (9, 4));
+    g.turn.coins = 0;
+    skip_to_end(&mut g);
+    end_turn(&mut g);
+    assert_eq!(in_play(&g, I::KINGS_CACHE), 0, "the King's Cache was discarded at the end of that turn");
+    assert_eq!(g.players[0].deck_known_bottom.counts().get(I::JEWELS), 1);
+}
+
+#[test]
+fn quartermaster_throned_has_one_set_of_cards_and_adds_two_each_turn() {
+    let mut g = game(&[I::QUARTERMASTER, I::THRONE_ROOM]);
+    set_hand(&mut g, 0, &[I::THRONE_ROOM, I::QUARTERMASTER]);
+    play(&mut g, I::THRONE_ROOM);
+    pick(&mut g, I::QUARTERMASTER);
+    adv(&mut g);
+    end_turn(&mut g);
+    end_turn(&mut g);
+    for _ in 0..2 {
+        expect_source(&mut g, I::QUARTERMASTER);
+        let c = choices(&g)[0];
+        choose(&mut g, c);
+        expect_decision(&mut g);
+        choose(&mut g, Choice::Card(I::SILVER));
+    }
+    assert_eq!(g.players[0].plu.zget(dominion_engine::state::Z_HOLDER0, I::SILVER), 2);
+}
+
+#[test]
+fn a_siren_gained_with_a_quartermaster_still_trashes_itself() {
+    let mut g = game(&[I::QUARTERMASTER, I::SIREN]);
+    set_hand(&mut g, 0, &[I::QUARTERMASTER]);
+    play(&mut g, I::QUARTERMASTER);
+    end_turn(&mut g);
+    end_turn(&mut g);
+    expect_source(&mut g, I::QUARTERMASTER);
+    let c = choices(&g)[0];
+    choose(&mut g, c);
+    expect_decision(&mut g);
+    choose(&mut g, Choice::Card(I::SIREN));
+    settle(&mut g, false);
+    assert_eq!(g.trash.get(I::SIREN), 1);
+    assert_eq!(g.players[0].plu.zget(dominion_engine::state::Z_HOLDER0, I::SIREN), 0);
+}
+
+#[test]
+fn two_tricksters_keep_two_treasures() {
+    let mut g = game(&[I::TRICKSTER]);
+    set_hand(&mut g, 0, &[I::TRICKSTER, I::TRICKSTER]);
+    g.turn.actions = 2;
+    play(&mut g, I::TRICKSTER);
+    play(&mut g, I::TRICKSTER);
+    set_in_play(&mut g, 0, &[I::TRICKSTER, I::TRICKSTER, I::GOLD, I::SILVER, I::COPPER]);
+    to_buy(&mut g);
+    skip(&mut g);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, max: 2, .. }), "{d:?}");
+    pick(&mut g, I::COPPER);
+    pick(&mut g, I::SILVER);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 5 + 2);
+}
+
+#[test]
+fn maroon_counts_the_loot_type_and_ignores_traits() {
+    let mut g = game(&[I::MAROON]);
+    set_hand(&mut g, 0, &[I::MAROON, I::AMPHORA]);
+    play(&mut g, I::MAROON);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 6, "Treasure, Duration, Loot");
+    let mut g = traited(&[I::MAROON, I::SMITHY], I::RICH, I::SMITHY);
+    set_hand(&mut g, 0, &[I::MAROON, I::SMITHY]);
+    play(&mut g, I::MAROON);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 2, "an Action: the Trait is not a type");
+}
+
+#[test]
+fn swamp_shacks_counts_durations_in_play_but_not_set_aside_cards() {
+    let mut g = game(&[I::SWAMP_SHACKS]);
+    set_hand(&mut g, 0, &[I::SWAMP_SHACKS]);
+    set_in_play(&mut g, 0, &[I::COPPER, I::COPPER]);
+    set_set_aside(&mut g, 0, &[I::COPPER, I::COPPER, I::COPPER, I::COPPER, I::COPPER, I::COPPER]);
+    play(&mut g, I::SWAMP_SHACKS);
+    assert_eq!(g.players[0].hand.total(), 1, "Swamp Shacks and two cards: 3 in play");
+}
+
+#[test]
+fn tools_cannot_gain_a_loot_another_player_has_in_play() {
+    let mut g = game(&[I::TOOLS, I::SACK_OF_LOOT]);
+    set_in_play(&mut g, 1, &[I::SHIELD]);
+    set_hand(&mut g, 0, &[I::TOOLS]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::TOOLS);
+    let step = adv(&mut g);
+    if let Step::Decision(d) = step {
+        assert!(!matches!(d.kind, DecisionKind::Gain { .. }) || !choices(&g).contains(&Choice::Card(I::SHIELD)));
+    }
+    assert_eq!(discard(&g, I::SHIELD), 0);
+}
+
+#[test]
+fn a_shield_blocks_every_attack_of_the_turn_and_stays_in_the_hand() {
+    let mut g = game(&[I::MILITIA, I::THRONE_ROOM, I::SACK_OF_LOOT]);
+    set_hand(&mut g, 0, &[I::THRONE_ROOM, I::MILITIA]);
+    set_hand(&mut g, 1, &[I::SHIELD, I::ESTATE, I::ESTATE, I::ESTATE, I::ESTATE]);
+    play(&mut g, I::THRONE_ROOM);
+    pick(&mut g, I::MILITIA);
+    settle(&mut g, true);
+    assert_eq!(g.players[1].hand.total(), 5);
+    assert_eq!(g.players[1].hand.get(I::SHIELD), 1);
+    assert_eq!(g.turn.coins, 4);
+}
+
+#[test]
+fn a_moat_blocks_a_sword() {
+    let mut g = game(&[I::MOAT, I::SACK_OF_LOOT]);
+    set_hand(&mut g, 0, &[I::SWORD]);
+    set_hand(&mut g, 1, &[I::MOAT, I::ESTATE, I::ESTATE, I::ESTATE, I::ESTATE]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::SWORD);
+    moat(&mut g, true);
+    adv(&mut g);
+    assert_eq!(g.players[1].hand.total(), 5);
+}
+
+#[test]
+fn a_spell_scroll_played_in_the_buy_phase_gives_no_more_actions() {
+    let mut g = game(&[I::SACK_OF_LOOT, I::VILLAGE]);
+    set_hand(&mut g, 0, &[I::SPELL_SCROLL, I::VILLAGE]);
+    g.turn.actions = 0;
+    to_buy(&mut g);
+    play_treasure(&mut g, I::SPELL_SCROLL);
+    choose(&mut g, Choice::Card(I::VILLAGE));
+    yes(&mut g);
+    let d = expect_decision(&mut g);
+    assert_ne!(d.kind, DecisionKind::PlayAction, "{d:?}");
+    assert_eq!(g.turn.phase, Phase::Buy);
+}
+
+#[test]
+fn a_loot_gained_by_invasion_that_is_moved_by_a_gain_effect_is_not_played() {
+    let mut g = game(&[I::SACK_OF_LOOT]);
+    only_loot(&mut g, &[I::SHIELD]);
+    g.turn.plu.insignia = true;
+    g.plu_refresh();
+    g.push_loot(0, I::INVASION, Dest::Discard, dominion_engine::state::Then::Plu(dominion_engine::sets::plunder::T_LOOT_PLAY));
+    g.pending = Pending::None;
+    expect_decision(&mut g);
+    yes(&mut g);
+    adv(&mut g);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SHIELD));
+    assert_eq!(in_play(&g, I::SHIELD), 0, "the stop-moving rule: it is not where it was gained");
+}
+
+#[test]
+fn avoid_is_cumulative() {
+    let mut g = game(&[I::VILLAGE, I::AVOID]);
+    clear_deck(&mut g, 0);
+    set_hand(&mut g, 0, &[]);
+    set_discard(&mut g, 0, &[I::ESTATE; 8]);
+    buy_event(&mut g, I::AVOID);
+    g.turn.coins = 20;
+    g.turn.buys = 2;
+    buy_event(&mut g, I::AVOID);
+    skip(&mut g);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, max: 6, .. }), "two Avoids: up to 6 cards, {d:?}");
+}
+
+#[test]
+#[ignore = "audit: the cards Avoid left out are in the discard pile and are shuffled for the rest of the same draw (FAQ: it does not trigger another shuffle)"]
+fn avoid_leaving_too_few_cards_does_not_shuffle_again() {
+    let mut g = game(&[I::VILLAGE, I::AVOID]);
+    clear_deck(&mut g, 0);
+    set_hand(&mut g, 0, &[]);
+    set_discard(&mut g, 0, &[I::ESTATE; 4]);
+    buy_event(&mut g, I::AVOID);
+    skip(&mut g);
+    for _ in 0..3 {
+        pick(&mut g, I::ESTATE);
+    }
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 1);
+    assert_eq!(discard(&g, I::ESTATE), 3);
+}
+
+#[test]
+fn buying_deliver_twice_does_nothing_extra() {
+    let mut g = game(&[I::VILLAGE, I::DELIVER]);
+    buy_event(&mut g, I::DELIVER);
+    g.turn.coins = 20;
+    g.turn.buys = 3;
+    buy_event(&mut g, I::DELIVER);
+    g.turn.buys = 2;
+    buy(&mut g, I::SILVER);
+    skip_to_end(&mut g);
+    assert_eq!(hand(&g, I::SILVER), 1);
+}
+
+#[test]
+fn rush_can_be_bought_again_for_a_second_action_and_the_actions_do_not_help_in_the_buy_phase() {
+    let mut g = game(&[I::VILLAGE, I::RUSH]);
+    buy_event(&mut g, I::RUSH);
+    g.turn.coins = 20;
+    g.turn.buys = 4;
+    buy(&mut g, I::VILLAGE);
+    buy_event(&mut g, I::RUSH);
+    buy(&mut g, I::VILLAGE);
+    assert_eq!(in_play(&g, I::VILLAGE), 2);
+    assert_eq!(g.turn.phase, Phase::Buy, "+Actions are only usable in the Action phase");
+}
+
+#[test]
+fn foray_with_fewer_than_three_cards_discards_them_and_gains_nothing() {
+    let mut g = game(&[I::VILLAGE, I::FORAY]);
+    only_loot(&mut g, &[I::ORB]);
+    set_hand(&mut g, 0, &[I::ESTATE, I::DUCHY]);
+    buy_event(&mut g, I::FORAY);
+    pick_each(&mut g, &[I::ESTATE, I::DUCHY]);
+    adv(&mut g);
+    assert_eq!(g.supply.get(I::ORB), 2);
+    assert_eq!((discard(&g, I::ESTATE), discard(&g, I::DUCHY)), (1, 1));
+}
+
+#[test]
+fn journey_cannot_be_bought_twice_in_a_turn() {
+    let mut g = game(&[I::VILLAGE, I::JOURNEY]);
+    g.turn.buys = 2;
+    g.turn.coins = 8;
+    buy_event(&mut g, I::JOURNEY);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert!(!choices(&g).contains(&Choice::Card(I::JOURNEY)));
+}
+
+#[test]
+fn cheap_lowers_the_coin_cost_only() {
+    let mut g = traited(&[I::FAMILIAR, I::VILLAGE], I::CHEAP, I::FAMILIAR);
+    assert_eq!(g.cost(I::FAMILIAR), 2);
+    to_buy(&mut g);
+    g.turn.coins = 2;
+    g.turn.potions = 0;
+    expect_decision(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(I::FAMILIAR)), "the Potion is still needed");
+    fresh(&mut g);
+    g.turn.potions = 1;
+    expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(I::FAMILIAR)));
+}
+
+#[test]
+#[ignore = "audit: the reaction window of an Attack is opened again for Reckless's second iteration (one reveal should protect against both)"]
+fn a_reckless_attack_is_blocked_by_one_reveal_for_both_iterations() {
+    let mut g = traited(&[I::MILITIA, I::MOAT], I::RECKLESS, I::MILITIA);
+    set_hand(&mut g, 0, &[I::MILITIA]);
+    set_hand(&mut g, 1, &[I::MOAT, I::ESTATE, I::ESTATE, I::ESTATE, I::ESTATE]);
+    play(&mut g, I::MILITIA);
+    let step = moat(&mut g, true);
+    if let Step::Decision(d) = step {
+        assert!(d.player != 1 || d.subject != I::MOAT, "asked again: {d:?}");
+    }
+    assert_eq!(g.players[1].hand.total(), 5);
+    assert_eq!(g.turn.coins, 4, "Militia's $2 twice");
+}
+
+#[test]
+fn an_inherited_split_pile_gives_the_first_card_to_the_first_players() {
+    let cfg = GameConfig { num_players: 6, kingdom: vec![I::ENCAMPMENT, I::INHERITED], seed: 7, trait_piles: vec![(I::INHERITED, I::ENCAMPMENT)], ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    for _ in 0..6 {
+        expect_decision(&mut g);
+        choose(&mut g, Choice::Card(I::COPPER));
+    }
+    adv(&mut g);
+    let enc: Vec<u8> = (0..6).map(|p| g.players[p].all_cards().get(I::ENCAMPMENT)).collect();
+    let plu: Vec<u8> = (0..6).map(|p| g.players[p].all_cards().get(I::PLUNDER)).collect();
+    assert_eq!(enc, vec![1, 1, 1, 1, 1, 0]);
+    assert_eq!(plu, vec![0, 0, 0, 0, 0, 1]);
+}
+
+
+#[test]
+fn jewelled_egg_gives_the_loot_to_the_player_who_trashes_it_whoever_caused_it() {
+    let mut g = game(&[I::JEWELLED_EGG, I::MAELSTROM]);
+    only_loot(&mut g, &[I::SHIELD]);
+    set_hand(&mut g, 0, &[I::COPPER, I::ESTATE, I::DUCHY]);
+    set_hand(&mut g, 1, &[I::JEWELLED_EGG, I::ESTATE, I::ESTATE, I::ESTATE, I::ESTATE]);
+    buy_event(&mut g, I::MAELSTROM);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "player 0 has exactly three cards: all are trashed");
+    pick(&mut g, I::JEWELLED_EGG);
+    adv(&mut g);
+    assert_eq!(g.players[1].discard.get(I::SHIELD), 1, "the trasher gets the Loot");
+    assert_eq!(discard(&g, I::SHIELD), 0);
+}
+
+#[test]
+fn a_search_played_by_a_gondola_gained_from_the_last_pile_does_not_fire() {
+    let mut g = game(&[I::SEARCH, I::GONDOLA]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_supply(&mut g, I::GONDOLA, 1);
+    set_hand(&mut g, 0, &[I::SEARCH]);
+    gain_now(&mut g, 0, I::GONDOLA);
+    pick(&mut g, I::SEARCH);
+    adv(&mut g);
+    assert_eq!(g.players[0].plu.waiting(I::SEARCH), 1);
+    assert_eq!(discard(&g, I::HAMMER), 0);
+}
+
+#[test]
+fn taskmaster_looks_at_the_cost_a_card_had_when_it_was_gained() {
+    let mut g = game(&[I::TASKMASTER, I::DESTRIER]);
+    set_hand(&mut g, 0, &[I::TASKMASTER]);
+    play(&mut g, I::TASKMASTER);
+    assert_eq!(g.cost(I::DESTRIER), 6);
+    gain_now(&mut g, 0, I::DESTRIER);
+    assert_eq!(g.players[0].pending_durations_len, 0, "a $6 was gained");
+    assert_eq!(g.cost(I::DESTRIER), 5);
+    gain_now(&mut g, 0, I::DESTRIER);
+    assert_eq!(g.players[0].pending_durations_len, 1, "a Destrier that cost $5 when gained repeats the Taskmaster");
+}
+
+#[test]
+#[ignore = "audit: a $5 card whose gain causes the Taskmaster to be gained and played (Haggler, then Rush) is not counted: the gain's triggers have already been looked at"]
+fn a_five_whose_gain_causes_the_taskmaster_to_be_played_lets_it_repeat() {
+    let mut g = game(&[I::TASKMASTER, I::HAGGLER, I::RUSH]);
+    set_hand(&mut g, 0, &[I::HAGGLER]);
+    play(&mut g, I::HAGGLER);
+    buy_event(&mut g, I::RUSH);
+    g.turn.coins = 5;
+    buy(&mut g, I::DUCHY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    choose(&mut g, Choice::Card(I::TASKMASTER));
+    adv(&mut g);
+    assert_eq!(in_play(&g, I::TASKMASTER), 1);
+    assert_eq!(g.players[0].pending_durations_len, 1, "the Taskmaster repeats next turn");
+}
+
+#[test]
+fn flagship_replays_a_card_that_trashed_itself() {
+    let mut g = game(&[I::FLAGSHIP, I::MINING_VILLAGE]);
+    set_hand(&mut g, 0, &[I::FLAGSHIP, I::MINING_VILLAGE]);
+    g.turn.actions = 2;
+    play(&mut g, I::FLAGSHIP);
+    play(&mut g, I::MINING_VILLAGE);
+    yes(&mut g);
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::MINING_VILLAGE), 1);
+    assert_eq!(g.turn.coins, 2 + 2);
+    assert_eq!(g.players[0].hand.total(), 2, "+1 Card twice, and no second chance to trash it");
+}
+
+#[test]
+fn harbor_village_counts_the_coins_a_way_gave() {
+    let mut g = game(&[I::HARBOR_VILLAGE, I::SMITHY, I::WAY_OF_THE_SHEEP]);
+    set_hand(&mut g, 0, &[I::HARBOR_VILLAGE, I::SMITHY]);
+    play(&mut g, I::HARBOR_VILLAGE);
+    skip(&mut g);
+    play(&mut g, I::SMITHY);
+    let d = expect_decision(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(I::WAY_OF_THE_SHEEP)), "{d:?}");
+    choose(&mut g, Choice::Card(I::WAY_OF_THE_SHEEP));
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 2 + 1, "Way of the Sheep's $2 and Harbor Village's $1");
+}
+
+#[test]
+fn harbor_village_does_not_count_the_coin_of_a_token() {
+    let mut g = game(&[I::HARBOR_VILLAGE, I::VILLAGE]);
+    g.players[0].tok[dominion_engine::state::TOK_COIN] = I::VILLAGE;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    set_hand(&mut g, 0, &[I::HARBOR_VILLAGE, I::VILLAGE]);
+    play(&mut g, I::HARBOR_VILLAGE);
+    play(&mut g, I::VILLAGE);
+    assert_eq!(g.turn.coins, 1, "only the Training token's $1: the Village itself gave no $");
+}
+
+#[test]
+fn two_mining_roads_cannot_play_the_same_treasure_twice() {
+    let mut g = game(&[I::MINING_ROAD]);
+    set_hand(&mut g, 0, &[I::MINING_ROAD, I::MINING_ROAD]);
+    g.turn.actions = 2;
+    play(&mut g, I::MINING_ROAD);
+    play(&mut g, I::MINING_ROAD);
+    gain_now(&mut g, 0, I::GOLD);
+    yes(&mut g);
+    assert_eq!(in_play(&g, I::GOLD), 1);
+    match adv(&mut g) {
+        Step::Decision(d) => assert!(!matches!(d.kind, DecisionKind::YesNo { .. }), "offered again: {d:?}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn pendant_and_wealthy_village_count_duration_treasures_and_loot_in_play() {
+    let mut g = game(&[I::PENDANT, I::GONDOLA]);
+    set_hand(&mut g, 0, &[I::PENDANT]);
+    set_in_play(&mut g, 0, &[I::GONDOLA, I::COPPER]);
+    to_buy(&mut g);
+    play_treasure(&mut g, I::PENDANT);
+    assert_eq!(g.turn.coins, 3, "Gondola played last turn, Copper and Pendant");
+    let mut g = game(&[I::WEALTHY_VILLAGE, I::GONDOLA]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_in_play(&mut g, 0, &[I::GONDOLA, I::AMPHORA, I::COPPER]);
+    gain_now(&mut g, 0, I::WEALTHY_VILLAGE);
+    assert_eq!(discard(&g, I::HAMMER), 1);
+}
+
+#[test]
+fn a_trait_works_after_its_pile_is_empty() {
+    let mut g = traited(&[I::VILLAGE, I::SMITHY], I::RECKLESS, I::SMITHY);
+    set_supply(&mut g, I::SMITHY, 0);
+    set_hand(&mut g, 0, &[I::SMITHY]);
+    play(&mut g, I::SMITHY);
+    assert_eq!(g.players[0].hand.total(), 6, "+3 Cards twice");
+}
+
+#[test]
+fn search_fires_when_a_card_exiled_from_the_supply_empties_a_pile() {
+    let mut g = game(&[I::SEARCH, I::CAMEL_TRAIN, I::VILLAGE]);
+    only_loot(&mut g, &[I::HAMMER]);
+    set_hand(&mut g, 0, &[I::SEARCH, I::CAMEL_TRAIN]);
+    g.turn.actions = 2;
+    play(&mut g, I::SEARCH);
+    set_supply(&mut g, I::VILLAGE, 1);
+    play(&mut g, I::CAMEL_TRAIN);
+    choose(&mut g, Choice::Card(I::VILLAGE));
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SEARCH), 1);
+    assert_eq!(discard(&g, I::HAMMER), 1);
+}
+
+#[test]
+fn inherited_can_replace_a_shelter() {
+    let cfg = GameConfig {
+        num_players: 2,
+        kingdom: vec![I::VILLAGE, I::SMITHY, I::INHERITED],
+        seed: 7,
+        shelters: Some(true),
+        trait_piles: vec![(I::INHERITED, I::SMITHY)],
+        ..Default::default()
+    };
+    let mut g = GameState::new(&cfg);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { from: Zone::StartDeck, .. }), "{d:?}");
+    let ch = choices(&g);
+    assert!(ch.contains(&Choice::Card(I::HOVEL)) && ch.contains(&Choice::Card(I::COPPER)) && !ch.contains(&Choice::Card(I::ESTATE)), "{ch:?}");
+    choose(&mut g, Choice::Card(I::HOVEL));
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1);
+    choose(&mut g, Choice::Card(I::COPPER));
+    adv(&mut g);
+    assert_eq!(g.players[0].all_cards().get(I::HOVEL), 0);
+    assert_eq!(g.players[0].all_cards().get(I::SMITHY), 1);
+}
+
 // ==== END ====
+
+#[test]
+fn maelstrom_with_exactly_three_cards_still_asks_the_others() {
+    let mut g = game(&[I::VILLAGE, I::MAELSTROM]);
+    set_hand(&mut g, 0, &[I::COPPER, I::ESTATE, I::DUCHY]);
+    set_hand(&mut g, 1, &[I::ESTATE, I::DUCHY, I::PROVINCE, I::CURSE, I::COPPER]);
+    buy_event(&mut g, I::MAELSTROM);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "{d:?}");
+}

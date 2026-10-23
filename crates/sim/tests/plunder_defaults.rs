@@ -111,3 +111,78 @@ fn a_fast_bot_plays_a_treasure_from_the_discard_for_orb() {
     let stats = run_match(&[&a, &b], &cfg);
     assert_eq!(stats[0].games, 2000);
 }
+
+// ---- decisions (bot policy; notes in docs/audit/plunder.md) ----
+
+use dominion_engine::text::parse_state;
+use dominion_engine::{Choice, ChoiceBuf, DecisionKind, GameConfig, GameState, NoEvents, PlayerView, Step};
+
+const KD: &str = "Village, Smithy, Market, Militia, Moat, Cellar, Chapel, Workshop, Bandit, Gardens";
+
+/// The bot's answers to the decisions that follow `first` (a card played, or nothing) in the state `text`, up to the next Action or Buy prompt.
+fn answers(text: &str, first: Option<Choice>, strat: &Strategy) -> Vec<(DecisionKind, Choice)> {
+    let mut g = parse_state(text).unwrap();
+    let Step::Decision(_) = g.advance(&mut NoEvents) else { panic!() };
+    if let Some(c) = first {
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+    let mut out = Vec::new();
+    for _ in 0..12 {
+        let Step::Decision(d) = g.advance(&mut NoEvents) else { break };
+        if matches!(d.kind, DecisionKind::PlayAction | DecisionKind::Buy) {
+            break;
+        }
+        let mut buf = ChoiceBuf::default();
+        g.legal_choices(&mut buf);
+        let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
+        assert!(buf.as_slice().contains(&c), "illegal {c:?} in {:?}", buf.as_slice());
+        out.push((d.kind, c));
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+    out
+}
+
+fn state(extra: &str, hand: &str, phase: &str) -> String {
+    format!("players: 2\nkingdom: {KD}, {extra}\nturn: 5  player: 1  phase: {phase}  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: {hand}\ndeck: 8 Copper, 2 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n")
+}
+
+#[test]
+fn inherited_replaces_a_starting_estate() {
+    let bmu = load("big_money_ultimate.toml");
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::VILLAGE, id::SMITHY, p::INHERITED], seed: 3, trait_piles: vec![(p::INHERITED, id::SMITHY)], ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    assert_eq!(bmu.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice()), Choice::Card(id::ESTATE));
+}
+
+#[test]
+fn grotto_sets_the_dead_cards_aside_and_keeps_the_good_treasures() {
+    let bmu = load("big_money_ultimate.toml");
+    let a = answers(&state("Grotto", "Grotto, Copper, Copper, Estate, Silver, Gold", "action"), Some(Choice::Card(p::GROTTO)), &bmu);
+    let picked: Vec<Choice> = a.iter().filter(|(k, _)| matches!(k, DecisionKind::Select { .. })).map(|&(_, c)| c).collect();
+    assert_eq!(picked.first(), Some(&Choice::Card(id::ESTATE)), "the Estate first");
+    assert!(!picked.contains(&Choice::Card(id::GOLD)) && !picked.contains(&Choice::Card(id::SILVER)));
+}
+
+#[test]
+fn shaman_and_maroon_trash_the_curse() {
+    let bmu = load("big_money_ultimate.toml");
+    for (card, name) in [(p::SHAMAN, "Shaman"), (p::MAROON, "Maroon")] {
+        let a = answers(&state(name, &format!("{name}, Copper, Curse, Estate, Silver, Gold"), "action"), Some(Choice::Card(card)), &bmu);
+        assert_eq!(a[0].1, Choice::Card(id::CURSE), "{name}");
+    }
+}
+
+#[test]
+#[ignore = "audit: policy. Cage should be played before the Coppers so that it can set them aside (wiki: 'initially a lot like a Chapel that can only be used once'); the bot plays every Treasure first and Cage last, so only Victory cards and Curses are left to set aside"]
+fn cage_is_played_before_the_coppers_so_that_it_can_set_them_aside() {
+    let bmu = load("big_money_ultimate.toml");
+    let text = state("Cage", "Cage, Copper, Copper, Estate, Silver", "buy");
+    let mut g = parse_state(&text).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    assert_eq!(bmu.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice()), Choice::Card(p::CAGE));
+}

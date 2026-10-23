@@ -206,8 +206,7 @@ State sizes: `GameState` 30,624 bytes (was 29,7xx), `PlayerState` 4,160, `TurnSt
 ## 9. Approximated or left out
 
 * Taskmaster counts only the $5 cards gained after it was played this turn (the card says "this turn"; a $5 gain in the Action phase before the play is not counted).
-* Pile-emptying checks for Search / Cutthroat-like "when a pile empties" triggers run from the gain triggers; piles emptied by a trash (Lurker, Gladiator) or an Exile from the Supply
-  do not wake Search (`plu_check_empty` is not called there).
-* Inherited asks for the starting card only (Copper or Estate); a split-pile Inherited is not offered.
+* Pile-emptying checks for Search run from the gain triggers, a Supply trash (Lurker) and an Exile from the Supply; a pile refilled and emptied again between two checks (Swap) is missed.
+* Inherited: split piles and Shelters are handled (see docs/audit/plunder.md).
 * The Lab's `/api/cards` lists the Events of Plunder but not its Traits; a Lab kingdom cannot name a Trait (the CLI and `GameConfig::trait_piles` can).
 * The shortcuts for Plunder cards are narrower than the card text would allow: seven Actions are `choice` rather than `free` (section 5), so a bot with them in hand searches.

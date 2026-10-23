@@ -1865,3 +1865,25 @@ fn a_shadow_card_goes_to_the_bottom_when_inn_shuffles_actions_into_the_deck() {
     assert_eq!(ps.deck_known_bottom.len, 1, "Alley at the bottom");
     assert!(!ps.deck_unknown.has(id::ALLEY));
 }
+
+#[test]
+fn riverboats_card_gets_the_set_up_it_needs_or_is_not_chosen() {
+    // "If that card also requires setup, do that setup too."
+    for (card, ok) in [(id::BANDIT_CAMP, true), (id::PILLAGE, true), (id::JOUST, true), (id::BAKER, true), (id::POOKA, false), (id::FERRYMAN, false), (id::WEALTHY_VILLAGE, false)] {
+        let cfg = GameConfig { num_players: 2, kingdom: vec![id::RIVERBOAT, id::SMITHY], riverboat: Some(card), seed: 1, ..Default::default() };
+        let g = GameState::new(&cfg);
+        assert_eq!(g.rs.riverboat == card, ok, "{}", cards::name(card));
+        if ok {
+            match card {
+                id::BANDIT_CAMP | id::PILLAGE => assert_eq!(g.spoils, 15),
+                id::JOUST => assert!(g.rewards.iter().all(|&r| r == 1)),
+                _ => assert!(g.players.iter().take(2).all(|ps| ps.coffers == 1)),
+            }
+        }
+    }
+    // No random choice needs a set-up that cannot be done.
+    for seed in 0..3000u64 {
+        let c = dominion_engine::sets::rising_sun::default_riverboat(&|_| false, seed);
+        assert!(!cards::is(c, cards::LIAISON) && !matches!(c, id::POOKA | id::FERRYMAN | id::WEALTHY_VILLAGE), "{}", cards::name(c));
+    }
+}

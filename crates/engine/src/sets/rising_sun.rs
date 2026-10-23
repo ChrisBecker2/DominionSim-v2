@@ -377,7 +377,10 @@ impl SetRules for RisingSun {
 /// in the Supply and needs no set-up of its own.
 fn riverboat_ok(in_game: &dyn Fn(CardId) -> bool, c: CardId) -> bool {
     let ok_type = cards::is(c, ACTION) && !cards::is(c, DURATION) && !cards::is(c, cards::FATE) && !cards::is(c, cards::DOOM) && !cards::is(c, LOOTER);
-    ok_type && cards::cost(c) == 5 && !cards::potion_cost(c) && cards::debt_cost(c) == 0 && cards::is_ready(c) && !in_game(c)
+    // Cards whose set-up the Riverboat game cannot do afterwards: a Liaison needs an Ally and Favors, Pooka its Heirloom in the starting decks,
+    // Ferryman its pile, Wealthy Village the Loot pile. (Spoils, the Rewards and Baker's Coffers are done in `setup`.)
+    let needs_setup = cards::is(c, cards::LIAISON) || matches!(c, id::POOKA | id::FERRYMAN | id::WEALTHY_VILLAGE);
+    ok_type && !needs_setup && cards::cost(c) == 5 && !cards::potion_cost(c) && cards::debt_cost(c) == 0 && cards::is_ready(c) && !in_game(c)
         && match c {
             // A member of the Knights pile: only when the Knights are not in the game; a bottom half of a split pile: only when its top half is not.
             _ if c >= cards::FIRST_PILE_CARD => crate::sets::dark_ages::KNIGHTS_PILE.members().contains(&c) && !in_game(id::KNIGHTS),
@@ -427,6 +430,17 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
         let in_game = |c: CardId| g.in_supply(c) || has(c);
         let card = cfg.riverboat.filter(|&c| riverboat_ok(&in_game, c)).unwrap_or_else(|| default_riverboat(&in_game, cfg.seed));
         g.rs.riverboat = card;
+        // "If that card also requires setup, do that setup too": the Spoils of Bandit Camp and Pillage, Joust's Rewards, Baker's Coffers.
+        match card {
+            id::BANDIT_CAMP | id::PILLAGE if g.spoils == 0 => g.spoils = 15,
+            id::JOUST if g.rewards.iter().all(|&r| r == 0) => g.rewards = [if n == 2 { 1 } else { 2 }; cards::NUM_REWARDS],
+            id::BAKER => {
+                for ps in g.players.iter_mut().take(n) {
+                    ps.coffers = ps.coffers.max(1);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

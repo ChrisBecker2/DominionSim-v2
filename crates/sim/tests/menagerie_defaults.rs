@@ -168,3 +168,70 @@ fn exile_choices_prefer_cards_that_cost_nothing_to_lose() {
     let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
     assert_eq!(c, Choice::Card(id::CURSE), "{d:?}");
 }
+
+#[test]
+fn barge_is_played_to_draw_now_even_when_actions_are_left() {
+    // Wiki (Barge, Strategy): "Most of the time, it's best to play your Barges to draw this turn". With an Action left to play, the drawn
+    // cards can be used at once; the bot used to keep the Barge for the next turn exactly then.
+    let strat = load("big_money_ultimate.toml");
+    let text = format!(
+        "players: 2
+kingdom: {KINGDOM}, Barge
+turn: 3  player: 1  phase: action  actions: 2  buys: 1  coins: 0
+
+[player 1]
+hand: Barge, Smithy, Copper, Copper, Estate
+deck: 10 Copper
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+"
+    );
+    let mut g = parse_state(&text).unwrap();
+    let Step::Decision(_) = g.advance(&mut NoEvents) else { panic!() };
+    g.apply(Choice::Card(m::BARGE), &mut NoEvents).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
+    assert_eq!(c, Choice::Yes, "{d:?}");
+}
+
+#[test]
+#[ignore = "audit policy: the wiki's main use of Camel Train is to stock up on an expensive card the deck wants (\"Exile ... several copies ... and then buy just one when you're ready\"); the bot Exiles the dearest card its strategy does not list (denial)"]
+fn camel_train_exiles_a_card_the_strategy_wants_several_copies_of() {
+    let strat = Strategy::parse("name = \"S\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Smithy\"
+if = \"count(Smithy) < 3\"
+[[gain]]
+card = \"Gold\"
+[[gain]]
+card = \"Silver\"
+").unwrap();
+    let text = format!(
+        "players: 2
+kingdom: {KINGDOM}, Camel Train
+turn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0
+
+[player 1]
+hand: Camel Train, Copper, Copper, Estate, Estate
+deck: 5 Copper
+
+[player 2]
+hand: 5 Copper
+deck: 5 Estate
+"
+    );
+    let mut g = parse_state(&text).unwrap();
+    let Step::Decision(_) = g.advance(&mut NoEvents) else { panic!() };
+    g.apply(Choice::Card(m::CAMEL_TRAIN), &mut NoEvents).unwrap();
+    let Step::Decision(d) = g.advance(&mut NoEvents) else { panic!() };
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    let c = strat.decide(&PlayerView::new(&g, d.player), &d, buf.as_slice());
+    assert_eq!(c, Choice::Card(id::SMITHY), "{d:?}");
+}

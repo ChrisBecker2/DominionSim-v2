@@ -1008,18 +1008,18 @@ impl GameState {
                 if f.count > 0 {
                     let c = f.last;
                     let (vs, n) = self.victims(sink);
-                    // The Curses are gained first, in turn order, then the hands are cut down.
-                    if self.cost(c) >= 3 {
-                        for &v in vs[..n].iter().rev() {
-                            self.stack.push(Frame { depth: f.depth, ..gain_frame(v, f.source, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
-                        }
-                    }
+                    // The Curses are gained first, in turn order, then the hands are cut down (the stack runs the last frame pushed first).
                     if self.is_treasure(c) {
                         for &v in vs[..n].iter().rev() {
                             self.stack.push(Frame {
                                 depth: f.depth, down_to_target: true,
                                 ..select(v, f.source, Zone::Hand, Act::Discard, Filter::Any, 0, 3, Then::Nothing)
                             });
+                        }
+                    }
+                    if self.cost(c) >= 3 {
+                        for &v in vs[..n].iter().rev() {
+                            self.stack.push(Frame { depth: f.depth, ..gain_frame(v, f.source, u8::MAX, Filter::Card(id::CURSE), Dest::Discard) });
                         }
                     }
                 }

@@ -2245,3 +2245,36 @@ fn an_enchanted_crossroads_counts_as_played_so_the_next_gives_no_actions() {
     play(&mut g, id::CROSSROADS);
     assert_eq!(g.turn.actions, 1, "no +3 Actions the second time (2 - 1)");
 }
+
+#[test]
+fn a_fools_gold_blocked_by_a_highwayman_still_makes_the_next_one_worth_four() {
+    let mut g = new_state(&[id::FOOLS_GOLD, id::HIGHWAYMAN], 2);
+    set_hand(&mut g, 0, &[id::HIGHWAYMAN]);
+    play(&mut g, id::HIGHWAYMAN);
+    reset_turn(&mut g, 1);
+    set_hand(&mut g, 1, &[id::FOOLS_GOLD, id::FOOLS_GOLD]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure, "{d:?}");
+    choose(&mut g, Choice::Card(id::FOOLS_GOLD));
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 4, "the first (blocked) Fool's Gold does nothing; the second is the second played: $4");
+}
+
+#[test]
+fn haggler_compares_coin_and_debt_parts_so_a_fortune_bought_gains_an_overlord_or_an_engineer() {
+    // "$0 and 8 Debt" is cheaper than "$8 and 8 Debt" (a Possession would not be: it is not in this set).
+    let mut g = new_state(&[id::HAGGLER, id::GLADIATOR, id::OVERLORD, id::ENGINEER, id::CITY_QUARTER], 2);
+    set_deck_known(&mut g, 0, &junk());
+    empty_pile(&mut g, id::GLADIATOR);
+    g.turn.played.add(id::HAGGLER, 1);
+    set_in_play(&mut g, 0, &[id::HAGGLER]);
+    buy_phase(&mut g, &[]);
+    g.turn.coins = 8;
+    g.apply(Choice::Card(id::FORTUNE), &mut NoEvents).unwrap();
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::OVERLORD)) && c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::FORTUNE)), "not cheaper than itself");
+}

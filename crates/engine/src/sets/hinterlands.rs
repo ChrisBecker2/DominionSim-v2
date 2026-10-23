@@ -233,7 +233,7 @@ impl SetRules for Hinterlands {
         if on_buy && own_turn && g.in_supply(ids::HAGGLER) {
             for _ in 0..g.turn.played.get(ids::HAGGLER) {
                 g.stack.push(Frame {
-                    less: true, potion: cards::potion_cost(c), ..gain_frame(p, ids::HAGGLER, g.cost(c), Filter::NonVictory, Dest::Discard)
+                    less: true, potion: cards::potion_cost(c), min: cards::debt_cost(c), ..gain_frame(p, ids::HAGGLER, g.cost(c), Filter::NonVictory, Dest::Discard)
                 });
             }
         }

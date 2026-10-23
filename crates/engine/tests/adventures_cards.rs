@@ -3440,3 +3440,61 @@ fn a_caravan_guard_drawn_by_a_caravan_guard_can_be_played_against_the_same_attac
     choose(&mut g, Choice::Yes);
     assert_eq!(g.players[1].in_play.get(id::CARAVAN_GUARD), 2);
 }
+
+#[test]
+fn raze_looks_at_the_coin_cost_only_and_a_bridge_troll_lowers_it() {
+    // Raze FAQ: "If you trash a card with Debt or Potion in the cost, you get nothing for those symbols"; "Costs may be affected by Bridge Troll".
+    let mut g = new_state(&[id::RAZE, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::RAZE, id::FAMILIAR]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE, id::DUCHY]);
+    play(&mut g, id::RAZE);
+    choose(&mut g, Choice::No);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Select { from: Zone::Revealed, .. }), "{d:?}");
+    assert_eq!(g.players[0].set_aside.total(), 3, "$3 of the $3P Familiar");
+    let mut g = new_state(&[id::RAZE, id::SMITHY], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::RAZE, id::SMITHY]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE, id::DUCHY]);
+    play(&mut g, id::RAZE);
+    choose(&mut g, Choice::No);
+    assert_eq!(g.players[0].set_aside.total(), 3, "a Smithy costs $3 with Bridge Troll's reduction");
+}
+
+#[test]
+fn teacher_may_use_a_pile_whose_card_is_set_aside_under_the_estate_token() {
+    // Teacher FAQ: "It is okay if you have an Estate token on a card set aside from that pile."
+    let mut g = new_state(&[id::PEASANT, id::SMITHY, id::VILLAGE], 2);
+    g.players[0].tavern.add(id::TEACHER, 1);
+    g.players[0].inherit = id::SMITHY;
+    adv(&mut g);
+    choose(&mut g, Choice::Yes);
+    choose(&mut g, Choice::Mode(0));
+    assert!(choices(&g).contains(&Choice::Card(id::SMITHY)));
+}
+
+#[test]
+#[ignore = "audit: Seaway's gain filter (Filter::Action) tests printed types; Estates are Actions during the Inheriting player's turn (rules: 'with Inheritance you can put the +1 Buy token on Estates')"]
+fn seaway_can_gain_an_estate_for_a_player_with_inheritance_and_put_the_token_on_the_estate_pile() {
+    // Seaway FAQ: "with Inheritance, you can put the +1 Buy token on Estates."
+    let mut g = buy_phase(&[id::SEAWAY, id::INHERITANCE], 5);
+    g.players[0].inherit = id::SMITHY;
+    adv(&mut g);
+    buy(&mut g, id::SEAWAY);
+    assert!(choices(&g).contains(&Choice::Card(id::ESTATE)), "{:?}", choices(&g));
+    pick(&mut g, id::ESTATE);
+    assert_eq!(g.players[0].tok[TOK_BUY], id::ESTATE);
+}
+
+#[test]
+fn an_inherited_estate_is_an_action_card_so_champion_gives_an_action_for_it_and_for_the_card_it_plays() {
+    // Inheritance FAQ: Estates are Action cards on the owner's turns; Champion: "when you play an Action card, you first get +1 Action".
+    let mut g = new_state(&[id::SMITHY, id::INHERITANCE], 2);
+    g.players[0].inherit = id::SMITHY;
+    set_in_play(&mut g, 0, &[id::CHAMPION]);
+    g.adv |= dominion_engine::state::G_CHAMPION;
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::ESTATE);
+    assert_eq!(g.turn.actions, 1 - 1 + 1 + 1, "the Estate (an Action card) and the Smithy it plays each give +1 Action with Champion");
+}

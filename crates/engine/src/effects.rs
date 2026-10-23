@@ -249,7 +249,7 @@ impl GameState {
             self.turn.coins += if SWAP { def.cards as u16 } else { def.coins as u16 };
             self.turn.potions += def.potions;
             // Champion: when you play an Action card, you first get +1 Action (per Champion in play, this one only once it is out).
-            if self.adv & G_CHAMPION != 0 && cards::is(card, ACTION) {
+            if self.adv & G_CHAMPION != 0 && (cards::is(card, ACTION) || (card == id::ESTATE && self.estates_are_actions(p))) {
                 let champions = self.players[p as usize].in_play.get(id::CHAMPION).saturating_sub((card == id::CHAMPION) as u8);
                 self.turn.actions += champions;
                 // Shown as its own bonus ("Champion: +1 Action" under the card played).

@@ -92,3 +92,22 @@ fn loot_comes_to_the_bots_from_every_source() {
     let stats = run_match(&[&s, &bmu], &cfg);
     assert_eq!(stats[0].games, 20);
 }
+
+/// Orb's "play an Action or Treasure from your discard pile" can't be declined: a fast bot with no Action worth playing plays a Treasure
+/// (it used to answer Pass, an illegal choice, on this kingdom).
+#[test]
+fn a_fast_bot_plays_a_treasure_from_the_discard_for_orb() {
+    let kd: Vec<u16> = ["Jewelled Egg", "Search", "Siren", "Abundance", "Fortune Hunter", "Rope", "Cutthroat", "Figurine", "Silver Mine", "Sack of Loot", "Journey", "Fawning"]
+        .iter()
+        .map(|n| cards::by_name(n).unwrap())
+        .collect();
+    let mut a = load("courtyard_bm.toml");
+    let mut b = load("governor_bm.toml");
+    for s in [&mut a, &mut b] {
+        s.search_play = false;
+        s.win_this_turn = false;
+    }
+    let cfg = MatchConfig { games: 2000, kingdom: kd, seed: 549999, max_turns: 200 };
+    let stats = run_match(&[&a, &b], &cfg);
+    assert_eq!(stats[0].games, 2000);
+}

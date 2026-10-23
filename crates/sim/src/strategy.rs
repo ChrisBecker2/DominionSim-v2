@@ -1397,7 +1397,16 @@ impl Strategy {
                 }
             }
         }
-        self.best_play(view, choices, for_multiplier).map(Choice::Card).unwrap_or(Choice::Pass)
+        if let Some(c) = self.best_play(view, choices, for_multiplier) {
+            return Choice::Card(c);
+        }
+        // A play that can't be declined (Orb: an Action or Treasure from the discard pile) with no Action worth playing: the Treasure worth the most.
+        if !choices.contains(&Choice::Pass) {
+            if let Some(c) = iter_cards(choices).max_by_key(|&c| (cards::def(c).coins, std::cmp::Reverse(c))) {
+                return Choice::Card(c);
+            }
+        }
+        Choice::Pass
     }
 
     /// The Action phase with no Action left (the only choices are a Villager and Pass): spend a Villager when the hand holds an Action worth playing

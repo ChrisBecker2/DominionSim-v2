@@ -348,6 +348,17 @@ use crate::cards::{is_kingdom, kingdom_cards, pile_eligible, set_of};
 use crate::state::GameConfig;
 
 impl GameState {
+    /// A card of the Bane's pile in `p`'s hand, to reveal against Young Witch: the Bane itself, or the other half of a split pile
+    /// (or another Castle): "all cards from the split pile can be revealed".
+    pub(crate) fn bane_in_hand(&self, p: u8) -> Option<CardId> {
+        let hand = &self.players[p as usize].hand;
+        if hand.has(self.bane) {
+            return Some(self.bane);
+        }
+        let pile = cards::pile_of(self.bane);
+        hand.iter().map(|(c, _)| c).find(|&c| cards::pile_of(c) == pile)
+    }
+
     /// `p` adds `n` Coffers tokens to their mat (`source` gave them).
     pub(crate) fn give_coffers<S: EventSink>(&mut self, p: u8, source: CardId, n: u16, sink: &mut S) {
         self.players[p as usize].coffers += n;

@@ -591,7 +591,10 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
     // Games without a card of the set (all but a few) stop here: the state is as `new` made it.
     let mut ally = 0;
     let mut any = false;
-    for &k in &cfg.kingdom {
+    // Young Witch's Bane and Ferryman's card are set up like kingdom cards ("do any set-up the card requires": a Liaison brings an Ally).
+    let extra = [g.bane, g.ferryman];
+    let kingdom = || cfg.kingdom.iter().copied().chain(extra.into_iter().filter(|&k| k != 0));
+    for k in kingdom() {
         if cards::is_ally(k) {
             ally = k;
             any = true;
@@ -602,7 +605,7 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
     if !any {
         return;
     }
-    let liaison = cfg.kingdom.iter().any(|&k| cards::is(k, LIAISON));
+    let liaison = kingdom().any(|k| cards::is(k, LIAISON));
     // A game with a Liaison has exactly one Ally: the kingdom's if it lists one, else one chosen from the seed.
     if ally == 0 && liaison {
         ally = cards::FIRST_ALLY + (cfg.seed % cards::NUM_ALLIES as u64) as CardId;

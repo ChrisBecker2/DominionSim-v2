@@ -783,10 +783,12 @@ impl GameState {
             }
             K::Gain => {
                 // Young Witch: a player who reveals a Bane from their hand is not given the Curse.
-                if f.gf & crate::state::GF_BANE_BLOCKS != 0 && self.bane != 0 && self.players[pi].hand.has(self.bane) {
-                    sink.event(Event::Reaction { player: p, card: self.bane });
-                    self.stack.pop();
-                    return Run::Continue;
+                if f.gf & crate::state::GF_BANE_BLOCKS != 0 && self.bane != 0 {
+                    if let Some(bane) = self.bane_in_hand(p) {
+                        sink.event(Event::Reaction { player: p, card: bane });
+                        self.stack.pop();
+                        return Run::Continue;
+                    }
                 }
                 let mut buf = ChoiceBuf::default();
                 self.frame_choices(f, &mut buf);

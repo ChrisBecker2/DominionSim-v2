@@ -276,7 +276,7 @@ impl SetRules for Hinterlands {
         }
         // Trader: a card gained may be exchanged for a Silver by revealing a Trader (asked first). A Silver is never worth exchanging.
         if (g.in_supply(ids::TRADER) || g.ferryman == ids::TRADER) && c != id::SILVER && g.players[p as usize].hand.has(ids::TRADER) && g.supply.get(id::SILVER) > 0
-            && (g.in_supply(c) || g.in_supply(cards::pile_of(c)))
+            && g.has_pile_of(c)
         {
             g.stack.push(Frame { zone, act: Act::Return, subject: c, then: Then::TraderSwap, ..Frame::new(K::YesNo, p, ids::TRADER) });
         }

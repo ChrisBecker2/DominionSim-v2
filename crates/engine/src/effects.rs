@@ -1538,7 +1538,7 @@ impl GameState {
                 }
             }
             // Nocturne: back to its pile (Wish, Bat, Vampire, a card exchanged for a Changeling).
-            Act::Return => self.return_to_pile(p, c, sink),
+            Act::Return => self.return_to_own_pile(p, c, sink),
             Act::Archive => ps.archive.add(c, 1),
             // Menagerie: onto the Exile mat (not a gain, not a trash).
             Act::Exile => {

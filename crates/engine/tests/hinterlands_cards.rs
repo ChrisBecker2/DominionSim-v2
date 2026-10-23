@@ -1882,3 +1882,19 @@ fn nomads_and_trail_from_the_ferryman_pile_react_when_gained() {
     let d = expect_decision(&mut g);
     assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }) && d.subject == id::TRAIL, "{d:?}");
 }
+
+#[test]
+fn trader_exchanges_a_card_gained_from_a_pile_outside_the_supply() {
+    // "You return the gained card to its pile (whether in the Supply or not)": a Spoils goes back to the Spoils pile.
+    let mut g = new_state(&[id::TRADER, id::BANDIT_CAMP], 2);
+    set_hand(&mut g, 0, &[id::BANDIT_CAMP, id::TRADER]);
+    set_deck_known(&mut g, 0, &junk());
+    let spoils = g.spoils;
+    play(&mut g, id::BANDIT_CAMP);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Return }) && d.subject == id::SPOILS && d.source == Some(id::TRADER), "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.spoils, spoils, "back in the Spoils pile");
+    assert_eq!(g.players[0].discard.get(id::SILVER), 1);
+    assert!(!g.players[0].discard.has(id::SPOILS));
+}

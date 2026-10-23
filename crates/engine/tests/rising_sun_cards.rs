@@ -1902,3 +1902,57 @@ fn divine_wind_never_deals_a_liaison_it_could_not_set_up() {
         assert!(g.supply_cards().all(|c| !cards::is(c, cards::LIAISON)), "seed {seed}");
     }
 }
+
+#[test]
+#[ignore = "audit: Highwayman is checked before Enlightenment, so the first Treasure played in the Action phase does nothing; the wiki says Highwayman can't stop it from giving +1 Card and +1 Action"]
+fn highwayman_cannot_stop_the_first_treasure_played_in_the_action_phase_under_enlightenment() {
+    let mut g = active(&[id::HIGHWAYMAN, id::SMITHY], id::ENLIGHTENMENT, 2);
+    set_hand(&mut g, 0, &[id::HIGHWAYMAN]);
+    play(&mut g, id::HIGHWAYMAN);
+    reset_turn(&mut g, 1);
+    set_hand(&mut g, 1, &[id::SILVER, id::ESTATE]);
+    set_deck_known(&mut g, 1, &[id::DUCHY, id::DUCHY]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayAction, "{d:?}");
+    choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!(g.players[1].hand.get(id::DUCHY), 1, "+1 Card");
+    assert_eq!(g.turn.actions, 1, "the Action used, +1 Action");
+}
+
+#[test]
+fn riverboat_can_choose_a_card_of_a_split_pile_and_a_knight_only_without_the_knights() {
+    // "This can choose $5s in a split pile (like Bustling Village)." "If you get the Knights randomizer, you randomly pick one of the 9 Knights that cost $5."
+    let mut split = false;
+    let mut knight = false;
+    for seed in 0..4000u64 {
+        let c = dominion_engine::sets::rising_sun::default_riverboat(&|_| false, seed);
+        split |= c == id::BUSTLING_VILLAGE;
+        knight |= cards::name(c).starts_with("Sir ") || cards::name(c).starts_with("Dame ");
+        let c = dominion_engine::sets::rising_sun::default_riverboat(&|c| c == id::KNIGHTS || c == id::SETTLERS, seed);
+        assert!(c != id::BUSTLING_VILLAGE && !cards::name(c).starts_with("Sir "), "{}", cards::name(c));
+    }
+    assert!(split && knight);
+}
+
+#[test]
+fn a_band_of_misfits_imitating_aristocrat_finds_no_aristocrat_in_play() {
+    // "Command variants leave the card where it is, so an Aristocrat played that way will not be considered in play."
+    let mut g = new_state(&[id::ARISTOCRAT, id::BAND_OF_MISFITS], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    play(&mut g, id::BAND_OF_MISFITS);
+    adv(&mut g);
+    assert_eq!(g.turn.actions, 0, "the Band of Misfits used the Action and no +3 Actions: there is no Aristocrat in play");
+}
+
+#[test]
+fn amass_works_after_a_horse_has_returned_to_its_pile() {
+    // "Cards you played this turn but which are no longer in play, such as Horse, will not (stop Amass)."
+    let mut g = event_game(&[id::AMASS, id::WAY_OF_THE_HORSE]);
+    set_hand(&mut g, 0, &[id::VILLAGE]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::VILLAGE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Way), "{d:?}");
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_HORSE));
+    assert_eq!(g.actions_in_play(0), 0, "the Village went back to its pile");
+}

@@ -90,8 +90,13 @@ impl SetDefaults for Renaissance {
 
     fn default_mode(_s: &Strategy, view: &PlayerView, card: CardId, choices: &[Choice]) -> Option<Choice> {
         match card {
-            // The Lantern (a third card to choose from) over the Horn.
-            id::BORDER_GUARD => find_mode(card, choices, |o| matches!(o, ModeOpt::TakeArtifact(id::LANTERN))).or_else(|| choices.first().copied()),
+            // The Horn first, then the Lantern (the wiki: "it is usually best to take the Horn first": with the Lantern all three cards revealed
+            // must be Actions for the Horn).
+            id::BORDER_GUARD => {
+                let (horn, lantern) = (id::HORN, id::LANTERN);
+                let first = if view.has_artifact(view.me(), horn) { lantern } else { horn };
+                find_mode(card, choices, |o| matches!(o, ModeOpt::TakeArtifact(a) if *a == first)).or_else(|| choices.first().copied())
+            }
             // Scepter: replay an Action that gives a good deal (cards, $, Buys, an attack), else +$2.
             id::SCEPTER => {
                 let target = view

@@ -1982,6 +1982,7 @@ impl GameState {
             | Then::ExorcistGain
             | Then::MonasteryCopper
             | Then::TragicHero
+            | Then::LeprechaunCheck
             | Then::SecretCave
             | Then::BatExchange
             | Then::VampireBat

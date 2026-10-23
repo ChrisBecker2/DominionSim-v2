@@ -385,12 +385,10 @@ impl SetRules for Nocturne {
                 }
             }
             ids::LEPRECHAUN => {
+                // The cards in play are counted after the Gold is gained, reactions to it included (a Sheepdog played then counts): the check is
+                // pushed first so that it runs last.
+                g.stack.push(select(p, card, Zone::Hand, Discard, Filter::Any, 0, 0, Then::LeprechaunCheck));
                 g.gain(p, id::GOLD, Dest::Discard, false, card, sink);
-                if g.players[pi].in_play.total() == 7 {
-                    g.gain_side(p, ids::WISH, Dest::Discard, card, sink);
-                } else {
-                    g.stack.push(Frame { min: 1 << p, ..Frame::new(K::ReceiveHex, p, card) });
-                }
             }
             ids::NIGHT_WATCHMAN => g.look_at_top(p, card, 5),
             ids::SECRET_CAVE => g.stack.push(Frame { exact: true, ..select(p, card, Zone::Hand, Discard, Filter::Any, 0, 3, Then::SecretCave) }),
@@ -1251,6 +1249,13 @@ impl GameState {
                     if self.leave_play_self(p, f.source, f.tok) {
                         self.trash_card(p, f.source, true, sink);
                     }
+                }
+            }
+            Then::LeprechaunCheck => {
+                if self.players[pi].in_play.total() == 7 {
+                    self.gain_side(p, ids::WISH, Dest::Discard, f.source, sink);
+                } else {
+                    self.stack.push(Frame { min: 1 << p, depth: f.depth, ..Frame::new(K::ReceiveHex, p, f.source) });
                 }
             }
             Then::SecretCave => {

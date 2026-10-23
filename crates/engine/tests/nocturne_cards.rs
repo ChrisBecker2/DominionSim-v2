@@ -2526,3 +2526,324 @@ fn necromancer_on_tragic_hero_gains_the_treasure_without_trashing_it() {
     assert_eq!(g.trash.get(id::TRAGIC_HERO), 1, "still the one in the trash");
     assert!(g.players[0].discard.has(id::GOLD));
 }
+
+/// A deck whose top card is `c`, over junk.
+fn deck_with_top(c: CardId) -> Vec<CardId> {
+    let mut d = vec![c];
+    d.extend(junk());
+    d
+}
+
+/// Ghost: when the deck runs out the discard pile is shuffled but not the cards already revealed: the Estate is revealed exactly once, whatever the shuffle.
+#[test]
+fn ghost_shuffles_the_discard_pile_but_not_the_revealed_cards() {
+    for seed in 0..40u64 {
+        let mut g = new_state(&[id::EXORCIST, id::SMITHY], 2);
+        g.rng = Rng::new(seed);
+        set_hand(&mut g, 0, &[id::GHOST]);
+        set_deck_known(&mut g, 0, &[id::ESTATE]);
+        set_discard(&mut g, 0, &[id::SMITHY]);
+        at_night(&mut g);
+        let mut log: Vec<Event> = Vec::new();
+        choose_ev(&mut g, Choice::Card(id::GHOST), &mut log);
+        let reveals = log.iter().filter(|e| matches!(e, Event::Reveal { card, .. } if *card == id::ESTATE)).count();
+        assert_eq!(reveals, 1, "seed {seed}: the revealed Estate came back through the shuffle");
+        assert_eq!(g.players[0].set_aside.get(id::SMITHY), 1);
+    }
+}
+
+/// Ghost: the Action is played twice at the start of the next turn without using Action plays, and it is not optional.
+#[test]
+fn ghost_plays_the_action_twice_without_using_an_action() {
+    let mut g = new_state(&[id::EXORCIST, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::SMITHY));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 0);
+    assert_eq!(g.turn.played.get(id::SMITHY), 2);
+    assert_eq!(g.turn.actions, 1, "Action plays are not used");
+}
+
+/// Ghost playing a Duration: the Ghost stays in play with it.
+#[test]
+fn ghost_stays_in_play_with_a_duration_it_played() {
+    let mut g = new_state(&[id::EXORCIST, id::HAVEN], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::HAVEN));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 0);
+    // Haven twice: two cards each time, each asks to set one aside. Answer whatever is asked until this turn ends.
+    let start = g.turn.number;
+    for _ in 0..40 {
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) => {
+                if g.turn.number != start {
+                    break;
+                }
+                let c = match d.kind {
+                    DecisionKind::PlayAction | DecisionKind::Buy | DecisionKind::PlayNight => Choice::Pass,
+                    _ => choices(&g)[0],
+                };
+                g.apply(c, &mut NoEvents).unwrap();
+            }
+            _ => break,
+        }
+    }
+    assert!(g.players[0].in_play.has(id::GHOST) && g.players[0].in_play.has(id::HAVEN), "both stay out for the Haven's next turn");
+}
+
+/// Ghost playing a card that trashes itself (Pixie): it is played a second time even though it is no longer in play.
+#[test]
+fn ghost_plays_a_card_that_trashed_itself_again() {
+    let mut g = new_state(&[id::EXORCIST, id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::PIXIE));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    // First play: trash the Pixie to receive the Boon twice.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }) && d.subject == id::PIXIE, "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.trash.get(id::PIXIE), 1);
+    assert_eq!(g.turn.played.get(id::PIXIE), 2, "played the second time too");
+}
+
+/// Ghost playing a Horse: the second play happens although the Horse returned to its pile.
+#[test]
+fn ghost_plays_a_horse_twice() {
+    let mut g = new_state(&[id::EXORCIST, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::GHOST]);
+    set_deck_known(&mut g, 0, &deck_with_top(id::HORSE));
+    set_deck_known(&mut g, 1, &junk());
+    at_night(&mut g);
+    night(&mut g, id::GHOST);
+    set_hand(&mut g, 1, &[]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.played.get(id::HORSE), 2);
+    assert_eq!(g.players[0].hand.total(), 5 + 4, "+2 Cards twice");
+}
+
+/// Imp: cannot play a copy of an Action in play (another Imp, or a Duration from an earlier turn), but can play a card it played and trashed.
+#[test]
+fn imp_and_conclave_cannot_play_a_copy_of_a_card_in_play() {
+    let mut g = new_state(&[id::SECRET_CAVE, id::DEVILS_WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::IMP, id::IMP, id::SECRET_CAVE]);
+    set_in_play(&mut g, 0, &[id::SECRET_CAVE]);
+    set_deck_known(&mut g, 0, &junk());
+    let st = play(&mut g, id::IMP);
+    let Step::Decision(d) = st else { panic!("{st:?}") };
+    assert_eq!(d.kind, DecisionKind::Buy, "neither the second Imp (one is in play) nor the Secret Cave from an earlier turn can be played");
+}
+
+/// Will-o'-Wisp: a Potion or Debt in the cost is more than $2, so the card stays on the deck.
+#[test]
+fn will_o_wisp_leaves_cards_with_potion_or_debt_in_the_cost_on_the_deck() {
+    for c in [id::UNIVERSITY, id::ENGINEER] {
+        let mut g = new_state(&[id::BARD, c], 2);
+        set_hand(&mut g, 0, &[id::WILL_O_WISP]);
+        set_deck_known(&mut g, 0, &[id::COPPER, c]);
+        play(&mut g, id::WILL_O_WISP);
+        assert_eq!(g.players[0].deck_known.peek_top(), Some(c), "{}", cards::name(c));
+    }
+}
+
+/// Lucky Coin, Goat: playing them (and the Silver, the trash) is a choice: passing on the Treasure plays nothing.
+#[test]
+fn lucky_coin_can_be_left_in_the_hand_and_goat_may_trash_nothing() {
+    let mut g = new_state(&[id::FOOL], 2);
+    set_hand(&mut g, 0, &[id::LUCKY_COIN]);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(!g.players[0].discard.has(id::SILVER) && g.turn.coins == 0);
+    let mut g = new_state(&[id::PIXIE], 2);
+    set_hand(&mut g, 0, &[id::GOAT, id::CURSE]);
+    g.turn.phase = Phase::Buy;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::GOAT);
+    pass(&mut g);
+    assert!(g.trash.is_empty());
+}
+
+/// Faithful Hound: it need not be in hand (Night Watchman discarding it from the deck), but gaining it or putting it in the discard pile without
+/// discarding it (Scavenger) gives no offer.
+#[test]
+fn faithful_hound_is_offered_when_discarded_from_the_deck_but_not_when_gained() {
+    let mut g = new_state(&[id::FAITHFUL_HOUND, id::NIGHT_WATCHMAN], 2);
+    set_hand(&mut g, 0, &[id::NIGHT_WATCHMAN]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    at_night(&mut g);
+    night(&mut g, id::NIGHT_WATCHMAN);
+    pick(&mut g, id::FAITHFUL_HOUND);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::SetAside }) && d.subject == id::FAITHFUL_HOUND, "{d:?}");
+    // Gained: no offer.
+    let mut g = new_state(&[id::FAITHFUL_HOUND], 2);
+    g.turn.phase = Phase::Buy;
+    set_hand(&mut g, 0, &[id::SILVER]);
+    expect_decision(&mut g);
+    buy(&mut g, id::FAITHFUL_HOUND);
+    assert_eq!(count(&g, 0, id::FAITHFUL_HOUND), 1);
+    assert_eq!(g.players[0].hounds, 0);
+    assert!(!matches!(adv(&mut g), Step::Decision(Decision { kind: DecisionKind::YesNo { .. }, .. })));
+}
+
+/// Faithful Hound discarded with Vassal and set aside: Vassal cannot play it.
+#[test]
+fn a_hound_set_aside_from_vassal_is_not_played() {
+    let mut g = new_state(&[id::FAITHFUL_HOUND, id::VASSAL], 2);
+    set_hand(&mut g, 0, &[id::VASSAL]);
+    set_deck_known(&mut g, 0, &[id::FAITHFUL_HOUND, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::VASSAL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::SetAside }), "{d:?}");
+    yes(&mut g);
+    assert_eq!(g.players[0].hounds, 1);
+    assert_eq!(g.turn.played.get(id::FAITHFUL_HOUND), 0);
+    assert_eq!(g.players[0].hand.total(), 0);
+}
+
+/// Raider: a victim with five cards and no copy of anything in play reveals the hand and discards nothing.
+#[test]
+fn raider_vs_a_hand_with_no_copy_discards_nothing() {
+    let mut g = new_state(&[id::RAIDER], 2);
+    set_hand(&mut g, 0, &[id::RAIDER]);
+    set_in_play(&mut g, 0, &[id::GOLD]);
+    set_hand(&mut g, 1, &[id::COPPER, id::COPPER, id::ESTATE, id::ESTATE, id::SILVER]);
+    set_deck_known(&mut g, 0, &junk());
+    at_night(&mut g);
+    night(&mut g, id::RAIDER);
+    // (Player 1's turn has begun and the Treasures went into play: nothing was discarded.)
+    assert_eq!(g.players[1].hand.total() + g.players[1].in_play.total(), 5);
+    assert!(g.players[1].discard.is_empty());
+}
+
+/// Leprechaun counts the cards in play after the Gold is gained: a Sheepdog played in reaction to the Gold counts toward exactly seven.
+#[test]
+fn leprechaun_counts_after_the_gold_is_gained_and_reacted_to() {
+    let mut g = new_state(&[id::LEPRECHAUN, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::LEPRECHAUN, id::SHEEPDOG]);
+    set_in_play(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::VILLAGE, id::MARKET]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    play(&mut g, id::LEPRECHAUN);
+    // Leprechaun is the 6th card in play; the Sheepdog, played when the Gold is gained, is the 7th: a Wish and no Hex.
+    let mut guard = 0;
+    while guard < 6 {
+        guard += 1;
+        match g.advance(&mut NoEvents) {
+            Step::Decision(d) if matches!(d.kind, DecisionKind::YesNo { .. }) => {
+                yes(&mut g);
+            }
+            _ => break,
+        }
+    }
+    assert!(g.players[0].discard.has(id::WISH), "7 cards in play: a Wish");
+    assert_eq!(g.noc.hex_discard, 0, "no Hex");
+}
+
+/// Werewolf played by day is still an Attack card: another player's Moat may be revealed to it (and then nothing else happens: +3 Cards only).
+#[test]
+fn werewolf_by_day_is_still_an_attack_for_reactions() {
+    let mut g = new_state(&[id::WEREWOLF, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::WEREWOLF]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    set_deck_known(&mut g, 0, &junk());
+    let st = play(&mut g, id::WEREWOLF);
+    let Step::Decision(d) = st else { panic!("{st:?}") };
+    assert_eq!(d.player, 1, "the Moat is offered although Werewolf only draws by day");
+}
+
+/// Werewolf replayed outside the Night phase (Scepter in the Buy phase): +3 Cards, no Hex.
+#[test]
+fn werewolf_replayed_by_scepter_in_the_buy_phase_draws() {
+    let mut g = new_state(&[id::WEREWOLF, id::SCEPTER], 2);
+    set_hand(&mut g, 0, &[id::WEREWOLF, id::SCEPTER]);
+    set_deck_known(&mut g, 0, &junk());
+    next_hex(&mut g, id::GREED);
+    play(&mut g, id::WEREWOLF);
+    assert_eq!(g.players[0].hand.total(), 4);
+    let hexes = g.noc.hex_deck;
+    // Buy phase: the Scepter replays the Werewolf.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::PlayTreasure | DecisionKind::Buy), "{d:?}");
+    if d.kind == DecisionKind::PlayTreasure {
+        play_treasure(&mut g, id::SCEPTER);
+        let d = expect_decision(&mut g);
+        let cs = choices(&g);
+        if matches!(d.kind, DecisionKind::Mode { .. }) {
+            choose(&mut g, cs[1]);
+        }
+        let _ = adv(&mut g);
+        if choices(&g).contains(&Choice::Card(id::WEREWOLF)) {
+            pick(&mut g, id::WEREWOLF);
+        }
+        assert_eq!(g.players[0].hand.total(), 4 - 1 + 3 + 0, "+3 Cards from the replay (the Scepter left the hand)");
+    }
+    assert_eq!(g.noc.hex_deck, hexes, "no Hex was turned over");
+}
+
+/// Panic (Rising Sun) returns the Treasures played to their piles, but not an Heirloom: it has no pile.
+#[test]
+fn panic_does_not_return_an_heirloom() {
+    let mut g = new_state(&[id::TRACKER, id::PANIC], 2);
+    g.rs.suns = 0;
+    g.rs.active = id::PANIC;
+    g.rs_update_hooks();
+    set_hand(&mut g, 0, &[id::POUCH, id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    let copper = g.supply.get(id::COPPER);
+    adv(&mut g);
+    pass(&mut g);
+    assert_eq!(g.supply.get(id::POUCH), 0, "no Pouch pile appeared");
+    assert_eq!(g.supply.get(id::COPPER), copper + 1);
+    assert_eq!(count(&g, 0, id::POUCH), 1, "the Pouch is still owned");
+}
+
+/// Night Watchman with Progress: a card gained and put onto the deck while it resolves (a Gold for a discarded Tunnel) ends up under the cards put back.
+#[test]
+fn night_watchman_puts_the_rest_back_on_top_of_a_card_put_on_the_deck_meanwhile() {
+    let mut g = new_state(&[id::NIGHT_WATCHMAN, id::TUNNEL, id::PROGRESS], 2);
+    g.rs.suns = 0;
+    g.rs.active = id::PROGRESS;
+    g.rs_update_hooks();
+    set_hand(&mut g, 0, &[id::NIGHT_WATCHMAN]);
+    set_deck_known(&mut g, 0, &[id::TUNNEL, id::COPPER, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    at_night(&mut g);
+    night(&mut g, id::NIGHT_WATCHMAN);
+    pick(&mut g, id::TUNNEL);
+    // The Tunnel's Gold may be revealed for; whatever is asked, accept.
+    let mut guard = 0;
+    while guard < 10 {
+        guard += 1;
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            _ => break,
+        };
+        match d.kind {
+            DecisionKind::YesNo { .. } => {
+                yes(&mut g);
+            }
+            DecisionKind::Select { act: Act::Topdeck, .. } => {
+                let c = choices(&g)[0];
+                choose(&mut g, c);
+            }
+            DecisionKind::Select { .. } => {
+                pass(&mut g);
+            }
+            _ => break,
+        }
+    }
+    assert!(count(&g, 0, id::GOLD) == 1, "the Tunnel gave a Gold");
+}

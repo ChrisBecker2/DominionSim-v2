@@ -1041,6 +1041,10 @@ impl GameState {
                 }
             }
             self.way_effect(way, card, p, f.tok, sink);
+            // Rising Sun: Great Leader's +1 Action and Approaching Army's +$1 follow a play whatever way it was played.
+            if self.rs.active != 0 && p == self.turn.player {
+                self.rs_after_play(card, p, sink);
+            }
         }
         self.turn.led.cur = outer;
         self.stamp_frames(base, f);

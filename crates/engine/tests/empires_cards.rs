@@ -1593,3 +1593,35 @@ fn a_throne_roomed_engineer_trashes_itself_once_with_another_engineer_in_play() 
 fn yes_no(g: &mut GameState, yes: bool) {
     choose(g, if yes { Choice::Yes } else { Choice::No });
 }
+
+// ===========================================================================
+// Audit tests
+// ===========================================================================
+
+/// Charm: "the next time you gain a card this turn": that is the Rocks, not the Silver Rocks gains.
+#[test]
+fn charm_applies_to_the_card_bought_not_to_the_silver_its_gain_trigger_gains() {
+    let mut g = new_state(&[id::CHARM, id::CATAPULT, id::SMITHY, id::MARKET], 2);
+    empty_pile(&mut g, id::CATAPULT);
+    set_hand(&mut g, 0, &[id::CHARM, id::GOLD, id::GOLD]);
+    g.turn.phase = Phase::Buy;
+    g.pending = Pending::None;
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::CHARM);
+    choose(&mut g, Choice::Mode(1));
+    buy(&mut g, id::ROCKS);
+    // The Charm asks for a differently named card costing $4 (the Rocks' cost): a Smithy, not a $3 card.
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::SMITHY)), "{c:?}");
+}
+
+/// Temple: the VP token is added to the pile even when no card could be trashed (empty hand).
+#[test]
+fn temple_adds_its_vp_token_to_the_pile_even_with_an_empty_hand() {
+    let mut g = new_state(&[id::TEMPLE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::TEMPLE]);
+    play(&mut g, id::TEMPLE);
+    adv(&mut g);
+    assert_eq!(g.players[0].vp_tokens, 1);
+    assert_eq!(g.emp.piles.vp_on(id::TEMPLE), 1);
+}

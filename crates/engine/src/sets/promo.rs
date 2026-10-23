@@ -343,6 +343,12 @@ impl GameState {
         self.actions_in_play(p) > 2
     }
 
+    /// Whether the start-of-turn effects of the turn are still being resolved (a Piazza, a Summoned card, a Duration may play cards that
+    /// create "at the start of each of your turns" effects, which then happen this turn too).
+    pub(crate) fn in_start_of_turn(&self) -> bool {
+        self.stack.frames[..self.stack.len as usize].iter().any(|x| x.kind == K::StartOrder)
+    }
+
     /// Prince: the card just picked (in `set_aside`) is now held by the Prince, which stays in
     /// play for good; the same for a Throne Room / King's Court playing it (counted in the
     /// multiplier tally, see `FrameKind::MultiplierFinalize`).
@@ -361,6 +367,11 @@ impl GameState {
         }
         if self.turn.multiplier_card != 0 {
             self.turn.multiplier_successes += 1;
+        }
+        // A Prince played while the start of this turn is still being resolved (by Piazza) plays the card it now holds this turn too: its
+        // "at the start of each of your turns" has not been passed yet.
+        if self.in_start_of_turn() {
+            self.turn.start_pending.push(PendingDuration { card: id::PRINCE, times: 1, arg: f.last, used: 0 });
         }
     }
 }

@@ -303,6 +303,11 @@ impl SetRules for Adventures {
                 if ps.stays.get(card) < ps.in_play.get(card) {
                     ps.stays.add(card, 1);
                 }
+                // Played while the start of the turn is being resolved (Summon): "at the start of each of your turns" is still to come
+                // this turn, so it draws now as well.
+                if g.in_start_of_turn() {
+                    g.stack.push(draw_frame(p, card, 1));
+                }
             }
             ids::TREASURE_HUNTER => {
                 let right = g.right_of(p);

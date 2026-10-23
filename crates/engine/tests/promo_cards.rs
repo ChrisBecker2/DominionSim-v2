@@ -2145,3 +2145,117 @@ fn walled_village_counts_the_treasures_in_play_as_actions_under_enlightenment() 
         assert_eq!(d.as_ref().is_some_and(|d| is_topdeck_offer(d, id::WALLED_VILLAGE)), offered, "enlightened: {enlightened}");
     }
 }
+
+// ===========================================================================
+// Audit: ruling coverage (wiki FAQ bullets that had no test of their own)
+// ===========================================================================
+
+#[test]
+fn prince_cannot_set_aside_a_card_with_debt_in_its_cost() {
+    let mut g = new_state(&[id::PRINCE, id::ENGINEER, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::PRINCE, id::ENGINEER, id::VILLAGE]);
+    play(&mut g, id::PRINCE);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
+}
+
+#[test]
+fn a_prince_played_at_the_start_of_the_turn_plays_the_card_it_sets_aside_that_same_turn() {
+    use dominion_engine::cards::FIRST_PROJECT;
+    let mut g = new_state(&[id::PRINCE, id::VILLAGE, id::PIAZZA], 2);
+    let bit = 1u32 << (id::PIAZZA - FIRST_PROJECT);
+    g.players[0].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+    set_hand(&mut g, 0, &[id::VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::PRINCE, id::ESTATE, id::DUCHY, id::PROVINCE]);
+    // Start of turn: Piazza plays the Prince from the top of the deck.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    // The Village is played now, as the start of the turn is still on: +1 Card, +2 Actions.
+    assert_eq!(g.players[0].prince_cards.get(id::VILLAGE), 1);
+    assert!(g.turn.played.has(id::VILLAGE), "played on the turn it is set aside");
+}
+
+#[test]
+fn a_held_crown_is_played_in_the_action_phase_at_the_start_of_the_turn() {
+    let mut g = new_state(&[id::PRINCE, id::CROWN, id::VILLAGE], 2);
+    with_prince_holding(&mut g, &[id::CROWN]);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    // The Crown, played from the start of the turn (an Action phase), plays the Village twice.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    assert_eq!(g.players[0].hand.total(), 3, "the Estate and two cards drawn");
+    assert_eq!(g.turn.actions, 1 + 4);
+}
+
+#[test]
+fn a_sauna_cannot_play_a_sauna_for_free_and_an_avanto_only_follows_the_sauna() {
+    let mut g = new_state(&[id::SAUNA, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::SAUNA, id::SAUNA, id::AVANTO]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SAUNA);
+    // Only the Avanto is offered right after the Sauna.
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::AVANTO)) && !c.contains(&Choice::Card(id::SAUNA)), "{c:?}");
+    // Declining it, the next Action the player plays is not free.
+    choose(&mut g, Choice::Pass);
+    assert_eq!(g.turn.actions, 1, "Sauna gave +1 Action");
+}
+
+#[test]
+fn a_sauna_trashes_a_card_each_time_a_crowned_silver_is_played() {
+    let mut g = new_state(&[id::SAUNA, id::CROWN], 2);
+    set_hand(&mut g, 0, &[id::SAUNA, id::CROWN, id::SILVER, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SAUNA);
+    pass(&mut g); // no Avanto to play; on to the Buy phase
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::CROWN);
+    choose(&mut g, Choice::Card(id::SILVER));
+    // Two plays of the Silver, two optional trashes: take both.
+    let mut trashed = 0;
+    while g.pending_decision().is_some_and(|d| matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. })) {
+        choose(&mut g, Choice::Card(id::ESTATE));
+        trashed += 1;
+    }
+    assert_eq!(trashed, 2);
+    assert_eq!(g.trash.get(id::ESTATE), 2);
+}
+
+#[test]
+fn captain_can_play_a_workshop_that_gains_the_workshop_itself() {
+    let mut g = new_state(&[id::CAPTAIN, id::WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::CAPTAIN]);
+    play(&mut g, id::CAPTAIN); // the Workshop is the only Action to play: played from the Supply, leaving it there
+    assert!(choices(&g).contains(&Choice::Card(id::WORKSHOP)), "Workshop can gain itself");
+    choose(&mut g, Choice::Card(id::WORKSHOP));
+    assert_eq!(g.players[0].discard.get(id::WORKSHOP), 1);
+    assert_eq!(g.supply.get(id::WORKSHOP), 9);
+}
+
+#[test]
+fn marchland_has_eight_copies_with_two_players_and_twelve_with_more() {
+    assert_eq!(new_state(&[id::MARCHLAND], 2).supply.get(id::MARCHLAND), 8);
+    assert_eq!(new_state(&[id::MARCHLAND], 3).supply.get(id::MARCHLAND), 12);
+    assert_eq!(new_state(&[id::MARCHLAND], 6).supply.get(id::MARCHLAND), 12);
+}
+
+#[test]
+fn a_summoned_hireling_draws_when_played_at_the_start_of_the_turn() {
+    let mut g = new_state(&[id::SUMMON, id::HIRELING], 2);
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    to_buy(&mut g);
+    g.turn.coins = 5; // (an Event's cost is not reduced)
+    g.turn.cost_reduction = 2; // the Hireling ($6) costs $4 with a reduction: Summon gains Actions costing up to $4
+    expect_decision(&mut g);
+    buy(&mut g, id::SUMMON);
+    // (The Hireling is the only Action Summon can gain, so it is gained without asking.)
+    to_next_own_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::HIRELING));
+    assert_eq!(g.players[0].hand.total(), 5 + 1, "the Hireling's card, drawn when it is played at the start of the turn");
+}

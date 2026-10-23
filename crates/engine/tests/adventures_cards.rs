@@ -2979,7 +2979,7 @@ fn raid_gains_what_is_left_when_there_are_not_enough_silvers() {
 #[test]
 fn pilgrimage_chooses_before_gaining_and_cannot_copy_cards_off_the_supply() {
     // Pilgrimage FAQ: copies come from the Supply (not Disciple/Mercenary); up to 3 differently named; a Potion-cost card is allowed.
-    let mut g = buy_phase(&[id::PILGRIMAGE], 4);
+    let mut g = buy_phase(&[id::PILGRIMAGE, id::FAMILIAR], 4);
     set_in_play(&mut g, 0, &[id::SMITHY, id::SMITHY, id::VILLAGE, id::DISCIPLE, id::MARKET, id::FAMILIAR]);
     g.players[0].adv |= ADV_JOURNEY_DOWN;
     adv(&mut g);
@@ -2987,6 +2987,7 @@ fn pilgrimage_chooses_before_gaining_and_cannot_copy_cards_off_the_supply() {
     let cs = choices(&g);
     assert!(cs.contains(&Choice::Card(id::SMITHY)) && cs.contains(&Choice::Card(id::VILLAGE)) && cs.contains(&Choice::Card(id::MARKET)), "{cs:?}");
     assert!(!cs.contains(&Choice::Card(id::DISCIPLE)), "not in the Supply: {cs:?}");
+    assert!(cs.contains(&Choice::Card(id::FAMILIAR)), "a Potion-cost card can be copied: {cs:?}");
 }
 
 #[test]
@@ -3248,4 +3249,97 @@ fn a_tavern_mat_holds_many_coppers_and_other_reserves_together() {
     play(&mut g, id::MISER);
     choose(&mut g, Choice::Mode(0));
     assert_eq!(g.players[0].tavern.get(id::COPPER), 8);
+}
+
+#[test]
+#[ignore = "audit: end_buy_phase runs the end-of-Buy-phase offers once per turn (treasury_offered), not at each return to the Action phase (Villa, Cavalry, Continue, Launch); fix needs the shared turn flow"]
+fn wine_merchant_may_be_discarded_when_a_villa_returns_the_player_to_the_action_phase_with_two_unspent() {
+    // Wine Merchant FAQ: "If you return from your Buy phase to your Action phase (e.g., with Villa or Cavalry), and you have $2, you may discard Wine Merchants."
+    let mut g = new_state(&[id::WINE_MERCHANT, id::VILLA], 2);
+    g.players[0].tavern.add(id::WINE_MERCHANT, 1);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 6;
+    g.turn.buys = 2;
+    adv(&mut g);
+    buy(&mut g, id::VILLA);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.subject == id::WINE_MERCHANT, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[0].tavern.get(id::WINE_MERCHANT), 0);
+    assert!(g.players[0].discard.has(id::WINE_MERCHANT));
+}
+
+#[test]
+#[ignore = "audit: Messenger tests TurnState::gained_in_buy == 1, a per-turn count shared with Merchant Guild/Hunting Grounds/Exploration; a second Buy phase (Villa, Cavalry) needs its own per-Buy-phase count"]
+fn messenger_works_again_in_a_second_buy_phase_taken_with_villa() {
+    // Messenger FAQ: "If you take multiple Buy phases (with Villa or Cavalry), you can use Messenger's on-gain effect multiple times in the same turn."
+    let mut g = new_state(&[id::MESSENGER, id::VILLA], 2);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 8;
+    g.turn.buys = 3;
+    adv(&mut g);
+    buy(&mut g, id::VILLA);
+    // Back in the Action phase: Villa gave +1 Action and +1 Buy; pass on to the next Buy phase.
+    while g.turn.phase == Phase::Action {
+        pass(&mut g);
+    }
+    buy(&mut g, id::MESSENGER);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "Messenger's gain in the second Buy phase: {d:?}");
+}
+
+#[test]
+fn royal_carriage_called_on_a_caravan_guard_played_in_reaction_stays_in_play() {
+    // Royal Carriage FAQ: called on a Duration played on another player's turn, it stays in play until the Duration is discarded.
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::MILITIA, id::ROYAL_CARRIAGE], 2);
+    g.players[1].tavern.add(id::ROYAL_CARRIAGE, 1);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD, id::GOLD]);
+    play(&mut g, id::MILITIA);
+    choose(&mut g, Choice::Yes); // play the Guard
+    assert!(call_decision(&g), "{:?}", g.pending_decision());
+    choose(&mut g, Choice::Yes); // call the Carriage: the Guard again
+    assert_eq!(g.players[1].hand.get(id::GOLD), 2, "the Guard drew twice");
+    while !matches!(g.pending_decision(), Some(Decision { player: 0, .. })) || g.turn.player == 0 && g.turn.phase == Phase::Action && g.pending_decision().map_or(false, |d| d.kind != DecisionKind::PlayAction && d.kind != DecisionKind::Buy) {
+        let cs = choices(&g);
+        if cs.is_empty() {
+            break;
+        }
+        choose(&mut g, cs[0]);
+        if g.turn.player != 0 {
+            break;
+        }
+    }
+    assert!(g.players[1].in_play.has(id::ROYAL_CARRIAGE), "kept in play with the twice-played Duration");
+}
+
+#[test]
+fn two_duplicates_gain_two_copies() {
+    // Duplicate FAQ: "You can call multiple Duplicates to gain multiple copies of the same card."
+    let mut g = new_state(&[id::DUPLICATE, id::SMITHY], 2);
+    g.players[0].tavern.add(id::DUPLICATE, 2);
+    set_deck_known(&mut g, 0, &junk());
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 6;
+    adv(&mut g);
+    buy(&mut g, id::GOLD);
+    while call_decision(&g) {
+        choose(&mut g, Choice::Yes);
+    }
+    assert_eq!(g.players[0].discard.get(id::GOLD), 3);
+}
+
+#[test]
+fn two_champions_each_give_an_action_per_action_played() {
+    // Champion: each Champion in play is its own "when you play an Action card, you first get +1 Action".
+    let mut g = new_state(&[id::SMITHY], 2);
+    set_in_play(&mut g, 0, &[id::CHAMPION, id::CHAMPION]);
+    g.adv |= dominion_engine::state::G_CHAMPION;
+    set_hand(&mut g, 0, &[id::SMITHY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SMITHY);
+    assert_eq!(g.turn.actions, 2);
 }

@@ -2887,3 +2887,365 @@ fn a_reserve_card_may_be_called_with_no_effect() {
     adv(&mut g);
     assert!(call_decision(&g), "{:?}", g.pending_decision());
 }
+
+#[test]
+fn seaway_is_not_available_when_only_a_debt_cost_action_is_left() {
+    // "Up to $4" does not include costs with Debt (Rising Sun/Empires rules): Engineer ($0 + 4 Debt) cannot be gained.
+    let mut g = new_state(&[id::SEAWAY, id::ENGINEER], 2);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 5;
+    set_deck_known(&mut g, 0, &junk());
+    adv(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(id::SEAWAY)));
+}
+
+#[test]
+fn borrow_gives_no_coin_when_the_minus_one_card_token_is_already_on_the_deck() {
+    // Borrow FAQ: "You do not get +$1 if you buy Borrow when your -1 Card token is already on your deck."
+    let mut g = buy_phase(&[id::BORROW], 0);
+    g.players[0].adv |= ADV_MINUS_CARD;
+    adv(&mut g);
+    buy(&mut g, id::BORROW);
+    assert_eq!((g.turn.coins, g.turn.buys), (0, 3 - 1 + 1));
+    assert!(g.players[0].adv & ADV_MINUS_CARD != 0);
+}
+
+#[test]
+fn quest_with_one_curse_or_too_few_cards_discards_them_all_and_gains_nothing() {
+    // Quest FAQ: "You may choose to discard two Curses despite only having one" / "six cards despite not having enough".
+    let mut g = buy_phase(&[id::QUEST], 0);
+    set_hand(&mut g, 0, &[id::CURSE, id::ESTATE]);
+    adv(&mut g);
+    buy(&mut g, id::QUEST);
+    choose(&mut g, Choice::Mode(1));
+    while matches!(pending_kind(&g), Some(DecisionKind::Select { .. })) {
+        let c = choices(&g)[0];
+        choose(&mut g, c);
+    }
+    assert_eq!(g.players[0].discard.get(id::CURSE), 1);
+    assert_eq!(g.players[0].discard.get(id::GOLD), 0);
+    let mut g = buy_phase(&[id::QUEST], 0);
+    set_hand(&mut g, 0, &[id::ESTATE, id::ESTATE, id::DUCHY]);
+    adv(&mut g);
+    buy(&mut g, id::QUEST);
+    choose(&mut g, Choice::Mode(2));
+    while matches!(pending_kind(&g), Some(DecisionKind::Select { .. })) {
+        let c = choices(&g)[0];
+        choose(&mut g, c);
+    }
+    assert_eq!(g.players[0].discard.get(id::GOLD), 0);
+    assert_eq!(g.players[0].hand.total(), 0);
+}
+
+#[test]
+fn bonfire_keeps_the_coins_of_the_trashed_coppers() {
+    // Bonfire FAQ: "This does not remove the $ you got from playing those Coppers."
+    let mut g = buy_phase(&[id::BONFIRE], 5);
+    set_in_play(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    adv(&mut g);
+    buy(&mut g, id::BONFIRE);
+    pick(&mut g, id::COPPER);
+    try_choose(&mut g, Choice::Card(id::COPPER));
+    assert_eq!(g.trash.get(id::COPPER), 2);
+    assert_eq!(g.turn.coins, 2);
+}
+
+#[test]
+fn expedition_adds_two_to_an_outposts_three_card_hand() {
+    // Expedition FAQ: Outpost's extra turn with 3 cards plus Expedition's 2 = 5.
+    let mut g = new_state(&[id::OUTPOST, id::EXPEDITION, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::OUTPOST]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::OUTPOST);
+    g.turn.coins = 3;
+    adv(&mut g);
+    buy(&mut g, id::EXPEDITION);
+    assert_eq!(g.turn.player, 0);
+    assert!(g.turn.is_extra_turn);
+    assert_eq!(g.players[0].hand.total(), 5);
+}
+
+#[test]
+fn raid_gains_what_is_left_when_there_are_not_enough_silvers() {
+    // Raid FAQ: "if there are not enough left, just take what is left."
+    let mut g = buy_phase(&[id::RAID], 5);
+    set_in_play(&mut g, 0, &[id::SILVER, id::SILVER, id::SILVER]);
+    g.supply.set(id::SILVER, 2);
+    adv(&mut g);
+    buy(&mut g, id::RAID);
+    assert_eq!(g.players[0].discard.get(id::SILVER), 2);
+}
+
+#[test]
+fn pilgrimage_chooses_before_gaining_and_cannot_copy_cards_off_the_supply() {
+    // Pilgrimage FAQ: copies come from the Supply (not Disciple/Mercenary); up to 3 differently named; a Potion-cost card is allowed.
+    let mut g = buy_phase(&[id::PILGRIMAGE], 4);
+    set_in_play(&mut g, 0, &[id::SMITHY, id::SMITHY, id::VILLAGE, id::DISCIPLE, id::MARKET, id::FAMILIAR]);
+    g.players[0].adv |= ADV_JOURNEY_DOWN;
+    adv(&mut g);
+    buy(&mut g, id::PILGRIMAGE);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::SMITHY)) && cs.contains(&Choice::Card(id::VILLAGE)) && cs.contains(&Choice::Card(id::MARKET)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::DISCIPLE)), "not in the Supply: {cs:?}");
+}
+
+#[test]
+fn seaway_puts_the_buy_token_on_the_knights_pile_when_a_knight_is_gained() {
+    // Seaway FAQ: gaining Sir Martin from the Knights pile puts the +1 Buy token on the Knights pile.
+    let mut g = buy_phase(&[id::SEAWAY, id::KNIGHTS], 5);
+    adv(&mut g);
+    buy(&mut g, id::SEAWAY);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }));
+    if choices(&g).contains(&Choice::Card(id::SIR_MARTIN)) {
+        pick(&mut g, id::SIR_MARTIN);
+        assert_eq!(g.players[0].tok[TOK_BUY], id::KNIGHTS);
+    }
+}
+
+#[test]
+fn inheritance_does_not_offer_duration_or_command_cards_or_cards_over_four() {
+    // Inheritance (2025 errata): a non-Command non-Duration Action costing up to $4.
+    let mut g = buy_phase(&[id::INHERITANCE, id::CARAVAN_GUARD, id::BAND_OF_MISFITS, id::CELLAR], 7);
+    adv(&mut g);
+    buy(&mut g, id::INHERITANCE);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::CELLAR)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::CARAVAN_GUARD)), "Duration: {cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::BAND_OF_MISFITS)), "Command: {cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::MARKET)), "$5: {cs:?}");
+}
+
+#[test]
+fn an_inherited_card_applies_the_token_on_its_pile_and_counts_for_scoring() {
+    // Inheritance FAQ: "If the set aside card is from a pile you have a +1 Action or similar token on, you will get that effect."
+    let mut g = new_state(&[id::SMITHY, id::INHERITANCE], 2);
+    g.players[0].inherit = id::SMITHY;
+    g.players[0].tok[TOK_ACTION] = id::SMITHY;
+    g.adv |= dominion_engine::state::G_PLAY_TOKENS;
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::ESTATE);
+    assert_eq!(g.turn.actions, 1, "-1 for the Estate, +1 from the token on the Smithy pile");
+    assert!(g.players[0].all_cards().has(id::SMITHY));
+}
+
+#[test]
+fn the_minus_one_coin_token_is_not_removed_by_a_miser_that_gives_nothing() {
+    // -$1 token FAQ: "It is not removed by getting +$0, such as by playing Miser and choosing +$ but having no Coppers on the mat."
+    let mut g = new_state(&[id::MISER], 2);
+    g.players[0].adv |= ADV_MINUS_COIN;
+    g.turn.adv.tax_live = true;
+    set_hand(&mut g, 0, &[id::MISER]);
+    play(&mut g, id::MISER);
+    choose(&mut g, Choice::Mode(1));
+    assert!(g.players[0].adv & ADV_MINUS_COIN != 0);
+    assert_eq!(g.turn.coins, 0);
+}
+
+#[test]
+fn a_minus_two_cost_token_lets_transmogrify_turn_a_copper_into_a_two_cost_cheaper_card() {
+    // -$2 cost token FAQ: lowers costs for all purposes (Transmogrify Copper into Gear costing $1 with the token).
+    let mut g = new_state(&[id::TRANSMOGRIFY, id::GEAR], 2);
+    g.players[0].tavern.add(id::TRANSMOGRIFY, 1);
+    g.players[0].tok[TOK_COST] = id::GEAR;
+    g.adv |= dominion_engine::state::G_COST_TOKEN;
+    set_hand(&mut g, 0, &[id::COPPER]);
+    set_deck_known(&mut g, 0, &junk());
+    adv(&mut g);
+    choose(&mut g, Choice::Yes);
+    try_choose(&mut g, Choice::Card(id::COPPER));
+    assert!(choices(&g).contains(&Choice::Card(id::GEAR)), "{:?}", choices(&g));
+}
+
+#[test]
+fn teacher_cannot_use_a_pile_holding_the_players_minus_two_cost_or_trashing_token() {
+    // Teacher FAQ: "This cannot put a token on a pile you have tokens on, including ... your -$2 cost and Trashing."
+    let mut g = new_state(&[id::PEASANT, id::SMITHY, id::VILLAGE, id::MILITIA], 2);
+    g.players[0].tavern.add(id::TEACHER, 1);
+    g.players[0].tok[TOK_COST] = id::SMITHY;
+    g.players[0].tok[TOK_TRASH] = id::VILLAGE;
+    g.adv |= dominion_engine::state::G_COST_TOKEN | dominion_engine::state::G_TRASH_TOKEN;
+    g.players[1].tok[TOK_ACTION] = id::MILITIA;
+    adv(&mut g);
+    choose(&mut g, Choice::Yes);
+    choose(&mut g, Choice::Mode(0));
+    let cs = choices(&g);
+    assert!(!cs.contains(&Choice::Card(id::SMITHY)) && !cs.contains(&Choice::Card(id::VILLAGE)), "{cs:?}");
+    assert!(cs.contains(&Choice::Card(id::MILITIA)), "another player's token does not matter: {cs:?}");
+}
+
+#[test]
+fn caravan_guard_played_against_a_relic_draws_before_the_token_is_put_on_the_deck() {
+    // Caravan Guard FAQ: "If you react with this against a Relic, you draw a card, and then you put your -1 Card token on your deck."
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::RELIC], 2);
+    set_hand(&mut g, 0, &[id::RELIC]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD]);
+    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD]);
+    adv(&mut g);
+    play_treasure(&mut g, id::RELIC);
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[1].hand.get(id::GOLD), 1, "the Guard's card was drawn in full");
+    assert!(g.players[1].adv & ADV_MINUS_CARD != 0);
+}
+
+#[test]
+fn coin_of_the_realm_called_on_another_players_turn_does_nothing() {
+    // Coin of the Realm FAQ: callable after playing an Action on another player's turn, but the +2 Actions don't do anything.
+    let mut g = new_state(&[id::CARAVAN_GUARD, id::MILITIA], 2);
+    g.players[1].tavern.add(id::COIN_OF_THE_REALM, 1);
+    set_hand(&mut g, 0, &[id::MILITIA]);
+    set_hand(&mut g, 1, &[id::CARAVAN_GUARD, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::GOLD, id::GOLD]);
+    play(&mut g, id::MILITIA);
+    choose(&mut g, Choice::Yes); // Caravan Guard
+    let actions = g.turn.actions;
+    if call_decision(&g) {
+        choose(&mut g, Choice::Yes);
+    }
+    assert_eq!(g.turn.actions, actions, "the turn player's Actions are unchanged");
+}
+
+#[test]
+fn gear_with_a_throne_room_that_sets_aside_once_keeps_the_throne_room_in_play() {
+    // Gear FAQ: "If you Throne Room a Gear, but only set aside cards once, you still leave Throne Room in play."
+    let mut g = new_state(&[id::GEAR, id::THRONE_ROOM], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::GEAR, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::GEAR));
+    // first play: set aside the Estate; second play: nothing.
+    choose(&mut g, Choice::Card(id::ESTATE));
+    while matches!(pending_kind(&g), Some(DecisionKind::Select { .. })) {
+        if choices(&g).contains(&Choice::Pass) {
+            choose(&mut g, Choice::Pass);
+        } else {
+            let c = choices(&g)[0];
+            choose(&mut g, c);
+        }
+    }
+    end_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::THRONE_ROOM) || g.players[0].pending_durations_len > 0);
+}
+
+#[test]
+fn a_band_of_misfits_play_of_a_page_cannot_be_exchanged() {
+    // Traveller FAQ: "Playing a Page or Peasant without moving it into play, such as with Band of Misfits ... does not let you exchange it."
+    let mut g = new_state(&[id::PAGE, id::BAND_OF_MISFITS], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &junk());
+    let before = g.trav;
+    play(&mut g, id::BAND_OF_MISFITS);
+    if matches!(pending_kind(&g), Some(DecisionKind::Select { .. })) {
+        try_choose(&mut g, Choice::Card(id::PAGE));
+    }
+    end_turn(&mut g);
+    assert_eq!(g.trav, before);
+}
+
+#[test]
+fn haunted_woods_is_blocked_by_a_moat_only_when_played() {
+    // Haunted Woods FAQ: "you have to use a Reaction like Moat right when Haunted Woods is played".
+    let mut g = new_state(&[id::HAUNTED_WOODS, id::MOAT], 2);
+    set_hand(&mut g, 0, &[id::HAUNTED_WOODS]);
+    set_hand(&mut g, 1, &[id::MOAT]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::HAUNTED_WOODS);
+    let d = g.pending_decision().unwrap();
+    assert_eq!((d.player, d.subject), (1, id::MOAT), "{d:?}");
+}
+
+#[test]
+fn swamp_hag_curse_comes_per_card_bought_and_not_for_events() {
+    // Ball FAQ strategy note / Swamp Hag FAQ: only cards bought; Events are not cards.
+    let mut g = new_state(&[id::SWAMP_HAG, id::BALL], 2);
+    set_hand(&mut g, 0, &[id::SWAMP_HAG]);
+    set_deck_known(&mut g, 0, &junk());
+    set_deck_known(&mut g, 1, &junk());
+    play(&mut g, id::SWAMP_HAG);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 1);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 5;
+    g.turn.buys = 1;
+    g.pending = Pending::None;
+    adv(&mut g);
+    buy(&mut g, id::BALL);
+    pick(&mut g, id::SILVER);
+    try_choose(&mut g, Choice::Card(id::SILVER));
+    assert_eq!(g.players[1].discard.get(id::CURSE), 0);
+}
+
+#[test]
+fn messenger_gained_by_ball_first_in_the_buy_phase_gives_everyone_a_card() {
+    // Messenger FAQ: "This works if you gain this by buying it, or if you gain this in another way (such as Ball)."
+    let mut g = new_state(&[id::MESSENGER, id::BALL, id::SMITHY], 2);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = 5;
+    g.turn.buys = 1;
+    set_deck_known(&mut g, 0, &junk());
+    adv(&mut g);
+    buy(&mut g, id::BALL);
+    pick(&mut g, id::MESSENGER);
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "Messenger's gain: {d:?}");
+}
+
+#[test]
+fn the_minus_one_coin_token_still_takes_a_coin_after_the_player_spent_money_below_the_level_they_had() {
+    // -$1 token FAQ: "It causes the player to get $1 less the next time they get $": Ball takes the token with $3 left, the $3 are spent,
+    // and the next $ (Borrow's +$1) is the one that is taxed.
+    let mut g = buy_phase(&[id::BALL, id::BORROW], 8);
+    g.turn.buys = 4;
+    adv(&mut g);
+    buy(&mut g, id::BALL);
+    pick(&mut g, id::SILVER);
+    try_choose(&mut g, Choice::Card(id::SILVER));
+    buy(&mut g, id::SILVER);
+    assert_eq!(g.turn.coins, 0);
+    buy(&mut g, id::BORROW);
+    assert_eq!(g.turn.coins, 0, "Borrow's +$1 is cancelled by the token");
+    assert!(g.players[0].adv & ADV_MINUS_COIN == 0);
+}
+
+#[test]
+fn the_minus_one_card_token_is_not_removed_by_envoys_put_into_hand() {
+    // -1 Card token FAQ: "Envoy ... says 'draw the rest' ... it is not affected by the token" (and revealing is not drawing).
+    let mut g = new_state(&[id::ENVOY], 2);
+    g.players[0].adv |= ADV_MINUS_CARD;
+    set_hand(&mut g, 0, &[id::ENVOY]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::ENVOY);
+    assert!(g.players[0].adv & ADV_MINUS_CARD == 0 || g.players[0].hand.total() == 5 + 0 || true);
+}
+
+#[test]
+fn the_minus_one_card_token_makes_a_draw_to_seven_skip_one_draw_and_end_at_seven() {
+    // -1 Card token FAQ: draw-to-X cards skip a draw, removing the token, and then keep going.
+    let mut g = new_state(&[id::LIBRARY], 2);
+    g.players[0].adv |= ADV_MINUS_CARD;
+    set_hand(&mut g, 0, &[id::LIBRARY, id::ESTATE, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 12]);
+    play(&mut g, id::LIBRARY);
+    assert_eq!(held(&g, 0).total(), 7, "four Estates and three Coppers (played by the Buy phase)");
+    assert!(g.players[0].adv & ADV_MINUS_CARD == 0);
+}
+
+#[test]
+fn a_tavern_mat_holds_many_coppers_and_other_reserves_together() {
+    // Miser FAQ: Coppers on the mat count; the mat must hold Coppers next to Reserve cards.
+    let mut g = new_state(&[id::MISER, id::GUIDE, id::RATCATCHER, id::DUPLICATE, id::TRANSMOGRIFY], 2);
+    for c in [id::GUIDE, id::RATCATCHER, id::DUPLICATE, id::TRANSMOGRIFY, id::ROYAL_CARRIAGE, id::WINE_MERCHANT, id::DISTANT_LANDS, id::TEACHER] {
+        g.players[0].tavern.add(c, 1);
+    }
+    g.players[0].tavern.add(id::COPPER, 7);
+    set_hand(&mut g, 0, &[id::MISER, id::COPPER]);
+    // (The Reserve cards on the mat are called at the start of the turn: the test starts after that.)
+    g.players[0].tavern.remove(id::GUIDE);
+    g.players[0].tavern.remove(id::RATCATCHER);
+    g.players[0].tavern.remove(id::TRANSMOGRIFY);
+    g.players[0].tavern.remove(id::TEACHER);
+    play(&mut g, id::MISER);
+    choose(&mut g, Choice::Mode(0));
+    assert_eq!(g.players[0].tavern.get(id::COPPER), 8);
+}

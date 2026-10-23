@@ -739,6 +739,9 @@ impl GameState {
             self.turn.coins -= 1;
             self.turn.adv.tax_live = false;
             self.players[self.turn.player as usize].adv &= !ADV_MINUS_COIN;
+        } else {
+            // $ spent since the token was taken: only a rise from the lower level counts as getting $.
+            self.turn.adv.tax_base = self.turn.coins;
         }
     }
 

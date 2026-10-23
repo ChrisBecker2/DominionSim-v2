@@ -450,7 +450,8 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
         ids::CONTINUE => g.supply_cards().any(|c| {
             gainable(g, c) && cards::is(c, ACTION) && !cards::is(c, ATTACK) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
         }),
-        ids::FORESIGHT => g.players[p].deck_counts().any_type(ACTION) || g.players[p].discard.any_type(ACTION),
+        // (With no Action anywhere the whole deck is revealed and discarded: a shuffle that is legal to ask for.)
+        ids::FORESIGHT => true,
         ids::KINTSUGI => !g.players[p].hand.is_empty(),
         ids::PRACTICE => g.players[p].hand.iter().any(|(c, _)| g.is_action(c)) || g.shadow_playable(p as u8),
         ids::RECEIVE_TRIBUTE => g.turn.rs.gains >= 3 && g.supply_cards().any(|c| gainable(g, c) && cards::is(c, ACTION) && !g.players[p].in_play.has(c)),
@@ -867,7 +868,7 @@ impl GameState {
             let ps = &self.players[p as usize];
             let staying = self.turn.duration_held.get(c).saturating_add(ps.stays.get(c));
             let leaving = n.saturating_sub(staying);
-            if leaving == 0 || !self.has_pile_of(c) {
+            if leaving == 0 || !(self.has_pile_of(c) || cards::is_loot(c)) {
                 continue;
             }
             self.players[p as usize].in_play.set(c, n - leaving);

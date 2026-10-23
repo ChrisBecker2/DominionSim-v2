@@ -1457,3 +1457,167 @@ fn a_daimyo_replay_of_mining_village_cannot_trash_another_mining_village() {
     assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 1);
     assert_eq!(g.turn.led.n, 0);
 }
+
+// ===========================================================================
+// Audit: rulings of the wiki's FAQ pages that had no test
+// ===========================================================================
+
+/// Plays Continue as the only buy of a Buy phase with Debt 0 and `coins` $ in a game with `extra` in the kingdom.
+fn continue_game(extra: &[CardId]) -> GameState {
+    let mut k = vec![id::RIVER_SHRINE, id::SMITHY, id::CONTINUE];
+    k.extend_from_slice(extra);
+    let mut g = new_state(&k, 2);
+    g.turn.turn_start_resolved = true;
+    g
+}
+
+#[test]
+fn river_shrine_does_not_gain_in_cleanup_when_continue_gained_a_card_in_the_buy_phase() {
+    // "Normally, buying Continue will make you gain a card, which means River Shrine can't gain a card."
+    let mut g = continue_game(&[]);
+    set_hand(&mut g, 0, &[id::RIVER_SHRINE]);
+    play(&mut g, id::RIVER_SHRINE);
+    buy_phase(&mut g, 0, 1);
+    adv(&mut g);
+    pick(&mut g, id::CONTINUE);
+    pick(&mut g, id::SMITHY);
+    // Back in the Action phase with the Smithy played; end the turn with no further buy.
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 12]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 1, "no Clean-up gain was offered: {:?}", g.pending_decision());
+}
+
+#[test]
+fn continue_can_be_bought_when_no_non_attack_action_up_to_four_is_left() {
+    // "buying Continue when there are no non-Attack Actions costing up to $4 remaining in the Supply": legal, you still return to the Action phase.
+    let mut g = continue_game(&[]);
+    empty_pile(&mut g, id::SMITHY);
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    buy_phase(&mut g, 0, 1);
+    adv(&mut g);
+    assert!(has_choice(&g, Choice::Card(id::CONTINUE)), "Continue is a legal buy even when it can gain nothing");
+    pick(&mut g, id::CONTINUE);
+    assert_eq!(g.turn.phase, Phase::Action);
+    assert_eq!((g.turn.actions, g.turn.buys), (2, 1));
+}
+
+#[test]
+fn foresight_can_be_bought_with_no_action_in_the_deck_and_reveals_the_whole_deck() {
+    // "Reveal cards from your deck until revealing an Action. Set it aside and discard the rest": with none, the whole deck is revealed and discarded.
+    let mut g = event_game(&[id::FORESIGHT]);
+    set_hand(&mut g, 0, &[id::COPPER]);
+    set_deck_known(&mut g, 0, &[id::ESTATE, id::COPPER]);
+    clear_discard(&mut g);
+    buy_phase(&mut g, 2, 2);
+    adv(&mut g);
+    assert!(has_choice(&g, Choice::Card(id::FORESIGHT)));
+    pick(&mut g, id::FORESIGHT);
+    assert_eq!(g.players[0].discard.total(), 2, "{:?} {:?} {:?}", g.players[0].set_aside, g.players[0].deck_known.peek_top(), g.pending_decision());
+}
+
+fn clear_discard(g: &mut GameState) {
+    g.players[0].discard = Counts::EMPTY;
+}
+
+#[test]
+#[ignore = "audit: Events that can do nothing right now (Amass with an Action in play, Kintsugi with an empty hand...) are hidden from the Buy choices, not offered as legal no-op buys"]
+fn amass_with_an_action_in_play_may_be_bought_and_gains_nothing() {
+    // "If you have no Action cards in play, gain an Action card": buying it with one in play is legal and does nothing.
+    let mut g = event_game(&[id::AMASS]);
+    set_in_play(&mut g, 0, &[id::SMITHY]);
+    buy_phase(&mut g, 2, 1);
+    adv(&mut g);
+    assert!(has_choice(&g, Choice::Card(id::AMASS)), "legal, if pointless");
+}
+
+#[test]
+fn sickness_offers_both_options_with_an_empty_curse_pile_and_a_small_hand() {
+    // "You can choose to gain a Curse even if the Curse pile is empty, or to discard cards even if you have fewer than 3 cards in hand."
+    let mut g = active(&[id::SMITHY], id::SICKNESS, 2);
+    empty_pile(&mut g, id::CURSE);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 12]);
+    set_hand(&mut g, 0, &[id::DUCHY]);
+    end_turn(&mut g);
+    assert_eq!(g.turn.player, 1);
+    set_hand(&mut g, 1, &[id::COPPER]);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Mode(0)) && c.contains(&Choice::Mode(1)), "{c:?}");
+}
+
+#[test]
+fn panic_returns_a_loot_treasure_to_the_loot_pile() {
+    // "Loot (from Plunder) is returned to the top of the pile."
+    let mut g = active(&[id::SMITHY, id::CUTPURSE], id::PANIC, 2);
+    g.supply.set(id::DOUBLOONS, 1);
+    g.players[0].in_play = counts_of(&[id::DOUBLOONS]);
+    let before = g.supply.get(id::DOUBLOONS);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 12]);
+    end_turn(&mut g);
+    assert_eq!(g.supply.get(id::DOUBLOONS), before + 1);
+    assert_eq!(g.players[0].discard.get(id::DOUBLOONS), 0);
+}
+
+#[test]
+fn panic_activated_while_a_treasure_is_in_play_returns_it_but_gave_no_buys() {
+    // "If you play a Treasure and then activate Panic while the Treasure is in play, you don't get the +2 Buys but do return the Treasure to its pile."
+    let mut g = new_state(&[id::TEA_HOUSE, id::SMITHY, id::PANIC], 2);
+    g.rs.suns = 1;
+    set_hand(&mut g, 0, &[id::TEA_HOUSE]);
+    set_in_play(&mut g, 0, &[id::COPPER]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 12]);
+    let copper_before = g.supply.get(id::COPPER);
+    play(&mut g, id::TEA_HOUSE);
+    assert_eq!(g.turn.buys, 1, "no Buys for a Treasure played before Panic");
+    end_turn(&mut g);
+    assert_eq!(g.supply.get(id::COPPER), copper_before + 1);
+}
+
+#[test]
+fn harsh_winter_ignores_gains_on_other_players_turns() {
+    // "When it's not your turn, gaining a card neither puts Debt on the pile nor removes Debt from the pile."
+    let mut g = active(&[id::SMITHY], id::HARSH_WINTER, 2);
+    g.emp.piles.add_debt(id::SILVER, 2);
+    g.gain_card(1, id::SILVER, Dest::Discard, &mut NoEvents);
+    assert_eq!((g.emp.piles.debt_on(id::SILVER), g.players[1].debt), (2, 0));
+}
+
+#[test]
+fn rapid_expansion_sets_aside_a_treasure_gained_to_the_hand() {
+    // "if you use Mine while Rapid Expansion is in effect, the gained Treasure will be set aside and can't be played on the current turn."
+    let mut g = active(&[id::SMITHY, id::TEA_HOUSE], id::RAPID_EXPANSION, 2);
+    g.turn.turn_start_resolved = true;
+    g.gain_card(0, id::GOLD, Dest::Hand, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!((g.players[0].aside.get(id::GOLD), g.players[0].hand.get(id::GOLD)), (1, 0));
+}
+
+#[test]
+fn practice_can_play_a_shadow_card_from_the_deck_twice() {
+    // Shadow: "When a card like Throne Room tells you to play a card from your hand, you can use that opportunity to play a Shadow card from your deck."
+    let mut g = event_game(&[id::PRACTICE, id::ALLEY]);
+    set_hand(&mut g, 0, &[id::ESTATE, id::ESTATE]);
+    set_deck_unknown(&mut g, 0, &[id::ALLEY, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    buy_phase(&mut g, 3, 1);
+    adv(&mut g);
+    pick(&mut g, id::PRACTICE);
+    assert!(has_choice(&g, Choice::Card(id::ALLEY)), "{:?}", choices(&g));
+}
+
+#[test]
+fn bureaucracy_gains_a_copper_for_a_loot_but_not_for_a_copper() {
+    // "This includes cards gained from outside the Supply (such as Loot)." A Copper costs $0: no Copper in return.
+    let mut g = active(&[id::SMITHY, id::CUTPURSE], id::BUREAUCRACY, 2);
+    g.supply.set(id::DOUBLOONS, 1);
+    let copper = g.supply.get(id::COPPER);
+    g.gain_card(0, id::COPPER, Dest::Discard, &mut NoEvents);
+    assert_eq!(g.supply.get(id::COPPER), copper - 1);
+    g.gain_card(0, id::DOUBLOONS, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(id::COPPER), 2);
+}

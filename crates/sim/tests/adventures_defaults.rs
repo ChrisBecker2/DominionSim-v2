@@ -440,3 +440,62 @@ fn count_line_counts_every_card_of_a_traveller_line() {
     let capped = Strategy::parse("name = \"T\"\n[[gain]]\ncard = \"Silver\"\nif = \"count_line(Peasant) < 3\"\n[[gain]]\ncard = \"Gold\"\n").unwrap();
     assert!(capped.kingdom_refs().contains(&id::PEASANT));
 }
+
+// --- Audit: every card and Event of the set, bought by the bots, never leads to an illegal choice ------------------------
+
+#[test]
+fn bots_that_buy_every_adventures_card_and_event_play_whole_games_without_an_illegal_choice() {
+    use dominion_engine::rng::Rng;
+    use dominion_sim::batch::{run_match, MatchConfig};
+    let pool: Vec<cards::CardId> = cards::kingdom_cards().filter(|&c| cards::set_of(c) == cards::CardSet::Adventures || c == id::SAUNA).collect();
+    let events: Vec<cards::CardId> = (cards::FIRST_EVENT..cards::FIRST_EVENT + 20).collect();
+    let mut rng = Rng::new(0xAD0B);
+    for round in 0..10u64 {
+        let mut from = pool.clone();
+        let mut kingdom: Vec<cards::CardId> = Vec::new();
+        for _ in 0..10 {
+            let i = rng.below(from.len() as u32) as usize;
+            kingdom.push(from.swap_remove(i));
+        }
+        let mut evs = events.clone();
+        let mut names = String::new();
+        for _ in 0..3 {
+            let i = rng.below(evs.len() as u32) as usize;
+            let e = evs.swap_remove(i);
+            kingdom.push(e);
+            names.push_str(&format!("[[gain]]\ncard = \"{}\"\n", cards::name(e)));
+        }
+        for &c in &kingdom {
+            if !cards::is_event(c) {
+                names.push_str(&format!("[[gain]]\ncard = \"{}\"\n", cards::name(c)));
+            }
+        }
+        let text = format!("name = \"All\"\n[[gain]]\ncard = \"Province\"\n{names}[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n");
+        let s = Strategy::parse(&text).unwrap();
+        let cfg = MatchConfig { games: 3, kingdom, seed: round, max_turns: 120 };
+        let stats = run_match(&[&s, &s], &cfg);
+        assert_eq!(stats[0].games, 3, "round {round}");
+    }
+}
+
+// --- Audit: policy notes ----------------------------------------------------------------------------------------
+
+#[test]
+#[ignore = "audit policy: Treasure Hunter is always played; wiki (Treasure Hunter): 'gaining two or more Silvers is less likely to be desirable ... Later in the game, it can often be preferable to avoid playing Treasure Hunter'"]
+fn a_treasure_hunter_is_not_played_when_it_would_gain_a_pile_of_silvers() {
+    let mut g = parse_state(&format!(
+        "players: 2\nkingdom: {KINGDOM}\nturn: 9  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: Treasure Hunter, 4 Estate\ndeck: 5 Copper, 5 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\nlast turn gains: 6 Copper\n"
+    ))
+    .unwrap();
+    let (d, ch) = next_decision(&mut g);
+    let strat = money("search_play = false");
+    assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass);
+}
+
+#[test]
+fn the_default_for_a_second_champion_assumes_its_action_does_not_stack_but_the_engine_stacks_it() {
+    // docs/adventures-plan.md says a second Champion's +1 Action "does not stack"; the engine gives +1 Action per Champion in play
+    // (`two_champions_each_give_an_action_per_action_played`). The default still declines the exchange (`a_hero_is_not_exchanged_for_a_second_champion`).
+    let strat = money("search_play = false");
+    assert_eq!(hero_exchange(&strat, "Champion, 5 Copper"), Choice::No);
+}

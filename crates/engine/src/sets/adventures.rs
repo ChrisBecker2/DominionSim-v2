@@ -494,6 +494,7 @@ impl SetRules for Adventures {
             && g.supply.get(c) > 0
             && g.cost(c) <= 6
             && !cards::potion_cost(c)
+            && cards::debt_cost(c) == 0
         {
             g.stack.push(Frame {
                 zone: Zone::Tavern, act: Act::Call, subject: ids::DUPLICATE, then: Then::Called, last: c,
@@ -581,7 +582,7 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
         // Not a third turn in a row, and not twice.
         ids::MISSION => !g.turn.is_extra_turn && !g.turn.adv.mission,
         // Needs an Action card costing up to $4 to gain.
-        ids::SEAWAY => g.supply_cards().any(|c| g.supply.get(c) > 0 && cards::is(c, ACTION) && g.cost(c) <= 4 && !cards::potion_cost(c)),
+        ids::SEAWAY => g.supply_cards().any(|c| g.supply.get(c) > 0 && cards::is(c, ACTION) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0),
         ids::FERRY | ids::PLAN | ids::LOST_ARTS | ids::TRAINING | ids::PATHFINDING => g.has_token_pile(),
         _ => true,
     }
@@ -738,6 +739,9 @@ impl GameState {
             self.turn.coins -= 1;
             self.turn.adv.tax_live = false;
             self.players[self.turn.player as usize].adv &= !ADV_MINUS_COIN;
+        } else {
+            // $ spent since the token was taken: only a rise from the lower level counts as getting $.
+            self.turn.adv.tax_base = self.turn.coins;
         }
     }
 
@@ -1002,8 +1006,17 @@ impl GameState {
                     }
                 } else if trash_range {
                     // Warrior: discarded (not revealed), then trashed from the discard pile if it costs $3 or $4.
-                    sink.event(Event::Discard { player: p, card: c });
-                    self.trash_card(p, c, true, sink);
+                    if self.adv & crate::state::G_DISCARD_HOOK != 0
+                        && matches!(c, crate::sets::hinterlands::ids::TUNNEL | crate::sets::hinterlands::ids::TRAIL | crate::sets::hinterlands::ids::WEAVER | crate::sets::menagerie::ids::VILLAGE_GREEN)
+                    {
+                        // A card that reacts to being discarded (Tunnel, Trail, Weaver, Village Green): it lands in the discard pile and its
+                        // reaction comes first; the trash then takes it from the discard pile if it is still there.
+                        self.put(p, c, Act::Discard, Dest::Discard, f.source, sink);
+                        self.stack.push(Frame { depth: f.depth, ..select(p, f.source, Zone::Discard, Act::Trash, Filter::Card(c), 1, 1, Then::Nothing) });
+                    } else {
+                        sink.event(Event::Discard { player: p, card: c });
+                        self.trash_card(p, c, true, sink);
+                    }
                 } else {
                     self.put(p, c, Act::Discard, Dest::Discard, f.source, sink);
                 }

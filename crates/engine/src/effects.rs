@@ -1278,7 +1278,7 @@ impl GameState {
                         Then::VillagerIfTreasure => self.ren_gained(&f, c, sink),
                         Then::GroomBonus | Then::DesperationBonus | Then::PopulateGain | Then::ReapAside => self.men_gained(&f, c, dest, sink),
                         Then::HillFortGain => self.al_gained(&f, c, dest),
-                        Then::Plu(_) => self.plu_gained(&f, c, dest, sink),
+                        Then::Plu(_) => self.plu_gained(&f, c, dest, base, sink),
                         Then::ScheduleDuration { times } => {
                             // Blockade: move the just-gained card (landed in `dest`, above) into
                             // `set_aside` and schedule its return to hand. If a reaction already
@@ -1359,6 +1359,10 @@ impl GameState {
                     // A Supply card trashed (Lurker) is not the trasher's own: no Market Square. The top card of a mixed pile leaves it.
                     self.trash_card(p, c, false, sink);
                     self.pile_taken(c);
+                    // Plunder's Search: this trash may have emptied a Supply pile.
+                    if self.plu.live & crate::state::LV_WAIT != 0 {
+                        self.plu_check_empty(sink);
+                    }
                 } else if !(f.act == Act::Play && (f.zone == Zone::Supply || f.zone == Zone::Trash)) {
                     self.put(p, c, f.act, f.dest, f.source, sink);
                 }

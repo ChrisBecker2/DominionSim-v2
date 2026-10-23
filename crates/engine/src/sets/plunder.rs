@@ -249,6 +249,8 @@ pub const T_TRICKSTER: u8 = 27;
 pub const T_QM_TAKE: u8 = 28;
 /// Patient: each card picked is set aside for the next turn.
 pub const T_PATIENT: u8 = 29;
+/// Quartermaster: the card gained moves onto the holder `Frame::last` once the gain's own triggers have resolved (a Siren still trashes itself).
+pub const T_QM_MOVE: u8 = 30;
 
 /// `ModeOpt::Plu`.
 pub const M_CABIN_TRASH: u8 = 1;
@@ -265,6 +267,8 @@ pub const A_HARBOR: u8 = 1;
 pub const A_INSPIRE: u8 = 2;
 pub const A_FRIGATE: u8 = 4;
 pub const A_LANDING: u8 = 8;
+/// Cutthroat: the waiting entry is added once the victims have discarded.
+pub const A_WAIT: u8 = 16;
 
 /// The text of a Mode option of this set.
 pub fn mode_label(k: u8) -> &'static str {
@@ -357,11 +361,12 @@ impl SetRules for Plunder {
             ids::GROTTO => g.stack.push(select(p, card, Zone::Hand, SetAside, Filter::Any, 0, 4, Then::Plu(T_GROTTO))),
             ids::SEARCH | ids::SECLUDED_SHRINE | ids::ABUNDANCE | ids::FLAGSHIP | ids::LANDING_PARTY => g.plu_wait_add(p, card),
             ids::CUTTHROAT => {
+                // The "next time" is set up after the others have discarded (a Tunnel's Gold gained by that discard does not count).
+                g.stack.push(Frame { min: A_WAIT, ..Frame::new(K::PluAfter, p, card) });
                 let (vs, n) = g.victims(sink);
                 for &v in vs[..n].iter().rev() {
                     g.stack.push(Frame { down_to_target: true, ..select(v, card, Zone::Hand, Discard, Filter::Any, 0, 3, Then::Nothing) });
                 }
-                g.plu_wait_add(p, card);
             }
             ids::SHAMAN => g.stack.push(select(p, card, Zone::Hand, Trash, Filter::Any, 0, 1, Then::Nothing)),
             ids::SIREN | ids::TRICKSTER => {
@@ -461,7 +466,7 @@ impl SetRules for Plunder {
                 if g.leave_play_self_now(p, card) {
                     g.trash_card(p, card, true, sink);
                     g.flush_trash_triggers(0, sink);
-                    g.stack.push(Frame { less: true, then: Then::Plu(T_SPELL_SCROLL), ..gain_frame(p, card, cards::cost(card), Filter::Any, Dest::Discard) });
+                    g.stack.push(Frame { less: true, then: Then::Plu(T_SPELL_SCROLL), ..gain_frame(p, card, g.cost(card), Filter::Any, Dest::Discard) });
                 }
             }
             ids::STAFF => g.stack.push(select(p, card, Zone::Hand, Play, Filter::Action, 0, 1, Then::PlayPicked { times: 1 })),
@@ -982,7 +987,7 @@ impl GameState {
                     }
                     if f.then == Then::Plu(T_LOOT_PLAY) {
                         let zone = GameState::gain_dest_zone(f.dest);
-                        self.stack.push(Frame {
+                        self.push_under(base, Frame {
                             zone, act: Act::Play, subject: c, then: Then::Plu(T_FORCED_PLAY), depth: f.depth, ..Frame::new(K::YesNo, p, f.source)
                         });
                     }
@@ -990,6 +995,13 @@ impl GameState {
             }
         }
         Run::Continue
+    }
+
+    /// Pushes `f` below the frames at `base..` (the gain's triggers run first, then `f`).
+    fn push_under(&mut self, base: usize, f: Frame) {
+        self.stack.push(f);
+        let len = self.stack.len as usize;
+        self.stack.frames[base..len].rotate_right(1);
     }
 
     // ---- "next time" Durations ----
@@ -1038,6 +1050,10 @@ impl GameState {
             ps.stays.remove(card);
             if e.mult != 0 {
                 ps.stays.remove(e.mult);
+                // A Throne Room that was held for this Duration in the turn it was played goes to the discard pile at this turn's Clean-up.
+                if q == self.turn.player {
+                    self.turn.duration_held.remove_one(e.mult);
+                }
             }
             if trash {
                 if self.remove_from_play(q, card) {
@@ -1164,6 +1180,10 @@ impl GameState {
         let zone = GameState::gain_dest_zone(to);
         let own_turn = p == self.turn.player;
         let waiting = self.plu.live & LV_WAIT != 0;
+        // Siren: trashed unless an Action is trashed. Pushed first so it resolves after the other gain effects (Insignia may move it first).
+        if c == ids::SIREN {
+            self.stack.push(Frame { filter: Filter::Action, min: 0, max: 1, act: Act::Trash, ..Self::plu_gain_stamp(p, ids::SIREN, c, to, gt).with_then(Then::Plu(T_SIREN)) });
+        }
         // ---- reactions in the hands (asked last of the things below that are pushed first: one offer for each copy) ----
         if self.in_supply(ids::MAPMAKER) && cards::is(c, VICTORY) {
             let n = self.num_players;
@@ -1203,8 +1223,11 @@ impl GameState {
             }
             // Rush: the next Action gained is played.
             if self.turn.plu.rush > 0 && cards::is(c, ACTION) {
-                self.turn.plu.rush -= 1;
-                self.stack.push(Frame { zone, act: Act::Play, subject: c, then: Then::Plu(T_FORCED_PLAY), tok: gt, ..Frame::new(K::YesNo, p, ids::RUSH) });
+                // Every Rush waits for the same gain; the card can only be played once (the later ones find it gone).
+                let k = std::mem::take(&mut self.turn.plu.rush);
+                for _ in 0..k {
+                    self.stack.push(Frame { zone, act: Act::Play, subject: c, then: Then::Plu(T_FORCED_PLAY), tok: gt, ..Frame::new(K::YesNo, p, ids::RUSH) });
+                }
             }
             // Deliver: the card is set aside until the end of the turn.
             if self.turn.plu.deliver {
@@ -1287,9 +1310,6 @@ impl GameState {
         }
         // ---- the card's own "when you gain this" ----
         match c {
-            ids::SIREN => {
-                self.stack.push(Frame { filter: Filter::Action, min: 0, max: 1, act: Act::Trash, ..Self::plu_gain_stamp(p, ids::SIREN, c, to, gt).with_then(Then::Plu(T_SIREN)) });
-            }
             ids::WEALTHY_VILLAGE => {
                 if self.plu_distinct_treasures(p) >= 3 {
                     self.push_loot(p, c, Dest::Discard, Then::Nothing);
@@ -1306,26 +1326,20 @@ impl GameState {
 
     /// A Plunder `Gain` frame gained `c` (to `dest`).
     #[inline(never)]
-    pub(crate) fn plu_gained<S: EventSink>(&mut self, f: &Frame, c: CardId, dest: Dest, sink: &mut S) {
+    pub(crate) fn plu_gained<S: EventSink>(&mut self, f: &Frame, c: CardId, dest: Dest, base: usize, _sink: &mut S) {
         let p = f.player;
         let Then::Plu(k) = f.then else { return };
         match k {
             T_QM_ASIDE => {
-                // The card is set aside on the Quartermaster `f.subject`, if nothing moved it.
+                // The card is set aside on the Quartermaster `f.subject`, if nothing moved it: after the gain's own triggers (a Siren trashes itself first).
                 let gt = self.turn.led.gain;
-                let frame = Frame { subject: c, dest, tok: gt, ..Frame::new(K::Select, p, f.source) };
-                let h = f.subject;
-                if self.players[p as usize].plu.holders & (1 << (h - Z_HOLDER0)) != 0 && self.plu_take_gained(&frame) {
-                    if self.players[p as usize].plu.zadd(h, c, 1) {
-                        sink.event(Event::SetAside { player: p, card: c });
-                    } else {
-                        self.players[p as usize].discard.add(c, 1);
-                    }
-                }
+                let frame = Frame { last: f.subject, depth: f.depth, ..Self::plu_gain_stamp(p, f.source, c, dest, gt) }.with_then(Then::Plu(T_QM_MOVE));
+                self.push_under(base, frame);
             }
             T_SPELL_SCROLL => {
                 if cards::is(c, ACTION) || self.is_treasure(c) {
-                    self.stack.push(Frame {
+                    // The play waits under the gain's own triggers (a Siren trashes itself first, and then cannot be played).
+                    self.push_under(base, Frame {
                         zone: GameState::gain_dest_zone(dest), act: Act::Play, subject: c, depth: f.depth, ..Frame::new(K::YesNo, p, f.source)
                     });
                 }
@@ -1347,6 +1361,16 @@ impl GameState {
         let p = f.player;
         let pi = p as usize;
         match k {
+            T_QM_MOVE => {
+                let h = f.last;
+                if self.players[pi].plu.holders & (1 << (h - Z_HOLDER0)) != 0 && self.plu_take_gained(f) {
+                    if self.players[pi].plu.zadd(h, f.subject, 1) {
+                        sink.event(Event::SetAside { player: p, card: f.subject });
+                    } else {
+                        self.players[pi].discard.add(f.subject, 1);
+                    }
+                }
+            }
             T_CAGE | T_GROTTO => {
                 let aside = self.players[pi].set_aside;
                 self.players[pi].set_aside.clear();
@@ -1636,6 +1660,9 @@ impl GameState {
         self.stack.pop();
         let p = f.player;
         let pi = p as usize;
+        if f.min & A_WAIT != 0 {
+            self.plu_wait_add(p, f.source);
+        }
         if f.min & A_HARBOR != 0 && self.turn.coins > f.cost_sum {
             self.turn.coins += f.count as u16;
             sink.bonus(p, ids::HARBOR_VILLAGE, 0, 0, f.count as u16, 0);

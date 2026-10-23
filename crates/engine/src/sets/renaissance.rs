@@ -155,7 +155,9 @@ const CAPITALISM_NAMES: &[&str] = &[
     "Wine Merchant", "Catapult", "Chariot Race", "Emporium", "Farmers' Market", "Gladiator", "Legionary", "Opulent Castle", "Sacrifice", "Villa", "Bard",
     "Conclave", "Sacred Grove", "Secret Cave", "Tormentor", "Tracker", "Cargo Ship", "Flag Bearer", "Improve", "Patron", "Priest", "Treasurer",
     "Aristocrat", "Change", "Fishmonger", "Kiln", "Kitsune", "Mountain Shrine", "Samurai", "Tea House", "Animal Fair", "Bounty Hunter", "Cardinal", "Coven",
-    "Fisherman", "Gatekeeper", "Livery", "Paddock", "Scrap",
+    "Fisherman", "Gatekeeper", "Livery", "Paddock", "Scrap", "Archer", "Barbarian", "Broker", "Capital City", "Courier", "Elder", "Galleria",
+    "Garrison", "Guildmaster", "Merchant Camp", "Skirmisher", "Stronghold", "Sycophant", "Tent", "Town", "Town Crier", "Cabin Boy", "Flagship",
+    "Fortune Hunter", "Frigate", "Harbor Village", "Mining Road", "Search", "Secluded Shrine", "Shaman", "Taskmaster",
 ];
 
 /// Whether `c` is an Action with a "+$" amount in its text (the cards Capitalism turns into Treasures): a lookup table built once.

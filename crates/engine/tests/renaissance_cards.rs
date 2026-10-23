@@ -2166,3 +2166,39 @@ fn capitalism_lets_a_treasurer_regain_a_card_that_is_a_treasure_on_the_owners_tu
     choose(&mut g, Choice::Mode(1));
     assert!(has_choice(&g, Choice::Card(id::IMPROVE)), "{:?}", choices(&g));
 }
+
+#[test]
+fn capitalism_affects_every_action_the_wiki_lists() {
+    // The wiki's "Cards that Capitalism affects" (the removed cards and the pre-2022 Storyteller left out).
+    let listed = [
+        "Festival", "Market", "Merchant", "Militia", "Moneylender", "Poacher", "Vassal", "Baron", "Bridge", "Conspirator", "Courtier", "Ironworks", "Mill",
+        "Mining Village", "Minion", "Pawn", "Steward", "Swindler", "Bazaar", "Corsair", "Cutpurse", "Fishing Village", "Lighthouse", "Merchant Ship",
+        "Sailor", "Salvager", "Treasury", "Herbalist", "Bishop", "City", "Charlatan", "Clerk", "Grand Market", "Monument", "Peddler", "Vault", "Courser",
+        "Jester", "Joust", "Merchant Guild", "Shop", "Haggler", "Nomads", "Oasis", "Souk", "Spice Merchant", "Abandoned Mine", "Count", "Dame Sylvia",
+        "Death Cart", "Forager", "Ironmonger", "Junk Dealer", "Mercenary", "Mystic", "Poor House", "Rogue", "Scavenger", "Storeroom", "Squire", "Amulet",
+        "Artificer", "Caravan Guard", "Giant", "Hero", "Messenger", "Miser", "Peasant", "Soldier", "Swamp Hag", "Teacher", "Treasure Hunter",
+        "Wine Merchant", "Catapult", "Chariot Race", "Emporium", "Farmers' Market", "Gladiator", "Legionary", "Opulent Castle", "Sacrifice", "Villa",
+        "Bard", "Conclave", "Sacred Grove", "Secret Cave", "Tormentor", "Tracker", "Cargo Ship", "Flag Bearer", "Improve", "Patron", "Priest", "Treasurer",
+        "Animal Fair", "Bounty Hunter", "Cardinal", "Coven", "Fisherman", "Gatekeeper", "Livery", "Paddock", "Scrap", "Archer", "Barbarian", "Broker",
+        "Capital City", "Courier", "Elder", "Galleria", "Garrison", "Guildmaster", "Merchant Camp", "Skirmisher", "Stronghold", "Sycophant", "Tent", "Town",
+        "Town Crier", "Cabin Boy", "Flagship", "Fortune Hunter", "Frigate", "Harbor Village", "Mining Road", "Search", "Secluded Shrine", "Shaman",
+        "Taskmaster", "Aristocrat", "Change", "Fishmonger", "Kiln", "Kitsune", "Mountain Shrine", "Samurai", "Tea House",
+    ];
+    let mut checked = 0;
+    for name in listed {
+        let Some(c) = cards::by_name(name) else { continue };
+        assert!(cards::is(c, cards::ACTION), "{name}");
+        assert!(renaissance_capitalism(c), "{name} is turned into a Treasure by Capitalism");
+        checked += 1;
+    }
+    assert!(checked > 120, "{checked} of the listed cards are implemented");
+    for name in ["Smithy", "Inventor", "Village", "Raider", "Druid"] {
+        if let Some(c) = cards::by_name(name) {
+            assert!(!renaissance_capitalism(c), "{name} has no +$ amount in its text");
+        }
+    }
+}
+
+fn renaissance_capitalism(c: CardId) -> bool {
+    dominion_engine::sets::renaissance::capitalism_card(c)
+}

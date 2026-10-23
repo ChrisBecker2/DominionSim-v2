@@ -1028,6 +1028,8 @@ impl GameState {
             id::VAMPIRE, id::DEVILS_WORKSHOP, id::TORMENTOR, id::CEMETERY,
         ];
         !setup_cards.contains(&c) && !cards::is(c, FATE) && !cards::is(c, DOOM) && (ruins_in_game || !cards::is(c, LOOTER)) && c != id::RIVERBOAT
+            // (A Liaison would need an Ally dealt and Favors given: not done here, so none is dealt.)
+            && !cards::is(c, cards::LIAISON)
     }
 
     /// Adds the Supply pile of the Kingdom card `c` for `n` players, with the piles outside the Supply and the tokens it brings.

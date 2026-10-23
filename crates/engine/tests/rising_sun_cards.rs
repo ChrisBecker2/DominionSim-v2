@@ -1887,3 +1887,18 @@ fn riverboats_card_gets_the_set_up_it_needs_or_is_not_chosen() {
         assert!(!cards::is(c, cards::LIAISON) && !matches!(c, id::POOKA | id::FERRYMAN | id::WEALTHY_VILLAGE), "{}", cards::name(c));
     }
 }
+
+#[test]
+fn divine_wind_never_deals_a_liaison_it_could_not_set_up() {
+    // "Deal out an Ally if you get a Liaison and didn't already have one": the dealing here does not do that, so no Liaison is dealt.
+    for seed in 0..60u64 {
+        let k = vec![id::TEA_HOUSE, id::HIGHWAYMAN, id::SMITHY, id::VILLAGE, id::MARKET, id::MILITIA, id::MOAT, id::CELLAR, id::MINE, id::REMODEL, id::DIVINE_WIND];
+        let cfg = GameConfig { num_players: 2, kingdom: k, seed, ..Default::default() };
+        let mut g = GameState::new(&cfg);
+        g.rs.suns = 1;
+        reset_turn(&mut g, 0);
+        set_hand(&mut g, 0, &[id::TEA_HOUSE]);
+        play(&mut g, id::TEA_HOUSE);
+        assert!(g.supply_cards().all(|c| !cards::is(c, cards::LIAISON)), "seed {seed}");
+    }
+}

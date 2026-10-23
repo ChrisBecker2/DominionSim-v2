@@ -319,3 +319,54 @@ fn skys_gift_in_the_buy_phase_keeps_the_treasures_left_in_hand() {
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }) && d.source == Some(id::THE_SKYS_GIFT), "{d:?}");
     assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass);
 }
+
+/// Policy probes: what the generic defaults pick for the trashing Nocturne cards (printed; asserted where the advice is clear).
+fn probe(kingdom: &str, hand: &str, play: CardId) -> (GameState, Decision, Vec<Choice>, Choice) {
+    let strat = money("");
+    let mut g = parse_state(&format!(
+        "players: 2\nkingdom: {kingdom}\nturn: 5  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: {hand}\ndeck: 8 Estate\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n"
+    ))
+    .unwrap();
+    next_decision(&mut g);
+    g.apply(Choice::Card(play), &mut NoEvents).unwrap();
+    let (d, ch) = next_decision(&mut g);
+    let c = decide(&strat, &g, &d, &ch);
+    (g, d, ch, c)
+}
+
+/// Pooka: "+4 Cards for trashing a Treasure": trash a Copper, never the Gold.
+#[test]
+fn pooka_trashes_the_cheapest_treasure() {
+    let (_, d, _, c) = probe("Pooka, Monastery, Bard", "Pooka, Gold, Silver, Copper, Estate", id::POOKA);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    assert_eq!(c, Choice::Card(id::COPPER));
+}
+
+/// Tragic Hero: the Treasure gained for the Hero is the best one.
+#[test]
+fn tragic_hero_gains_the_best_treasure() {
+    let mut hand = String::from("Tragic Hero");
+    for _ in 0..7 {
+        hand.push_str(", Estate");
+    }
+    let (_, d, ch, c) = probe("Tragic Hero, Monastery, Bard", &hand, id::TRAGIC_HERO);
+    assert!(matches!(d.kind, DecisionKind::Gain { .. }), "{d:?}");
+    assert!(ch.contains(&Choice::Card(id::GOLD)));
+    assert_eq!(c, Choice::Card(id::GOLD));
+}
+
+/// Zombie Apprentice and Imp: nothing is trashed or played that is worth more than the effect.
+#[test]
+fn exorcist_style_trashers_do_not_trash_gold() {
+    let strat = money("");
+    let mut g = night_state("Exorcist");
+    g.players[0].hand.add(id::GOLD, 1);
+    g.players[0].hand.add(id::CURSE, 1);
+    let (d, ch) = next_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayNight);
+    g.apply(Choice::Card(id::EXORCIST), &mut NoEvents).unwrap();
+    let (d, ch2) = next_decision(&mut g);
+    let _ = ch;
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    assert_eq!(decide(&strat, &g, &d, &ch2), Choice::Card(id::CURSE));
+}

@@ -448,6 +448,7 @@ impl GameState {
                 let bottom = ps.deck_known_bottom.counts();
                 ps.deck_unknown.add_all(&bottom);
                 ps.deck_known_bottom.clear();
+                self.rs_shuffled(p);
                 sink.event(Event::Shuffle { player: p });
             }
             Then::DrawUpTo(n) => {

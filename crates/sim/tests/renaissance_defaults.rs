@@ -132,3 +132,66 @@ deck: 5 Copper
     g.legal_choices(&mut buf);
     assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Card(dominion_engine::cards::id::SEER));
 }
+
+#[test]
+fn border_guard_takes_the_horn_before_the_lantern() {
+    // Border Guard (wiki): "it is usually best to take the Horn first, and only take the Lantern instead if you strongly want to find a specific card".
+    let strat = load("big_money_ultimate.toml");
+    let text = "players: 2\nkingdom: Border Guard, Village, Smithy, Market, Militia, Moat, Cellar, Chapel, Workshop, Bandit\nturn: 3  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n[player 1]\nhand: Border Guard\ndeck: Village, Smithy, 5 Copper\n\n[player 2]\nhand: 5 Copper\ndeck: 5 Estate\n";
+    let mut g = parse_state(text).unwrap();
+    g.players[0].deck_known.clear();
+    g.players[0].deck_known.push_top(id::SMITHY);
+    g.players[0].deck_known.push_top(id::VILLAGE);
+    let mut buf = ChoiceBuf::default();
+    let mut seen_mode = false;
+    for _ in 0..8 {
+        let d = match g.advance(&mut NoEvents) {
+            Step::Decision(d) => d,
+            s => panic!("{s:?}"),
+        };
+        g.legal_choices(&mut buf);
+        let choice = if matches!(d.kind, dominion_engine::DecisionKind::Mode { .. }) {
+            seen_mode = true;
+            let c = strat.rule_mode(&PlayerView::new(&g, 0), &d, buf.as_slice());
+            assert_eq!(c, Choice::Mode(1), "the Horn is the second option of the Border Guard's table (Lantern, Horn)");
+            c
+        } else if d.kind == dominion_engine::DecisionKind::PlayAction {
+            Choice::Card(id::BORDER_GUARD)
+        } else {
+            buf.as_slice()[0]
+        };
+        g.apply(choice, &mut NoEvents).unwrap_or_else(|e| panic!("{e} {:?} {:?} {:?}", choice, d, buf.as_slice()));
+        if seen_mode {
+            break;
+        }
+    }
+    assert!(seen_mode);
+    g.advance(&mut NoEvents);
+    assert!(g.has_artifact(0, id::HORN) && !g.has_artifact(0, id::LANTERN));
+}
+
+#[test]
+#[ignore = "audit: policy note - Cargo Ship never sets a Victory card aside, though the wiki advises it while greening (a dud-proof hand)"]
+fn cargo_ship_sets_aside_a_victory_card_while_greening() {
+    use dominion_engine::{DecisionKind, GameConfig, GameState};
+    let strat = load("big_money_ultimate.toml");
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::CARGO_SHIP, id::SMITHY], seed: 3, ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    g.turn = dominion_engine::state::TurnState::start(0, 12);
+    g.turn.turn_start_resolved = true;
+    g.stack = Default::default();
+    g.pending = dominion_engine::Pending::None;
+    g.supply.set(id::PROVINCE, 2);
+    g.players[0].in_play.add(id::CARGO_SHIP, 1);
+    g.turn.ren.cargo = 1;
+    g.turn.phase = dominion_engine::Phase::Buy;
+    g.gain_card(0, id::DUCHY, dominion_engine::Dest::Discard, &mut NoEvents);
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    assert_eq!(strat.decide(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Yes);
+}

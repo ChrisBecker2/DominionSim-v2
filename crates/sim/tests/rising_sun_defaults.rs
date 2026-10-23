@@ -167,3 +167,29 @@ deck: 5 Copper
     assert_eq!(buy("Province=8", "Estate, Province"), Choice::Card(id::KINTSUGI), "an Estate is worth trashing early");
     assert_ne!(buy("Province=3", "Duchy, Province"), Choice::Card(id::KINTSUGI), "nothing worth trashing late");
 }
+
+#[test]
+fn sickness_does_not_make_the_bot_discard_a_small_hand_of_good_cards() {
+    use dominion_engine::{Counts, DecisionKind, GameConfig, GameState};
+    let strat = load("big_money_ultimate.toml");
+    let cfg = GameConfig { num_players: 2, kingdom: vec![id::SMITHY, id::TEA_HOUSE, id::SICKNESS], seed: 3, ..Default::default() };
+    let mut g = GameState::new(&cfg);
+    g.rs.suns = 0;
+    g.rs.active = id::SICKNESS;
+    g.rs_update_hooks();
+    g.turn = dominion_engine::state::TurnState::start(0, 1);
+    g.stack = Default::default();
+    g.pending = dominion_engine::Pending::None;
+    let mut hand = Counts::EMPTY;
+    hand.add(id::GOLD, 3);
+    g.players[0].hand = hand;
+    let d = match g.advance(&mut NoEvents) {
+        Step::Decision(d) => d,
+        s => panic!("{s:?}"),
+    };
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    let mut buf = ChoiceBuf::default();
+    g.legal_choices(&mut buf);
+    // Mode 0 is the Curse onto the deck, Mode 1 the discard.
+    assert_eq!(strat.rule_mode(&PlayerView::new(&g, 0), &d, buf.as_slice()), Choice::Mode(0));
+}

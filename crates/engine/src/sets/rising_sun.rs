@@ -377,7 +377,10 @@ impl SetRules for RisingSun {
 /// in the Supply and needs no set-up of its own.
 fn riverboat_ok(in_game: &dyn Fn(CardId) -> bool, c: CardId) -> bool {
     let ok_type = cards::is(c, ACTION) && !cards::is(c, DURATION) && !cards::is(c, cards::FATE) && !cards::is(c, cards::DOOM) && !cards::is(c, LOOTER);
-    ok_type && cards::cost(c) == 5 && !cards::potion_cost(c) && cards::debt_cost(c) == 0 && cards::is_ready(c) && !in_game(c)
+    // Cards whose set-up the Riverboat game cannot do afterwards: a Liaison needs an Ally and Favors, Pooka its Heirloom in the starting decks,
+    // Ferryman its pile, Wealthy Village the Loot pile. (Spoils, the Rewards and Baker's Coffers are done in `setup`.)
+    let needs_setup = cards::is(c, cards::LIAISON) || matches!(c, id::POOKA | id::FERRYMAN | id::WEALTHY_VILLAGE);
+    ok_type && !needs_setup && cards::cost(c) == 5 && !cards::potion_cost(c) && cards::debt_cost(c) == 0 && cards::is_ready(c) && !in_game(c)
         && match c {
             // A member of the Knights pile: only when the Knights are not in the game; a bottom half of a split pile: only when its top half is not.
             _ if c >= cards::FIRST_PILE_CARD => crate::sets::dark_ages::KNIGHTS_PILE.members().contains(&c) && !in_game(id::KNIGHTS),
@@ -429,6 +432,17 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, n: usize) {
         let in_game = |c: CardId| g.in_supply(c) || has(c);
         let card = cfg.riverboat.filter(|&c| riverboat_ok(&in_game, c)).unwrap_or_else(|| default_riverboat(&in_game, cfg.seed));
         g.rs.riverboat = card;
+        // "If that card also requires setup, do that setup too": the Spoils of Bandit Camp and Pillage, Joust's Rewards, Baker's Coffers.
+        match card {
+            id::BANDIT_CAMP | id::PILLAGE if g.spoils == 0 => g.spoils = 15,
+            id::JOUST if g.rewards.iter().all(|&r| r == 0) => g.rewards = [if n == 2 { 1 } else { 2 }; cards::NUM_REWARDS],
+            id::BAKER => {
+                for ps in g.players.iter_mut().take(n) {
+                    ps.coffers = ps.coffers.max(1);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -452,7 +466,8 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
         ids::CONTINUE => g.supply_cards().any(|c| {
             gainable(g, c) && cards::is(c, ACTION) && !cards::is(c, ATTACK) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
         }),
-        ids::FORESIGHT => g.players[p].deck_counts().any_type(ACTION) || g.players[p].discard.any_type(ACTION),
+        // (With no Action anywhere the whole deck is revealed and discarded: a shuffle that is legal to ask for.)
+        ids::FORESIGHT => true,
         ids::KINTSUGI => !g.players[p].hand.is_empty(),
         ids::PRACTICE => g.players[p].hand.iter().any(|(c, _)| g.is_action(c)) || g.shadow_playable(p as u8),
         ids::RECEIVE_TRIBUTE => g.turn.rs.gains >= 3 && g.supply_cards().any(|c| gainable(g, c) && cards::is(c, ACTION) && !g.players[p].in_play.has(c)),
@@ -579,6 +594,14 @@ impl GameState {
     /// The Action cards `p` has in play (Treasures too under Enlightenment).
     pub fn actions_in_play(&self, p: u8) -> u8 {
         self.players[p as usize].in_play.iter().filter(|&(c, _)| self.is_action(c)).map(|(_, n)| n as u32).sum::<u32>().min(u8::MAX as u32) as u8
+    }
+
+    /// `p`'s deck was just shuffled by an effect other than a draw's reshuffle (Annex, Donate, Inn, Famine): the Shadow cards go to the bottom.
+    #[inline]
+    pub(crate) fn rs_shuffled(&mut self, p: u8) {
+        if self.rs.flags & R_SHADOW != 0 {
+            self.players[p as usize].sink_shadows();
+        }
     }
 
     /// Whether some Shadow card is in `p`'s deck, to be played from there (only in a game with a Shadow card).
@@ -869,7 +892,7 @@ impl GameState {
             let ps = &self.players[p as usize];
             let staying = self.turn.duration_held.get(c).saturating_add(ps.stays.get(c));
             let leaving = n.saturating_sub(staying);
-            if leaving == 0 || !self.has_pile_of(c) {
+            if leaving == 0 || !(self.has_pile_of(c) || cards::is_loot(c)) {
                 continue;
             }
             self.players[p as usize].in_play.set(c, n - leaving);
@@ -1007,6 +1030,8 @@ impl GameState {
             id::VAMPIRE, id::DEVILS_WORKSHOP, id::TORMENTOR, id::CEMETERY,
         ];
         !setup_cards.contains(&c) && !cards::is(c, FATE) && !cards::is(c, DOOM) && (ruins_in_game || !cards::is(c, LOOTER)) && c != id::RIVERBOAT
+            // (A Liaison would need an Ally dealt and Favors given: not done here, so none is dealt.)
+            && !cards::is(c, cards::LIAISON)
     }
 
     /// Adds the Supply pile of the Kingdom card `c` for `n` players, with the piles outside the Supply and the tokens it brings.

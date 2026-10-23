@@ -1982,3 +1982,408 @@ fn scepters_replay_of_mining_village_can_trash_it_when_it_is_still_in_play() {
     assert_eq!(g.players[0].in_play.get(id::MINING_VILLAGE), 0);
     assert_eq!(g.turn.led.n, 0);
 }
+
+// ===========================================================================
+// Audit: rulings of the wiki's FAQ pages that had no test
+// ===========================================================================
+
+#[test]
+fn recruiter_counts_only_the_dollar_part_of_the_cost() {
+    // "You do not get anything for P or Debt amounts, just for $."
+    let mut g = new_state(&[id::RECRUITER, id::ALCHEMIST, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::RECRUITER, id::ALCHEMIST]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    play(&mut g, id::RECRUITER);
+    pick(&mut g, id::ALCHEMIST);
+    assert_eq!(villagers(&g, 0), 3, "an Alchemist costs $3 and a Potion");
+}
+
+#[test]
+fn seer_does_not_take_cards_with_potion_or_debt_in_the_cost() {
+    // "Cards with P or Debt in their cost do not cost from $2 to $4."
+    let mut g = new_state(&[id::SEER, id::ALCHEMIST, id::DAIMYO], 2);
+    set_hand(&mut g, 0, &[id::SEER]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::ALCHEMIST, id::DAIMYO, id::SILVER, id::ESTATE]);
+    play(&mut g, id::SEER);
+    // +1 Card (Copper); the top 3 are Alchemist, Daimyo, Silver: only the Silver is taken.
+    assert_eq!(g.players[0].hand, counts_of(&[id::COPPER, id::SILVER]));
+}
+
+#[test]
+fn an_experiment_gained_to_the_hand_brings_the_second_one_to_the_discard_pile() {
+    // "If you gain one to a place other than your discard pile, the 2nd copy goes to your discard pile."
+    let mut g = new_state(&[id::EXPERIMENT, id::SMITHY], 2);
+    g.gain_card(0, id::EXPERIMENT, Dest::Hand, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!((g.players[0].hand.get(id::EXPERIMENT), g.players[0].discard.get(id::EXPERIMENT)), (1, 1));
+}
+
+#[test]
+fn an_experiment_played_without_being_in_play_stays_where_it_is() {
+    // "If Experiment somehow is not in play, it fails to return to its pile." (Band of Misfits plays it from the Supply.)
+    let mut g = new_state(&[id::EXPERIMENT, id::BAND_OF_MISFITS], 2);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    let pile = g.supply.get(id::EXPERIMENT);
+    play(&mut g, id::BAND_OF_MISFITS);
+    adv(&mut g);
+    assert_eq!(g.supply.get(id::EXPERIMENT), pile, "Band of Misfits stays in play; the Experiment it imitated was never in play");
+    assert_eq!(g.players[0].in_play.get(id::COPPER), 2, "+2 Cards (played as Treasures in the Buy phase)");
+}
+
+#[test]
+fn a_treasurer_played_at_the_start_of_the_turn_gives_the_key_at_once() {
+    // "If you play Treasurer at the start of your turn (with e.g. Piazza) and take the Key, you immediately get +$1 from it."
+    let mut g = new_state(&[id::PIAZZA, id::TREASURER], 2);
+    own(&mut g, 0, id::PIAZZA);
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &[id::TREASURER, id::DUCHY, id::DUCHY, id::PROVINCE]);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    choose(&mut g, Choice::Mode(2));
+    assert_eq!(g.turn.coins, 3 + 1, "Treasurer's $3 and the Key's $1 at once");
+}
+
+#[test]
+fn a_cargo_ship_trashed_by_improve_leaves_the_card_it_sets_aside_stranded() {
+    // Improve: "If you trash a Cargo Ship from play that hasn't set aside a card yet, then when you gain a card after trashing it, Cargo Ship can
+    // still set the gained card aside - but the set-aside card will be stranded and never be put in your hand."
+    let mut g = new_state(&[id::CARGO_SHIP, id::IMPROVE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::CARGO_SHIP, id::IMPROVE]);
+    g.turn.actions = 2;
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    set_deck_unknown(&mut g, 1, &[id::ESTATE; 12]);
+    play(&mut g, id::CARGO_SHIP);
+    play(&mut g, id::IMPROVE);
+    // To the end of the Buy phase without buying.
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 20 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        match d.kind {
+            DecisionKind::Select { act: Act::Trash, .. } => {
+                // Improve: trash the Cargo Ship (costs $3: gain a $4 card).
+                pick(&mut g, id::CARGO_SHIP);
+            }
+            DecisionKind::YesNo { act: Act::SetAside, .. } => {
+                choose(&mut g, Choice::Yes);
+            }
+            _ => {
+                let cs = choices(&g);
+                choose(&mut g, if cs.contains(&Choice::Pass) { Choice::Pass } else { cs[0] });
+            }
+        }
+    }
+    pass_until_turn_of(&mut g, 0);
+    assert_eq!(g.players[0].hand.get(id::SMITHY), 0, "the set-aside card never reaches the hand");
+}
+
+#[test]
+fn an_inventor_gained_by_inventor_and_played_by_innovation_gains_up_to_four_only() {
+    // "If you gain an Inventor with Inventor and then play the gained Inventor with Innovation, the first Inventor's cost reduction hasn't kicked in
+    // yet, so the second Inventor can still only gain a card costing $4."
+    let mut g = new_state(&[id::INVENTOR, id::INNOVATION, id::SMITHY], 2);
+    own(&mut g, 0, id::INNOVATION);
+    set_hand(&mut g, 0, &[id::INVENTOR]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::INVENTOR);
+    pick(&mut g, id::INVENTOR);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Play }), "{d:?}");
+    choose(&mut g, Choice::Yes);
+    let c = choices(&g);
+    assert!(!c.contains(&Choice::Card(id::DUCHY)), "a Duchy costs $5 before the reduction: {c:?}");
+    assert!(c.contains(&Choice::Card(id::SMITHY)));
+}
+
+#[test]
+fn exploration_does_not_count_cards_gained_in_the_action_phase() {
+    // "It does not count cards gained in your Action phase, such as with Inventor."
+    let mut g = new_state(&[id::EXPLORATION, id::INVENTOR, id::SMITHY], 2);
+    own(&mut g, 0, id::EXPLORATION);
+    set_hand(&mut g, 0, &[id::INVENTOR]);
+    set_deck_unknown(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::INVENTOR);
+    pick(&mut g, id::SMITHY);
+    // The Buy phase: buy nothing.
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    pass(&mut g);
+    assert_eq!((g.players[0].coffers, villagers(&g, 0)), (1, 1));
+}
+
+#[test]
+fn citadel_with_enchantress_gives_the_cantrip_and_then_replays_the_card_normally() {
+    // "If the first Action card you play is affected by Enchantress, you get +1 Card and +1 Action, then Citadel replays the card for its normal ability."
+    let mut g = new_state(&[id::CITADEL, id::ENCHANTRESS, id::SMITHY], 2);
+    own(&mut g, 0, id::CITADEL);
+    g.emp.flags |= dominion_engine::state::E_ENCHANT;
+    g.players[0].ench_by = 1 << 1;
+    g.turn.actions = 2;
+    set_hand(&mut g, 0, &[id::SMITHY]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::DUCHY, id::ESTATE]);
+    play(&mut g, id::SMITHY);
+    // Enchantress (the other player's, in play): the first play is +1 Card +1 Action; the replay is Smithy's own +3 Cards.
+    // (The Treasures drawn were played at once: the Buy phase is up.) Four cards were drawn, not six.
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::ESTATE));
+    assert!(g.players[0].in_play.has(id::GOLD) && g.players[0].hand.has(id::DUCHY));
+}
+
+#[test]
+fn crop_rotation_discards_only_one_victory_card() {
+    // "You cannot discard multiple Victory cards at the start of a turn to draw more than 2 cards."
+    let mut g = new_state(&[id::CROP_ROTATION], 2);
+    own(&mut g, 0, id::CROP_ROTATION);
+    set_hand(&mut g, 0, &[id::ESTATE, id::ESTATE, id::DUCHY]);
+    set_deck_known(&mut g, 0, &[id::GOLD, id::GOLD, id::GOLD, id::GOLD]);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { max: 1, .. }), "{d:?}");
+}
+
+#[test]
+fn canal_makes_an_estate_too_cheap_for_villain() {
+    // "Villain: other players discard a card costing at least $2, which could not be Estate, as Estate only costs $1 on your turns."
+    let mut g = new_state(&[id::CANAL, id::VILLAIN], 2);
+    own(&mut g, 0, id::CANAL);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::VILLAIN]);
+    set_hand(&mut g, 1, &[id::ESTATE, id::ESTATE, id::ESTATE, id::SILVER, id::GOLD]);
+    play(&mut g, id::VILLAIN);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1);
+    let c = choices(&g);
+    assert!(!c.contains(&Choice::Card(id::ESTATE)) && c.contains(&Choice::Card(id::SILVER)), "{c:?}");
+}
+
+#[test]
+fn capitalism_lets_a_treasurer_regain_a_card_that_is_a_treasure_on_the_owners_turn() {
+    // "if you have Capitalism, you can use Treasurer to gain an Improve from the trash, since Improve is a Treasure on your turns."
+    let mut g = new_state(&[id::CAPITALISM, id::TREASURER, id::IMPROVE], 2);
+    own(&mut g, 0, id::CAPITALISM);
+    g.trash.add(id::IMPROVE, 1);
+    set_hand(&mut g, 0, &[id::TREASURER]);
+    play(&mut g, id::TREASURER);
+    choose(&mut g, Choice::Mode(1));
+    assert!(has_choice(&g, Choice::Card(id::IMPROVE)), "{:?}", choices(&g));
+}
+
+#[test]
+fn capitalism_affects_every_action_the_wiki_lists() {
+    // The wiki's "Cards that Capitalism affects" (the removed cards and the pre-2022 Storyteller left out).
+    let listed = [
+        "Festival", "Market", "Merchant", "Militia", "Moneylender", "Poacher", "Vassal", "Baron", "Bridge", "Conspirator", "Courtier", "Ironworks", "Mill",
+        "Mining Village", "Minion", "Pawn", "Steward", "Swindler", "Bazaar", "Corsair", "Cutpurse", "Fishing Village", "Lighthouse", "Merchant Ship",
+        "Sailor", "Salvager", "Treasury", "Herbalist", "Bishop", "City", "Charlatan", "Clerk", "Grand Market", "Monument", "Peddler", "Vault", "Courser",
+        "Jester", "Joust", "Merchant Guild", "Shop", "Haggler", "Nomads", "Oasis", "Souk", "Spice Merchant", "Abandoned Mine", "Count", "Dame Sylvia",
+        "Death Cart", "Forager", "Ironmonger", "Junk Dealer", "Mercenary", "Mystic", "Poor House", "Rogue", "Scavenger", "Storeroom", "Squire", "Amulet",
+        "Artificer", "Caravan Guard", "Giant", "Hero", "Messenger", "Miser", "Peasant", "Soldier", "Swamp Hag", "Teacher", "Treasure Hunter",
+        "Wine Merchant", "Catapult", "Chariot Race", "Emporium", "Farmers' Market", "Gladiator", "Legionary", "Opulent Castle", "Sacrifice", "Villa",
+        "Bard", "Conclave", "Sacred Grove", "Secret Cave", "Tormentor", "Tracker", "Cargo Ship", "Flag Bearer", "Improve", "Patron", "Priest", "Treasurer",
+        "Animal Fair", "Bounty Hunter", "Cardinal", "Coven", "Fisherman", "Gatekeeper", "Livery", "Paddock", "Scrap", "Archer", "Barbarian", "Broker",
+        "Capital City", "Courier", "Elder", "Galleria", "Garrison", "Guildmaster", "Merchant Camp", "Skirmisher", "Stronghold", "Sycophant", "Tent", "Town",
+        "Town Crier", "Cabin Boy", "Flagship", "Fortune Hunter", "Frigate", "Harbor Village", "Mining Road", "Search", "Secluded Shrine", "Shaman",
+        "Taskmaster", "Aristocrat", "Change", "Fishmonger", "Kiln", "Kitsune", "Mountain Shrine", "Samurai", "Tea House",
+    ];
+    let mut checked = 0;
+    for name in listed {
+        let Some(c) = cards::by_name(name) else { continue };
+        assert!(cards::is(c, cards::ACTION), "{name}");
+        assert!(renaissance_capitalism(c), "{name} is turned into a Treasure by Capitalism");
+        checked += 1;
+    }
+    assert!(checked > 120, "{checked} of the listed cards are implemented");
+    for name in ["Smithy", "Inventor", "Village", "Raider", "Druid"] {
+        if let Some(c) = cards::by_name(name) {
+            assert!(!renaissance_capitalism(c), "{name} has no +$ amount in its text");
+        }
+    }
+}
+
+fn renaissance_capitalism(c: CardId) -> bool {
+    dominion_engine::sets::renaissance::capitalism_card(c)
+}
+
+#[test]
+fn the_lantern_affects_a_border_guard_played_by_band_of_misfits_and_as_way_of_the_chameleon() {
+    // "Lantern will still affect Border Guards you play from the Supply (with e.g. Band of Misfits)"; Way of the Chameleon: "you'll still reveal 3 cards".
+    let mut g = new_state(&[id::BORDER_GUARD, id::BAND_OF_MISFITS], 2);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_hand(&mut g, 0, &[id::BAND_OF_MISFITS]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    play(&mut g, id::BAND_OF_MISFITS);
+    // Three cards revealed: one to the hand, two discarded.
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].discard.total(), 2);
+    let mut g = new_state(&[id::BORDER_GUARD, id::WAY_OF_THE_CHAMELEON], 2);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    play(&mut g, id::BORDER_GUARD);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Way), "{d:?}");
+    choose(&mut g, Choice::Card(id::WAY_OF_THE_CHAMELEON));
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].discard.total(), 2);
+}
+
+#[test]
+fn a_reckless_border_guard_reveals_twice_with_the_lantern_and_the_horn_saves_only_one() {
+    // "If Border Guard is Reckless, Lantern affects both iterations, so you'll reveal a total of 6 cards." "...you can topdeck one of your Border Guards with Horn,
+    // while the others will return to the Supply."
+    let mut g = new_state(&[id::BORDER_GUARD, id::VILLAGE], 2);
+    g.put_trait(id::RECKLESS, id::BORDER_GUARD);
+    set_holder(&mut g, id::LANTERN, 0);
+    set_holder(&mut g, id::HORN, 0);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::SILVER, id::GOLD, id::COPPER, id::SILVER, id::GOLD, id::ESTATE]);
+    deck_of(&mut g, 1, 10);
+    play(&mut g, id::BORDER_GUARD);
+    pick(&mut g, id::GOLD);
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].in_play.get(id::GOLD) + g.players[0].hand.get(id::GOLD), 2);
+    assert_eq!(g.players[0].discard.total(), 4, "two cards discarded by each reveal of three");
+}
+
+#[test]
+fn with_reckless_border_guards_the_horn_saves_one_and_the_others_return_to_the_supply() {
+    let mut g = new_state(&[id::BORDER_GUARD, id::VILLAGE], 2);
+    g.put_trait(id::RECKLESS, id::BORDER_GUARD);
+    set_holder(&mut g, id::HORN, 0);
+    g.turn.actions = 3;
+    set_hand(&mut g, 0, &[id::BORDER_GUARD, id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::COPPER; 8]);
+    deck_of(&mut g, 0, 10);
+    deck_of(&mut g, 1, 10);
+    let pile = g.supply.get(id::BORDER_GUARD);
+    play(&mut g, id::BORDER_GUARD);
+    for _ in 0..4 {
+        if has_choice(&g, Choice::Card(id::COPPER)) {
+            pick(&mut g, id::COPPER);
+        }
+    }
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 60 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        if d.kind == DecisionKind::PlayAction && g.players[0].hand.has(id::BORDER_GUARD) && g.turn.actions > 0 {
+            let _ = play(&mut g, id::BORDER_GUARD);
+            continue;
+        }
+        if matches!(d.kind, DecisionKind::YesNo { act: Act::Topdeck }) {
+            choose(&mut g, Choice::Yes);
+        } else {
+            let c = if has_choice(&g, Choice::Pass) { Choice::Pass } else { choices(&g)[0] };
+            choose(&mut g, c);
+        }
+    }
+    // Four Border Guard plays (two each) happened: two cards in play. One went on the deck (and was drawn), the other back to its pile.
+    assert_eq!(g.supply.get(id::BORDER_GUARD), pile + 1, "one returned to the pile");
+    assert_eq!(g.players[0].hand.get(id::BORDER_GUARD), 1, "the other was topdecked with the Horn and drawn");
+}
+
+#[test]
+fn improve_trashing_a_fortress_sends_it_to_the_hand_and_it_is_discarded_with_the_rest_of_cleanup() {
+    // "If you put cards into your hand using Improve (e.g. you trash a Fortress...), they will get discarded during the remainder of Clean-up."
+    let mut g = new_state(&[id::IMPROVE, id::FORTRESS, id::SMITHY, id::VILLAGE], 2);
+    g.turn.actions = 2;
+    set_hand(&mut g, 0, &[id::IMPROVE, id::FORTRESS]);
+    set_deck_known(&mut g, 0, &[id::COPPER, id::COPPER]);
+    deck_of(&mut g, 0, 12);
+    deck_of(&mut g, 1, 12);
+    play(&mut g, id::IMPROVE);
+    play(&mut g, id::FORTRESS);
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 30 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        if matches!(d.kind, DecisionKind::Select { act: Act::Trash, from: Zone::InPlay, .. }) {
+            pick(&mut g, id::FORTRESS);
+        } else if matches!(d.kind, DecisionKind::Gain { .. }) {
+            pick(&mut g, id::SMITHY);
+        } else {
+            let c = if has_choice(&g, Choice::Pass) { Choice::Pass } else { choices(&g)[0] };
+            choose(&mut g, c);
+        }
+    }
+    assert_eq!(g.trash.get(id::FORTRESS), 0, "the Fortress left the trash for the hand");
+    assert_eq!(g.players[0].discard.get(id::FORTRESS) + g.players[0].deck_unknown.get(id::FORTRESS), 1, "discarded in the rest of Clean-up");
+    assert_eq!(g.players[0].hand.get(id::FORTRESS), 0);
+}
+
+#[test]
+fn border_guard_revealing_two_patrons_gives_two_coffers_and_a_discarded_patron_gives_none() {
+    // "if you play a Border Guard and reveal two Patrons, you will get +2 Coffers." "if another player plays a Villain and you discard a Patron, you do not get +1 Coffers."
+    let mut g = new_state(&[id::BORDER_GUARD, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::BORDER_GUARD]);
+    set_deck_known(&mut g, 0, &[id::PATRON, id::PATRON, id::COPPER]);
+    play(&mut g, id::BORDER_GUARD);
+    assert_eq!(g.players[0].coffers, 2);
+    let mut g = new_state(&[id::VILLAIN, id::PATRON], 2);
+    set_hand(&mut g, 0, &[id::VILLAIN]);
+    set_hand(&mut g, 1, &[id::PATRON, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    play(&mut g, id::VILLAIN);
+    adv(&mut g);
+    assert_eq!(g.players[1].coffers, 0);
+    assert_eq!(g.players[1].discard.get(id::PATRON), 1);
+}
+
+#[test]
+fn trashing_an_acting_troupe_with_priest_in_effect_gives_two_dollars() {
+    // "you will get +$2 for trashing an Acting Troupe due to playing it".
+    let mut g = new_state(&[id::PRIEST, id::ACTING_TROUPE], 2);
+    g.turn.actions = 2;
+    set_hand(&mut g, 0, &[id::PRIEST, id::ACTING_TROUPE, id::COPPER]);
+    play(&mut g, id::PRIEST);
+    pick(&mut g, id::COPPER);
+    let before = g.turn.coins;
+    play(&mut g, id::ACTING_TROUPE);
+    assert_eq!(g.turn.coins, before + 2);
+}
+
+#[test]
+#[ignore = "audit: Star Chart is only offered for the shuffle of a draw, not for Annex, Donate, Inn or Famine (docs/renaissance-plan.md section 6)"]
+fn star_chart_is_offered_for_the_shuffle_of_annex() {
+    let mut g = new_state(&[id::STAR_CHART, id::SMITHY, id::ANNEX], 2);
+    own(&mut g, 0, id::STAR_CHART);
+    set_discard(&mut g, 0, &[id::PROVINCE, id::ESTATE, id::SILVER]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    buy_phase(&mut g, 0, 2);
+    adv(&mut g);
+    pick(&mut g, id::ANNEX);
+    pass(&mut g);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }), "{d:?}");
+}
+
+#[test]
+fn old_witch_lets_a_sheepdog_draw_the_curse_that_is_then_trashed() {
+    // "The Curse is gained before you may trash one. So you can gain a Curse, react with Sheepdog, draw a Curse, and then trash that Curse."
+    let mut g = new_state(&[id::OLD_WITCH, id::SHEEPDOG], 2);
+    set_hand(&mut g, 0, &[id::OLD_WITCH]);
+    set_deck_unknown(&mut g, 0, &[id::COPPER; 6]);
+    set_hand(&mut g, 1, &[id::SHEEPDOG, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    set_deck_known(&mut g, 1, &[id::SILVER]);
+    play(&mut g, id::OLD_WITCH);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.player, 1, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    // Sheepdog drew the Silver and, after a reshuffle of the discard pile, the Curse; the Curse is the only one to trash.
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 20 {
+        guard += 1;
+        let d = expect_decision(&mut g);
+        if g.turn.player != 0 {
+            break;
+        }
+        let cs = choices(&g);
+        choose(&mut g, if cs.contains(&Choice::Card(id::CURSE)) { Choice::Card(id::CURSE) } else if cs.contains(&Choice::Pass) { Choice::Pass } else { cs[0] });
+        let _ = d;
+    }
+    assert_eq!(g.trash.get(id::CURSE), 1);
+}

@@ -1162,6 +1162,7 @@ impl GameState {
                 let bottom = ps.deck_known_bottom.counts();
                 ps.deck_unknown.add_all(&bottom);
                 ps.deck_known_bottom.clear();
+                self.rs_shuffled(p);
                 if self.adv & crate::state::G_DISCARD_HOOK != 0 {
                     self.discard_hook_counts(p, &discarded, f.depth, sink);
                 }

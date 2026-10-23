@@ -1095,6 +1095,7 @@ impl GameState {
                 ps.deck_known.clear();
                 ps.deck_known_bottom.clear();
                 ps.discard = kept;
+                self.rs_shuffled(p);
                 sink.event(Event::Shuffle { player: p });
             }
             Then::ConquestVp => {
@@ -1316,6 +1317,7 @@ impl GameState {
         let hand = ps.hand;
         ps.hand.clear();
         ps.deck_unknown.add_all(&hand);
+        self.rs_shuffled(p);
         sink.event(Event::Shuffle { player: p });
     }
 }

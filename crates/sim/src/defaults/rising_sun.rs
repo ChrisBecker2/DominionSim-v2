@@ -62,7 +62,7 @@ impl SetDefaults for RisingSun {
                 let worst3: i32 = hand.iter().take(3).sum();
                 let discard = find_mode(card, choices, |o| matches!(o, ModeOpt::DiscardFromHand(_)));
                 let curse = find_mode(card, choices, |o| matches!(o, ModeOpt::Gain(..)));
-                if hand.len() <= 3 || worst3 <= 3 { discard.or(curse) } else { curse.or(discard) }
+                if worst3 <= 3 { discard.or(curse) } else { curse.or(discard) }
             }
             _ => None,
         }

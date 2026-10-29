@@ -1792,7 +1792,7 @@ impl GameState {
     pub(crate) fn plu_cleanup_discards<S: EventSink>(&mut self, p: u8, play: &Counts, kept: &mut Counts, discard_part: &mut Counts, sink: &mut S) {
         if self.turn.plu.journey {
             // Nothing in play is discarded this turn; when no extra turn follows (Journey on an extra turn) it goes at the next Clean-up.
-            if !self.turn.outpost_grants_extra {
+            if !self.turn.outpost_grants_extra && self.turn.men.flags & crate::state::MT_SEIZE == 0 {
                 for (c, n) in discard_part.iter() {
                     self.players[p as usize].discard_next_cleanup.add(c, n);
                 }

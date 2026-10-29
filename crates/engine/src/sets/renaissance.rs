@@ -574,8 +574,9 @@ impl GameState {
 
     /// At the end of a turn of `p` (Clean-up done): whether the game is over. With Fleet, a game that would end gives one more turn to each player who
     /// has it (starting with the player after `p`, in turn order) before it does; `next` is then the seat that plays next, instead of the usual one.
+    /// The extra turns `p` has set up (`extra`: Outpost, Seize the Day, ...) come first, in between the Fleet turns, but none after the last one.
     #[inline(never)]
-    pub(crate) fn ren_game_over(&mut self, p: u8, next: &mut Option<u8>) -> bool {
+    pub(crate) fn ren_game_over(&mut self, p: u8, extra: bool, next: &mut Option<u8>) -> bool {
         use crate::state::REN_FLEET_ROUND;
         let n = self.num_players;
         if self.ren.flags & REN_FLEET_ROUND == 0 {
@@ -593,21 +594,40 @@ impl GameState {
                     self.ren.fleet |= 1 << q;
                 }
             }
-        } else {
-            self.ren.fleet &= !(1 << p);
-            if self.turn.number >= self.max_turns {
-                return true;
-            }
+        } else if self.turn.number >= self.max_turns {
+            return true;
         }
-        // The next seat after `p` that still has a Fleet turn to take.
+        if extra && self.ren.fleet != 0 {
+            return false;
+        }
+        *next = self.ren_fleet_next(p);
+        next.is_none()
+    }
+
+    /// Whether an extra turn set up now (at the end of the turn) would be taken: the game goes on after this turn, or Fleet's round has a turn
+    /// left to give (the game would end and someone has Fleet, or the round is under way and not over).
+    pub(crate) fn extra_turn_would_happen(&self) -> bool {
+        if self.ren.flags & crate::state::REN_FLEET_ROUND != 0 {
+            return self.ren.fleet != 0 && self.turn.number < self.max_turns;
+        }
+        match self.end_reason() {
+            None => true,
+            Some(crate::state::EndReason::TurnLimit) => false,
+            Some(_) => self.ren.projects != 0 && self.fleet_in_game(),
+        }
+    }
+
+    /// The next seat after `p` that still has a Fleet turn to take (it is taken now: its bit is cleared), if any.
+    pub(crate) fn ren_fleet_next(&mut self, p: u8) -> Option<u8> {
+        let n = self.num_players;
         for i in 1..=n {
             let q = (p + i) % n;
             if self.ren.fleet & (1 << q) != 0 {
-                *next = Some(q);
-                return false;
+                self.ren.fleet &= !(1 << q);
+                return Some(q);
             }
         }
-        true
+        None
     }
 
     /// `p` puts a token on Sinister Plot.

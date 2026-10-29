@@ -485,3 +485,537 @@ fn a_bane_gets_the_set_up_its_card_requires() {
     let g = GameState::new(&GameConfig { num_players: 2, kingdom: vec![id::YOUNG_WITCH], bane: Some(men::SLEIGH), ..Default::default() });
     assert!(g.has_horse_pile(), "the Horse pile is set up");
 }
+
+/// Merchant Guild with Villa: "+1 Coffers per card you gained in it" is counted at the end of each Buy phase, for that Buy phase only (Villa
+/// returns the player to the Action phase, which ends the Buy phase).
+#[test]
+fn merchant_guild_counts_each_buy_phase_once_when_villa_returns_to_the_action_phase() {
+    let mut g = new_state(&[id::MERCHANT_GUILD, id::VILLA], 2);
+    set_hand(&mut g, 0, &[id::MERCHANT_GUILD]);
+    set_deck_known(&mut g, 0, &[id::ESTATE; 10]);
+    play(&mut g, id::MERCHANT_GUILD);
+    g.turn.coins = 6;
+    while g.turn.phase == Phase::Action {
+        pass(&mut g);
+    }
+    buy(&mut g, id::VILLA);
+    assert_eq!(g.turn.phase, Phase::Action, "Villa returns to the Action phase");
+    assert_eq!(g.players[0].coffers, 1, "the first Buy phase gained one card");
+    while g.turn.phase == Phase::Action {
+        pass(&mut g);
+    }
+    buy(&mut g, id::COPPER);
+    while g.turn.player == 0 {
+        pass(&mut g);
+    }
+    assert_eq!(g.players[0].coffers, 2, "the second Buy phase gained one more; the Villa is not counted again");
+}
+
+/// Every Event can be bought whenever the rules allow it, also when it would do nothing (Dominate with no Provinces left, Kintsugi with an
+/// empty hand, Amass with an Action in play, Mission on an extra turn): buying it then plays out without a crash, and every card stays somewhere.
+/// Some still do something: Salt the Earth's +1 VP, Bury's +1 Buy, Continue's return with +1 Action and +1 Buy.
+#[test]
+fn every_event_can_be_bought_when_it_would_do_nothing() {
+    for e in cards::FIRST_EVENT..cards::FIRST_EVENT + cards::NUM_EVENTS as CardId {
+        for scenario in 0..3 {
+            let mut g = new_state(&[e, id::VILLAGE, id::SMITHY], 2);
+            match scenario {
+                // Nothing anywhere: no hand, deck or discard pile, and the piles an Event could gain from or trash are empty.
+                0 => {
+                    set_hand(&mut g, 0, &[]);
+                    clear_deck(&mut g, 0);
+                    set_discard(&mut g, 0, &[]);
+                    for c in [id::PROVINCE, id::DUCHY, id::ESTATE, id::CURSE, id::GOLD, id::SILVER, id::VILLAGE, id::SMITHY] {
+                        empty_pile(&mut g, c);
+                    }
+                }
+                // An Action in play, a hand of Coppers.
+                1 => {
+                    set_in_play(&mut g, 0, &[id::SMITHY]);
+                    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER]);
+                    set_deck_known(&mut g, 0, &[id::ESTATE; 10]);
+                }
+                // An extra turn.
+                _ => {
+                    g.turn.is_extra_turn = true;
+                    set_hand(&mut g, 0, &[id::ESTATE]);
+                    set_deck_known(&mut g, 0, &[id::ESTATE; 10]);
+                }
+            }
+            g.turn.phase = Phase::Buy;
+            g.turn.coins = 20;
+            g.turn.buys = 2;
+            g.turn.treasures_done = true;
+            g.pending = Pending::None;
+            let before = total_cards(&g);
+            let start = g.turn.number;
+            adv(&mut g);
+            let name = cards::name(e);
+            assert!(choices(&g).contains(&Choice::Card(e)), "{name} (scenario {scenario}) is not offered: {:?}", choices(&g));
+            let mut step = choose(&mut g, Choice::Card(e));
+            let mut over = false;
+            for _ in 0..500 {
+                match step {
+                    Step::Decision(d) if g.turn.number == start => {
+                        let c = match d.kind {
+                            DecisionKind::PlayAction | DecisionKind::Buy => Choice::Pass,
+                            _ => choices(&g)[0],
+                        };
+                        step = choose(&mut g, c);
+                    }
+                    Step::GameOver => {
+                        over = true;
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+            assert!(over || g.turn.number != start, "{name} (scenario {scenario}): the turn did not end: {step:?}");
+            assert_eq!(total_cards(&g), before, "{name} (scenario {scenario}): cards appeared or vanished
+{}", dominion_engine::text::format_state(&g));
+        }
+    }
+}
+
+// ===========================================================================
+// Extra turns: Outpost, Mission, Seize the Day, Voyage, Island Folk, Journey, Fleet, and Lich's skipped turns
+// ===========================================================================
+
+/// A 2-player game from the text format, player 1 to act on turn 5 with 2 Actions, 2 Buys and $8 (both players have taken 2 turns); `head` holds
+/// the game lines (Events, Projects, Ally, supply), `p1` / `p2` the players' lines. Both decks are Estates only, so every draw is known.
+fn xt_game(head: &str, p1: &str, p2: &str) -> GameState {
+    let text = format!(
+        "players: 2\n{head}\nturn: 5  player: 1  phase: action  actions: 2  buys: 2  coins: 8\nmax_turns: 500\n\n\
+         [player 1]\ndeck: 40 Estate\nturns: 2\n{p1}\n\n[player 2]\ndeck: 40 Estate\nturns: 2\n{p2}\n"
+    );
+    let mut g = dominion_engine::text::parse_state(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+    // Stop as each turn begins, even one without a decision in it.
+    g.pause_at_turn_start = true;
+    g
+}
+
+/// The kingdom with every extra-turn card of these tests (Voyage is in the Odysseys' pile under Old Map, Lich in the Wizards' under Student).
+const XT_HEAD: &str = "kingdom: Outpost, Old Map, Student, Throne Room, King's Court\nevents: Mission, Seize the Day, Journey";
+
+/// Answer the decision the way a passive player does: Pass, else No, else the first choice.
+fn xt_default(g: &mut GameState) {
+    let cs = choices(g);
+    let c = if cs.contains(&Choice::Pass) {
+        Choice::Pass
+    } else if cs.contains(&Choice::No) {
+        Choice::No
+    } else {
+        cs[0]
+    };
+    g.apply(c, &mut NoEvents).unwrap();
+}
+
+/// Pass to the end of the current turn: whether another turn started (false: the game is over).
+fn xt_next_turn(g: &mut GameState) -> bool {
+    for _ in 0..500 {
+        match adv(g) {
+            Step::GameOver => return false,
+            Step::TurnStart { .. } => return true,
+            Step::Decision(_) => xt_default(g),
+            other => panic!("{other:?}"),
+        }
+    }
+    panic!("the turn never ended");
+}
+
+/// Like `xt_next_turn`, but spend the Favors for Island Folk's extra turn when it is offered: (it was offered, another turn started).
+fn xt_island_folk_yes(g: &mut GameState) -> (bool, bool) {
+    let mut asked = false;
+    for _ in 0..500 {
+        match adv(g) {
+            Step::GameOver => return (asked, false),
+            Step::TurnStart { .. } => return (asked, true),
+            Step::Decision(d) if d.source == Some(id::ISLAND_FOLK) => {
+                asked = true;
+                g.apply(Choice::Yes, &mut NoEvents).unwrap();
+            }
+            Step::Decision(_) => xt_default(g),
+            other => panic!("{other:?}"),
+        }
+    }
+    panic!("the turn never ended");
+}
+
+/// Pass up to the Buy decision of the current turn.
+fn xt_to_buy(g: &mut GameState) {
+    loop {
+        let d = expect_decision(g);
+        if d.kind == DecisionKind::Buy {
+            return;
+        }
+        xt_default(g);
+    }
+}
+
+/// From the Action phase: play `plays` from the hand (a Throne Room or King's Court plays the card listed after it), then buy `buys` (cards, Events
+/// or Projects).
+fn xt_do(g: &mut GameState, plays: &[CardId], buys: &[CardId]) {
+    let mut i = 0;
+    while i < plays.len() {
+        play(g, plays[i]);
+        if plays[i] == id::THRONE_ROOM || plays[i] == id::KINGS_COURT {
+            i += 1;
+            choose(g, Choice::Card(plays[i]));
+        }
+        i += 1;
+    }
+    xt_to_buy(g);
+    for &c in buys {
+        xt_buy(g, c);
+    }
+}
+
+/// Buy `c` at the Buy decision, without going on (the turn may end with it: `xt_next_turn` goes on).
+fn xt_buy(g: &mut GameState, c: CardId) {
+    assert_eq!(expect_decision(g).kind, DecisionKind::Buy);
+    g.apply(Choice::Card(c), &mut NoEvents).unwrap();
+}
+
+/// The (turn number, player) of the current turn and of each turn after it until the game ends or `max` turns are listed.
+fn xt_turns(g: &mut GameState, max: usize) -> Vec<(u16, u8)> {
+    let mut v = vec![(g.turn.number, g.turn.player)];
+    while v.len() < max && xt_next_turn(g) {
+        v.push((g.turn.number, g.turn.player));
+    }
+    v
+}
+
+/// The limits of the current turn: (cards in hand, no cards may be bought, a Voyage turn).
+fn xt_limits(g: &GameState) -> (u32, bool, bool) {
+    (g.players[g.turn.player as usize].hand.total() as u32, g.turn.adv.no_buy, g.turn.al.limited)
+}
+
+#[test]
+fn two_extra_turn_sources_on_one_turn_give_one_extra_turn_and_the_least_limited_is_taken() {
+    // (plays, buys, the extra turn's limits): of two extra turns set up together only one is taken, the other would be a 3rd turn in a row. Outpost's
+    // 3-card hand is drawn whichever is taken; a Journey's or an Outpost's turn has no other limit, so it is taken over a Mission's or a Voyage's; of
+    // Mission and Voyage the engine takes the Mission turn.
+    let cases: [(&[CardId], &[CardId], (u32, bool, bool)); 6] = [
+        (&[id::OUTPOST, id::VOYAGE], &[], (3, false, false)),
+        (&[id::OUTPOST], &[id::MISSION], (3, false, false)),
+        (&[id::OUTPOST], &[id::JOURNEY], (3, false, false)),
+        (&[id::VOYAGE], &[id::MISSION], (5, true, false)),
+        (&[id::VOYAGE], &[id::JOURNEY], (5, false, false)),
+        (&[], &[id::MISSION, id::JOURNEY], (5, false, false)),
+    ];
+    for (plays, buys, limits) in cases {
+        let mut g = xt_game(XT_HEAD, "hand: Voyage, Outpost", "hand: 5 Estate");
+        xt_do(&mut g, plays, buys);
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn), (6, 0, true), "{plays:?} {buys:?}");
+        assert_eq!(xt_limits(&g), limits, "{plays:?} {buys:?}");
+        // The limits are the extra turn's only; no 3rd turn: the other player's turn and the next one of player 1 are normal.
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (1, false, (5, false, false)), "{plays:?} {buys:?}");
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (0, false, (5, false, false)), "{plays:?} {buys:?}");
+        assert_eq!((g.turn.number, g.players[0].turns_taken, g.players[1].turns_taken), (8, 3, 3), "the extra turn is not counted: {plays:?} {buys:?}");
+    }
+}
+
+#[test]
+fn seize_the_day_with_another_extra_turn_on_the_same_turn_gives_both_turns_seize_the_days_last() {
+    // Seize the Day does not check the turns before it: the other extra turn (not a 3rd in a row) is taken first, then Seize the Day's, a 3rd turn.
+    let cases: [(&[CardId], &[CardId], (u32, bool, bool)); 4] = [
+        (&[id::OUTPOST], &[], (3, false, false)),
+        (&[id::VOYAGE], &[], (5, false, true)),
+        (&[], &[id::MISSION], (5, true, false)),
+        (&[], &[id::JOURNEY], (5, false, false)),
+    ];
+    for (plays, buys, limits) in cases {
+        let mut g = xt_game(XT_HEAD, "hand: Voyage, Outpost", "hand: 5 Estate");
+        let mut b = buys.to_vec();
+        b.push(id::SEIZE_THE_DAY);
+        xt_do(&mut g, plays, &b);
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (0, true, limits), "{plays:?} {buys:?}");
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (0, true, (5, false, false)), "Seize the Day's turn: {plays:?} {buys:?}");
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.number, g.turn.player), (8, 1), "{plays:?} {buys:?}");
+        assert_eq!(g.players[0].turns_taken, 3, "only the normal turn counted: {plays:?} {buys:?}");
+    }
+}
+
+#[test]
+fn island_folk_is_offered_with_seize_the_day_bought_and_both_extra_turns_are_taken() {
+    let mut g = xt_game(&format!("{XT_HEAD}\nally: Island Folk"), "hand: Copper\nfavors: 5", "hand: 5 Estate");
+    xt_do(&mut g, &[], &[id::SEIZE_THE_DAY]);
+    assert_eq!(xt_island_folk_yes(&mut g), (true, true), "Island Folk is offered: Seize the Day's turn comes after its turn");
+    assert_eq!(g.players[0].al.favors, 0);
+    let turns = xt_turns(&mut g, 3);
+    assert_eq!(turns, [(6, 0), (7, 0), (8, 1)]);
+}
+
+#[test]
+fn the_most_turns_in_a_row_is_four_a_normal_turn_an_extra_turn_seize_the_day_and_fleet() {
+    // Player 1 has Fleet and ends the game with an Outpost in play: the Outpost turn is taken (Fleet is in the game), then Seize the Day's turn,
+    // then the Fleet turn. Every try for a 5th turn in a row fails: Outpost on the Outpost turn, Voyage on Seize the Day's turn (a 3rd turn in a row
+    // for both), Outpost on the Fleet turn (and no extra turn comes after the last Fleet turn).
+    let mut g = xt_game(
+        &format!("{XT_HEAD}\nprojects: Fleet\nsupply: Province=1"),
+        "hand: Outpost, Copper\ndeck top: Outpost, Estate, Estate, Voyage, Estate, Estate, Outpost, Estate, Estate, Estate, Estate\nowned projects: Fleet",
+        "hand: 5 Estate",
+    );
+    xt_do(&mut g, &[id::OUTPOST], &[id::PROVINCE]);
+    let mut turns = vec![(g.turn.number, g.turn.player)];
+    // The Outpost turn: Outpost again (no 3rd turn from it), and Seize the Day.
+    assert!(xt_next_turn(&mut g));
+    turns.push((g.turn.number, g.turn.player));
+    assert_eq!(xt_limits(&g), (3, false, false));
+    g.turn.coins = 4;
+    xt_do(&mut g, &[id::OUTPOST], &[id::SEIZE_THE_DAY]);
+    // Seize the Day's turn (a 3-card hand: an Outpost was played on the turn before).
+    assert!(xt_next_turn(&mut g));
+    turns.push((g.turn.number, g.turn.player));
+    assert_eq!((g.turn.is_extra_turn, xt_limits(&g)), (true, (3, false, false)));
+    xt_do(&mut g, &[id::VOYAGE], &[]);
+    // The Fleet turn, the 4th in a row.
+    assert!(xt_next_turn(&mut g));
+    turns.push((g.turn.number, g.turn.player));
+    assert!(g.ren.flags & dominion_engine::state::REN_FLEET_ROUND != 0 && g.turn.is_extra_turn);
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(!xt_next_turn(&mut g), "the game is over after the Fleet turn");
+    assert_eq!(turns, [(5, 0), (6, 0), (7, 0), (8, 0)], "four turns in a row, numbered one after another");
+    // Only the normal turn counts for the tie-break.
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken), (3, 2));
+}
+
+#[test]
+fn without_fleet_seize_the_day_on_an_extra_turn_gives_the_third_turn_in_a_row_and_nothing_gives_a_fourth() {
+    let mut g = xt_game(XT_HEAD, "hand: Outpost\ndeck top: Voyage, Outpost, Estate, Outpost, Voyage, Estate, Estate, Estate", "hand: 5 Estate");
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(xt_limits(&g), (3, false, false));
+    g.turn.coins = 8;
+    g.turn.buys = 2;
+    // Mission bought on an extra turn gives nothing (it would be a 3rd turn in a row); Seize the Day gives its turn, with no Mission limit.
+    xt_do(&mut g, &[], &[id::MISSION, id::SEIZE_THE_DAY]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (0, true, (5, false, false)), "Seize the Day's turn, the 3rd in a row");
+    xt_do(&mut g, &[id::VOYAGE, id::OUTPOST], &[]);
+    assert_eq!(xt_turns(&mut g, 3), [(7, 0), (8, 1), (9, 0)], "no 4th turn");
+}
+
+#[test]
+fn kings_court_on_outpost_and_throne_room_on_voyage_give_one_extra_turn_and_stay_in_play_until_its_clean_up() {
+    // King's Court plays Outpost three times: one extra turn (3-card hand); both stay in play for it and are discarded at its Clean-up.
+    let mut g = xt_game(XT_HEAD, "hand: King's Court, Outpost", "hand: 5 Estate");
+    xt_do(&mut g, &[id::KINGS_COURT, id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.player, xt_limits(&g)), (0, (3, false, false)));
+    assert_eq!((g.players[0].in_play.get(id::KINGS_COURT), g.players[0].in_play.get(id::OUTPOST)), (1, 1));
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(g.turn.player, 1);
+    assert!(g.players[0].in_play.is_empty(), "discarded at the extra turn's Clean-up");
+    assert_eq!((g.players[0].discard.get(id::KINGS_COURT), g.players[0].discard.get(id::OUTPOST)), (1, 1));
+    // Throne Room plays Voyage twice: one Voyage turn; both stay in play for it.
+    let mut g = xt_game(XT_HEAD, "hand: Throne Room, Voyage", "hand: 5 Estate");
+    xt_do(&mut g, &[id::THRONE_ROOM, id::VOYAGE], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.player, xt_limits(&g)), (0, (5, false, true)));
+    assert_eq!((g.players[0].in_play.get(id::THRONE_ROOM), g.players[0].in_play.get(id::VOYAGE)), (1, 1));
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(g.turn.player, 1);
+    assert!(g.players[0].in_play.is_empty(), "discarded at the Voyage turn's Clean-up");
+}
+
+#[test]
+fn a_voyage_that_fails_on_an_extra_turn_is_discarded_with_its_throne_room_at_the_next_clean_up() {
+    // Played on an Outpost turn, the Voyage (and the Throne Room that played it) give no turn; they are discarded in the next Clean-up, the other
+    // player's (like a failed Outpost).
+    let mut g = xt_game(XT_HEAD, "hand: Outpost\ndeck top: Throne Room, Voyage, Estate", "hand: 5 Estate");
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    xt_do(&mut g, &[id::THRONE_ROOM, id::VOYAGE], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(g.turn.player, 1, "no 3rd turn");
+    assert_eq!((g.players[0].in_play.get(id::THRONE_ROOM), g.players[0].in_play.get(id::VOYAGE)), (1, 1), "in play until the next Clean-up");
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(g.turn.player, 0);
+    assert_eq!((g.players[0].in_play.get(id::THRONE_ROOM), g.players[0].in_play.get(id::VOYAGE)), (0, 0), "discarded in player 2's Clean-up");
+    assert!(xt_next_turn(&mut g));
+    assert_eq!(g.turn.player, 1, "and it gives no turn later either");
+}
+
+#[test]
+fn a_mission_turn_buys_events_and_projects_but_no_cards() {
+    let mut g = xt_game(&format!("{XT_HEAD}\nprojects: Fleet"), "hand: Copper", "hand: 5 Estate");
+    xt_do(&mut g, &[], &[id::MISSION]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.player, g.turn.adv.no_buy), (0, true));
+    g.turn.coins = 8;
+    xt_to_buy(&mut g);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(id::SEIZE_THE_DAY)) && cs.contains(&Choice::Card(id::FLEET)), "{cs:?}");
+    assert!(!cs.contains(&Choice::Card(id::SILVER)) && !cs.contains(&Choice::Card(id::OUTPOST)), "{cs:?}");
+}
+
+// ---- Lich: skipped turns next to extra turns ----
+
+#[test]
+fn lich_skips_the_first_of_two_extra_turns_set_up_on_one_turn_and_the_second_is_taken() {
+    // "If you play two Outposts and Lich on one turn, Lich can skip the first extra turn. The second Outpost still happens, since you haven't taken
+    // 2 turns in a row yet" (the 2023 errata ruling); the same for two Voyages, a Throne-Roomed Outpost, and an extra turn with Seize the Day's.
+    let cases: [(&[CardId], &[CardId], (u32, bool, bool)); 5] = [
+        (&[id::LICH, id::OUTPOST, id::OUTPOST], &[], (3, false, false)),
+        (&[id::LICH, id::THRONE_ROOM, id::OUTPOST], &[], (3, false, false)),
+        (&[id::LICH, id::VOYAGE, id::VOYAGE], &[], (5, false, true)),
+        (&[id::LICH, id::OUTPOST, id::VOYAGE], &[], (3, false, false)),
+        (&[id::LICH, id::OUTPOST], &[id::SEIZE_THE_DAY], (3, false, false)),
+    ];
+    for (plays, buys, limits) in cases {
+        let mut g = xt_game(XT_HEAD, "hand: Lich, Outpost, Outpost, Voyage, Voyage, Throne Room", "hand: 5 Estate");
+        xt_do(&mut g, plays, buys);
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn), (7, 0, true), "turn 6 was skipped: {plays:?} {buys:?}");
+        assert_eq!((xt_limits(&g), g.players[0].al.skips), (limits, 0), "{plays:?} {buys:?}");
+        assert!(xt_next_turn(&mut g));
+        assert_eq!((g.turn.number, g.turn.player), (8, 1), "no 3rd turn: {plays:?} {buys:?}");
+        assert_eq!(g.players[0].turns_taken, 3, "the skipped extra turn is not counted either: {plays:?} {buys:?}");
+    }
+}
+
+#[test]
+fn lich_with_one_extra_turn_skips_it_the_outpost_is_discarded_at_the_next_clean_up_and_the_three_card_hand_is_kept() {
+    // "if you play Lich and Outpost in the same turn, you draw 3 cards during Clean-up, skip the Outpost turn, and then you keep that 3-card hand for
+    // your next turn"; the Outpost that failed is discarded in the next Clean-up, whoever's turn it is.
+    let mut g = xt_game(XT_HEAD, "hand: Lich, Outpost", "hand: 5 Estate");
+    xt_do(&mut g, &[id::LICH, id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn), (7, 1, false));
+    assert_eq!(g.players[0].in_play.get(id::OUTPOST), 1);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn), (8, 0, false));
+    assert_eq!((g.players[0].in_play.get(id::OUTPOST), g.players[0].discard.get(id::OUTPOST)), (0, 1), "discarded in player 2's Clean-up");
+    assert_eq!(xt_limits(&g), (3, false, false));
+    // Lich and Voyage, and Lich and Seize the Day, the same: the extra turn is skipped.
+    for (plays, buys) in [(&[id::LICH, id::VOYAGE][..], &[][..]), (&[id::LICH][..], &[id::SEIZE_THE_DAY][..])] {
+        let mut g = xt_game(XT_HEAD, "hand: Lich, Voyage", "hand: 5 Estate");
+        xt_do(&mut g, plays, buys);
+        assert_eq!(xt_turns(&mut g, 3), [(5, 0), (7, 1), (8, 0)], "{plays:?} {buys:?}");
+    }
+}
+
+#[test]
+fn lich_and_outpost_on_an_extra_turn_skip_the_next_normal_turn_instead() {
+    // "If you play Outpost and Lich on an Outpost turn, Outpost doesn't generate an extra turn and Lich ends up skipping your next normal turn."
+    let mut g = xt_game(XT_HEAD, "hand: Outpost\ndeck top: Lich, Outpost, Estate", "hand: 5 Estate");
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    xt_do(&mut g, &[id::LICH, id::OUTPOST], &[]);
+    let turns = xt_turns(&mut g, 4);
+    assert_eq!(turns, [(6, 0), (7, 1), (9, 1), (10, 0)], "player 1's normal turn 8 is skipped");
+    // The skipped normal turn counts for the tie-break; player 2's two turns in a row are normal turns and count too.
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken), (4, 4));
+}
+
+#[test]
+fn after_lich_skips_the_other_players_turn_the_previous_turn_was_yours_so_outpost_gives_no_extra_turn() {
+    // "cards that check the owner of the previous turn (e.g. Voyage) will check the last turn that was actually played. So if all the other players
+    // have skipped their turns with Lich, your Voyage will fail."
+    let mut g = xt_game(XT_HEAD, "hand: Copper\ndeck top: Outpost, Voyage, Estate, Estate, Estate", "hand: 5 Estate\nskips: 1");
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player), (7, 0), "player 2's turn 6 is skipped");
+    assert!(g.turn.is_extra_turn, "the previous turn taken was player 1's");
+    xt_do(&mut g, &[id::VOYAGE, id::OUTPOST], &[]);
+    assert_eq!(xt_turns(&mut g, 2), [(7, 0), (8, 1)], "no 3rd turn in a row");
+    // Both of player 1's turns were normal turns, and player 2's skipped one counts as taken.
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken), (4, 3));
+}
+
+// ---- The end of the game ----
+
+#[test]
+fn extra_turns_set_up_on_the_turn_the_game_ends_are_not_taken_without_fleet() {
+    let cases: [(&[CardId], &[CardId]); 5] = [
+        (&[id::OUTPOST], &[]),
+        (&[id::VOYAGE], &[]),
+        (&[], &[id::MISSION]),
+        (&[], &[id::SEIZE_THE_DAY]),
+        (&[], &[id::JOURNEY]),
+    ];
+    for (plays, buys) in cases {
+        let mut g = xt_game(&format!("{XT_HEAD}\nsupply: Province=1"), "hand: Outpost, Voyage", "hand: 5 Estate");
+        g.turn.coins = 12;
+        let mut b = buys.to_vec();
+        b.push(id::PROVINCE);
+        xt_do(&mut g, plays, &b);
+        assert!(!xt_next_turn(&mut g), "{plays:?} {buys:?}");
+        assert_eq!((g.turn.number, g.players[0].turns_taken, g.players[1].turns_taken), (5, 3, 2), "{plays:?} {buys:?}");
+    }
+    // Island Folk is not even offered.
+    let mut g = xt_game(&format!("{XT_HEAD}\nally: Island Folk\nsupply: Province=1"), "hand: Copper\nfavors: 5", "hand: 5 Estate");
+    xt_do(&mut g, &[], &[id::PROVINCE]);
+    assert_eq!(xt_island_folk_yes(&mut g), (false, false));
+    assert_eq!(g.players[0].al.favors, 5);
+}
+
+#[test]
+fn with_fleet_in_the_game_the_extra_turn_set_up_as_the_game_would_end_is_taken_before_the_fleet_turns() {
+    // "If you end the game and take an extra turn in the same turn, and another player has Fleet, you will get your extra turn. During that turn, if
+    // you buy Fleet, you will not get a Fleet turn."
+    let mut g = xt_game(&format!("{XT_HEAD}\nprojects: Fleet\nsupply: Province=1"), "hand: Outpost, Copper", "hand: 5 Estate\nowned projects: Fleet");
+    xt_do(&mut g, &[id::OUTPOST], &[id::PROVINCE]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player, xt_limits(&g)), (6, 0, (3, false, false)), "the Outpost turn");
+    g.turn.coins = 5;
+    xt_do(&mut g, &[], &[id::FLEET]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player), (7, 1), "player 2's Fleet turn");
+    assert!(!xt_next_turn(&mut g), "no Fleet turn for the Fleet bought in the Outpost turn");
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken), (3, 2));
+    // Island Folk is offered when the game would end and someone has Fleet: its turn comes first.
+    let mut g = xt_game(
+        &format!("{XT_HEAD}\nprojects: Fleet\nally: Island Folk\nsupply: Province=1"),
+        "hand: Copper\nfavors: 5",
+        "hand: 5 Estate\nowned projects: Fleet",
+    );
+    xt_do(&mut g, &[], &[id::PROVINCE]);
+    assert_eq!(xt_island_folk_yes(&mut g), (true, true));
+    assert_eq!(g.players[0].al.favors, 0);
+    assert_eq!(xt_turns(&mut g, 4), [(6, 0), (7, 1)]);
+}
+
+#[test]
+fn extra_turns_happen_between_fleet_turns_but_not_after_the_last_one() {
+    // "Other extra turns, such as from Outpost can happen in-between those turns; however after the last extra turn due to Fleet, no other extra
+    // turns can happen."
+    let mut g = xt_game(
+        &format!("{XT_HEAD}\nprojects: Fleet\nsupply: Province=1"),
+        "hand: Copper\ndeck top: Outpost, Estate, Estate, Estate, Estate\nowned projects: Fleet",
+        "hand: Outpost, 4 Estate\nowned projects: Fleet",
+    );
+    xt_do(&mut g, &[], &[id::PROVINCE]);
+    // Player 2's Fleet turn: the previous turn was player 1's, so their Outpost gives an extra turn (player 1's Fleet turn is still to come).
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn), (6, 1, false));
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player, g.turn.is_extra_turn, xt_limits(&g)), (7, 1, true, (3, false, false)), "player 2's Outpost turn");
+    // Player 1's Fleet turn, the last: their Outpost gives nothing.
+    assert!(xt_next_turn(&mut g));
+    assert_eq!((g.turn.number, g.turn.player), (8, 0));
+    xt_do(&mut g, &[id::OUTPOST], &[]);
+    assert!(!xt_next_turn(&mut g));
+    // None of the turns after the one that ended the game counts for the tie-break.
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken), (3, 2));
+}
+
+#[test]
+fn lich_skipping_the_last_fleet_turn_ends_the_game_and_gives_no_turn_to_a_player_without_fleet() {
+    let mut g = xt_game(&format!("{XT_HEAD}\nprojects: Fleet\nsupply: Province=1"), "hand: Lich\nowned projects: Fleet", "hand: 5 Estate");
+    g.turn.coins = 8;
+    xt_do(&mut g, &[id::LICH], &[id::PROVINCE]);
+    assert!(!xt_next_turn(&mut g), "player 1's Fleet turn is skipped and the game is over");
+    assert_eq!((g.players[0].turns_taken, g.players[1].turns_taken, g.players[0].al.skips), (3, 2, 0));
+    // With both players holding Fleet: player 2's Fleet turn, then player 1's is skipped.
+    let mut g = xt_game(&format!("{XT_HEAD}\nprojects: Fleet\nsupply: Province=1"), "hand: Lich\nowned projects: Fleet", "hand: 5 Estate\nowned projects: Fleet");
+    xt_do(&mut g, &[id::LICH], &[id::PROVINCE]);
+    assert_eq!(xt_turns(&mut g, 4), [(5, 0), (6, 1)]);
+}

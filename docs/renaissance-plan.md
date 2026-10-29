@@ -45,7 +45,8 @@ Projects bought like Events (a cube each, two per player), and the set-up rule t
   Annex's, are not offered Star Chart: a gap). Capitalism makes the Actions whose text has a +$ amount Treasures on its owner's turns (`GameState::is_treasure`,
   the wiki's list of names in `capitalism_card`): in the Buy phase they are offered in `PlayTreasure` and played with all their effects (`plain_treasure` says a
   Treasure is played by the short path). Fleet: when the game would end (not the turn limit), each player with Fleet takes one more turn, in order from the player after
-  the one whose turn ended it (`ren_game_over`); the Fleet round blocks Outpost extra turns and `result_if_turn_ends` is `None` while Fleet is in the game.
+  the one whose turn ended it (`ren_game_over`); the extra turns set up then (Outpost, Seize the Day, ...) are taken first, and in between the Fleet turns, but none
+  after the last one; the Fleet turns, being extra turns, do not count for the tie-break; `result_if_turn_ends` is `None` while Fleet is in the game.
 * **Patron** gets +1 Coffers whenever a Patron is *revealed* in an Action phase: all 21 places that emit `Event::Reveal` go through `GameState::reveal_card`.
 * **Cargo Ship** (a Duration that schedules itself, like Haven): each play lets one gained card be set aside (a `YesNo`, `Then::CargoAside`); the Ship stays in play
   only if it did, and the card comes into the hand at the start of the next turn (`PendingDuration::arg`). **Research** the same with the cards under it.

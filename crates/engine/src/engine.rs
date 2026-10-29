@@ -774,13 +774,18 @@ impl GameState {
                         return Run::Continue;
                     }
                 }
-                // Extra turns (Outpost) don't count towards the tie-break "fewer turns wins".
-                if !self.turn.is_extra_turn {
+                // Extra turns (Outpost) don't count towards the tie-break "fewer turns wins"; nor do the turns of Fleet's round, which are extra turns too.
+                let fleet_round = self.ren.flags & crate::state::REN_FLEET_ROUND != 0;
+                if !self.turn.is_extra_turn && !fleet_round {
                     self.players[p].turns_taken += 1;
                 }
+                // The extra turns this player set up: one that is not a 3rd turn in a row (`outpost_grants_extra`, see `cleanup`), and Seize the Day's, which
+                // has no such check and so comes after it.
+                let seize = self.turn.men.flags & crate::state::MT_SEIZE != 0;
+                let mut extra = self.turn.outpost_grants_extra || seize;
                 // Renaissance: with Projects in the game, Fleet's extra round decides whether the game is over (and who plays next in it).
                 let mut fleet_next = None;
-                let over = if self.ren.projects == 0 { self.end_condition_met() } else { self.ren_game_over(p as u8, &mut fleet_next) };
+                let over = if self.ren.projects == 0 { self.end_condition_met() } else { self.ren_game_over(p as u8, extra, &mut fleet_next) };
                 if over {
                     self.turn.phase = Phase::GameOver;
                     sink.event(Event::GameOver);
@@ -788,7 +793,10 @@ impl GameState {
                     // Outpost: an extra turn keeps the same player instead of advancing; the new
                     // turn's own `is_extra_turn` is set so a 2nd Outpost played during it can't
                     // grant a 3rd turn in a row (see `cleanup`, which computed this).
-                    let mut extra = self.turn.outpost_grants_extra && fleet_next.is_none();
+                    extra &= fleet_next.is_none();
+                    // Seize the Day's turn after the first extra turn; a second extra turn set up this turn, taken if Lich skips the first.
+                    let mut seize_after = extra && seize && self.turn.outpost_grants_extra;
+                    let mut second = extra && self.turn.outpost_grants_extra && self.extra_turns_set_up() >= 2;
                     let mut no_buy = self.turn.adv.next_no_buy;
                     let mut voyage_next = self.turn.al.voyage_next;
                     let mut next = match fleet_next {
@@ -802,24 +810,59 @@ impl GameState {
                         while self.players[next as usize].al.skips > 0 {
                             self.players[next as usize].al.skips -= 1;
                             // A skipped turn still counts for the tie-break (an extra turn never does).
-                            if !extra {
+                            if !extra && self.ren.flags & crate::state::REN_FLEET_ROUND == 0 {
                                 self.players[next as usize].turns_taken += 1;
                             }
                             sink.event(Event::Skip { player: next });
-                            // A skipped Voyage turn: the Voyage is discarded (in the next Clean-up that happens).
+                            number += 1;
+                            // Lich skips the first of several extra turns: the next one is still taken (the skipped turn was not, so it is no 3rd in a
+                            // row). Of two set up this turn, the one with the stricter limit is skipped; Seize the Day's comes after.
+                            if extra && second {
+                                second = false;
+                                continue;
+                            }
+                            // A skipped Voyage turn: the Voyage is discarded (in the next Clean-up that happens); so is a skipped Outpost's.
                             if extra && voyage_next {
                                 self.al_voyage_skipped(next);
                             }
-                            number += 1;
-                            extra = false;
                             no_buy = false;
                             voyage_next = false;
-                            next = (next + 1) % self.num_players;
+                            if extra && seize_after {
+                                seize_after = false;
+                                continue;
+                            }
+                            if extra {
+                                let ps = &mut self.players[next as usize];
+                                ps.discard_next_cleanup.add(id::OUTPOST, ps.in_play.get(id::OUTPOST));
+                            }
+                            extra = false;
+                            // In Fleet's round the turn after a skipped one is the next Fleet turn, if there is one left.
+                            if self.ren.flags & crate::state::REN_FLEET_ROUND != 0 {
+                                match self.ren_fleet_next(next) {
+                                    Some(q) => next = q,
+                                    None => {
+                                        self.al_update_hook();
+                                        self.turn.phase = Phase::GameOver;
+                                        sink.event(Event::GameOver);
+                                        return Run::Continue;
+                                    }
+                                }
+                            } else {
+                                next = (next + 1) % self.num_players;
+                            }
                         }
                         self.al_update_hook();
                     }
                     self.turn = TurnState::start(next, number + 1);
-                    self.turn.is_extra_turn = extra;
+                    // "The previous turn was yours" (no 3rd turn in a row): the turn follows one of the same player's, an extra turn or not (Lich may
+                    // have skipped every other player's turn in between). Such a normal turn is counted for the tie-break now, not at its end.
+                    self.turn.is_extra_turn = extra || next == p as u8;
+                    if !extra && next == p as u8 && self.ren.flags & crate::state::REN_FLEET_ROUND == 0 {
+                        self.players[p].turns_taken += 1;
+                    }
+                    if seize_after {
+                        self.turn.men.flags |= crate::state::MT_SEIZE;
+                    }
                     if self.plu.flags != 0 {
                         self.plu_refresh();
                     }
@@ -1497,6 +1540,15 @@ impl GameState {
         }
     }
 
+    /// How many extra turns (not a 3rd in a row) the turn's player set up this turn: each play of Outpost and Voyage, Mission, Journey; Island Folk's
+    /// when nothing else did. Only one is taken, unless Lich skips the first.
+    fn extra_turns_set_up(&self) -> u8 {
+        let t = &self.turn;
+        let voyages = if t.al.voyage { t.duration_held.get(crate::sets::allies::ids::VOYAGE) } else { 0 };
+        let n = t.duration_held.get(id::OUTPOST) + voyages + t.adv.mission as u8 + t.plu.journey as u8;
+        n.max(t.outpost_grants_extra as u8)
+    }
+
     fn cleanup<S: EventSink>(&mut self, sink: &mut S) {
         let p = self.turn.player as usize;
         sink.event(Event::PhaseStart { player: p as u8, phase: Phase::CleanupDraw });
@@ -1522,11 +1574,13 @@ impl GameState {
         // turn's cleanup, and has nothing left to do at the start of this player's next turn.
         let outpost_played = self.turn.duration_held.has(id::OUTPOST);
         let grant_extra = outpost_played && !self.turn.is_extra_turn;
-        // Mission (Adventures): an extra turn too, unless this is one already or an Outpost's is taken instead; the extra turn buys no cards.
-        let mission = self.turn.adv.mission && !self.turn.is_extra_turn && !grant_extra;
+        // Mission (Adventures): an extra turn too, unless this is one already or an Outpost's or a Journey's (no limit on buying) is taken instead; the extra turn
+        // buys no cards.
+        let mission = self.turn.adv.mission && !self.turn.is_extra_turn && !grant_extra && !self.turn.plu.journey;
         self.turn.adv.next_no_buy = mission;
-        // Seize the Day (Menagerie): an extra turn after this one, with no check on the previous turn.
-        self.turn.outpost_grants_extra = grant_extra || mission || self.turn.men.flags & crate::state::MT_SEIZE != 0;
+        // `outpost_grants_extra`: an extra turn (not a 3rd in a row) follows. Seize the Day (Menagerie), which has no such check, is read from
+        // `MT_SEIZE` when the next turn is chosen: its turn comes after that one.
+        self.turn.outpost_grants_extra = grant_extra || mission;
         // Plunder: Journey is an extra turn too (not a third in a row), whatever else is pending.
         if self.turn.plu.journey && !self.turn.is_extra_turn {
             self.turn.outpost_grants_extra = true;
@@ -1561,13 +1615,19 @@ impl GameState {
                 qs.discard_next_cleanup = DurationHeld::EMPTY;
             }
         }
-        if outpost_played && !grant_extra {
+        // Allies: so does a Voyage played on a turn that follows one of the same player's (it gives no 3rd turn in a row).
+        let voyage = crate::sets::allies::ids::VOYAGE;
+        let voyage_failed = self.turn.is_extra_turn && self.turn.duration_held.has(voyage);
+        for (c, failed) in [(id::OUTPOST, outpost_played && !grant_extra), (voyage, voyage_failed)] {
+            if !failed {
+                continue;
+            }
             let ps = &mut self.players[p];
-            let n = self.turn.duration_held.get(id::OUTPOST).min(ps.in_play.get(id::OUTPOST));
-            ps.discard_next_cleanup.add(id::OUTPOST, n);
+            let n = self.turn.duration_held.get(c).min(ps.in_play.get(c));
+            ps.discard_next_cleanup.add(c, n);
             let mut kept = 0;
             for i in 0..ps.pending_durations_len as usize {
-                if ps.pending_durations[i].card != id::OUTPOST {
+                if ps.pending_durations[i].card != c {
                     ps.pending_durations[kept] = ps.pending_durations[i];
                     kept += 1;
                 }

@@ -1057,9 +1057,9 @@ impl GameState {
                     }
                 } else if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
                     self.turn.duration_held.add(f.source, 1);
-                    // An Outpost played during an Outpost turn fails (no 3rd turn in a row): the
+                    // An Outpost or a Voyage played during an extra turn fails (no 3rd turn in a row): the
                     // multiplier stays in play with it until the next turn's cleanup (`cleanup`).
-                    if f.subject == id::OUTPOST && self.turn.is_extra_turn {
+                    if (f.subject == id::OUTPOST || f.subject == crate::sets::allies::ids::VOYAGE) && self.turn.is_extra_turn {
                         self.players[p as usize].discard_next_cleanup.add(f.source, 1);
                     }
                 }

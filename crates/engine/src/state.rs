@@ -1173,9 +1173,10 @@ pub struct TurnState {
     /// is per-turn, not per-player, but only the turn's own player ever plays cards into their own
     /// `in_play`, so this is unambiguous.
     pub duration_held: DurationHeld,
-    /// True if this turn itself was granted as an extra turn by an Outpost played on the
-    /// previous turn (so a second Outpost played now must not grant a further extra turn: no 3rd
-    /// turn in a row). Also true when the game is between such turns, used by `pass`.
+    /// True if the previous turn taken was this player's too: this turn is an extra turn (Outpost, Mission, Seize the Day, ...), or Lich skipped
+    /// every other player's turn in between (so an Outpost played now must not grant a further extra turn: no 3rd turn in a row). Such a turn is
+    /// not counted for the tie-break at its end (an extra turn never is; a normal one was counted when it began). Also true when the game is
+    /// between such turns, used by `pass`.
     pub is_extra_turn: bool,
     /// Set during this turn's cleanup when an Outpost in play grants an extra turn; read when
     /// `Phase::CleanupDraw` picks the next player and builds their `TurnState`. Purely transient

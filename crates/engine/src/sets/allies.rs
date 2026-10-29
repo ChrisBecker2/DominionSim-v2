@@ -1321,7 +1321,7 @@ impl GameState {
             || self.players[p as usize].al.favors < 5
             || self.turn.is_extra_turn
             || self.turn.outpost_grants_extra
-            || self.end_condition_met()
+            || !self.extra_turn_would_happen()
         {
             return false;
         }

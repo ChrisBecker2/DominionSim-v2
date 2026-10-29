@@ -123,6 +123,9 @@ pub const ADV_MINUS_CARD: u8 = 1;
 pub const ADV_MINUS_COIN: u8 = 2;
 /// The Journey token is face down (it starts face up).
 pub const ADV_JOURNEY_DOWN: u8 = 4;
+/// The upper bits of `PlayerState::adv` count the player's Champion effects (`PlayerState::champions`): one per Champion play that resolved, so a
+/// Throne-Roomed Champion is two. Zero in a game without Champion, so the state hashes as before.
+pub const ADV_CHAMP_SHIFT: u32 = 3;
 /// `GameState::adv` flags: which token effects are live in this game, so that games without them skip every check with one byte test.
 /// Some player's +1 Card / +1 Action / +1 Buy / +$1 token is on a pile.
 pub const G_PLAY_TOKENS: u8 = 1;
@@ -130,7 +133,7 @@ pub const G_PLAY_TOKENS: u8 = 1;
 pub const G_COST_TOKEN: u8 = 2;
 /// Some player's Trashing token is on a pile.
 pub const G_TRASH_TOKEN: u8 = 4;
-/// A Champion has been played: Action plays get +1 Action per Champion their player has in play.
+/// A Champion has been played: Action plays get +1 Action per Champion effect their player has (`PlayerState::champions`).
 pub const G_CHAMPION: u8 = 8;
 /// Some card in the game does something when it is discarded other than in Clean-up (Faithful Hound, Tunnel, Trail, Weaver): discards are watched.
 pub const G_DISCARD_HOOK: u8 = 16;
@@ -908,7 +911,7 @@ pub struct PlayerState {
     pub inherit: CardId,
     /// Adventures flags (`ADV_*`): the -1 Card token on the deck, the -$1 token, the Journey token face down.
     pub adv: u8,
-    /// The card Save set aside, returned to the hand after the Clean-up draw (0 = none). Counts as owned.
+    /// The card Save set aside, returned to the hand after the Clean-up draw, as its id + 1 (0 = none; Copper is id 0): `saved_card`. Counts as owned.
     pub saved: CardId,
     /// Bitmask of the Events this player has bought so far (bit `event - FIRST_EVENT`).
     pub events_bought: EvMask,
@@ -973,6 +976,24 @@ impl std::hash::Hash for RenPlayer {
 }
 
 impl PlayerState {
+    /// Champion: how many "when you play an Action card, you first get +1 Action" effects the player has. One per Champion play (a Throne-Roomed
+    /// Champion gives two); they last while the Champion stays in play, and one that has left play still works until the end of that turn
+    /// (wiki: Throne Room with Way of the Horse).
+    pub fn champions(&self) -> u8 {
+        self.adv >> ADV_CHAMP_SHIFT
+    }
+    /// Sets the Champion effect count (at most 31).
+    pub fn set_champions(&mut self, n: u8) {
+        self.adv = (self.adv & ((1 << ADV_CHAMP_SHIFT) - 1)) | (n.min(31) << ADV_CHAMP_SHIFT);
+    }
+    /// The card Save set aside, if any.
+    pub fn saved_card(&self) -> Option<CardId> {
+        self.saved.checked_sub(1)
+    }
+    /// Sets (or clears) the card Save set aside.
+    pub fn set_saved(&mut self, c: Option<CardId>) {
+        self.saved = c.map_or(0, |c| c + 1);
+    }
     pub fn deck_size(&self) -> u32 {
         self.deck_known.len as u32 + self.deck_unknown.total() + self.deck_known_bottom.len as u32
     }
@@ -1010,7 +1031,7 @@ impl PlayerState {
             + self.men.exile.get(card) as u32
             + self.men.aside.get(card) as u32
             + self.al.keep.get(card) as u32
-            + (self.saved == card && card != 0) as u32
+            + (self.saved_card() == Some(card)) as u32
             + self.plu.count_of(card)
             + (self.inherit == card && card != 0) as u32;
         if card == id::FAITHFUL_HOUND {
@@ -1041,8 +1062,8 @@ impl PlayerState {
         self.church.add_into(&mut c);
         self.cleanup_aside.add_into(&mut c);
         self.tavern.add_into(&mut c);
-        if self.saved != 0 {
-            c.add(self.saved, 1);
+        if let Some(s) = self.saved_card() {
+            c.add(s, 1);
         }
         self.archive.add_into(&mut c);
         self.aside.add_into(&mut c);
@@ -2090,8 +2111,9 @@ pub enum Filter {
     TreasureOrCurse,
     /// Either of two specific cards (Apothecary: Copper or Potion).
     Either(CardId, CardId),
-    /// A non-Duration Action card costing up to `n` coins and no Potion (Prince). The Select code checks
-    /// the *current* cost (`GameState::filter_ok`); `matches` can only use the printed cost.
+    /// A non-Duration Action card costing up to `n` coins and no Potion. The Select code checks
+    /// the *current* cost (`GameState::filter_ok`); `matches` can only use the printed cost. No card uses it now
+    /// (Band of Misfits uses `CommandCostUpTo`); kept so the filters after it keep their numbers in state hashes.
     ActionCostUpTo(u8),
     /// Any card that isn't an Action (Scrying Pool's "until revealing a non-Action").
     NonAction,
@@ -2934,8 +2956,9 @@ pub const GF_ANY_COST: u8 = 16;
 pub const GF_EXCL: u8 = 32;
 /// `Frame::gf`: the card chosen is Exiled from the Supply instead of gained (Menagerie): it goes onto the mat of the frame's player, with no gain triggers.
 pub const GF_EXILE: u8 = 64;
-/// `Frame::gf`: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed.
-pub const GF_MORE: u8 = 64;
+/// `Frame::gf` of a Gain frame: strictly more $ than `max` (Change: "a card costing more $ than it"), Debt and Potion in the cost allowed. The
+/// same bit as `GF_ELDER`, which is only set on Select and PlayEffects frames (a Gain frame has every lower bit in use: 64 is `GF_EXILE`).
+pub const GF_MORE: u8 = 128;
 /// `Frame::gf`: Elder is making the play this frame belongs to (a `PlayEffects` frame), or a `Select` frame belongs to a play Elder made (the `Mode` frame it leads
 /// to gives one more pick).
 pub const GF_ELDER: u8 = 128;
@@ -3693,10 +3716,8 @@ impl GameState {
                 Err(exact) => return exact,
             }
         }
-        // `in_supply` check first: a single cheap bitmask test that skips the (still cheap, but
-        // not free) lookup entirely for the overwhelming majority of games, which have no
-        // Quarry in the kingdom at all.
-        if self.in_supply(id::QUARRY) && cards::is(c, cards::ACTION) {
+        // Quarry: what matters is a Quarry played this turn, wherever it came from (a loaded game, Black Market), not the kingdom.
+        if cards::is(c, cards::ACTION) {
             reduction += 2 * self.plays_this_turn(self.turn.player, id::QUARRY) as u32;
         }
         if c == id::PEDDLER && self.turn.phase == Phase::Buy {

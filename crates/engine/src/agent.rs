@@ -282,11 +282,11 @@ impl<'a> PlayerView<'a> {
     pub fn event_cost(&self, e: CardId) -> u8 {
         crate::cards::cost(e)
     }
-    /// Whether the Event `e` could be bought now (cost, once-per-turn and once-per-game limits, something to do).
+    /// Whether the Event `e` could be bought now (cost, once-per-turn and once-per-game limits); it may do nothing (`event_available`).
     pub fn event_buyable(&self, e: CardId) -> bool {
         crate::cards::is_event(e) && crate::sets::adventures::event_buyable(self.state, e)
     }
-    /// `event_buyable` without the cost.
+    /// The Event `e` could be bought apart from its cost, and would do something now (what the strategies' gain lists use).
     pub fn event_available(&self, e: CardId) -> bool {
         crate::cards::is_event(e) && crate::sets::adventures::event_available(self.state, e)
     }
@@ -888,8 +888,8 @@ impl<'a> PlayerView<'a> {
             for &(_, c, m) in &plu_priv[..plu_priv_n] {
                 pool.add(c, m);
             }
-            if ps.saved != 0 {
-                pool.add(ps.saved, 1);
+            if let Some(s) = ps.saved_card() {
+                pool.add(s, 1);
             }
             let mut hand = Counts::EMPTY;
             for _ in 0..hand_size {
@@ -937,7 +937,7 @@ impl<'a> PlayerView<'a> {
             if ps.saved != 0 {
                 let c = pool.nth(rng.below(pool.total()));
                 pool.remove(c);
-                ps.saved = c;
+                ps.set_saved(Some(c));
             }
             if biding_size > 0 {
                 ps.aside.clear();

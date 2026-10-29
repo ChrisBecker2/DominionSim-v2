@@ -79,7 +79,7 @@ fn start_play(card: CardId) -> Event {
 }
 
 // ===========================================================================
-// The card
+// Prince
 // ===========================================================================
 
 #[test]
@@ -94,10 +94,6 @@ fn prince_is_a_promo_action_costing_eight() {
     assert_eq!(cards::set_by_name("Promo"), Some(CardSet::Promo));
     assert_eq!(cards::by_name("prince"), Some(id::PRINCE));
 }
-
-// ===========================================================================
-// Setting aside
-// ===========================================================================
 
 #[test]
 fn prince_sets_an_action_costing_up_to_four_aside_and_stays_in_play() {
@@ -238,10 +234,6 @@ fn a_prince_that_set_nothing_aside_does_not_keep_the_throne_room() {
     assert!(g.players[0].discard.has(id::PRINCE) && g.players[0].discard.has(id::THRONE_ROOM));
 }
 
-// ===========================================================================
-// Start of turn
-// ===========================================================================
-
 #[test]
 fn the_held_action_is_played_each_turn_without_entering_play_or_using_an_action() {
     let mut g = new_state(&[id::PRINCE, id::SMITHY, id::VILLAGE], 2);
@@ -314,10 +306,6 @@ fn a_princes_card_is_one_of_the_start_of_turn_effects() {
     assert!(matches!(d.kind, DecisionKind::Select { act: Act::Discard, .. }));
 }
 
-// ===========================================================================
-// Cards that move themselves fail to, and never move a copy that is in play
-// ===========================================================================
-
 #[test]
 fn a_held_mining_village_cannot_trash_itself_and_gives_no_bonus() {
     let mut g = new_state(&[id::PRINCE, id::MINING_VILLAGE], 2);
@@ -377,77 +365,75 @@ fn a_held_island_stays_but_still_puts_a_hand_card_on_the_mat() {
     assert_eq!(total_cards(&g), before);
 }
 
+#[test]
+fn prince_cannot_set_aside_a_command_card_that_cost_reduction_made_cheap() {
+    // Band of Misfits ($5, Action-Command) costs $4 after a reduction, but Prince takes a "non-Duration, non-Command Action".
+    let mut g = new_state(&[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE], 2);
+    g.turn.cost_reduction = 1;
+    assert_eq!(g.cost(id::BAND_OF_MISFITS), 4);
+    set_hand(&mut g, 0, &[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE]);
+    play(&mut g, id::PRINCE);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::BAND_OF_MISFITS)), "{c:?}");
+}
+
+#[test]
+fn prince_cannot_set_aside_a_card_with_debt_in_its_cost() {
+    let mut g = new_state(&[id::PRINCE, id::ENGINEER, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::PRINCE, id::ENGINEER, id::VILLAGE]);
+    play(&mut g, id::PRINCE);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
+}
+
+#[test]
+fn a_prince_played_at_the_start_of_the_turn_plays_the_card_it_sets_aside_that_same_turn() {
+    use dominion_engine::cards::FIRST_PROJECT;
+    let mut g = new_state(&[id::PRINCE, id::VILLAGE, id::PIAZZA], 2);
+    let bit = 1u32 << (id::PIAZZA - FIRST_PROJECT);
+    g.players[0].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+    set_hand(&mut g, 0, &[id::VILLAGE]);
+    set_deck_known(&mut g, 0, &[id::PRINCE, id::ESTATE, id::DUCHY, id::PROVINCE]);
+    // Start of turn: Piazza plays the Prince from the top of the deck.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    // The Village is played now, as the start of the turn is still on: +1 Card, +2 Actions.
+    assert_eq!(g.players[0].prince_cards.get(id::VILLAGE), 1);
+    assert!(g.turn.played.has(id::VILLAGE), "played on the turn it is set aside");
+}
+
+#[test]
+fn a_held_crown_is_played_in_the_action_phase_at_the_start_of_the_turn() {
+    let mut g = new_state(&[id::PRINCE, id::CROWN, id::VILLAGE], 2);
+    with_prince_holding(&mut g, &[id::CROWN]);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    // The Crown, played from the start of the turn (an Action phase), plays the Village twice.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::VILLAGE));
+    assert_eq!(g.players[0].hand.total(), 3, "the Estate and two cards drawn");
+    assert_eq!(g.turn.actions, 1 + 4);
+}
+
+/// Prince sets aside a "non-Duration non-Command Action card costing up to $4" (the costs are the current ones): a Fishing Village ($3, a
+/// Duration) is not offered, a Village is.
+#[test]
+fn prince_does_not_offer_a_cheap_duration() {
+    let mut g = new_state(&[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE, id::COPPER]);
+    play(&mut g, id::PRINCE);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
+    assert!(!c.contains(&Choice::Card(id::FISHING_VILLAGE)), "{c:?}");
+}
+
 // ===========================================================================
-// Counting, text, views
-// ===========================================================================
-
-#[test]
-fn the_prince_and_its_card_count_for_gardens() {
-    let mut g = new_state(&[id::PRINCE, id::SMITHY, id::GARDENS], 2);
-    // Gardens + 7 Coppers = 8 cards: worth 0. A Prince in play holding a Smithy makes 10: worth 1.
-    set_discard(&mut g, 0, &[id::GARDENS, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
-    assert_eq!(g.players[0].vp(), 0);
-    with_prince_holding(&mut g, &[id::SMITHY]);
-    assert_eq!(g.players[0].all_cards().total(), 10);
-    assert_eq!(g.players[0].vp(), 1);
-}
-
-#[test]
-fn text_format_round_trips_the_holdings() {
-    let mut g = new_state(&[id::PRINCE, id::THRONE_ROOM, id::SMITHY, id::VILLAGE], 2);
-    with_prince_holding(&mut g, &[id::SMITHY, id::VILLAGE]);
-    g.players[0].in_play.add(id::THRONE_ROOM, 1);
-    g.players[0].stays.add(id::THRONE_ROOM, 1);
-    let text = format_state(&g);
-    assert!(text.contains("prince: Village, Smithy"), "{text}");
-    assert!(text.contains("stays: Throne Room, Prince"), "{text}");
-    let back = parse_state(&text).unwrap();
-    assert_eq!(back.players[0].prince_cards, g.players[0].prince_cards);
-    assert_eq!(back.players[0].stays, g.players[0].stays);
-    assert_eq!(back.players[0].all_cards(), g.players[0].all_cards());
-    assert_eq!(count_of(&back, id::PRINCE), 1);
-    // No holdings: no lines (Base-only saves are unchanged).
-    let plain = format_state(&new_state(&[id::SMITHY], 2));
-    assert!(!plain.contains("prince"), "{plain}");
-    // A hand-written `prince:` alone puts the Prince in play to stay.
-    let one = "players: 2\nkingdom: Prince, Smithy\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
-               [player 1]\nin play: Prince\nprince: Smithy\ndeck: 6 Estate\n\n[player 2]\nhand: 5 Copper\n";
-    let loaded = parse_state(one).unwrap();
-    assert_eq!(loaded.players[0].stays.get(id::PRINCE), 1);
-    assert!(parse_state(&one.replace("prince: Smithy", "prince: Bogus")).is_err());
-}
-
-#[test]
-fn a_loaded_state_plays_its_princes_cards_at_the_start_of_the_turn() {
-    let mut g = new_state(&[id::PRINCE, id::SMITHY], 2);
-    with_prince_holding(&mut g, &[id::SMITHY]);
-    g.players[0].deck_unknown = counts_of(&[id::ESTATE; 6]);
-    let mut back = parse_state(&format_state(&g)).unwrap();
-    let mut ev: Vec<Event> = Vec::new();
-    back.advance(&mut ev);
-    assert!(ev.contains(&start_play(id::SMITHY)));
-    assert_eq!(back.players[0].hand.total(), 3);
-    finish_turn(&mut back);
-    assert!(back.players[0].in_play.has(id::PRINCE), "the loaded Prince still stays in play");
-}
-
-#[test]
-fn princes_cards_are_public_information() {
-    let mut g = new_state(&[id::PRINCE, id::SMITHY], 2);
-    with_prince_holding(&mut g, &[id::SMITHY]);
-    let view = PlayerView::new(&g, 1);
-    assert_eq!(view.prince_cards_of(0), counts_of(&[id::SMITHY]));
-    assert_eq!(view.cards_of(0).get(id::PRINCE), 1);
-    assert_eq!(view.cards_of(0).get(id::SMITHY), 1);
-    // Determinizing for another player keeps them.
-    let world = view.determinize(&mut rng::Rng::new(1));
-    assert_eq!(world.players[0].prince_cards, g.players[0].prince_cards);
-    assert_eq!(world.players[0].stays, g.players[0].stays);
-}
-
-// ===========================================================================
-// Walled Village ($4): +1 Card, +2 Actions; at the start of Clean-up, if you have this and no more
-// than one other Action card in play, you may put this onto your deck.
+// Walled Village
 // ===========================================================================
 
 /// Pass every Action and Buy decision until something else is asked (the Clean-up offer, a
@@ -702,9 +688,43 @@ fn walled_village_logs_the_topdeck() {
     assert!(ev.contains(&Event::Topdeck { player: 0, card: id::WALLED_VILLAGE }), "{ev:?}");
 }
 
+#[test]
+fn a_walled_village_captain_plays_is_not_in_play_to_be_topdecked() {
+    let mut g = new_state(&[id::CAPTAIN, id::WALLED_VILLAGE, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::CAPTAIN]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::CAPTAIN);
+    choose(&mut g, Choice::Card(id::WALLED_VILLAGE));
+    assert_eq!(g.turn.actions, 2);
+    // Captain (a Duration) stays in play; no Walled Village is in play, so there is no offer.
+    assert!(to_cleanup_offer(&mut g).is_none());
+    assert_eq!(g.supply.get(id::WALLED_VILLAGE), 10);
+}
+
+#[test]
+fn walled_village_counts_the_treasures_in_play_as_actions_under_enlightenment() {
+    for (enlightened, offered) in [(true, false), (false, true)] {
+        let mut k = vec![id::WALLED_VILLAGE];
+        if enlightened {
+            k.push(id::ENLIGHTENMENT);
+        }
+        let mut g = new_state(&k, 2);
+        if enlightened {
+            g.rs.suns = 0;
+            g.rs.active = id::ENLIGHTENMENT;
+            g.rs_update_hooks();
+        }
+        set_in_play(&mut g, 0, &[id::COPPER, id::SILVER]);
+        set_hand(&mut g, 0, &[id::WALLED_VILLAGE]);
+        set_deck_known(&mut g, 0, &junk());
+        play(&mut g, id::WALLED_VILLAGE);
+        let d = to_cleanup_offer(&mut g);
+        assert_eq!(d.as_ref().is_some_and(|d| is_topdeck_offer(d, id::WALLED_VILLAGE)), offered, "enlightened: {enlightened}");
+    }
+}
+
 // ===========================================================================
-// Envoy ($4): reveal the top 5 cards of your deck. The player to your left chooses one. Discard that
-// one and put the rest into your hand.
+// Envoy
 // ===========================================================================
 
 #[test]
@@ -806,8 +826,7 @@ fn a_throne_roomed_envoy_reveals_ten_cards_in_two_goes() {
 }
 
 // ===========================================================================
-// Captain ($6, Action-Duration-Command): now and at the start of your next turn, play a non-Duration,
-// non-Command Action card from the Supply costing up to $4, leaving it there.
+// Captain
 // ===========================================================================
 
 fn captain_kingdom() -> Vec<CardId> {
@@ -1039,19 +1058,6 @@ fn captain_playing_throne_room_lets_a_duration_stay_longer() {
 }
 
 #[test]
-fn a_walled_village_captain_plays_is_not_in_play_to_be_topdecked() {
-    let mut g = new_state(&[id::CAPTAIN, id::WALLED_VILLAGE, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::CAPTAIN]);
-    set_deck_known(&mut g, 0, &junk());
-    play(&mut g, id::CAPTAIN);
-    choose(&mut g, Choice::Card(id::WALLED_VILLAGE));
-    assert_eq!(g.turn.actions, 2);
-    // Captain (a Duration) stays in play; no Walled Village is in play, so there is no offer.
-    assert!(to_cleanup_offer(&mut g).is_none());
-    assert_eq!(g.supply.get(id::WALLED_VILLAGE), 10);
-}
-
-#[test]
 fn captains_start_of_turn_play_is_ordered_with_a_princes_card() {
     // Captain's pick and a Prince's Smithy are both plays: the order is the player's.
     let mut g = new_state(&[id::CAPTAIN, id::PRINCE, id::SMITHY, id::VILLAGE], 2);
@@ -1085,57 +1091,68 @@ fn captains_pending_play_survives_the_text_format() {
     assert!(matches!(back.pending_decision().unwrap().kind, DecisionKind::Select { from: Zone::Supply, .. }));
 }
 
-// ===========================================================================
-// Governor, Dismantle, Church, Marchland and the Event Summon (wiki rulings in `docs/promo-plan.md` section 5)
-// ===========================================================================
-
-use dominion_engine::state::PendingDuration;
-
-fn hand_of(g: &GameState, p: usize) -> Counts {
-    g.players[p].hand
-}
-
-fn discard_of(g: &GameState, p: usize) -> Counts {
-    g.players[p].discard
-}
-
-fn sorted_choices(g: &GameState) -> Vec<Choice> {
-    sorted(choices(g))
+#[test]
+fn captain_cannot_play_a_command_card_that_cost_reduction_made_cheap() {
+    let mut g = new_state(&[id::CAPTAIN, id::BAND_OF_MISFITS, id::VILLAGE], 2);
+    g.turn.cost_reduction = 1;
+    set_hand(&mut g, 0, &[id::CAPTAIN]);
+    play(&mut g, id::CAPTAIN);
+    // The Village is the only legal pick, so it is played without asking (+2 Actions).
+    assert_eq!(g.turn.actions, 2);
 }
 
 #[test]
-fn the_new_promo_cards_are_in_the_promo_set_with_their_printed_types_and_costs() {
-    for (c, cost, ty) in [
-        (id::GOVERNOR, 5, cards::ACTION),
-        (id::DISMANTLE, 4, cards::ACTION),
-        (id::CHURCH, 3, cards::ACTION | cards::DURATION),
-        (id::MARCHLAND, 5, cards::VICTORY),
-    ] {
-        let d = cards::def(c);
-        assert_eq!(d.cost, cost, "{}", d.name);
-        assert_eq!(cards::set_of(c), CardSet::Promo, "{}", d.name);
-        assert!(cards::is(c, ty), "{}", d.name);
-        assert!(cards::is_kingdom(c) && cards::is_ready(c) && !cards::is_pseudo(c), "{} is a kingdom card", d.name);
-        assert_eq!(cards::by_name(&d.name.to_lowercase()), Some(c));
-    }
-    assert!(!cards::is(id::MARCHLAND, cards::ACTION) && !cards::is(id::CHURCH, cards::VICTORY));
-    assert_eq!(cards::def(id::CHURCH).actions, 1, "+1 Action");
-    assert_eq!(cards::def(id::GOVERNOR).actions, 1, "+1 Action");
-    // Summon is an Event: a pseudo-card for $5, never in a zone.
-    assert!(cards::is_event(id::SUMMON) && cards::is_pseudo(id::SUMMON) && !cards::is_kingdom(id::SUMMON));
-    assert_eq!((cards::cost(id::SUMMON), cards::set_of(id::SUMMON)), (5, CardSet::Promo));
-    assert!(cards::pseudo_cards_of(CardSet::Promo).any(|c| c == id::SUMMON));
-    assert_eq!(cards::by_name("summon"), Some(id::SUMMON));
-    assert!((id::SUMMON as usize) >= cards::NUM_ZONE_IDS && (id::MARCHLAND as usize) < cards::NUM_ZONE_IDS);
-    // Zone card ids stay below the `Counts` bookkeeping lanes.
-    assert!(cards::NUM_ZONE_IDS < dominion_engine::counts::LANES - 4);
-    // Governor, Dismantle and Church can take an Action out of the hand: order-sensitive. The start-of-turn parts of Church and Summon are plays /
-    // hand changes, so they are ordered against other start-of-turn effects.
-    for c in [id::GOVERNOR, id::DISMANTLE, id::CHURCH] {
-        assert!(cards::is_order_sensitive(c), "{}", cards::name(c));
-    }
-    assert!(cards::start_order_sensitive(id::CHURCH) && cards::start_order_sensitive(id::SUMMON));
+fn captain_can_play_a_workshop_that_gains_the_workshop_itself() {
+    let mut g = new_state(&[id::CAPTAIN, id::WORKSHOP], 2);
+    set_hand(&mut g, 0, &[id::CAPTAIN]);
+    play(&mut g, id::CAPTAIN); // the Workshop is the only Action to play: played from the Supply, leaving it there
+    assert!(choices(&g).contains(&Choice::Card(id::WORKSHOP)), "Workshop can gain itself");
+    choose(&mut g, Choice::Card(id::WORKSHOP));
+    assert_eq!(g.players[0].discard.get(id::WORKSHOP), 1);
+    assert_eq!(g.supply.get(id::WORKSHOP), 9);
 }
+
+// ===========================================================================
+// Sauna
+// ===========================================================================
+
+#[test]
+fn a_sauna_cannot_play_a_sauna_for_free_and_an_avanto_only_follows_the_sauna() {
+    let mut g = new_state(&[id::SAUNA, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::SAUNA, id::SAUNA, id::AVANTO]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SAUNA);
+    // Only the Avanto is offered right after the Sauna.
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::AVANTO)) && !c.contains(&Choice::Card(id::SAUNA)), "{c:?}");
+    // Declining it, the next Action the player plays is not free.
+    choose(&mut g, Choice::Pass);
+    assert_eq!(g.turn.actions, 1, "Sauna gave +1 Action");
+}
+
+#[test]
+fn a_sauna_trashes_a_card_each_time_a_crowned_silver_is_played() {
+    let mut g = new_state(&[id::SAUNA, id::CROWN], 2);
+    set_hand(&mut g, 0, &[id::SAUNA, id::CROWN, id::SILVER, id::ESTATE, id::ESTATE, id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    play(&mut g, id::SAUNA);
+    pass(&mut g); // no Avanto to play; on to the Buy phase
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::CROWN);
+    choose(&mut g, Choice::Card(id::SILVER));
+    // Two plays of the Silver, two optional trashes: take both.
+    let mut trashed = 0;
+    while g.pending_decision().is_some_and(|d| matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. })) {
+        choose(&mut g, Choice::Card(id::ESTATE));
+        trashed += 1;
+    }
+    assert_eq!(trashed, 2);
+    assert_eq!(g.trash.get(id::ESTATE), 2);
+}
+
+// ===========================================================================
+// Governor
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Governor
@@ -1310,6 +1327,10 @@ fn a_throne_roomed_governor_gives_two_choices_and_the_choices_may_differ() {
     assert_eq!(g.turn.actions, 2, "+1 Action twice, one used by the Throne Room");
 }
 
+// ===========================================================================
+// Dismantle
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // Dismantle
 // ---------------------------------------------------------------------------
@@ -1425,6 +1446,10 @@ fn dismantle_a_fortune_gains_a_province_or_an_overlord_and_a_gold() {
     choose(&mut g, Choice::Card(id::PROVINCE));
     assert_eq!(discard_of(&g, 0), counts_of(&[id::PROVINCE, id::GOLD]));
 }
+
+// ===========================================================================
+// Church
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Church
@@ -1722,6 +1747,102 @@ fn church_batches_round_trip_through_the_text_format() {
     assert_eq!(back.players[0].all_cards(), g.players[0].all_cards());
 }
 
+#[test]
+fn the_summoned_card_and_a_church_batch_are_ordered_by_the_player() {
+    let mut g = new_state(&summon_kingdom(), 2);
+    g.players[0].summon_cards.add(id::SMITHY, 1);
+    g.players[0].in_play.add(id::CHURCH, 1);
+    assert!(g.players[0].church.begin() && g.players[0].church.add(id::GOLD));
+    g.players[0].pending_durations[0] = PendingDuration { card: id::CHURCH, times: 1, arg: id::CHURCH, used: 0 };
+    g.players[0].pending_durations_len = 1;
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::StartOrder);
+    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Card(id::SMITHY)]));
+    // Church first: the Gold arrives and may be trashed before the Smithy draws.
+    choose(&mut g, Choice::Position(0));
+    let d = g.pending_decision().unwrap();
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
+    choose(&mut g, Choice::Card(id::GOLD));
+    assert!(g.trash.has(id::GOLD));
+    assert!(g.players[0].in_play.has(id::SMITHY), "then the Smithy");
+    assert_eq!(hand_of(&g, 0).total(), 1 + 3);
+}
+
+// ---------------------------------------------------------------------------
+// Random games
+// ---------------------------------------------------------------------------
+
+/// Random legal play over kingdoms with the new promo cards (and cards from every set): nothing is lost, nothing panics, every game ends, the
+/// Church batches and the pending Church entries stay in step, and the new cards are all reached.
+#[test]
+fn random_games_with_the_new_promo_cards_conserve_cards_and_terminate() {
+    let mut rng = dominion_engine::rng::Rng::new(0xC40C);
+    let promo = [id::GOVERNOR, id::DISMANTLE, id::CHURCH, id::MARCHLAND];
+    let others: Vec<CardId> = cards::kingdom_cards().filter(|&c| !promo.contains(&c) && cards::cost(c) <= 5).collect();
+    let (mut played, mut gained_marchland, mut summoned, mut started) = (std::collections::BTreeSet::new(), 0u32, 0u32, 0u32);
+    for game in 0..1500u64 {
+        let n = 2 + (game % 3) as usize;
+        let mut kingdom: Vec<CardId> = promo.to_vec();
+        kingdom.push(id::SUMMON);
+        while kingdom.iter().filter(|&&c| cards::is_kingdom(c)).count() < 10 {
+            let c = others[rng.below(others.len() as u32) as usize];
+            if !kingdom.contains(&c) && cards::is_ready(c) {
+                kingdom.push(c);
+            }
+        }
+        cards::add_potion_if_needed(&mut kingdom);
+        let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 300, ..Default::default() });
+        let initial = total_cards(&g);
+        let mut buf = ChoiceBuf::default();
+        let mut steps = 0;
+        let mut log: Vec<Event> = Vec::new();
+        loop {
+            for e in &log {
+                match *e {
+                    Event::Play { card, .. } | Event::PlayAgain { card, .. } => {
+                        played.insert(card);
+                    }
+                    Event::Gain { card, .. } if card == id::MARCHLAND => gained_marchland += 1,
+                    Event::SetAside { card, .. } if cards::is(card, cards::ACTION) => summoned += 1,
+                    Event::StartPlay { source, .. } if source == id::SUMMON => started += 1,
+                    _ => {}
+                }
+            }
+            log.clear();
+            match g.advance(&mut log) {
+                Step::Decision(_) => {
+                    g.legal_choices(&mut buf);
+                    assert!(!buf.is_empty());
+                    let c = buf.as_slice()[rng.below(buf.len() as u32) as usize];
+                    g.apply(c, &mut log).unwrap();
+                }
+                Step::Chance { .. } | Step::TurnStart { .. } => unreachable!(),
+                Step::GameOver => break,
+            }
+            assert_eq!(total_cards(&g), initial, "game {game}: card conservation after {log:?}");
+            // Every Church batch has its Church entry waiting (in the pending Durations, or in the start-of-turn list while they resolve).
+            for p in 0..n {
+                let ps = &g.players[p];
+                let waiting = ps.pending_durations[..ps.pending_durations_len as usize].iter().filter(|e| e.card == id::CHURCH).count()
+                    + if g.turn.player as usize == p { g.turn.start_pending.as_slice().iter().filter(|e| e.card == id::CHURCH).count() } else { 0 };
+                assert_eq!(ps.church.len(), waiting, "game {game}: Church batches and entries");
+            }
+            steps += 1;
+            assert!(steps < 300_000, "game {game} did not terminate");
+        }
+    }
+    for c in [id::GOVERNOR, id::DISMANTLE, id::CHURCH] {
+        assert!(played.contains(&c), "{} was never played", cards::name(c));
+    }
+    assert!(gained_marchland > 20 && summoned > 20 && started > 20, "marchland {gained_marchland}, summoned {summoned}, started {started}");
+}
+
+// ===========================================================================
+// Marchland
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // Marchland
 // ---------------------------------------------------------------------------
@@ -1819,6 +1940,65 @@ fn marchland_gained_on_another_players_turn_gives_that_turn_nothing() {
     choose(&mut g, Choice::Card(id::ESTATE));
     assert_eq!((g.turn.coins, g.turn.buys), (0, 1));
     assert!(g.players[1].discard.has(id::MARCHLAND) && g.players[1].discard.has(id::ESTATE));
+}
+
+#[test]
+fn marchland_has_eight_copies_with_two_players_and_twelve_with_more() {
+    assert_eq!(new_state(&[id::MARCHLAND], 2).supply.get(id::MARCHLAND), 8);
+    assert_eq!(new_state(&[id::MARCHLAND], 3).supply.get(id::MARCHLAND), 12);
+    assert_eq!(new_state(&[id::MARCHLAND], 6).supply.get(id::MARCHLAND), 12);
+}
+
+// ===========================================================================
+// Summon
+// ===========================================================================
+
+use dominion_engine::state::PendingDuration;
+
+fn hand_of(g: &GameState, p: usize) -> Counts {
+    g.players[p].hand
+}
+
+fn discard_of(g: &GameState, p: usize) -> Counts {
+    g.players[p].discard
+}
+
+fn sorted_choices(g: &GameState) -> Vec<Choice> {
+    sorted(choices(g))
+}
+
+#[test]
+fn the_new_promo_cards_are_in_the_promo_set_with_their_printed_types_and_costs() {
+    for (c, cost, ty) in [
+        (id::GOVERNOR, 5, cards::ACTION),
+        (id::DISMANTLE, 4, cards::ACTION),
+        (id::CHURCH, 3, cards::ACTION | cards::DURATION),
+        (id::MARCHLAND, 5, cards::VICTORY),
+    ] {
+        let d = cards::def(c);
+        assert_eq!(d.cost, cost, "{}", d.name);
+        assert_eq!(cards::set_of(c), CardSet::Promo, "{}", d.name);
+        assert!(cards::is(c, ty), "{}", d.name);
+        assert!(cards::is_kingdom(c) && cards::is_ready(c) && !cards::is_pseudo(c), "{} is a kingdom card", d.name);
+        assert_eq!(cards::by_name(&d.name.to_lowercase()), Some(c));
+    }
+    assert!(!cards::is(id::MARCHLAND, cards::ACTION) && !cards::is(id::CHURCH, cards::VICTORY));
+    assert_eq!(cards::def(id::CHURCH).actions, 1, "+1 Action");
+    assert_eq!(cards::def(id::GOVERNOR).actions, 1, "+1 Action");
+    // Summon is an Event: a pseudo-card for $5, never in a zone.
+    assert!(cards::is_event(id::SUMMON) && cards::is_pseudo(id::SUMMON) && !cards::is_kingdom(id::SUMMON));
+    assert_eq!((cards::cost(id::SUMMON), cards::set_of(id::SUMMON)), (5, CardSet::Promo));
+    assert!(cards::pseudo_cards_of(CardSet::Promo).any(|c| c == id::SUMMON));
+    assert_eq!(cards::by_name("summon"), Some(id::SUMMON));
+    assert!((id::SUMMON as usize) >= cards::NUM_ZONE_IDS && (id::MARCHLAND as usize) < cards::NUM_ZONE_IDS);
+    // Zone card ids stay below the `Counts` bookkeeping lanes.
+    assert!(cards::NUM_ZONE_IDS < dominion_engine::counts::LANES - 4);
+    // Governor, Dismantle and Church can take an Action out of the hand: order-sensitive. The start-of-turn parts of Church and Summon are plays /
+    // hand changes, so they are ordered against other start-of-turn effects.
+    for c in [id::GOVERNOR, id::DISMANTLE, id::CHURCH] {
+        assert!(cards::is_order_sensitive(c), "{}", cards::name(c));
+    }
+    assert!(cards::start_order_sensitive(id::CHURCH) && cards::start_order_sensitive(id::SUMMON));
 }
 
 // ---------------------------------------------------------------------------
@@ -1948,29 +2128,6 @@ fn summon_loses_track_of_a_card_a_watchtower_trashes() {
 }
 
 #[test]
-fn the_summoned_card_and_a_church_batch_are_ordered_by_the_player() {
-    let mut g = new_state(&summon_kingdom(), 2);
-    g.players[0].summon_cards.add(id::SMITHY, 1);
-    g.players[0].in_play.add(id::CHURCH, 1);
-    assert!(g.players[0].church.begin() && g.players[0].church.add(id::GOLD));
-    g.players[0].pending_durations[0] = PendingDuration { card: id::CHURCH, times: 1, arg: id::CHURCH, used: 0 };
-    g.players[0].pending_durations_len = 1;
-    set_hand(&mut g, 0, &[id::ESTATE]);
-    set_deck_known(&mut g, 0, &junk());
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::StartOrder);
-    assert_eq!(sorted_choices(&g), sorted(vec![Choice::Position(0), Choice::Card(id::SMITHY)]));
-    // Church first: the Gold arrives and may be trashed before the Smithy draws.
-    choose(&mut g, Choice::Position(0));
-    let d = g.pending_decision().unwrap();
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }), "{d:?}");
-    choose(&mut g, Choice::Card(id::GOLD));
-    assert!(g.trash.has(id::GOLD));
-    assert!(g.players[0].in_play.has(id::SMITHY), "then the Smithy");
-    assert_eq!(hand_of(&g, 0).total(), 1 + 3);
-}
-
-#[test]
 fn summon_is_not_offered_without_an_action_to_gain_and_not_without_the_money() {
     let mut g = new_state(&[id::SUMMON, id::MARKET], 2);
     set_hand(&mut g, 0, &[id::ESTATE]);
@@ -1981,19 +2138,6 @@ fn summon_is_not_offered_without_an_action_to_gain_and_not_without_the_money() {
 
     let g = summon_buy_phase(4, 1);
     assert!(!choices(&g).contains(&Choice::Card(id::SUMMON)), "it costs $5");
-}
-
-#[test]
-fn summoned_cards_round_trip_through_the_text_format_and_count_as_owned() {
-    let mut g = new_state(&summon_kingdom(), 2);
-    g.players[0].summon_cards.add(id::SMITHY, 1);
-    g.players[0].summon_cards.add(id::VILLAGE, 2);
-    g.players[0].deck_unknown = counts_of(&[id::ESTATE; 8]);
-    let text = format_state(&g);
-    assert!(text.contains("summoned: "), "{text}");
-    let back = parse_state(&text).unwrap();
-    assert_eq!(back.players[0].summon_cards.counts(), counts_of(&[id::SMITHY, id::VILLAGE, id::VILLAGE]));
-    assert_eq!(back.players[0].all_cards().get(id::VILLAGE), 2);
 }
 
 #[test]
@@ -2008,73 +2152,105 @@ fn summon_is_a_promo_event_chosen_with_the_promo_cards() {
     assert!(with_summon > 0, "Summon is dealt as an Event in Promo games");
 }
 
-// ---------------------------------------------------------------------------
-// Random games
-// ---------------------------------------------------------------------------
-
-/// Random legal play over kingdoms with the new promo cards (and cards from every set): nothing is lost, nothing panics, every game ends, the
-/// Church batches and the pending Church entries stay in step, and the new cards are all reached.
 #[test]
-fn random_games_with_the_new_promo_cards_conserve_cards_and_terminate() {
-    let mut rng = dominion_engine::rng::Rng::new(0xC40C);
-    let promo = [id::GOVERNOR, id::DISMANTLE, id::CHURCH, id::MARCHLAND];
-    let others: Vec<CardId> = cards::kingdom_cards().filter(|&c| !promo.contains(&c) && cards::cost(c) <= 5).collect();
-    let (mut played, mut gained_marchland, mut summoned, mut started) = (std::collections::BTreeSet::new(), 0u32, 0u32, 0u32);
-    for game in 0..1500u64 {
-        let n = 2 + (game % 3) as usize;
-        let mut kingdom: Vec<CardId> = promo.to_vec();
-        kingdom.push(id::SUMMON);
-        while kingdom.iter().filter(|&&c| cards::is_kingdom(c)).count() < 10 {
-            let c = others[rng.below(others.len() as u32) as usize];
-            if !kingdom.contains(&c) && cards::is_ready(c) {
-                kingdom.push(c);
-            }
-        }
-        cards::add_potion_if_needed(&mut kingdom);
-        let mut g = GameState::new(&GameConfig { num_players: n, kingdom, seed: game, max_turns: 300, ..Default::default() });
-        let initial = total_cards(&g);
-        let mut buf = ChoiceBuf::default();
-        let mut steps = 0;
-        let mut log: Vec<Event> = Vec::new();
-        loop {
-            for e in &log {
-                match *e {
-                    Event::Play { card, .. } | Event::PlayAgain { card, .. } => {
-                        played.insert(card);
-                    }
-                    Event::Gain { card, .. } if card == id::MARCHLAND => gained_marchland += 1,
-                    Event::SetAside { card, .. } if cards::is(card, cards::ACTION) => summoned += 1,
-                    Event::StartPlay { source, .. } if source == id::SUMMON => started += 1,
-                    _ => {}
-                }
-            }
-            log.clear();
-            match g.advance(&mut log) {
-                Step::Decision(_) => {
-                    g.legal_choices(&mut buf);
-                    assert!(!buf.is_empty());
-                    let c = buf.as_slice()[rng.below(buf.len() as u32) as usize];
-                    g.apply(c, &mut log).unwrap();
-                }
-                Step::Chance { .. } | Step::TurnStart { .. } => unreachable!(),
-                Step::GameOver => break,
-            }
-            assert_eq!(total_cards(&g), initial, "game {game}: card conservation after {log:?}");
-            // Every Church batch has its Church entry waiting (in the pending Durations, or in the start-of-turn list while they resolve).
-            for p in 0..n {
-                let ps = &g.players[p];
-                let waiting = ps.pending_durations[..ps.pending_durations_len as usize].iter().filter(|e| e.card == id::CHURCH).count()
-                    + if g.turn.player as usize == p { g.turn.start_pending.as_slice().iter().filter(|e| e.card == id::CHURCH).count() } else { 0 };
-                assert_eq!(ps.church.len(), waiting, "game {game}: Church batches and entries");
-            }
-            steps += 1;
-            assert!(steps < 300_000, "game {game} did not terminate");
-        }
-    }
-    for c in [id::GOVERNOR, id::DISMANTLE, id::CHURCH] {
-        assert!(played.contains(&c), "{} was never played", cards::name(c));
-    }
-    assert!(gained_marchland > 20 && summoned > 20 && started > 20, "marchland {gained_marchland}, summoned {summoned}, started {started}");
+fn a_summoned_hireling_draws_when_played_at_the_start_of_the_turn() {
+    let mut g = new_state(&[id::SUMMON, id::HIRELING], 2);
+    set_hand(&mut g, 0, &[id::ESTATE]);
+    set_deck_known(&mut g, 0, &junk());
+    to_buy(&mut g);
+    g.turn.coins = 5; // (an Event's cost is not reduced)
+    g.turn.cost_reduction = 2; // the Hireling ($6) costs $4 with a reduction: Summon gains Actions costing up to $4
+    expect_decision(&mut g);
+    buy(&mut g, id::SUMMON);
+    // (The Hireling is the only Action Summon can gain, so it is gained without asking.)
+    to_next_own_turn(&mut g);
+    assert!(g.players[0].in_play.has(id::HIRELING));
+    assert_eq!(g.players[0].hand.total(), 5 + 1, "the Hireling's card, drawn when it is played at the start of the turn");
+}
+
+// ===========================================================================
+// Counting, text, views
+// ===========================================================================
+
+#[test]
+fn the_prince_and_its_card_count_for_gardens() {
+    let mut g = new_state(&[id::PRINCE, id::SMITHY, id::GARDENS], 2);
+    // Gardens + 7 Coppers = 8 cards: worth 0. A Prince in play holding a Smithy makes 10: worth 1.
+    set_discard(&mut g, 0, &[id::GARDENS, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
+    assert_eq!(g.players[0].vp(), 0);
+    with_prince_holding(&mut g, &[id::SMITHY]);
+    assert_eq!(g.players[0].all_cards().total(), 10);
+    assert_eq!(g.players[0].vp(), 1);
+}
+
+#[test]
+fn text_format_round_trips_the_holdings() {
+    let mut g = new_state(&[id::PRINCE, id::THRONE_ROOM, id::SMITHY, id::VILLAGE], 2);
+    with_prince_holding(&mut g, &[id::SMITHY, id::VILLAGE]);
+    g.players[0].in_play.add(id::THRONE_ROOM, 1);
+    g.players[0].stays.add(id::THRONE_ROOM, 1);
+    let text = format_state(&g);
+    assert!(text.contains("prince: Village, Smithy"), "{text}");
+    assert!(text.contains("stays: Throne Room, Prince"), "{text}");
+    let back = parse_state(&text).unwrap();
+    assert_eq!(back.players[0].prince_cards, g.players[0].prince_cards);
+    assert_eq!(back.players[0].stays, g.players[0].stays);
+    assert_eq!(back.players[0].all_cards(), g.players[0].all_cards());
+    assert_eq!(count_of(&back, id::PRINCE), 1);
+    // No holdings: no lines (Base-only saves are unchanged).
+    let plain = format_state(&new_state(&[id::SMITHY], 2));
+    assert!(!plain.contains("prince"), "{plain}");
+    // A hand-written `prince:` alone puts the Prince in play to stay.
+    let one = "players: 2\nkingdom: Prince, Smithy\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+               [player 1]\nin play: Prince\nprince: Smithy\ndeck: 6 Estate\n\n[player 2]\nhand: 5 Copper\n";
+    let loaded = parse_state(one).unwrap();
+    assert_eq!(loaded.players[0].stays.get(id::PRINCE), 1);
+    assert!(parse_state(&one.replace("prince: Smithy", "prince: Bogus")).is_err());
+}
+
+#[test]
+fn a_loaded_state_plays_its_princes_cards_at_the_start_of_the_turn() {
+    let mut g = new_state(&[id::PRINCE, id::SMITHY], 2);
+    with_prince_holding(&mut g, &[id::SMITHY]);
+    g.players[0].deck_unknown = counts_of(&[id::ESTATE; 6]);
+    let mut back = parse_state(&format_state(&g)).unwrap();
+    let mut ev: Vec<Event> = Vec::new();
+    back.advance(&mut ev);
+    assert!(ev.contains(&start_play(id::SMITHY)));
+    assert_eq!(back.players[0].hand.total(), 3);
+    finish_turn(&mut back);
+    assert!(back.players[0].in_play.has(id::PRINCE), "the loaded Prince still stays in play");
+}
+
+#[test]
+fn princes_cards_are_public_information() {
+    let mut g = new_state(&[id::PRINCE, id::SMITHY], 2);
+    with_prince_holding(&mut g, &[id::SMITHY]);
+    let view = PlayerView::new(&g, 1);
+    assert_eq!(view.prince_cards_of(0), counts_of(&[id::SMITHY]));
+    assert_eq!(view.cards_of(0).get(id::PRINCE), 1);
+    assert_eq!(view.cards_of(0).get(id::SMITHY), 1);
+    // Determinizing for another player keeps them.
+    let world = view.determinize(&mut rng::Rng::new(1));
+    assert_eq!(world.players[0].prince_cards, g.players[0].prince_cards);
+    assert_eq!(world.players[0].stays, g.players[0].stays);
+}
+
+// ===========================================================================
+// Governor, Dismantle, Church, Marchland and the Event Summon (wiki rulings in `docs/promo-plan.md` section 5)
+// ===========================================================================
+
+#[test]
+fn summoned_cards_round_trip_through_the_text_format_and_count_as_owned() {
+    let mut g = new_state(&summon_kingdom(), 2);
+    g.players[0].summon_cards.add(id::SMITHY, 1);
+    g.players[0].summon_cards.add(id::VILLAGE, 2);
+    g.players[0].deck_unknown = counts_of(&[id::ESTATE; 8]);
+    let text = format_state(&g);
+    assert!(text.contains("summoned: "), "{text}");
+    let back = parse_state(&text).unwrap();
+    assert_eq!(back.players[0].summon_cards.counts(), counts_of(&[id::SMITHY, id::VILLAGE, id::VILLAGE]));
+    assert_eq!(back.players[0].all_cards().get(id::VILLAGE), 2);
 }
 
 // ===========================================================================
@@ -2095,179 +2271,4 @@ fn a_card_played_by_a_prince_cannot_trash_another_copy_of_itself_that_is_in_play
     assert_eq!(g.players[0].prince_cards.get(id::MINING_VILLAGE), 1);
     assert_eq!(g.turn.actions, 2 + 1, "+2 Actions, and the Prince's play used none");
     assert_eq!(g.turn.led.n, 0);
-}
-
-// ===========================================================================
-// Audit: Command cards, and Enlightenment's Treasures-are-Actions
-// ===========================================================================
-
-#[test]
-fn prince_cannot_set_aside_a_command_card_that_cost_reduction_made_cheap() {
-    // Band of Misfits ($5, Action-Command) costs $4 after a reduction, but Prince takes a "non-Duration, non-Command Action".
-    let mut g = new_state(&[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE], 2);
-    g.turn.cost_reduction = 1;
-    assert_eq!(g.cost(id::BAND_OF_MISFITS), 4);
-    set_hand(&mut g, 0, &[id::PRINCE, id::BAND_OF_MISFITS, id::VILLAGE]);
-    play(&mut g, id::PRINCE);
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
-    assert!(!c.contains(&Choice::Card(id::BAND_OF_MISFITS)), "{c:?}");
-}
-
-#[test]
-fn captain_cannot_play_a_command_card_that_cost_reduction_made_cheap() {
-    let mut g = new_state(&[id::CAPTAIN, id::BAND_OF_MISFITS, id::VILLAGE], 2);
-    g.turn.cost_reduction = 1;
-    set_hand(&mut g, 0, &[id::CAPTAIN]);
-    play(&mut g, id::CAPTAIN);
-    // The Village is the only legal pick, so it is played without asking (+2 Actions).
-    assert_eq!(g.turn.actions, 2);
-}
-
-#[test]
-fn walled_village_counts_the_treasures_in_play_as_actions_under_enlightenment() {
-    for (enlightened, offered) in [(true, false), (false, true)] {
-        let mut k = vec![id::WALLED_VILLAGE];
-        if enlightened {
-            k.push(id::ENLIGHTENMENT);
-        }
-        let mut g = new_state(&k, 2);
-        if enlightened {
-            g.rs.suns = 0;
-            g.rs.active = id::ENLIGHTENMENT;
-            g.rs_update_hooks();
-        }
-        set_in_play(&mut g, 0, &[id::COPPER, id::SILVER]);
-        set_hand(&mut g, 0, &[id::WALLED_VILLAGE]);
-        set_deck_known(&mut g, 0, &junk());
-        play(&mut g, id::WALLED_VILLAGE);
-        let d = to_cleanup_offer(&mut g);
-        assert_eq!(d.as_ref().is_some_and(|d| is_topdeck_offer(d, id::WALLED_VILLAGE)), offered, "enlightened: {enlightened}");
-    }
-}
-
-// ===========================================================================
-// Audit: ruling coverage (wiki FAQ bullets that had no test of their own)
-// ===========================================================================
-
-#[test]
-fn prince_cannot_set_aside_a_card_with_debt_in_its_cost() {
-    let mut g = new_state(&[id::PRINCE, id::ENGINEER, id::VILLAGE], 2);
-    set_hand(&mut g, 0, &[id::PRINCE, id::ENGINEER, id::VILLAGE]);
-    play(&mut g, id::PRINCE);
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::VILLAGE)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
-}
-
-#[test]
-fn a_prince_played_at_the_start_of_the_turn_plays_the_card_it_sets_aside_that_same_turn() {
-    use dominion_engine::cards::FIRST_PROJECT;
-    let mut g = new_state(&[id::PRINCE, id::VILLAGE, id::PIAZZA], 2);
-    let bit = 1u32 << (id::PIAZZA - FIRST_PROJECT);
-    g.players[0].ren.projects |= bit;
-    g.ren.projects |= bit;
-    g.ren_update_hooks();
-    set_hand(&mut g, 0, &[id::VILLAGE]);
-    set_deck_known(&mut g, 0, &[id::PRINCE, id::ESTATE, id::DUCHY, id::PROVINCE]);
-    // Start of turn: Piazza plays the Prince from the top of the deck.
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::SetAside, .. }), "{d:?}");
-    choose(&mut g, Choice::Card(id::VILLAGE));
-    // The Village is played now, as the start of the turn is still on: +1 Card, +2 Actions.
-    assert_eq!(g.players[0].prince_cards.get(id::VILLAGE), 1);
-    assert!(g.turn.played.has(id::VILLAGE), "played on the turn it is set aside");
-}
-
-#[test]
-fn a_held_crown_is_played_in_the_action_phase_at_the_start_of_the_turn() {
-    let mut g = new_state(&[id::PRINCE, id::CROWN, id::VILLAGE], 2);
-    with_prince_holding(&mut g, &[id::CROWN]);
-    set_hand(&mut g, 0, &[id::VILLAGE, id::ESTATE]);
-    set_deck_known(&mut g, 0, &junk());
-    // The Crown, played from the start of the turn (an Action phase), plays the Village twice.
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Play, .. }), "{d:?}");
-    choose(&mut g, Choice::Card(id::VILLAGE));
-    assert_eq!(g.players[0].hand.total(), 3, "the Estate and two cards drawn");
-    assert_eq!(g.turn.actions, 1 + 4);
-}
-
-#[test]
-fn a_sauna_cannot_play_a_sauna_for_free_and_an_avanto_only_follows_the_sauna() {
-    let mut g = new_state(&[id::SAUNA, id::VILLAGE], 2);
-    set_hand(&mut g, 0, &[id::SAUNA, id::SAUNA, id::AVANTO]);
-    set_deck_known(&mut g, 0, &junk());
-    play(&mut g, id::SAUNA);
-    // Only the Avanto is offered right after the Sauna.
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::AVANTO)) && !c.contains(&Choice::Card(id::SAUNA)), "{c:?}");
-    // Declining it, the next Action the player plays is not free.
-    choose(&mut g, Choice::Pass);
-    assert_eq!(g.turn.actions, 1, "Sauna gave +1 Action");
-}
-
-#[test]
-fn a_sauna_trashes_a_card_each_time_a_crowned_silver_is_played() {
-    let mut g = new_state(&[id::SAUNA, id::CROWN], 2);
-    set_hand(&mut g, 0, &[id::SAUNA, id::CROWN, id::SILVER, id::ESTATE, id::ESTATE, id::ESTATE]);
-    set_deck_known(&mut g, 0, &junk());
-    play(&mut g, id::SAUNA);
-    pass(&mut g); // no Avanto to play; on to the Buy phase
-    expect_decision(&mut g);
-    play_treasure(&mut g, id::CROWN);
-    choose(&mut g, Choice::Card(id::SILVER));
-    // Two plays of the Silver, two optional trashes: take both.
-    let mut trashed = 0;
-    while g.pending_decision().is_some_and(|d| matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. })) {
-        choose(&mut g, Choice::Card(id::ESTATE));
-        trashed += 1;
-    }
-    assert_eq!(trashed, 2);
-    assert_eq!(g.trash.get(id::ESTATE), 2);
-}
-
-#[test]
-fn captain_can_play_a_workshop_that_gains_the_workshop_itself() {
-    let mut g = new_state(&[id::CAPTAIN, id::WORKSHOP], 2);
-    set_hand(&mut g, 0, &[id::CAPTAIN]);
-    play(&mut g, id::CAPTAIN); // the Workshop is the only Action to play: played from the Supply, leaving it there
-    assert!(choices(&g).contains(&Choice::Card(id::WORKSHOP)), "Workshop can gain itself");
-    choose(&mut g, Choice::Card(id::WORKSHOP));
-    assert_eq!(g.players[0].discard.get(id::WORKSHOP), 1);
-    assert_eq!(g.supply.get(id::WORKSHOP), 9);
-}
-
-#[test]
-fn marchland_has_eight_copies_with_two_players_and_twelve_with_more() {
-    assert_eq!(new_state(&[id::MARCHLAND], 2).supply.get(id::MARCHLAND), 8);
-    assert_eq!(new_state(&[id::MARCHLAND], 3).supply.get(id::MARCHLAND), 12);
-    assert_eq!(new_state(&[id::MARCHLAND], 6).supply.get(id::MARCHLAND), 12);
-}
-
-#[test]
-fn a_summoned_hireling_draws_when_played_at_the_start_of_the_turn() {
-    let mut g = new_state(&[id::SUMMON, id::HIRELING], 2);
-    set_hand(&mut g, 0, &[id::ESTATE]);
-    set_deck_known(&mut g, 0, &junk());
-    to_buy(&mut g);
-    g.turn.coins = 5; // (an Event's cost is not reduced)
-    g.turn.cost_reduction = 2; // the Hireling ($6) costs $4 with a reduction: Summon gains Actions costing up to $4
-    expect_decision(&mut g);
-    buy(&mut g, id::SUMMON);
-    // (The Hireling is the only Action Summon can gain, so it is gained without asking.)
-    to_next_own_turn(&mut g);
-    assert!(g.players[0].in_play.has(id::HIRELING));
-    assert_eq!(g.players[0].hand.total(), 5 + 1, "the Hireling's card, drawn when it is played at the start of the turn");
-}
-
-/// Prince sets aside a "non-Duration non-Command Action card costing up to $4" (the costs are the current ones): a Fishing Village ($3, a
-/// Duration) is not offered, a Village is.
-#[test]
-fn prince_does_not_offer_a_cheap_duration() {
-    let mut g = new_state(&[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE], 2);
-    set_hand(&mut g, 0, &[id::PRINCE, id::FISHING_VILLAGE, id::VILLAGE, id::COPPER]);
-    play(&mut g, id::PRINCE);
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::VILLAGE)), "{c:?}");
-    assert!(!c.contains(&Choice::Card(id::FISHING_VILLAGE)), "{c:?}");
 }

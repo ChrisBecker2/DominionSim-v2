@@ -455,6 +455,11 @@ fn gainable(g: &GameState, c: CardId) -> bool {
     g.supply.get(c) > 0 && g.pile_open(c)
 }
 
+/// Whether Continue could gain `c`: a non-Attack Action costing up to $4 (no Potion, no Debt).
+fn continue_card(g: &GameState, c: CardId) -> bool {
+    gainable(g, c) && cards::is(c, ACTION) && !cards::is(c, ATTACK) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
+}
+
 /// Whether the Rising Sun Event `e` is in the game and does something now (the common checks, `adventures::event_available`, are made first).
 pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
     let p = g.turn.player as usize;
@@ -463,9 +468,8 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
             g.actions_in_play(p as u8) == 0 && g.supply_cards().any(|c| gainable(g, c) && g.is_action(c) && g.cost(c) <= 5 && !cards::potion_cost(c) && cards::debt_cost(c) == 0)
         }
         ids::ASCETICISM => !g.players[p].hand.is_empty(),
-        ids::CONTINUE => g.supply_cards().any(|c| {
-            gainable(g, c) && cards::is(c, ACTION) && !cards::is(c, ATTACK) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0
-        }),
+        // With nothing to gain it still returns to the Action phase with +1 Action and +1 Buy (FAQ).
+        ids::CONTINUE => true,
         // (With no Action anywhere the whole deck is revealed and discarded: a shuffle that is legal to ask for.)
         ids::FORESIGHT => true,
         ids::KINTSUGI => !g.players[p].hand.is_empty(),
@@ -477,7 +481,7 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
 }
 
 /// What buying the Rising Sun Event `e` does, after its cost and Buy are paid.
-pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, _sink: &mut S) {
+pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, sink: &mut S) {
     use Act::*;
     match e {
         // With no Action in play: an Action costing up to $5.
@@ -489,7 +493,17 @@ pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, _s
         // Pay any amount of $ (up to the cards in hand) to trash that many cards: an overpay decision.
         ids::ASCETICISM => g.stack.push(Frame { depth: 1, ..Frame::new(K::Overpay, p, e) }),
         // A non-Attack Action costing up to $4; back to the Action phase to play it (the return waits under the gain's reactions).
-        ids::CONTINUE => g.stack.push(Frame { then: Then::ContinueGain, ..gain_frame(p, e, 4, Filter::Types(TypeSet::ActionNotAttack), Dest::Discard) }),
+        ids::CONTINUE => {
+            if g.supply_cards().any(|c| continue_card(g, c)) {
+                g.stack.push(Frame { then: Then::ContinueGain, ..gain_frame(p, e, 4, Filter::Types(TypeSet::ActionNotAttack), Dest::Discard) });
+            } else {
+                // Nothing to gain: "you still return to your Action phase and get +1 Action and +1 Buy" (wiki).
+                g.back_to_action_phase(p, sink);
+                g.turn.actions += 1;
+                g.turn.buys += 1;
+                sink.bonus(p, e, 1, 1, 0, 0);
+            }
+        }
         // An Action or Treasure costing up to $8; Debt equal to its cost.
         ids::CREDIT => g.stack.push(Frame { then: Then::CreditDebt, ..gain_frame(p, e, 8, Filter::ActionOrTreasure, Dest::Discard) }),
         ids::FORESIGHT => g.stack.push(Frame { filter: Filter::Action, max: 1, then: Then::ForesightSet, ..Frame::new(K::RevealUntil, p, e) }),
@@ -1106,11 +1120,9 @@ impl GameState {
             // Continue: back to the Action phase with +1 Action and +1 Buy, and the card gained is played from where it was gained.
             Then::ContinueReturn => {
                 if self.turn.phase == Phase::Buy && p == self.turn.player {
-                    self.turn.phase = Phase::Action;
-                    self.turn.treasures_done = false;
+                    self.back_to_action_phase(p, sink);
                     self.turn.actions += 1;
                     self.turn.buys += 1;
-                    sink.event(Event::PhaseStart { player: p, phase: Phase::Action });
                     sink.bonus(p, f.source, 1, 1, 0, 0);
                 }
                 let c = f.subject;

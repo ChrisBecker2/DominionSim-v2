@@ -29,288 +29,8 @@ fn offered(g: &GameState) -> Vec<CardId> {
 }
 
 // ===========================================================================
-// Potion
+// Transmute
 // ===========================================================================
-
-#[test]
-fn potion_basics() {
-    let d = cards::def(id::POTION);
-    assert_eq!((d.cost, d.potion, d.vp), (4, false, 0));
-    assert!(!cards::is_kingdom(id::POTION) && cards::is_optional_basic(id::POTION));
-    assert_eq!(cards::set_of(id::POTION), CardSet::Alchemy);
-    // The pile (16) joins the supply when a Potion-cost card is in the kingdom, and only then.
-    let g = new_state(&[id::FAMILIAR], 2);
-    assert!(g.in_supply(id::POTION));
-    assert_eq!(g.supply.get(id::POTION), 16);
-    let g = new_state(&[id::HERBALIST], 2);
-    assert!(!g.in_supply(id::POTION), "Herbalist has no Potion in its cost");
-}
-
-#[test]
-fn potion_gives_a_potion_when_played() {
-    // One Potion; two Potions; mixed with other treasures.
-    for (hand, coins, potions) in [
-        (vec![id::POTION], 0u16, 1u8),
-        (vec![id::POTION, id::POTION], 0, 2),
-        (vec![id::POTION, id::COPPER, id::SILVER], 3, 1),
-        (vec![id::POTION, id::COPPER, id::SILVER, id::POTION], 3, 2),
-    ] {
-        let mut g = new_state(&[id::FAMILIAR], 2);
-        set_hand(&mut g, 0, &hand);
-        let d = expect_decision(&mut g);
-        assert_eq!(d.kind, DecisionKind::Buy);
-        assert_eq!((g.turn.coins, g.turn.potions), (coins, potions), "{hand:?}");
-        assert!(g.players[0].hand.is_empty());
-        assert_eq!(g.players[0].in_play.total() as usize, hand.len());
-    }
-}
-
-#[test]
-fn potions_do_not_carry_over_to_the_next_turn() {
-    let mut g = new_state(&[id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::POTION]);
-    expect_decision(&mut g);
-    assert_eq!(g.turn.potions, 1);
-    pass(&mut g);
-    expect_decision(&mut g);
-    assert_eq!((g.turn.player, g.turn.potions), (1, 0));
-}
-
-#[test]
-fn potion_plays_alongside_a_treasure_with_a_choice() {
-    // Bank has a choice, so nothing auto-plays: Potion is offered like every other Treasure.
-    let mut g = new_state(&[id::FAMILIAR, id::BANK], 2);
-    set_hand(&mut g, 0, &[id::POTION, id::BANK]);
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::PlayTreasure);
-    assert!(offered(&g).contains(&id::POTION));
-    play_treasure(&mut g, id::POTION);
-    assert_eq!(g.turn.potions, 1);
-}
-
-// ===========================================================================
-// Buying with Potions: a card with a Potion in its cost needs the coins AND a Potion.
-// ===========================================================================
-
-#[test]
-fn a_potion_cost_card_can_only_be_bought_with_a_potion() {
-    // Without a Potion: $3 buys Silver, not Familiar ($3P).
-    let mut g = new_state(&[id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER]);
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Buy);
-    assert!(offered(&g).contains(&id::SILVER));
-    assert!(!offered(&g).contains(&id::FAMILIAR));
-
-    // With a Potion: both, and the buy spends the Potion as well as the coins.
-    let mut g = new_state(&[id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::POTION]);
-    expect_decision(&mut g);
-    assert_eq!((g.turn.coins, g.turn.potions), (3, 1));
-    assert!(offered(&g).contains(&id::FAMILIAR));
-    buy(&mut g, id::FAMILIAR);
-    assert_eq!(g.players[1].discard.get(id::CURSE), 0);
-    assert_eq!(g.supply.get(id::FAMILIAR), 9);
-}
-
-#[test]
-fn a_potion_is_spent_per_potion_card_bought() {
-    let mut g = new_state(&[id::FAMILIAR, id::APOTHECARY], 2);
-    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::POTION]);
-    g.turn.buys = 2;
-    expect_decision(&mut g);
-    assert_eq!((g.turn.coins, g.turn.potions), (5, 1));
-    let mut sink: Vec<Event> = Vec::new();
-    g.apply(Choice::Card(id::FAMILIAR), &mut sink).unwrap();
-    adv(&mut g);
-    assert_eq!((g.turn.coins, g.turn.potions), (2, 0));
-    // Apothecary ($2P) is no longer affordable: the one Potion is spent.
-    assert!(!offered(&g).contains(&id::APOTHECARY));
-    assert!(offered(&g).contains(&id::ESTATE));
-}
-
-#[test]
-fn potion_itself_costs_four_coins_and_no_potion() {
-    let mut g = new_state(&[id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
-    expect_decision(&mut g);
-    assert!(offered(&g).contains(&id::POTION));
-    buy(&mut g, id::POTION);
-    assert_eq!(g.supply.get(id::POTION), 15);
-}
-
-#[test]
-fn potions_survive_a_text_round_trip() {
-    let mut g = new_state(&[id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::POTION, id::COPPER]);
-    expect_decision(&mut g);
-    let text = format_state(&g);
-    assert!(text.contains("potions: 1"), "{text}");
-    assert!(text.contains("Potion=16"), "{text}");
-    let g2 = parse_state(&text).unwrap();
-    assert_eq!(g2.turn.potions, 1);
-    assert!(g2.in_supply(id::POTION));
-    // No Potion: nothing printed, so Base-only saves are unchanged.
-    let g3 = new_state(&[id::VILLAGE], 2);
-    assert!(!format_state(&g3).contains("potions"));
-}
-
-// ===========================================================================
-// Potion costs in "costing up to / exactly" gains and in cost reductions.
-// ===========================================================================
-
-#[test]
-fn remodel_on_a_potion_card_may_gain_potion_cost_cards() {
-    // Golem ($4P) -> up to $6P: potion-cost cards allowed.
-    let mut g = new_state(&[id::REMODEL, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::REMODEL, id::GOLEM]);
-    play(&mut g, id::REMODEL);
-    let d = expect_decision(&mut g);
-    assert_eq!(
-        d.kind,
-        DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: true, optional: false }
-    );
-    let o = offered(&g);
-    for c in [id::GOLEM, id::FAMILIAR, id::SMITHY, id::GOLD] {
-        assert!(o.contains(&c), "{}", cards::name(c));
-    }
-    assert!(!o.contains(&id::PROVINCE));
-
-    // Estate ($2) -> up to $4, no Potion cards (Golem, Familiar), Potion itself ($4) is fine.
-    let mut g = new_state(&[id::REMODEL, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::REMODEL, id::ESTATE]);
-    play(&mut g, id::REMODEL);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, potion: false, .. }));
-    let o = offered(&g);
-    assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION) && o.contains(&id::SILVER));
-    assert!(!o.contains(&id::GOLEM) && !o.contains(&id::FAMILIAR));
-
-    // Apothecary ($2P) -> up to $4P: Golem and Familiar too.
-    let mut g = new_state(&[id::REMODEL, id::APOTHECARY, id::GOLEM, id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::REMODEL, id::APOTHECARY]);
-    play(&mut g, id::REMODEL);
-    expect_decision(&mut g);
-    let o = offered(&g);
-    assert!(o.contains(&id::GOLEM) && o.contains(&id::FAMILIAR) && o.contains(&id::SILVER));
-    assert!(!o.contains(&id::GOLD));
-}
-
-#[test]
-fn upgrade_needs_the_potion_to_match_exactly() {
-    // Apothecary ($2P) -> exactly $3P: Familiar, Alchemist and Philosopher's Stone, not Silver.
-    let k = [id::UPGRADE, id::APOTHECARY, id::FAMILIAR, id::ALCHEMIST, id::PHILOSOPHERS_STONE, id::VILLAGE];
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::UPGRADE, id::APOTHECARY]);
-    play(&mut g, id::UPGRADE);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 3, exact: true, potion: true, .. }));
-    let mut o = offered(&g);
-    o.sort_unstable();
-    assert_eq!(o, vec![id::ALCHEMIST, id::FAMILIAR, id::PHILOSOPHERS_STONE]);
-
-    // Estate ($2) -> exactly $3 with no Potion: Silver and Village, not the $3P cards.
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::UPGRADE, id::ESTATE]);
-    play(&mut g, id::UPGRADE);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 3, exact: true, potion: false, .. }));
-    let mut o = offered(&g);
-    o.sort_unstable();
-    assert_eq!(o, vec![id::SILVER, id::VILLAGE]);
-}
-
-#[test]
-fn forge_counts_only_coins_and_cannot_gain_a_potion_cost_card() {
-    let k = [id::FORGE, id::GOLEM, id::APOTHECARY, id::SMITHY];
-    // Golem ($4P) trashed: gain exactly $4, but not a card with a Potion in its cost.
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::FORGE, id::GOLEM]);
-    play(&mut g, id::FORGE);
-    choose(&mut g, Choice::Card(id::GOLEM));
-    let d = pending_or_next(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }), "{:?}", d.kind);
-    let o = offered(&g);
-    assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION));
-    assert!(!o.contains(&id::GOLEM));
-
-    // Apothecary ($2P) + Estate ($2): the Potion adds nothing, the total is $4.
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::FORGE, id::APOTHECARY, id::ESTATE]);
-    play(&mut g, id::FORGE);
-    choose(&mut g, Choice::Card(id::ESTATE));
-    choose(&mut g, Choice::Card(id::APOTHECARY));
-    let d = pending_or_next(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }), "{:?}", d.kind);
-    assert!(offered(&g).contains(&id::SMITHY));
-}
-
-fn pending_or_next(g: &mut GameState) -> Decision {
-    match g.pending_decision() {
-        Some(d) => d,
-        None => expect_decision(g),
-    }
-}
-
-#[test]
-fn bridge_and_quarry_reduce_only_the_coin_part_of_a_cost() {
-    // Bridge: Familiar $3P -> $2P; still needs a Potion.
-    let mut g = new_state(&[id::BRIDGE, id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::BRIDGE, id::COPPER]);
-    play(&mut g, id::BRIDGE);
-    assert_eq!(g.cost(id::FAMILIAR), 2);
-    assert!(cards::potion_cost(id::FAMILIAR));
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Buy);
-    assert_eq!(g.turn.coins, 2);
-    assert!(!offered(&g).contains(&id::FAMILIAR), "$2 is enough, but there is no Potion");
-
-    let mut g = new_state(&[id::BRIDGE, id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::BRIDGE, id::COPPER, id::POTION]);
-    play(&mut g, id::BRIDGE);
-    expect_decision(&mut g);
-    assert!(offered(&g).contains(&id::FAMILIAR));
-
-    // Quarry: Actions cost $2 less: Apothecary $2P -> $0P (and is free of coins, not of Potions).
-    let mut g = new_state(&[id::QUARRY, id::APOTHECARY], 2);
-    set_hand(&mut g, 0, &[id::QUARRY]);
-    expect_decision(&mut g);
-    assert_eq!(g.cost(id::APOTHECARY), 0);
-    assert!(!offered(&g).contains(&id::APOTHECARY), "no Potion");
-    let mut g = new_state(&[id::QUARRY, id::APOTHECARY], 2);
-    set_hand(&mut g, 0, &[id::QUARRY, id::POTION]);
-    expect_decision(&mut g);
-    assert!(offered(&g).contains(&id::APOTHECARY));
-}
-
-#[test]
-fn bishop_counts_only_coins() {
-    let mut g = new_state(&[id::BISHOP, id::GOLEM], 2);
-    set_hand(&mut g, 0, &[id::BISHOP, id::GOLEM]);
-    play(&mut g, id::BISHOP);
-    // 1 token for playing it + $4 / 2 for the trashed Golem; the Potion is ignored.
-    assert_eq!(g.players[0].vp_tokens, 1 + 2);
-    assert!(g.trash.has(id::GOLEM));
-}
-
-#[test]
-fn workshop_and_smugglers_never_gain_potion_cost_cards() {
-    let mut g = new_state(&[id::WORKSHOP, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::WORKSHOP]);
-    play(&mut g, id::WORKSHOP);
-    expect_decision(&mut g);
-    let o = offered(&g);
-    assert!(o.contains(&id::SMITHY) && !o.contains(&id::GOLEM) && !o.contains(&id::FAMILIAR));
-
-    // Smugglers copies a card the right-hand player gained, up to $6: Golem is excluded.
-    let mut g = new_state(&[id::SMUGGLERS, id::GOLEM], 2);
-    g.players[1].last_turn_gains.add(id::GOLEM, 1);
-    g.players[1].last_turn_gains.add(id::SILVER, 1);
-    set_hand(&mut g, 0, &[id::SMUGGLERS]);
-    play(&mut g, id::SMUGGLERS);
-    assert!(g.players[0].discard.has(id::SILVER), "the only legal copy: Silver (auto-applied)");
-    assert!(!g.players[0].discard.has(id::GOLEM));
-}
 
 // Transmute ($0P) as the reference cost. "Costing up to $XP" compares each part on its own: a
 // card costs no more if its coins are no more and it needs no more Potions, so a Potion-free
@@ -360,156 +80,6 @@ fn workshop_cannot_gain_transmute() {
     assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION) && o.contains(&id::SILVER), "up to $4");
     assert!(!o.contains(&id::TRANSMUTE) && !o.contains(&id::VINEYARD), "$0P cards need a Potion the limit lacks");
 }
-
-#[test]
-fn smugglers_cannot_copy_a_potion_cost_card() {
-    let mut g = new_state(&[id::SMUGGLERS, id::TRANSMUTE], 2);
-    g.players[1].last_turn_gains.add(id::TRANSMUTE, 1);
-    set_hand(&mut g, 0, &[id::SMUGGLERS]);
-    play(&mut g, id::SMUGGLERS);
-    assert!(!g.players[0].discard.has(id::TRANSMUTE), "Transmute costs $0P: not \"up to $6\"");
-    assert_eq!(g.supply.get(id::TRANSMUTE), 10);
-}
-
-#[test]
-fn mine_keeps_the_potion_of_the_trashed_treasure() {
-    // Philosopher's Stone ($3P) -> a Treasure up to $6P: Gold, the Stone itself, Potion, Silver.
-    let k = [id::MINE, id::PHILOSOPHERS_STONE, id::PLATINUM, id::COLONY];
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::MINE, id::PHILOSOPHERS_STONE]);
-    play(&mut g, id::MINE);
-    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
-    let d = pending_or_next(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
-    let o = offered(&g);
-    for c in [id::GOLD, id::PHILOSOPHERS_STONE, id::POTION, id::SILVER] {
-        assert!(o.contains(&c), "{}", cards::name(c));
-    }
-    assert!(!o.contains(&id::PLATINUM), "$9");
-
-    // Potion ($4, no Potion in its cost) -> up to $7: Gold, not the Stone ($3P).
-    let mut g = new_state(&k, 2);
-    set_hand(&mut g, 0, &[id::MINE, id::POTION]);
-    play(&mut g, id::MINE);
-    choose(&mut g, Choice::Card(id::POTION));
-    let d = pending_or_next(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 7, potion: false, .. }), "{:?}", d.kind);
-    let o = offered(&g);
-    assert!(o.contains(&id::GOLD) && !o.contains(&id::PHILOSOPHERS_STONE));
-}
-
-#[test]
-fn replace_on_a_potion_card_may_gain_potion_cost_cards() {
-    // Golem ($4P) -> up to $6P: Golem (onto the deck: it's an Action) and Gold, not Province.
-    let mut g = new_state(&[id::REPLACE, id::GOLEM, id::FAMILIAR], 2);
-    set_hand(&mut g, 0, &[id::REPLACE, id::GOLEM]);
-    play(&mut g, id::REPLACE);
-    let d = pending_or_next(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
-    let o = offered(&g);
-    assert!(o.contains(&id::GOLEM) && o.contains(&id::FAMILIAR) && o.contains(&id::GOLD));
-    assert!(!o.contains(&id::PROVINCE));
-    choose(&mut g, Choice::Card(id::FAMILIAR));
-    assert_eq!(g.players[0].deck_known.iter_top_down().next(), Some(id::FAMILIAR), "an Action goes onto the deck");
-}
-
-#[test]
-fn fixed_up_to_gains_never_take_potion_cost_cards() {
-    // Ironworks (up to $4), Artisan (up to $5, to hand) and Blockade (up to $4): no $0P Transmute
-    // or $2P Apothecary, though they cost fewer coins.
-    let k = [id::IRONWORKS, id::ARTISAN, id::BLOCKADE, id::TRANSMUTE, id::APOTHECARY, id::SMITHY];
-    for card in [id::IRONWORKS, id::ARTISAN, id::BLOCKADE] {
-        let mut g = new_state(&k, 2);
-        set_hand(&mut g, 0, &[card, id::COPPER]);
-        play(&mut g, card);
-        let d = pending_or_next(&mut g);
-        assert!(matches!(d.kind, DecisionKind::Gain { potion: false, .. }), "{}: {:?}", cards::name(card), d.kind);
-        let o = offered(&g);
-        assert!(o.contains(&id::SMITHY) && o.contains(&id::SILVER), "{}", cards::name(card));
-        assert!(!o.contains(&id::TRANSMUTE) && !o.contains(&id::APOTHECARY), "{}", cards::name(card));
-    }
-}
-
-#[test]
-fn salvager_gives_coins_for_the_coin_part_only() {
-    let mut g = new_state(&[id::SALVAGER, id::GOLEM], 2);
-    set_hand(&mut g, 0, &[id::SALVAGER, id::GOLEM]);
-    play(&mut g, id::SALVAGER);
-    pending_or_next(&mut g);
-    assert!(g.trash.has(id::GOLEM));
-    assert_eq!(g.turn.coins, 4, "Golem costs $4P: +$4, nothing for the Potion");
-    assert_eq!(g.turn.buys, 2);
-}
-
-#[test]
-fn swindler_gives_a_card_with_the_same_cost_including_the_potion() {
-    // Victim's top card Golem ($4P): the replacement must cost exactly $4P (only Golem here).
-    let mut g = new_state(&[id::SWINDLER, id::GOLEM, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::SWINDLER]);
-    set_deck_known(&mut g, 1, &[id::GOLEM]);
-    play(&mut g, id::SWINDLER);
-    assert!(g.trash.has(id::GOLEM));
-    assert!(g.players[1].discard.has(id::GOLEM), "the only card at $4P is another Golem (auto-applied)");
-
-    // Top card Smithy ($4): Smithy or Potion ($4), never the $4P Golem.
-    let mut g = new_state(&[id::SWINDLER, id::GOLEM, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::SWINDLER]);
-    set_deck_known(&mut g, 1, &[id::SMITHY]);
-    play(&mut g, id::SWINDLER);
-    let d = expect_decision(&mut g);
-    assert_eq!((d.player, d.for_player), (0, 1));
-    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }));
-    let mut o = offered(&g);
-    o.sort_unstable();
-    assert_eq!(o, vec![id::SMITHY, id::POTION]);
-}
-
-// ===========================================================================
-// Vineyard
-// ===========================================================================
-
-fn vp(cs: &[(CardId, u8)]) -> i32 {
-    let mut c = Counts::EMPTY;
-    for &(x, n) in cs {
-        c.add(x, n);
-    }
-    vp_of_cards(&c)
-}
-
-#[test]
-fn vineyard_is_worth_one_vp_per_three_actions() {
-    let d = cards::def(id::VINEYARD);
-    assert_eq!((d.cost, d.potion, d.vp), (0, true, 0));
-    assert!(cards::is(id::VINEYARD, cards::VICTORY) && !cards::is(id::VINEYARD, cards::ACTION));
-    // Worth 0 on its own, and everything rounds down.
-    assert_eq!(vp(&[]), 0);
-    assert_eq!(vp(&[(id::VINEYARD, 1)]), 0);
-    assert_eq!(vp(&[(id::VINEYARD, 9)]), 0);
-    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 1)]), 0);
-    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 2)]), 0);
-    // Now worth 1.
-    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3)]), 1);
-    assert_eq!(vp(&[(id::VINEYARD, 3), (id::VILLAGE, 3)]), 3);
-    // 3 Nobles are 3x2 VP, and are also Actions: 6 / 3 = 2 for the Vineyard.
-    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3), (id::NOBLES, 3)]), 8);
-    // Other card types don't count.
-    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3), (id::COPPER, 3), (id::ESTATE, 1)]), 1 + 1);
-    // Cards on every player zone count (the player's score uses `all_cards`).
-    let mut g = new_state(&[id::VINEYARD, id::VILLAGE], 2);
-    g.players[0].hand = counts_of(&[id::VINEYARD, id::VILLAGE]);
-    g.players[0].discard = counts_of(&[id::VILLAGE, id::VILLAGE]);
-    assert_eq!(g.players[0].vp(), 1);
-}
-
-#[test]
-fn vineyard_pile_is_a_victory_pile() {
-    assert_eq!(new_state(&[id::VINEYARD], 2).supply.get(id::VINEYARD), 8);
-    assert_eq!(new_state(&[id::VINEYARD], 3).supply.get(id::VINEYARD), 12);
-}
-
-// ===========================================================================
-// Transmute
-// ===========================================================================
 
 fn transmute(kingdom: &[CardId], hand_extra: &[CardId]) -> GameState {
     let mut g = new_state(kingdom, 2);
@@ -621,6 +191,233 @@ fn transmute_gains_are_skipped_when_the_pile_is_empty_or_absent() {
 fn transmute_treats_curse_as_a_treasure_under_charlatan() {
     let g = transmute(&[id::TRANSMUTE, id::CHARLATAN], &[id::CURSE]);
     assert_eq!(g.players[0].discard, counts_of(&[id::TRANSMUTE]));
+}
+
+#[test]
+fn transmute_treats_an_inherited_estate_as_an_action_and_a_victory_card() {
+    let mut g = new_state(&[id::TRANSMUTE, id::SMITHY, id::INHERITANCE], 2);
+    g.players[0].inherit = id::SMITHY;
+    set_hand(&mut g, 0, &[id::TRANSMUTE, id::ESTATE]);
+    play(&mut g, id::TRANSMUTE);
+    adv(&mut g);
+    assert!(g.players[0].discard.has(id::GOLD) && g.players[0].discard.has(id::DUCHY), "Victory: a Gold, Action: a Duchy");
+}
+
+// ===========================================================================
+// Vineyard
+// ===========================================================================
+
+fn vp(cs: &[(CardId, u8)]) -> i32 {
+    let mut c = Counts::EMPTY;
+    for &(x, n) in cs {
+        c.add(x, n);
+    }
+    vp_of_cards(&c)
+}
+
+#[test]
+fn vineyard_is_worth_one_vp_per_three_actions() {
+    let d = cards::def(id::VINEYARD);
+    assert_eq!((d.cost, d.potion, d.vp), (0, true, 0));
+    assert!(cards::is(id::VINEYARD, cards::VICTORY) && !cards::is(id::VINEYARD, cards::ACTION));
+    // Worth 0 on its own, and everything rounds down.
+    assert_eq!(vp(&[]), 0);
+    assert_eq!(vp(&[(id::VINEYARD, 1)]), 0);
+    assert_eq!(vp(&[(id::VINEYARD, 9)]), 0);
+    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 1)]), 0);
+    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 2)]), 0);
+    // Now worth 1.
+    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3)]), 1);
+    assert_eq!(vp(&[(id::VINEYARD, 3), (id::VILLAGE, 3)]), 3);
+    // 3 Nobles are 3x2 VP, and are also Actions: 6 / 3 = 2 for the Vineyard.
+    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3), (id::NOBLES, 3)]), 8);
+    // Other card types don't count.
+    assert_eq!(vp(&[(id::VINEYARD, 1), (id::VILLAGE, 3), (id::COPPER, 3), (id::ESTATE, 1)]), 1 + 1);
+    // Cards on every player zone count (the player's score uses `all_cards`).
+    let mut g = new_state(&[id::VINEYARD, id::VILLAGE], 2);
+    g.players[0].hand = counts_of(&[id::VINEYARD, id::VILLAGE]);
+    g.players[0].discard = counts_of(&[id::VILLAGE, id::VILLAGE]);
+    assert_eq!(g.players[0].vp(), 1);
+}
+
+#[test]
+fn vineyard_pile_is_a_victory_pile() {
+    assert_eq!(new_state(&[id::VINEYARD], 2).supply.get(id::VINEYARD), 8);
+    assert_eq!(new_state(&[id::VINEYARD], 3).supply.get(id::VINEYARD), 12);
+}
+
+// ===========================================================================
+// Herbalist
+// ===========================================================================
+
+#[test]
+fn herbalist_basics_and_nothing_to_put_back() {
+    let d = cards::def(id::HERBALIST);
+    assert_eq!((d.cost, d.potion, d.vp), (2, false, 0));
+    // +1 Buy +$1; no Treasure in play: no offer.
+    let mut g = new_state(&[id::HERBALIST], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (0, 2, 1));
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(g.turn.player, 1);
+    assert!(g.players[0].discard.has(id::HERBALIST));
+}
+
+#[test]
+fn herbalist_puts_a_treasure_from_play_on_the_deck() {
+    let mut g = new_state(&[id::HERBALIST], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::GOLD, id::SILVER, id::SILVER]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    let d = g.pending_decision().expect("Herbalist's offer");
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, from: Zone::InPlay, min: 0, max: 1, .. }));
+    assert_eq!(d.source, Some(id::HERBALIST));
+    let mut o = offered(&g);
+    o.sort_unstable();
+    assert_eq!(o, vec![id::SILVER, id::GOLD], "each distinct Treasure once");
+    assert!(choices(&g).contains(&Choice::Pass));
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
+    assert!(!g.players[0].in_play.has(id::GOLD));
+}
+
+#[test]
+fn two_herbalists_but_only_one_treasure() {
+    let mut g = new_state(&[id::HERBALIST, id::VILLAGE], 2);
+    set_hand(&mut g, 0, &[id::VILLAGE, id::HERBALIST, id::HERBALIST, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::VILLAGE);
+    play(&mut g, id::HERBALIST);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    // The first offer takes the Gold; the second finds no Treasure and is skipped.
+    let d = g.pending_decision().expect("first offer");
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }));
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
+    assert!(g.pending_decision().is_none());
+    adv(&mut g);
+    assert_eq!(g.turn.player, 1, "no second offer");
+}
+
+#[test]
+fn throne_room_on_herbalist_puts_back_up_to_two_treasures() {
+    // "Once this turn, when you discard a Treasure from play, you may put it onto your deck", and
+    // the Herbalist was played twice: two Treasures can go back (the plays are cumulative).
+    let mut g = new_state(&[id::THRONE_ROOM, id::HERBALIST], 2);
+    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HERBALIST, id::GOLD, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::THRONE_ROOM);
+    choose(&mut g, Choice::Card(id::HERBALIST));
+    assert_eq!(g.turn.buys, 3);
+    expect_decision(&mut g);
+    assert_eq!(g.turn.coins, 2 + 6, "Herbalist twice, then both Golds in the Buy phase");
+    pass(&mut g);
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    expect_decision(&mut g); // the second offer
+    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
+    assert_eq!(g.players[0].deck_known.len, 7, "the two Golds on top of the five Duchies");
+    assert!(g.pending_decision().is_none());
+    adv(&mut g);
+    assert_eq!(g.turn.player, 1);
+}
+
+#[test]
+fn herbalist_offers_the_treasure_under_charlatan_curse_too() {
+    let mut g = new_state(&[id::HERBALIST, id::CHARLATAN], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::CURSE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(offered(&g), vec![id::CURSE], "Curse is a Treasure while Charlatan is in the game");
+}
+
+#[test]
+fn herbalist_cannot_put_an_astrolabe_that_stays_in_play_onto_the_deck() {
+    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::ASTROLABE, id::COPPER]);
+    play(&mut g, id::HERBALIST);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    pass(&mut g); // end of the Buy phase: Herbalist's offer
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::COPPER)) && c.contains(&Choice::Pass));
+    assert!(!c.contains(&Choice::Card(id::ASTROLABE)), "it is kept for next turn, not discarded: {c:?}");
+}
+
+#[test]
+fn herbalist_may_put_an_astrolabe_from_last_turn_onto_the_deck() {
+    // Played on the previous turn, it is discarded at this cleanup like any other card.
+    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST]);
+    set_in_play(&mut g, 0, &[id::ASTROLABE]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(choices(&g).contains(&Choice::Card(id::ASTROLABE)));
+}
+
+#[test]
+fn herbalist_cannot_put_a_spoils_or_a_counterfeited_treasure_on_the_deck() {
+    // Spoils goes back to its pile when played.
+    let mut g = new_state(&[id::HERBALIST, id::MARAUDER], 2);
+    g.spoils = 10;
+    set_hand(&mut g, 0, &[id::HERBALIST, id::SPOILS, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(offered(&g), vec![id::GOLD]);
+
+    // A Treasure Counterfeit trashed is no longer in play.
+    let mut g = new_state(&[id::HERBALIST, id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::COUNTERFEIT, id::GOLD]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    play_treasure(&mut g, id::COUNTERFEIT);
+    choose(&mut g, Choice::Card(id::GOLD));
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(offered(&g), vec![id::COUNTERFEIT]);
+    assert!(g.trash.has(id::GOLD));
+}
+
+#[test]
+fn a_treasure_with_a_discard_from_play_effect_still_does_it_when_herbalist_topdecks_it() {
+    // Capital: 6 Debt when discarded from play; topdecked by Herbalist instead of discarded it still charges the Debt.
+    let mut g = new_state(&[id::HERBALIST, id::CAPITAL], 2);
+    set_hand(&mut g, 0, &[id::HERBALIST, id::CAPITAL]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(offered(&g).contains(&id::CAPITAL));
+    let mut log: Vec<Event> = Vec::new();
+    choose_ev(&mut g, Choice::Card(id::CAPITAL), &mut log);
+    assert!(log.iter().any(|e| matches!(e, Event::TakeDebt { n: 6, .. })), "the Debt is taken all the same: {log:?}");
+    assert!(g.players[0].deck_size() > 0 && !g.players[0].in_play.has(id::CAPITAL));
+}
+
+#[test]
+fn herbalist_can_put_itself_on_the_deck_under_capitalism() {
+    let mut g = new_state(&[id::HERBALIST, id::CAPITALISM], 2);
+    let bit = 1u32 << (id::CAPITALISM - cards::FIRST_PROJECT);
+    g.players[0].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+    set_hand(&mut g, 0, &[id::HERBALIST]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert!(offered(&g).contains(&id::HERBALIST));
 }
 
 // ===========================================================================
@@ -945,9 +742,168 @@ fn university_gain_can_be_declined() {
     assert_eq!(g.turn.actions, 2);
 }
 
+#[test]
+fn university_cannot_gain_an_action_with_debt_in_its_cost() {
+    let mut g = new_state(&[id::UNIVERSITY, id::ENGINEER, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::UNIVERSITY]);
+    play(&mut g, id::UNIVERSITY);
+    let c = choices(&g);
+    assert!(c.contains(&Choice::Card(id::SMITHY)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
+}
+
+// ===========================================================================
+// Alchemist
+// ===========================================================================
+
+#[test]
+fn alchemist_basics_and_play() {
+    let d = cards::def(id::ALCHEMIST);
+    assert_eq!((d.cost, d.potion, d.vp), (3, true, 0));
+    let mut g = new_state(&[id::ALCHEMIST], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE, id::ESTATE]);
+    play(&mut g, id::ALCHEMIST);
+    assert_eq!(g.turn.actions, 1, "+1 Action");
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::PROVINCE]), "+2 Cards");
+}
+
+#[test]
+fn alchemist_goes_back_on_the_deck_with_a_potion_in_play() {
+    // "Place on deck": {Alchemist, Potion}, deck of 5 Duchies.
+    let mut g = new_state(&[id::ALCHEMIST], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::ALCHEMIST);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert_eq!(g.turn.potions, 1);
+    pass(&mut g);
+    let d = g.pending_decision().expect("Alchemist's offer");
+    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Topdeck });
+    assert_eq!(d.subject, id::ALCHEMIST);
+    g.apply(Choice::Yes, &mut NoEvents).unwrap();
+    assert_eq!(top_down(&g, 0).last().copied(), Some(id::DUCHY));
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::ALCHEMIST), "on top of the deck");
+    assert!(!g.players[0].in_play.has(id::ALCHEMIST));
+    assert!(g.players[0].discard.has(id::POTION) || g.players[0].in_play.has(id::POTION));
+}
+
+#[test]
+fn alchemist_offer_can_be_declined() {
+    let mut g = new_state(&[id::ALCHEMIST], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
+    play(&mut g, id::ALCHEMIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    choose(&mut g, Choice::No);
+    assert!(g.players[0].discard.has(id::ALCHEMIST));
+}
+
+#[test]
+fn alchemist_cannot_go_back_without_a_potion_in_play() {
+    // "Cannot place on deck without Potion in play".
+    let mut g = new_state(&[id::ALCHEMIST], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
+    play(&mut g, id::ALCHEMIST);
+    expect_decision(&mut g);
+    pass(&mut g);
+    assert_eq!(g.turn.player, 1, "no offer at all");
+    assert!(g.players[0].discard.has(id::ALCHEMIST));
+}
+
+#[test]
+fn alchemist_resolves_before_herbalist_so_both_it_and_the_potion_go_back() {
+    // "Resolve in order to have both Alchemist and Potion on deck": the Alchemist's offer is
+    // made first (the Potion is still in play), then Herbalist puts the Potion on top of it.
+    let mut g = new_state(&[id::ALCHEMIST, id::HERBALIST], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST, id::HERBALIST, id::POTION]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
+    play(&mut g, id::ALCHEMIST);
+    play(&mut g, id::HERBALIST);
+    expect_decision(&mut g);
+    assert_eq!((g.turn.buys, g.turn.coins, g.turn.potions), (2, 1, 1));
+    pass(&mut g);
+    let d = g.pending_decision().expect("first the Alchemist's offer");
+    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Topdeck });
+    choose(&mut g, Choice::Yes);
+    let d = g.pending_decision().expect("then Herbalist's");
+    assert_eq!(d.source, Some(id::HERBALIST));
+    assert_eq!(offered(&g), vec![id::POTION]);
+    g.apply(Choice::Card(id::POTION), &mut NoEvents).unwrap();
+    let top: Vec<CardId> = top_down(&g, 0).into_iter().take(2).collect();
+    assert_eq!(top, vec![id::POTION, id::ALCHEMIST]);
+}
+
+#[test]
+fn alchemist_cannot_go_back_when_the_potion_left_play_before_cleanup() {
+    let mut g = new_state(&[id::ALCHEMIST, id::COUNTERFEIT], 2);
+    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION, id::COUNTERFEIT]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 8]);
+    play(&mut g, id::ALCHEMIST);
+    play_treasure(&mut g, id::COUNTERFEIT);
+    choose(&mut g, Choice::Card(id::POTION)); // played twice, then trashed
+    assert!(g.trash.has(id::POTION));
+    expect_decision(&mut g);
+    pass(&mut g);
+    // No Potion in play at the start of Clean-up: no offer, the turn simply ends.
+    assert!(g.pending_decision().is_none_or(|d| d.kind != DecisionKind::YesNo { act: Act::Topdeck }));
+    assert!(!g.players[0].in_play.has(id::ALCHEMIST));
+}
+
 // ===========================================================================
 // Familiar
 // ===========================================================================
+
+#[test]
+fn potions_do_not_carry_over_to_the_next_turn() {
+    let mut g = new_state(&[id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::POTION]);
+    expect_decision(&mut g);
+    assert_eq!(g.turn.potions, 1);
+    pass(&mut g);
+    expect_decision(&mut g);
+    assert_eq!((g.turn.player, g.turn.potions), (1, 0));
+}
+
+fn pending_or_next(g: &mut GameState) -> Decision {
+    match g.pending_decision() {
+        Some(d) => d,
+        None => expect_decision(g),
+    }
+}
+
+#[test]
+fn bridge_and_quarry_reduce_only_the_coin_part_of_a_cost() {
+    // Bridge: Familiar $3P -> $2P; still needs a Potion.
+    let mut g = new_state(&[id::BRIDGE, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::BRIDGE, id::COPPER]);
+    play(&mut g, id::BRIDGE);
+    assert_eq!(g.cost(id::FAMILIAR), 2);
+    assert!(cards::potion_cost(id::FAMILIAR));
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::Buy);
+    assert_eq!(g.turn.coins, 2);
+    assert!(!offered(&g).contains(&id::FAMILIAR), "$2 is enough, but there is no Potion");
+
+    let mut g = new_state(&[id::BRIDGE, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::BRIDGE, id::COPPER, id::POTION]);
+    play(&mut g, id::BRIDGE);
+    expect_decision(&mut g);
+    assert!(offered(&g).contains(&id::FAMILIAR));
+
+    // Quarry: Actions cost $2 less: Apothecary $2P -> $0P (and is free of coins, not of Potions).
+    let mut g = new_state(&[id::QUARRY, id::APOTHECARY], 2);
+    set_hand(&mut g, 0, &[id::QUARRY]);
+    expect_decision(&mut g);
+    assert_eq!(g.cost(id::APOTHECARY), 0);
+    assert!(!offered(&g).contains(&id::APOTHECARY), "no Potion");
+    let mut g = new_state(&[id::QUARRY, id::APOTHECARY], 2);
+    set_hand(&mut g, 0, &[id::QUARRY, id::POTION]);
+    expect_decision(&mut g);
+    assert!(offered(&g).contains(&id::APOTHECARY));
+}
 
 #[test]
 fn familiar_basics_and_draw() {
@@ -1007,87 +963,6 @@ fn familiar_is_blocked_by_moat() {
     play(&mut g, id::FAMILIAR);
     moat(&mut g, true);
     assert!(g.players[1].discard.is_empty());
-}
-
-// ===========================================================================
-// Apprentice
-// ===========================================================================
-
-#[test]
-fn apprentice_basics_and_nothing_to_trash() {
-    let d = cards::def(id::APPRENTICE);
-    assert_eq!((d.cost, d.potion, d.vp), (5, false, 0));
-    let mut g = new_state(&[id::APPRENTICE], 2);
-    set_hand(&mut g, 0, &[id::APPRENTICE]);
-    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE]);
-    play(&mut g, id::APPRENTICE);
-    assert_eq!(g.turn.actions, 1, "+1 Action");
-    assert!(g.players[0].hand.is_empty());
-    assert_eq!(expect_decision(&mut g).kind, DecisionKind::Buy);
-}
-
-/// The hand is Apprentice, `trashed` and a
-/// decoy (Gardens); this turn's costs are reduced by `discount`; Apprentice trashes `trashed`
-/// and draws `drawn` Duchies.
-fn apprentice(trashed: CardId, discount: u8, drawn: u32) {
-    let mut g = new_state(&[id::APPRENTICE, id::VINEYARD], 2);
-    set_hand(&mut g, 0, &[id::APPRENTICE, trashed, id::GARDENS]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
-    g.turn.cost_reduction = discount;
-    play(&mut g, id::APPRENTICE);
-    let d = g.pending_decision().expect("what to trash");
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, min: 1, max: 1, .. }));
-    choose(&mut g, Choice::Card(trashed));
-    let mut expect = vec![id::GARDENS];
-    expect.extend(std::iter::repeat(id::DUCHY).take(drawn as usize));
-    assert_eq!(g.players[0].hand, counts_of(&expect), "{} with discount {discount}", cards::name(trashed));
-    assert_eq!(g.players[0].deck_known.len as u32, 10 - drawn);
-    assert!(g.trash.has(trashed));
-}
-
-#[test]
-fn apprentice_draws_per_coin_of_cost_and_two_more_for_a_potion() {
-    apprentice(id::ESTATE, 0, 2);
-    apprentice(id::ESTATE, 1, 1);
-    apprentice(id::ESTATE, 2, 0);
-    apprentice(id::ESTATE, 3, 0);
-    apprentice(id::ESTATE, 6, 0);
-
-    apprentice(id::CURSE, 0, 0);
-    apprentice(id::COPPER, 0, 0);
-    apprentice(id::PROVINCE, 0, 8);
-    apprentice(id::POTION, 0, 4);
-
-    // Vineyard ($0P): 0 coins + 2 for the Potion, whatever the discount.
-    apprentice(id::VINEYARD, 0, 2);
-    apprentice(id::VINEYARD, 1, 2);
-    apprentice(id::VINEYARD, 2, 2);
-
-    // Apothecary ($2P): the discount lowers only the coin part.
-    apprentice(id::APOTHECARY, 0, 4);
-    apprentice(id::APOTHECARY, 1, 3);
-    apprentice(id::APOTHECARY, 2, 2);
-    apprentice(id::APOTHECARY, 3, 2);
-}
-
-#[test]
-fn apprentice_draws_what_it_can() {
-    // Province: 8 cards, but only 3 in the deck and 1 in the discard.
-    let mut g = new_state(&[id::APPRENTICE], 2);
-    set_hand(&mut g, 0, &[id::APPRENTICE, id::PROVINCE]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 3]);
-    set_discard(&mut g, 0, &[id::ESTATE]);
-    play(&mut g, id::APPRENTICE);
-    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::DUCHY, id::DUCHY, id::ESTATE]));
-    assert!(g.trash.has(id::PROVINCE));
-}
-
-#[test]
-fn apprentice_must_trash() {
-    let mut g = new_state(&[id::APPRENTICE], 2);
-    set_hand(&mut g, 0, &[id::APPRENTICE, id::ESTATE, id::COPPER]);
-    play(&mut g, id::APPRENTICE);
-    assert!(!choices(&g).contains(&Choice::Pass));
 }
 
 // ===========================================================================
@@ -1158,9 +1033,46 @@ fn philosophers_stone_counts_each_copy_and_every_play() {
     assert_eq!(g.turn.coins, 4, "$2 twice");
 }
 
+#[test]
+fn philosophers_stone_played_by_crystal_ball_counts_again() {
+    // 20 cards in the deck when the first is played ($4); Crystal Ball then plays the second from the top: 19 cards, $3.
+    let mut g = new_state(&[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL], 2);
+    set_hand(&mut g, 0, &[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL]);
+    let mut deck = vec![id::PHILOSOPHERS_STONE];
+    deck.extend([id::ESTATE; 19]);
+    set_deck_known(&mut g, 0, &deck);
+    expect_decision(&mut g);
+    play_treasure(&mut g, id::PHILOSOPHERS_STONE);
+    assert_eq!(g.turn.coins, 4, "21 cards between deck and discard pile... less the Crystal Ball in hand: 20");
+    play_treasure(&mut g, id::CRYSTAL_BALL);
+    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
+    assert_eq!(g.turn.coins, 4 + 1 + 3);
+}
+
 // ===========================================================================
 // Golem
 // ===========================================================================
+
+#[test]
+fn bishop_counts_only_coins() {
+    let mut g = new_state(&[id::BISHOP, id::GOLEM], 2);
+    set_hand(&mut g, 0, &[id::BISHOP, id::GOLEM]);
+    play(&mut g, id::BISHOP);
+    // 1 token for playing it + $4 / 2 for the trashed Golem; the Potion is ignored.
+    assert_eq!(g.players[0].vp_tokens, 1 + 2);
+    assert!(g.trash.has(id::GOLEM));
+}
+
+#[test]
+fn salvager_gives_coins_for_the_coin_part_only() {
+    let mut g = new_state(&[id::SALVAGER, id::GOLEM], 2);
+    set_hand(&mut g, 0, &[id::SALVAGER, id::GOLEM]);
+    play(&mut g, id::SALVAGER);
+    pending_or_next(&mut g);
+    assert!(g.trash.has(id::GOLEM));
+    assert_eq!(g.turn.coins, 4, "Golem costs $4P: +$4, nothing for the Potion");
+    assert_eq!(g.turn.buys, 2);
+}
 
 fn golem_state(kingdom: &[CardId], hand: &[CardId], deck_top_first: &[CardId], discard: &[CardId]) -> GameState {
     let mut g = new_state(kingdom, 2);
@@ -1340,183 +1252,403 @@ fn throne_room_on_golem_resolves_it_twice() {
 }
 
 // ===========================================================================
-// Alchemist and Herbalist: Their "when you
-// discard this from play" offers are made at the end of the Buy phase, like Treasury's.
+// Apprentice
 // ===========================================================================
 
 #[test]
-fn alchemist_basics_and_play() {
-    let d = cards::def(id::ALCHEMIST);
-    assert_eq!((d.cost, d.potion, d.vp), (3, true, 0));
-    let mut g = new_state(&[id::ALCHEMIST], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST]);
-    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE, id::ESTATE]);
-    play(&mut g, id::ALCHEMIST);
+fn apprentice_basics_and_nothing_to_trash() {
+    let d = cards::def(id::APPRENTICE);
+    assert_eq!((d.cost, d.potion, d.vp), (5, false, 0));
+    let mut g = new_state(&[id::APPRENTICE], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY, id::PROVINCE]);
+    play(&mut g, id::APPRENTICE);
     assert_eq!(g.turn.actions, 1, "+1 Action");
-    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::PROVINCE]), "+2 Cards");
+    assert!(g.players[0].hand.is_empty());
+    assert_eq!(expect_decision(&mut g).kind, DecisionKind::Buy);
+}
+
+/// The hand is Apprentice, `trashed` and a
+/// decoy (Gardens); this turn's costs are reduced by `discount`; Apprentice trashes `trashed`
+/// and draws `drawn` Duchies.
+fn apprentice(trashed: CardId, discount: u8, drawn: u32) {
+    let mut g = new_state(&[id::APPRENTICE, id::VINEYARD], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE, trashed, id::GARDENS]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
+    g.turn.cost_reduction = discount;
+    play(&mut g, id::APPRENTICE);
+    let d = g.pending_decision().expect("what to trash");
+    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Trash, min: 1, max: 1, .. }));
+    choose(&mut g, Choice::Card(trashed));
+    let mut expect = vec![id::GARDENS];
+    expect.extend(std::iter::repeat(id::DUCHY).take(drawn as usize));
+    assert_eq!(g.players[0].hand, counts_of(&expect), "{} with discount {discount}", cards::name(trashed));
+    assert_eq!(g.players[0].deck_known.len as u32, 10 - drawn);
+    assert!(g.trash.has(trashed));
 }
 
 #[test]
-fn alchemist_goes_back_on_the_deck_with_a_potion_in_play() {
-    // "Place on deck": {Alchemist, Potion}, deck of 5 Duchies.
-    let mut g = new_state(&[id::ALCHEMIST], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::ALCHEMIST);
+fn apprentice_draws_per_coin_of_cost_and_two_more_for_a_potion() {
+    apprentice(id::ESTATE, 0, 2);
+    apprentice(id::ESTATE, 1, 1);
+    apprentice(id::ESTATE, 2, 0);
+    apprentice(id::ESTATE, 3, 0);
+    apprentice(id::ESTATE, 6, 0);
+
+    apprentice(id::CURSE, 0, 0);
+    apprentice(id::COPPER, 0, 0);
+    apprentice(id::PROVINCE, 0, 8);
+    apprentice(id::POTION, 0, 4);
+
+    // Vineyard ($0P): 0 coins + 2 for the Potion, whatever the discount.
+    apprentice(id::VINEYARD, 0, 2);
+    apprentice(id::VINEYARD, 1, 2);
+    apprentice(id::VINEYARD, 2, 2);
+
+    // Apothecary ($2P): the discount lowers only the coin part.
+    apprentice(id::APOTHECARY, 0, 4);
+    apprentice(id::APOTHECARY, 1, 3);
+    apprentice(id::APOTHECARY, 2, 2);
+    apprentice(id::APOTHECARY, 3, 2);
+}
+
+#[test]
+fn apprentice_draws_what_it_can() {
+    // Province: 8 cards, but only 3 in the deck and 1 in the discard.
+    let mut g = new_state(&[id::APPRENTICE], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE, id::PROVINCE]);
+    set_deck_known(&mut g, 0, &[id::DUCHY; 3]);
+    set_discard(&mut g, 0, &[id::ESTATE]);
+    play(&mut g, id::APPRENTICE);
+    assert_eq!(g.players[0].hand, counts_of(&[id::DUCHY, id::DUCHY, id::DUCHY, id::ESTATE]));
+    assert!(g.trash.has(id::PROVINCE));
+}
+
+#[test]
+fn apprentice_must_trash() {
+    let mut g = new_state(&[id::APPRENTICE], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE, id::ESTATE, id::COPPER]);
+    play(&mut g, id::APPRENTICE);
+    assert!(!choices(&g).contains(&Choice::Pass));
+}
+
+#[test]
+fn apprentice_ignores_the_debt_in_the_trashed_cards_cost() {
+    let mut g = new_state(&[id::APPRENTICE, id::FORTUNE], 2);
+    set_hand(&mut g, 0, &[id::APPRENTICE, id::FORTUNE]);
+    set_deck_known(&mut g, 0, &[id::ESTATE; 12]);
+    play(&mut g, id::APPRENTICE);
+    assert_eq!(g.players[0].hand.total(), 8, "$8, and the Debt counts for nothing");
+}
+
+// ===========================================================================
+// Potion
+// ===========================================================================
+
+#[test]
+fn potion_basics() {
+    let d = cards::def(id::POTION);
+    assert_eq!((d.cost, d.potion, d.vp), (4, false, 0));
+    assert!(!cards::is_kingdom(id::POTION) && cards::is_optional_basic(id::POTION));
+    assert_eq!(cards::set_of(id::POTION), CardSet::Alchemy);
+    // The pile (16) joins the supply when a Potion-cost card is in the kingdom, and only then.
+    let g = new_state(&[id::FAMILIAR], 2);
+    assert!(g.in_supply(id::POTION));
+    assert_eq!(g.supply.get(id::POTION), 16);
+    let g = new_state(&[id::HERBALIST], 2);
+    assert!(!g.in_supply(id::POTION), "Herbalist has no Potion in its cost");
+}
+
+#[test]
+fn potion_gives_a_potion_when_played() {
+    // One Potion; two Potions; mixed with other treasures.
+    for (hand, coins, potions) in [
+        (vec![id::POTION], 0u16, 1u8),
+        (vec![id::POTION, id::POTION], 0, 2),
+        (vec![id::POTION, id::COPPER, id::SILVER], 3, 1),
+        (vec![id::POTION, id::COPPER, id::SILVER, id::POTION], 3, 2),
+    ] {
+        let mut g = new_state(&[id::FAMILIAR], 2);
+        set_hand(&mut g, 0, &hand);
+        let d = expect_decision(&mut g);
+        assert_eq!(d.kind, DecisionKind::Buy);
+        assert_eq!((g.turn.coins, g.turn.potions), (coins, potions), "{hand:?}");
+        assert!(g.players[0].hand.is_empty());
+        assert_eq!(g.players[0].in_play.total() as usize, hand.len());
+    }
+}
+
+#[test]
+fn potion_plays_alongside_a_treasure_with_a_choice() {
+    // Bank has a choice, so nothing auto-plays: Potion is offered like every other Treasure.
+    let mut g = new_state(&[id::FAMILIAR, id::BANK], 2);
+    set_hand(&mut g, 0, &[id::POTION, id::BANK]);
+    let d = expect_decision(&mut g);
+    assert_eq!(d.kind, DecisionKind::PlayTreasure);
+    assert!(offered(&g).contains(&id::POTION));
+    play_treasure(&mut g, id::POTION);
+    assert_eq!(g.turn.potions, 1);
+}
+
+#[test]
+fn a_potion_cost_card_can_only_be_bought_with_a_potion() {
+    // Without a Potion: $3 buys Silver, not Familiar ($3P).
+    let mut g = new_state(&[id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER]);
     let d = expect_decision(&mut g);
     assert_eq!(d.kind, DecisionKind::Buy);
-    assert_eq!(g.turn.potions, 1);
-    pass(&mut g);
-    let d = g.pending_decision().expect("Alchemist's offer");
-    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Topdeck });
-    assert_eq!(d.subject, id::ALCHEMIST);
-    g.apply(Choice::Yes, &mut NoEvents).unwrap();
-    assert_eq!(top_down(&g, 0).last().copied(), Some(id::DUCHY));
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::ALCHEMIST), "on top of the deck");
-    assert!(!g.players[0].in_play.has(id::ALCHEMIST));
-    assert!(g.players[0].discard.has(id::POTION) || g.players[0].in_play.has(id::POTION));
+    assert!(offered(&g).contains(&id::SILVER));
+    assert!(!offered(&g).contains(&id::FAMILIAR));
+
+    // With a Potion: both, and the buy spends the Potion as well as the coins.
+    let mut g = new_state(&[id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::POTION]);
+    expect_decision(&mut g);
+    assert_eq!((g.turn.coins, g.turn.potions), (3, 1));
+    assert!(offered(&g).contains(&id::FAMILIAR));
+    buy(&mut g, id::FAMILIAR);
+    assert_eq!(g.players[1].discard.get(id::CURSE), 0);
+    assert_eq!(g.supply.get(id::FAMILIAR), 9);
 }
 
 #[test]
-fn alchemist_offer_can_be_declined() {
-    let mut g = new_state(&[id::ALCHEMIST], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
-    play(&mut g, id::ALCHEMIST);
+fn a_potion_is_spent_per_potion_card_bought() {
+    let mut g = new_state(&[id::FAMILIAR, id::APOTHECARY], 2);
+    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::COPPER, id::POTION]);
+    g.turn.buys = 2;
     expect_decision(&mut g);
-    pass(&mut g);
-    choose(&mut g, Choice::No);
-    assert!(g.players[0].discard.has(id::ALCHEMIST));
+    assert_eq!((g.turn.coins, g.turn.potions), (5, 1));
+    let mut sink: Vec<Event> = Vec::new();
+    g.apply(Choice::Card(id::FAMILIAR), &mut sink).unwrap();
+    adv(&mut g);
+    assert_eq!((g.turn.coins, g.turn.potions), (2, 0));
+    // Apothecary ($2P) is no longer affordable: the one Potion is spent.
+    assert!(!offered(&g).contains(&id::APOTHECARY));
+    assert!(offered(&g).contains(&id::ESTATE));
 }
 
 #[test]
-fn alchemist_cannot_go_back_without_a_potion_in_play() {
-    // "Cannot place on deck without Potion in play".
-    let mut g = new_state(&[id::ALCHEMIST], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 10]);
-    play(&mut g, id::ALCHEMIST);
+fn potion_itself_costs_four_coins_and_no_potion() {
+    let mut g = new_state(&[id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::COPPER, id::COPPER, id::COPPER, id::COPPER]);
     expect_decision(&mut g);
-    pass(&mut g);
-    assert_eq!(g.turn.player, 1, "no offer at all");
-    assert!(g.players[0].discard.has(id::ALCHEMIST));
+    assert!(offered(&g).contains(&id::POTION));
+    buy(&mut g, id::POTION);
+    assert_eq!(g.supply.get(id::POTION), 15);
 }
 
 #[test]
-fn herbalist_basics_and_nothing_to_put_back() {
-    let d = cards::def(id::HERBALIST);
-    assert_eq!((d.cost, d.potion, d.vp), (2, false, 0));
-    // +1 Buy +$1; no Treasure in play: no offer.
-    let mut g = new_state(&[id::HERBALIST], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (0, 2, 1));
+fn potions_survive_a_text_round_trip() {
+    let mut g = new_state(&[id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::POTION, id::COPPER]);
     expect_decision(&mut g);
-    pass(&mut g);
-    assert_eq!(g.turn.player, 1);
-    assert!(g.players[0].discard.has(id::HERBALIST));
+    let text = format_state(&g);
+    assert!(text.contains("potions: 1"), "{text}");
+    assert!(text.contains("Potion=16"), "{text}");
+    let g2 = parse_state(&text).unwrap();
+    assert_eq!(g2.turn.potions, 1);
+    assert!(g2.in_supply(id::POTION));
+    // No Potion: nothing printed, so Base-only saves are unchanged.
+    let g3 = new_state(&[id::VILLAGE], 2);
+    assert!(!format_state(&g3).contains("potions"));
 }
 
 #[test]
-fn herbalist_puts_a_treasure_from_play_on_the_deck() {
-    let mut g = new_state(&[id::HERBALIST], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST, id::GOLD, id::SILVER, id::SILVER]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
+fn remodel_on_a_potion_card_may_gain_potion_cost_cards() {
+    // Golem ($4P) -> up to $6P: potion-cost cards allowed.
+    let mut g = new_state(&[id::REMODEL, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::GOLEM]);
+    play(&mut g, id::REMODEL);
+    let d = expect_decision(&mut g);
+    assert_eq!(
+        d.kind,
+        DecisionKind::Gain { max_cost: 6, filter: Filter::Any, dest: Dest::Discard, exact: false, potion: true, optional: false }
+    );
+    let o = offered(&g);
+    for c in [id::GOLEM, id::FAMILIAR, id::SMITHY, id::GOLD] {
+        assert!(o.contains(&c), "{}", cards::name(c));
+    }
+    assert!(!o.contains(&id::PROVINCE));
+
+    // Estate ($2) -> up to $4, no Potion cards (Golem, Familiar), Potion itself ($4) is fine.
+    let mut g = new_state(&[id::REMODEL, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::ESTATE]);
+    play(&mut g, id::REMODEL);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, potion: false, .. }));
+    let o = offered(&g);
+    assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION) && o.contains(&id::SILVER));
+    assert!(!o.contains(&id::GOLEM) && !o.contains(&id::FAMILIAR));
+
+    // Apothecary ($2P) -> up to $4P: Golem and Familiar too.
+    let mut g = new_state(&[id::REMODEL, id::APOTHECARY, id::GOLEM, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::REMODEL, id::APOTHECARY]);
+    play(&mut g, id::REMODEL);
     expect_decision(&mut g);
-    pass(&mut g);
-    let d = g.pending_decision().expect("Herbalist's offer");
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, from: Zone::InPlay, min: 0, max: 1, .. }));
-    assert_eq!(d.source, Some(id::HERBALIST));
+    let o = offered(&g);
+    assert!(o.contains(&id::GOLEM) && o.contains(&id::FAMILIAR) && o.contains(&id::SILVER));
+    assert!(!o.contains(&id::GOLD));
+}
+
+#[test]
+fn upgrade_needs_the_potion_to_match_exactly() {
+    // Apothecary ($2P) -> exactly $3P: Familiar, Alchemist and Philosopher's Stone, not Silver.
+    let k = [id::UPGRADE, id::APOTHECARY, id::FAMILIAR, id::ALCHEMIST, id::PHILOSOPHERS_STONE, id::VILLAGE];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::UPGRADE, id::APOTHECARY]);
+    play(&mut g, id::UPGRADE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 3, exact: true, potion: true, .. }));
     let mut o = offered(&g);
     o.sort_unstable();
-    assert_eq!(o, vec![id::SILVER, id::GOLD], "each distinct Treasure once");
-    assert!(choices(&g).contains(&Choice::Pass));
-    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
-    assert!(!g.players[0].in_play.has(id::GOLD));
+    assert_eq!(o, vec![id::ALCHEMIST, id::FAMILIAR, id::PHILOSOPHERS_STONE]);
+
+    // Estate ($2) -> exactly $3 with no Potion: Silver and Village, not the $3P cards.
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::UPGRADE, id::ESTATE]);
+    play(&mut g, id::UPGRADE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 3, exact: true, potion: false, .. }));
+    let mut o = offered(&g);
+    o.sort_unstable();
+    assert_eq!(o, vec![id::SILVER, id::VILLAGE]);
 }
 
 #[test]
-fn two_herbalists_but_only_one_treasure() {
-    let mut g = new_state(&[id::HERBALIST, id::VILLAGE], 2);
-    set_hand(&mut g, 0, &[id::VILLAGE, id::HERBALIST, id::HERBALIST, id::GOLD]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::VILLAGE);
-    play(&mut g, id::HERBALIST);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    // The first offer takes the Gold; the second finds no Treasure and is skipped.
-    let d = g.pending_decision().expect("first offer");
-    assert!(matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }));
-    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(id::GOLD));
-    assert!(g.pending_decision().is_none());
-    adv(&mut g);
-    assert_eq!(g.turn.player, 1, "no second offer");
+fn forge_counts_only_coins_and_cannot_gain_a_potion_cost_card() {
+    let k = [id::FORGE, id::GOLEM, id::APOTHECARY, id::SMITHY];
+    // Golem ($4P) trashed: gain exactly $4, but not a card with a Potion in its cost.
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::FORGE, id::GOLEM]);
+    play(&mut g, id::FORGE);
+    choose(&mut g, Choice::Card(id::GOLEM));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    assert!(o.contains(&id::SMITHY) && o.contains(&id::POTION));
+    assert!(!o.contains(&id::GOLEM));
+
+    // Apothecary ($2P) + Estate ($2): the Potion adds nothing, the total is $4.
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::FORGE, id::APOTHECARY, id::ESTATE]);
+    play(&mut g, id::FORGE);
+    choose(&mut g, Choice::Card(id::ESTATE));
+    choose(&mut g, Choice::Card(id::APOTHECARY));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }), "{:?}", d.kind);
+    assert!(offered(&g).contains(&id::SMITHY));
 }
 
 #[test]
-fn throne_room_on_herbalist_puts_back_up_to_two_treasures() {
-    // "Once this turn, when you discard a Treasure from play, you may put it onto your deck", and
-    // the Herbalist was played twice: two Treasures can go back (the plays are cumulative).
-    let mut g = new_state(&[id::THRONE_ROOM, id::HERBALIST], 2);
-    set_hand(&mut g, 0, &[id::THRONE_ROOM, id::HERBALIST, id::GOLD, id::GOLD]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::THRONE_ROOM);
-    choose(&mut g, Choice::Card(id::HERBALIST));
-    assert_eq!(g.turn.buys, 3);
+fn workshop_and_smugglers_never_gain_potion_cost_cards() {
+    let mut g = new_state(&[id::WORKSHOP, id::GOLEM, id::FAMILIAR, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::WORKSHOP]);
+    play(&mut g, id::WORKSHOP);
     expect_decision(&mut g);
-    assert_eq!(g.turn.coins, 2 + 6, "Herbalist twice, then both Golds in the Buy phase");
-    pass(&mut g);
-    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
-    expect_decision(&mut g); // the second offer
-    g.apply(Choice::Card(id::GOLD), &mut NoEvents).unwrap();
-    assert_eq!(g.players[0].deck_known.len, 7, "the two Golds on top of the five Duchies");
-    assert!(g.pending_decision().is_none());
-    adv(&mut g);
-    assert_eq!(g.turn.player, 1);
+    let o = offered(&g);
+    assert!(o.contains(&id::SMITHY) && !o.contains(&id::GOLEM) && !o.contains(&id::FAMILIAR));
+
+    // Smugglers copies a card the right-hand player gained, up to $6: Golem is excluded.
+    let mut g = new_state(&[id::SMUGGLERS, id::GOLEM], 2);
+    g.players[1].last_turn_gains.add(id::GOLEM, 1);
+    g.players[1].last_turn_gains.add(id::SILVER, 1);
+    set_hand(&mut g, 0, &[id::SMUGGLERS]);
+    play(&mut g, id::SMUGGLERS);
+    assert!(g.players[0].discard.has(id::SILVER), "the only legal copy: Silver (auto-applied)");
+    assert!(!g.players[0].discard.has(id::GOLEM));
 }
 
 #[test]
-fn alchemist_resolves_before_herbalist_so_both_it_and_the_potion_go_back() {
-    // "Resolve in order to have both Alchemist and Potion on deck": the Alchemist's offer is
-    // made first (the Potion is still in play), then Herbalist puts the Potion on top of it.
-    let mut g = new_state(&[id::ALCHEMIST, id::HERBALIST], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST, id::HERBALIST, id::POTION]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::ALCHEMIST);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    assert_eq!((g.turn.buys, g.turn.coins, g.turn.potions), (2, 1, 1));
-    pass(&mut g);
-    let d = g.pending_decision().expect("first the Alchemist's offer");
-    assert_eq!(d.kind, DecisionKind::YesNo { act: Act::Topdeck });
-    choose(&mut g, Choice::Yes);
-    let d = g.pending_decision().expect("then Herbalist's");
-    assert_eq!(d.source, Some(id::HERBALIST));
-    assert_eq!(offered(&g), vec![id::POTION]);
-    g.apply(Choice::Card(id::POTION), &mut NoEvents).unwrap();
-    let top: Vec<CardId> = top_down(&g, 0).into_iter().take(2).collect();
-    assert_eq!(top, vec![id::POTION, id::ALCHEMIST]);
+fn smugglers_cannot_copy_a_potion_cost_card() {
+    let mut g = new_state(&[id::SMUGGLERS, id::TRANSMUTE], 2);
+    g.players[1].last_turn_gains.add(id::TRANSMUTE, 1);
+    set_hand(&mut g, 0, &[id::SMUGGLERS]);
+    play(&mut g, id::SMUGGLERS);
+    assert!(!g.players[0].discard.has(id::TRANSMUTE), "Transmute costs $0P: not \"up to $6\"");
+    assert_eq!(g.supply.get(id::TRANSMUTE), 10);
 }
 
 #[test]
-fn herbalist_offers_the_treasure_under_charlatan_curse_too() {
-    let mut g = new_state(&[id::HERBALIST, id::CHARLATAN], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST, id::CURSE]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert_eq!(offered(&g), vec![id::CURSE], "Curse is a Treasure while Charlatan is in the game");
+fn mine_keeps_the_potion_of_the_trashed_treasure() {
+    // Philosopher's Stone ($3P) -> a Treasure up to $6P: Gold, the Stone itself, Potion, Silver.
+    let k = [id::MINE, id::PHILOSOPHERS_STONE, id::PLATINUM, id::COLONY];
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::MINE, id::PHILOSOPHERS_STONE]);
+    play(&mut g, id::MINE);
+    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    for c in [id::GOLD, id::PHILOSOPHERS_STONE, id::POTION, id::SILVER] {
+        assert!(o.contains(&c), "{}", cards::name(c));
+    }
+    assert!(!o.contains(&id::PLATINUM), "$9");
+
+    // Potion ($4, no Potion in its cost) -> up to $7: Gold, not the Stone ($3P).
+    let mut g = new_state(&k, 2);
+    set_hand(&mut g, 0, &[id::MINE, id::POTION]);
+    play(&mut g, id::MINE);
+    choose(&mut g, Choice::Card(id::POTION));
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 7, potion: false, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    assert!(o.contains(&id::GOLD) && !o.contains(&id::PHILOSOPHERS_STONE));
 }
 
-// ===========================================================================
-// Possession is not implemented (by decision); the set still reaches every API.
-// ===========================================================================
+#[test]
+fn replace_on_a_potion_card_may_gain_potion_cost_cards() {
+    // Golem ($4P) -> up to $6P: Golem (onto the deck: it's an Action) and Gold, not Province.
+    let mut g = new_state(&[id::REPLACE, id::GOLEM, id::FAMILIAR], 2);
+    set_hand(&mut g, 0, &[id::REPLACE, id::GOLEM]);
+    play(&mut g, id::REPLACE);
+    let d = pending_or_next(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 6, potion: true, .. }), "{:?}", d.kind);
+    let o = offered(&g);
+    assert!(o.contains(&id::GOLEM) && o.contains(&id::FAMILIAR) && o.contains(&id::GOLD));
+    assert!(!o.contains(&id::PROVINCE));
+    choose(&mut g, Choice::Card(id::FAMILIAR));
+    assert_eq!(g.players[0].deck_known.iter_top_down().next(), Some(id::FAMILIAR), "an Action goes onto the deck");
+}
+
+#[test]
+fn fixed_up_to_gains_never_take_potion_cost_cards() {
+    // Ironworks (up to $4), Artisan (up to $5, to hand) and Blockade (up to $4): no $0P Transmute
+    // or $2P Apothecary, though they cost fewer coins.
+    let k = [id::IRONWORKS, id::ARTISAN, id::BLOCKADE, id::TRANSMUTE, id::APOTHECARY, id::SMITHY];
+    for card in [id::IRONWORKS, id::ARTISAN, id::BLOCKADE] {
+        let mut g = new_state(&k, 2);
+        set_hand(&mut g, 0, &[card, id::COPPER]);
+        play(&mut g, card);
+        let d = pending_or_next(&mut g);
+        assert!(matches!(d.kind, DecisionKind::Gain { potion: false, .. }), "{}: {:?}", cards::name(card), d.kind);
+        let o = offered(&g);
+        assert!(o.contains(&id::SMITHY) && o.contains(&id::SILVER), "{}", cards::name(card));
+        assert!(!o.contains(&id::TRANSMUTE) && !o.contains(&id::APOTHECARY), "{}", cards::name(card));
+    }
+}
+
+#[test]
+fn swindler_gives_a_card_with_the_same_cost_including_the_potion() {
+    // Victim's top card Golem ($4P): the replacement must cost exactly $4P (only Golem here).
+    let mut g = new_state(&[id::SWINDLER, id::GOLEM, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_deck_known(&mut g, 1, &[id::GOLEM]);
+    play(&mut g, id::SWINDLER);
+    assert!(g.trash.has(id::GOLEM));
+    assert!(g.players[1].discard.has(id::GOLEM), "the only card at $4P is another Golem (auto-applied)");
+
+    // Top card Smithy ($4): Smithy or Potion ($4), never the $4P Golem.
+    let mut g = new_state(&[id::SWINDLER, id::GOLEM, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_deck_known(&mut g, 1, &[id::SMITHY]);
+    play(&mut g, id::SWINDLER);
+    let d = expect_decision(&mut g);
+    assert_eq!((d.player, d.for_player), (0, 1));
+    assert!(matches!(d.kind, DecisionKind::Gain { max_cost: 4, exact: true, potion: false, .. }));
+    let mut o = offered(&g);
+    o.sort_unstable();
+    assert_eq!(o, vec![id::SMITHY, id::POTION]);
+}
 
 #[test]
 fn alchemy_set_plumbing() {
@@ -1536,31 +1668,6 @@ fn alchemy_set_plumbing() {
     let k = cards::random_kingdom_with_colonies(&[CardSet::Base], &[id::FAMILIAR], &mut rng);
     assert!(k.contains(&id::POTION));
     assert_eq!(k.iter().filter(|&&c| cards::is_kingdom(c)).count(), 10);
-}
-
-#[test]
-fn herbalist_cannot_put_an_astrolabe_that_stays_in_play_onto_the_deck() {
-    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST, id::ASTROLABE, id::COPPER]);
-    play(&mut g, id::HERBALIST);
-    let d = expect_decision(&mut g);
-    assert_eq!(d.kind, DecisionKind::Buy);
-    pass(&mut g); // end of the Buy phase: Herbalist's offer
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::COPPER)) && c.contains(&Choice::Pass));
-    assert!(!c.contains(&Choice::Card(id::ASTROLABE)), "it is kept for next turn, not discarded: {c:?}");
-}
-
-#[test]
-fn herbalist_may_put_an_astrolabe_from_last_turn_onto_the_deck() {
-    // Played on the previous turn, it is discarded at this cleanup like any other card.
-    let mut g = new_state(&[id::HERBALIST, id::ASTROLABE], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST]);
-    set_in_play(&mut g, 0, &[id::ASTROLABE]);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert!(choices(&g).contains(&Choice::Card(id::ASTROLABE)));
 }
 
 // ===========================================================================
@@ -1611,124 +1718,4 @@ fn cost_ranges_and_thresholds_compare_the_coins_only_but_exclude_debt_only_cards
     assert_eq!(cards::cost_string(id::OVERLORD), "8 Debt");
     // A Debt cost never has a Potion; the two orthogonal parts are separate in the table.
     assert!(!cards::potion_cost(id::FORTUNE) && !cards::potion_cost(id::OVERLORD));
-}
-
-// ===========================================================================
-// Audit: ruling coverage (wiki FAQ bullets that had no test of their own)
-// ===========================================================================
-
-#[test]
-fn herbalist_cannot_put_a_spoils_or_a_counterfeited_treasure_on_the_deck() {
-    // Spoils goes back to its pile when played.
-    let mut g = new_state(&[id::HERBALIST, id::MARAUDER], 2);
-    g.spoils = 10;
-    set_hand(&mut g, 0, &[id::HERBALIST, id::SPOILS, id::GOLD]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert_eq!(offered(&g), vec![id::GOLD]);
-
-    // A Treasure Counterfeit trashed is no longer in play.
-    let mut g = new_state(&[id::HERBALIST, id::COUNTERFEIT], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST, id::COUNTERFEIT, id::GOLD]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    play_treasure(&mut g, id::COUNTERFEIT);
-    choose(&mut g, Choice::Card(id::GOLD));
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert_eq!(offered(&g), vec![id::COUNTERFEIT]);
-    assert!(g.trash.has(id::GOLD));
-}
-
-#[test]
-fn a_treasure_with_a_discard_from_play_effect_still_does_it_when_herbalist_topdecks_it() {
-    // Capital: 6 Debt when discarded from play; topdecked by Herbalist instead of discarded it still charges the Debt.
-    let mut g = new_state(&[id::HERBALIST, id::CAPITAL], 2);
-    set_hand(&mut g, 0, &[id::HERBALIST, id::CAPITAL]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert!(offered(&g).contains(&id::CAPITAL));
-    let mut log: Vec<Event> = Vec::new();
-    choose_ev(&mut g, Choice::Card(id::CAPITAL), &mut log);
-    assert!(log.iter().any(|e| matches!(e, Event::TakeDebt { n: 6, .. })), "the Debt is taken all the same: {log:?}");
-    assert!(g.players[0].deck_size() > 0 && !g.players[0].in_play.has(id::CAPITAL));
-}
-
-#[test]
-fn herbalist_can_put_itself_on_the_deck_under_capitalism() {
-    let mut g = new_state(&[id::HERBALIST, id::CAPITALISM], 2);
-    let bit = 1u32 << (id::CAPITALISM - cards::FIRST_PROJECT);
-    g.players[0].ren.projects |= bit;
-    g.ren.projects |= bit;
-    g.ren_update_hooks();
-    set_hand(&mut g, 0, &[id::HERBALIST]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 5]);
-    play(&mut g, id::HERBALIST);
-    expect_decision(&mut g);
-    pass(&mut g);
-    assert!(offered(&g).contains(&id::HERBALIST));
-}
-
-#[test]
-fn alchemist_cannot_go_back_when_the_potion_left_play_before_cleanup() {
-    let mut g = new_state(&[id::ALCHEMIST, id::COUNTERFEIT], 2);
-    set_hand(&mut g, 0, &[id::ALCHEMIST, id::POTION, id::COUNTERFEIT]);
-    set_deck_known(&mut g, 0, &[id::DUCHY; 8]);
-    play(&mut g, id::ALCHEMIST);
-    play_treasure(&mut g, id::COUNTERFEIT);
-    choose(&mut g, Choice::Card(id::POTION)); // played twice, then trashed
-    assert!(g.trash.has(id::POTION));
-    expect_decision(&mut g);
-    pass(&mut g);
-    // No Potion in play at the start of Clean-up: no offer, the turn simply ends.
-    assert!(g.pending_decision().is_none_or(|d| d.kind != DecisionKind::YesNo { act: Act::Topdeck }));
-    assert!(!g.players[0].in_play.has(id::ALCHEMIST));
-}
-
-#[test]
-fn university_cannot_gain_an_action_with_debt_in_its_cost() {
-    let mut g = new_state(&[id::UNIVERSITY, id::ENGINEER, id::SMITHY], 2);
-    set_hand(&mut g, 0, &[id::UNIVERSITY]);
-    play(&mut g, id::UNIVERSITY);
-    let c = choices(&g);
-    assert!(c.contains(&Choice::Card(id::SMITHY)) && !c.contains(&Choice::Card(id::ENGINEER)), "{c:?}");
-}
-
-#[test]
-fn apprentice_ignores_the_debt_in_the_trashed_cards_cost() {
-    let mut g = new_state(&[id::APPRENTICE, id::FORTUNE], 2);
-    set_hand(&mut g, 0, &[id::APPRENTICE, id::FORTUNE]);
-    set_deck_known(&mut g, 0, &[id::ESTATE; 12]);
-    play(&mut g, id::APPRENTICE);
-    assert_eq!(g.players[0].hand.total(), 8, "$8, and the Debt counts for nothing");
-}
-
-#[test]
-fn transmute_treats_an_inherited_estate_as_an_action_and_a_victory_card() {
-    let mut g = new_state(&[id::TRANSMUTE, id::SMITHY, id::INHERITANCE], 2);
-    g.players[0].inherit = id::SMITHY;
-    set_hand(&mut g, 0, &[id::TRANSMUTE, id::ESTATE]);
-    play(&mut g, id::TRANSMUTE);
-    adv(&mut g);
-    assert!(g.players[0].discard.has(id::GOLD) && g.players[0].discard.has(id::DUCHY), "Victory: a Gold, Action: a Duchy");
-}
-
-#[test]
-fn philosophers_stone_played_by_crystal_ball_counts_again() {
-    // 20 cards in the deck when the first is played ($4); Crystal Ball then plays the second from the top: 19 cards, $3.
-    let mut g = new_state(&[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL], 2);
-    set_hand(&mut g, 0, &[id::PHILOSOPHERS_STONE, id::CRYSTAL_BALL]);
-    let mut deck = vec![id::PHILOSOPHERS_STONE];
-    deck.extend([id::ESTATE; 19]);
-    set_deck_known(&mut g, 0, &deck);
-    expect_decision(&mut g);
-    play_treasure(&mut g, id::PHILOSOPHERS_STONE);
-    assert_eq!(g.turn.coins, 4, "21 cards between deck and discard pile... less the Crystal Ball in hand: 20");
-    play_treasure(&mut g, id::CRYSTAL_BALL);
-    choose(&mut g, Choice::Card(id::PHILOSOPHERS_STONE));
-    assert_eq!(g.turn.coins, 4 + 1 + 3);
 }

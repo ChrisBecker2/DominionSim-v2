@@ -328,10 +328,13 @@ impl SetRules for Adventures {
             }
             ids::HERO => g.stack.push(Frame { potion: true, ..gain_frame(p, card, u8::MAX, g.treasure_filter(), Dest::Discard) }),
             ids::CHAMPION => {
+                // Every play sets up its own effect (two for a Throne-Roomed Champion), also one played while not in play: that one works until
+                // the end of the turn (`GameState::cleanup` drops the effects of the Champions that left play).
                 let ps = &mut g.players[pi];
+                ps.set_champions(ps.champions() + 1);
+                g.adv |= G_CHAMPION;
                 if ps.stays.get(card) < ps.in_play.get(card) {
                     ps.stays.add(card, 1);
-                    g.adv |= G_CHAMPION;
                     if g.turn.multiplier_card != 0 {
                         g.turn.multiplier_successes += 1;
                     }
@@ -474,7 +477,7 @@ impl SetRules for Adventures {
                 }
             }
             // The first card gained in the Buy phase: gain a card up to $4, and each other player gains a copy.
-            ids::MESSENGER if g.turn.phase == Phase::Buy && p == g.turn.player && g.turn.gained_in_buy == 1 => {
+            ids::MESSENGER if g.turn.phase == Phase::Buy && p == g.turn.player && g.turn.gained_in_buy == g.turn.buy_gain_base + 1 => {
                 g.stack.push(Frame { then: Then::MessengerCopies, ..gain_frame(p, ids::MESSENGER, 4, Filter::Any, Dest::Discard) });
             }
             _ => {}
@@ -549,23 +552,38 @@ impl SetRules for Adventures {
 // Events
 // -------------------------------------------------------------------------------------------
 
-/// Whether the Event `e` is in the game and may be bought now with `coins` (it costs `cards::cost(e)`, never reduced; a Buy is the caller's
-/// check): once-per-turn and once-per-game Events, and Events that could do nothing at all, are not offered.
+/// Whether the Event `e` may be bought now with the turn's $ (it costs `cards::cost(e)`, never reduced; a Buy is the caller's check): the
+/// rules' limits only (`event_legal`). An Event that would do nothing can still be bought (Dominate with no Provinces left).
 pub fn event_buyable(g: &GameState, e: CardId) -> bool {
-    g.turn.coins >= cards::cost(e) as u16 && event_available(g, e)
+    g.turn.coins >= cards::cost(e) as u16 && event_legal(g, e)
 }
 
-/// `event_buyable` without the cost: the Event is in the game and nothing but its price keeps it from being bought (a Coffers token spent
-/// may still pay it).
-pub fn event_available(g: &GameState, e: CardId) -> bool {
+/// Whether the rules let the turn's player buy the Event `e` now, apart from its price: it is in the game, a once-per-turn Event not yet bought
+/// this turn, a once-per-game one not yet bought by them, Launch in the Buy phase.
+pub fn event_legal(g: &GameState, e: CardId) -> bool {
     let bit = (e - FIRST_EVENT) as u32;
     if !g.events.has(bit) {
         return false;
     }
-    let p = g.turn.player as usize;
     if once_per_turn(e) && g.turn.adv.bought.has(bit) {
         return false;
     }
+    let p = g.turn.player as usize;
+    match e {
+        ids::INHERITANCE => !g.players[p].events_bought.has(bit) && g.players[p].inherit == 0,
+        crate::sets::menagerie::ids::SEIZE_THE_DAY => g.players[p].men.flags & crate::state::MP_SEIZE_USED == 0,
+        crate::sets::plunder::ids::LAUNCH => g.turn.phase == Phase::Buy,
+        _ => true,
+    }
+}
+
+/// `event_buyable` without the cost, for the bots: the Event may be bought (`event_legal`) and would do something now (a Coffers token spent may
+/// still pay its price). Buying one that does nothing is legal but never useful, so the strategies' gain lists skip it.
+pub fn event_available(g: &GameState, e: CardId) -> bool {
+    if !event_legal(g, e) {
+        return false;
+    }
+    let p = g.turn.player as usize;
     if e == crate::sets::promo::ids::SUMMON {
         return crate::sets::promo::event_available(g, e);
     }
@@ -582,9 +600,9 @@ pub fn event_available(g: &GameState, e: CardId) -> bool {
         return crate::sets::empires::event_available(g, e);
     }
     match e {
-        // Once per game; needs a card to set aside.
-        ids::INHERITANCE => g.players[p].inherit == 0 && g.supply_cards().any(|c| g.supply.get(c) > 0 && g.filter_ok(p as u8, Filter::InheritCard, c)),
-        // Not a third turn in a row, and not twice.
+        // Needs a card to set aside.
+        ids::INHERITANCE => g.supply_cards().any(|c| g.supply.get(c) > 0 && g.filter_ok(p as u8, Filter::InheritCard, c)),
+        // Not a third turn in a row, and a second Mission this turn adds no turn.
         ids::MISSION => !g.turn.is_extra_turn && !g.turn.adv.mission,
         // Needs an Action card costing up to $4 to gain.
         ids::SEAWAY => g.supply_cards().any(|c| g.supply.get(c) > 0 && cards::is(c, ACTION) && g.cost(c) <= 4 && !cards::potion_cost(c) && cards::debt_cost(c) == 0),

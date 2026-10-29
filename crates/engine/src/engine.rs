@@ -1115,6 +1115,16 @@ impl GameState {
         }
     }
 
+    /// Villa, Cavalry, Continue, Launch: the Buy phase ends and the player returns to their Action phase. What happens "at the end of your Buy
+    /// phase" happens now, for this Buy phase (Wine Merchant FAQ: "If you return from your Buy phase to your Action phase ..., you may discard
+    /// Wine Merchants"; Merchant Guild, Hermit, Exploration and Pageant count this Buy phase only). The end-of-turn offers stay at the turn's last.
+    pub(crate) fn back_to_action_phase<S: EventSink>(&mut self, p: u8, sink: &mut S) {
+        crate::sets::end_of_buy(self, sink);
+        self.turn.phase = Phase::Action;
+        self.turn.treasures_done = false;
+        sink.event(Event::PhaseStart { player: p, phase: Phase::Action });
+    }
+
     /// Enter the buy phase; treasures are auto-played by the first `run_phase` call for it.
     fn enter_buy<S: EventSink>(&mut self, sink: &mut S) {
         self.turn.phase = Phase::Buy;
@@ -1614,6 +1624,9 @@ impl GameState {
         }
         // Joust's Province: set aside until now.
         let ps = &mut self.players[p];
+        if ps.champions() != 0 {
+            champion_cleanup(ps);
+        }
         if !ps.cleanup_aside.is_empty() {
             let aside = ps.cleanup_aside.take_all();
             aside.add_into(&mut ps.discard);
@@ -2000,6 +2013,21 @@ struct GainTrack {
     tok: u8,
     base: usize,
     outer: u8,
+}
+
+/// Champion at the end of its owner's Clean-up: the effects of the Champions that left play this turn end (Way of the Horse, Bonfire). The copies
+/// that stayed in play keep theirs. Zones are multisets, so which copy left is not known: each copy that left takes one effect with it (a
+/// Throne-Roomed copy that left while a plain one stays would keep one effect too many), and with none left in play none remain.
+#[cold]
+#[inline(never)]
+fn champion_cleanup(ps: &mut crate::state::PlayerState) {
+    let copies = ps.in_play.get(id::CHAMPION);
+    let lost = ps.stays.get(id::CHAMPION).saturating_sub(copies);
+    for _ in 0..lost {
+        ps.stays.remove(id::CHAMPION);
+    }
+    let fx = if copies == 0 { 0 } else { ps.champions().saturating_sub(lost).max(copies) };
+    ps.set_champions(fx);
 }
 
 /// Helper for "pick cards one at a time" decisions. Picks are forced into non-decreasing

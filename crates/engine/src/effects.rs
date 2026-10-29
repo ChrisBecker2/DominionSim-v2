@@ -259,9 +259,10 @@ impl GameState {
             self.turn.buys += def.buys;
             self.turn.coins += if SWAP { def.cards as u16 } else { def.coins as u16 };
             self.turn.potions += def.potions;
-            // Champion: when you play an Action card, you first get +1 Action (per Champion in play, this one only once it is out).
+            // Champion: when you play an Action card, you first get +1 Action, per Champion effect (a Champion being played counts once its own effect
+            // has begun, which is after this: a Throne-Roomed Champion's second play gets the first play's +1 Action).
             if self.adv & G_CHAMPION != 0 && (cards::is(card, ACTION) || (card == id::ESTATE && self.estates_are_actions(p))) {
-                let champions = self.players[p as usize].in_play.get(id::CHAMPION).saturating_sub((card == id::CHAMPION) as u8);
+                let champions = self.players[p as usize].champions();
                 self.turn.actions += champions;
                 // Shown as its own bonus ("Champion: +1 Action" under the card played).
                 sink.bonus(p, id::CHAMPION, champions, 0, 0, 0);
@@ -429,6 +430,16 @@ impl GameState {
         cards::is(c, ACTION) && !cards::is(c, cards::DURATION) && self.cost(c) <= n && !cards::potion_cost(c) && cards::debt_cost(c) == 0
     }
 
+    /// Band of Misfits, Overlord, Captain, Prince: a non-Command non-Duration Action costing up to `n` (Enlightenment: a Treasure is an Action).
+    fn command_target_ok(&self, n: u8, c: CardId) -> bool {
+        self.is_action(c)
+            && !cards::is(c, cards::COMMAND)
+            && !cards::is(c, cards::DURATION)
+            && self.cost(c) <= n
+            && !cards::potion_cost(c)
+            && cards::debt_cost(c) == 0
+    }
+
     fn zone(&self, p: u8, z: Zone) -> ZoneRef<'_> {
         match z {
             Zone::Supply => ZoneRef::Ref(&self.supply),
@@ -546,8 +557,9 @@ impl GameState {
     /// Action cards for a pick of an Action card.
     #[inline(always)]
     fn select_ok(&self, f: &Frame, c: CardId) -> bool {
-        // From the Supply only the top card of a pile can be taken (not a split pile's bottom half, nor a Castle behind a cheaper one).
-        (f.zone != Zone::Supply || self.pile_open(c))
+        // From the Supply only the top card of a pile can be taken (not a split pile's bottom half, nor a Castle behind a cheaper one), and only
+        // a Supply pile (not the Horses, the Loot or another pile kept outside it).
+        (f.zone != Zone::Supply || (self.in_supply(c) && self.pile_open(c)))
             && self.filter_ok(f.player, f.filter, c)
             // Allies: a Warlord's Attack and a Voyage turn limit what can be played from the hand.
             && (self.al.hook == 0 || !(f.act == Act::Play && f.zone == Zone::Hand) || !self.al_play_blocked(f.player, c))
@@ -577,7 +589,7 @@ impl GameState {
             Filter::CostRange(lo, hi) => !cards::potion_cost(c) && cards::debt_cost(c) == 0 && (lo..=hi).contains(&self.cost(c)),
             Filter::GainableCopy => self.in_supply(c) && self.supply.get(c) > 0 && self.pile_open(c),
             Filter::InheritCard => self.action_cost_ok(4, c) && !cards::is(c, cards::COMMAND),
-            Filter::CommandCostUpTo(n) => self.action_cost_ok(n, c) && !cards::is(c, cards::COMMAND) && !cards::is(c, cards::DURATION),
+            Filter::CommandCostUpTo(n) => self.command_target_ok(n, c),
             Filter::NotInHand => !self.players[p as usize].hand.has(c),
             Filter::TreasureNot(x) => c != x && self.is_treasure(c),
             // Raider: a copy of a card the Attack's player has in play (the turn's player).
@@ -1035,9 +1047,12 @@ impl GameState {
                     && matches!(f.subject, id::PRINCE | id::HIRELING | id::CHAMPION | crate::sets::plunder::ids::QUARTERMASTER)
                 {
                     // A Throne Room / King's Court whose Prince set cards aside stays in play with
-                    // it for the rest of the game ("both will stay in play").
+                    // it for the rest of the game ("both will stay in play"). Not with a Champion that
+                    // one of the plays took out of play again (Way of the Horse): fewer Champions in
+                    // play than are marked to stay.
                     let ps = &mut self.players[p as usize];
-                    if ps.stays.get(f.source) < ps.in_play.get(f.source) {
+                    let gone = f.subject == id::CHAMPION && ps.in_play.get(id::CHAMPION) < ps.stays.get(id::CHAMPION);
+                    if !gone && ps.stays.get(f.source) < ps.in_play.get(f.source) {
                         ps.stays.add(f.source, 1);
                     }
                 } else if self.turn.multiplier_card == f.source && self.turn.multiplier_successes >= 1 {
@@ -1962,14 +1977,14 @@ impl GameState {
                 if f.count > 0 {
                     let ps = &mut self.players[p as usize];
                     if ps.set_aside.remove(f.last) {
-                        ps.saved = f.last;
+                        ps.set_saved(Some(f.last));
                     }
                 }
             }
             Then::SavedToHand => {
                 let ps = &mut self.players[p as usize];
-                if ps.saved != 0 {
-                    let c = std::mem::take(&mut ps.saved);
+                if let Some(c) = ps.saved_card() {
+                    ps.set_saved(None);
                     ps.hand.add(c, 1);
                     sink.event(Event::Draw { player: p, card: c });
                 }

@@ -462,7 +462,7 @@ impl SetRules for Renaissance {
         if owned == 0 {
             return;
         }
-        if owned & project_bit(ids::EXPLORATION) != 0 && g.turn.gained_in_buy == 0 {
+        if owned & project_bit(ids::EXPLORATION) != 0 && g.turn.gained_in_buy == g.turn.buy_gain_base {
             g.give_coffers(p, ids::EXPLORATION, 1, sink);
             g.give_villagers(p, ids::EXPLORATION, 1, sink);
         }

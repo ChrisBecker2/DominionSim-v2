@@ -209,7 +209,8 @@ choice and are accepted only for forward compatibility (a rule for them is an er
 
 `[[call]] card = "Royal Carriage" if = "..."`: the first rule for the card whose condition holds decides yes; with rules stated for the card and none holding, no. Calls with no rule use the defaults below. Conditions are
 evaluated for the call being asked (`hand(...)`, `coins`, `actions`, `count(...)`). `[[exchange]] card = "Page" if = "..."` (the card being exchanged) decides the cleanup exchange; the default is to exchange, except a Hero for a second Champion
-(its +1 Action does not stack with the first, and the Hero keeps gaining Treasures). A condition-only
+(its +1 Action stacks with the first, but with one Champion every Action is already free to play, while the Hero keeps gaining Treasures; measured,
+keeping the Hero won 51.1% against exchanging it). A condition-only
 form `[[exchange]] card = "Page" if = "false"` keeps the Page.
 
 `count_line(Page)` (any card of the line names it) is the number of cards owned of the whole Traveller line: Page, Treasure Hunter, Warrior, Hero and Champion (or Peasant, Soldier, Fugitive, Disciple

@@ -5,7 +5,7 @@ Current (2022 / 2025) texts are the reference: Charm, Forum, Basilica, Colonnade
 "this turn"; Chariot Race draws, then reveals; Donate triggers at the start of the next turn; Ritual checks the cost after trashing.
 
 Counts: 36 cards checked (4 Debt kingdom cards, the 10 halves of the 5 split piles, 8 Castles, 14 others), 13 Events, 21 Landmarks = 70.
-Bugs found 9, fixed 5 (Charm, Temple, Catapult order, Treasure pile tokens, Fortune token order), left open 4 (Encampment timing, Arena without tokens, separate Archive sets, hidden do-nothing Events), plus 1 policy note (Mountain Pass bid).
+Bugs found 9, fixed 5 (Charm, Temple, Catapult order, Treasure pile tokens, Fortune token order), left open 4 (Encampment timing, Arena without tokens, separate Archive sets, hidden do-nothing Events: fixed 2026-10-28), plus 1 policy note (Mountain Pass bid).
 
 ## Cards checked (one line each)
 
@@ -155,7 +155,7 @@ Bot defaults checked: nothing illegal or crashing; Crown in the Buy phase is pla
 | Conquest | 2 Silvers, VP per Silver gained this turn (earlier ones too; empty pile) | `conquest_gains_two_silvers_and_a_vp_token_per_silver_gained_this_turn`, `conquest_gives_vp_for_earlier_silvers_even_when_the_pile_is_empty` |
 | Delve | +1 Buy, a Silver | `delve_gives_a_buy_back_and_a_silver` |
 | Dominate | Province and +9 VP only if gained; | `dominate_gains_a_province_and_nine_vp_tokens_only_if_the_province_is_gained` |
-| Dominate | still buyable with no Provinces; exchange via Trader / Changeling | `an_event_that_does_nothing_can_still_be_bought` (ignored, open); exchange: not testable (Changeling not implemented) |
+| Dominate | still buyable with no Provinces; exchange via Trader / Changeling | `an_event_that_does_nothing_can_still_be_bought` (passes: Events are offered by `event_legal`; the bots skip useless ones via `event_available`); exchange: not testable (Changeling not implemented) |
 | Donate | start of next turn, first; whole deck and discard into hand; trash; shuffle; draw 5; trash effects before the shuffle | `donate_trashes_from_the_whole_deck_at_the_start_of_the_next_turn_and_draws_five`, `donate_trashing_a_rocks_gives_the_silver_before_the_shuffle` |
 | Donate | before Archive; Possession; Star Chart; game over first | not tested: ordering is by stack position (pushed over the other start effects); Star Chart / Possession not combined |
 | Ritual | Curse, then trash a card, VP per $; nothing without Curses | `ritual_gains_a_curse_and_trashes_a_card_for_a_vp_token_per_coin_it_costs` |

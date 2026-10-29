@@ -518,8 +518,7 @@ pub(crate) fn setup(g: &mut GameState, cfg: &GameConfig, _n: usize) {
 pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
     let p = g.turn.player as usize;
     match e {
-        // Once per game.
-        ids::SEIZE_THE_DAY => g.players[p].men.flags & MP_SEIZE_USED == 0,
+        // (Seize the Day's once per game is a rule: `adventures::event_legal`.)
         // Something to set aside.
         ids::DELAY => g.players[p].hand.iter().any(|(c, _)| g.is_action(c)),
         _ => true,
@@ -832,9 +831,7 @@ impl GameState {
                     sink.bonus(p, c, 0, 1, 0, 0);
                     // Gained in the Buy phase: back to the Action phase (no Actions are given).
                     if self.turn.phase == Phase::Buy {
-                        self.turn.phase = Phase::Action;
-                        self.turn.treasures_done = false;
-                        sink.event(Event::PhaseStart { player: p, phase: Phase::Action });
+                        self.back_to_action_phase(p, sink);
                     }
                 }
             }
@@ -1040,7 +1037,7 @@ impl GameState {
             if p == self.turn.player {
                 self.turn.played.add(card, 1);
                 if self.adv & crate::state::G_CHAMPION != 0 {
-                    let champions = self.players[p as usize].in_play.get(id::CHAMPION).saturating_sub((card == id::CHAMPION) as u8);
+                    let champions = self.players[p as usize].champions();
                     self.turn.actions += champions;
                     sink.bonus(p, id::CHAMPION, champions, 0, 0, 0);
                 }

@@ -230,7 +230,7 @@ fn a_horse_played_twice_gives_the_cards_each_time_but_returns_once() {
 }
 
 // ===========================================================================
-// Kingdom cards
+// Black Cat
 // ===========================================================================
 
 #[test]
@@ -274,6 +274,10 @@ fn black_cat_does_not_react_to_a_card_that_is_not_victory() {
     assert!(g.pending_decision().map_or(true, |d| !matches!(d.kind, DecisionKind::YesNo { .. })));
 }
 
+// ===========================================================================
+// Sleigh
+// ===========================================================================
+
 #[test]
 fn sleigh_gains_two_horses() {
     let mut g = game(&[I::SLEIGH]);
@@ -310,6 +314,10 @@ fn sleigh_in_hand_puts_a_gained_card_onto_the_deck_or_into_the_hand() {
     }
 }
 
+// ===========================================================================
+// Supplies
+// ===========================================================================
+
 #[test]
 fn supplies_is_a_dollar_and_gains_a_horse_onto_the_deck() {
     let mut g = game(&[I::SLEIGH, I::SUPPLIES]);
@@ -320,6 +328,10 @@ fn supplies_is_a_dollar_and_gains_a_horse_onto_the_deck() {
     assert_eq!(g.turn.coins, 2);
     assert_eq!(g.players[0].deck_known.peek_top(), Some(I::HORSE));
 }
+
+// ===========================================================================
+// Camel Train
+// ===========================================================================
 
 #[test]
 fn camel_train_exiles_a_non_victory_card_and_a_gold_when_gained() {
@@ -342,6 +354,10 @@ fn camel_train_exiles_a_non_victory_card_and_a_gold_when_gained() {
     assert_eq!(g.supply.get(I::GOLD), 29);
     assert_eq!(g.players[0].discard.get(I::GOLD), 0, "Exiling is not gaining");
 }
+
+// ===========================================================================
+// Goatherd
+// ===========================================================================
 
 #[test]
 fn goatherd_trashes_and_draws_for_the_trashes_of_the_player_to_the_right() {
@@ -376,6 +392,18 @@ fn goatherd_counts_the_trashes_of_a_turn_for_the_next_player() {
     }
     assert_eq!(g.players[0].men.trashed_last, 3);
 }
+
+#[test]
+fn goatherd_as_way_of_the_mouses_card_counts_the_trashes() {
+    let cfg = GameConfig { num_players: 2, kingdom: vec![I::SMITHY, I::CHAPEL, I::WAY_OF_THE_MOUSE], seed: 1, max_turns: 100, mouse: Some(I::GOATHERD), ..Default::default() };
+    let g = GameState::new(&cfg);
+    assert_eq!(g.men.mouse, I::GOATHERD);
+    assert_ne!(g.men.flags & dominion_engine::state::M_TRASHES, 0, "the trashes are counted");
+}
+
+// ===========================================================================
+// Scrap
+// ===========================================================================
 
 #[test]
 fn scrap_gives_one_different_thing_per_dollar_of_the_card_trashed() {
@@ -417,6 +445,10 @@ fn scrap_with_a_six_cost_card_gives_all_six() {
     assert_eq!(g.players[0].hand.total(), 1);
 }
 
+// ===========================================================================
+// Sheepdog
+// ===========================================================================
+
 #[test]
 fn sheepdog_in_hand_is_played_when_its_owner_gains_a_card() {
     let mut g = game(&[I::SHEEPDOG]);
@@ -432,6 +464,10 @@ fn sheepdog_in_hand_is_played_when_its_owner_gains_a_card() {
     assert_eq!(g.players[0].in_play.get(I::SHEEPDOG), 1);
     assert_eq!(g.turn.actions, 1, "playing it used no Action");
 }
+
+// ===========================================================================
+// Snowy Village
+// ===========================================================================
 
 #[test]
 fn snowy_village_ignores_the_actions_that_come_after_it() {
@@ -471,6 +507,10 @@ fn a_villager_gives_nothing_after_snowy_village() {
     g.turn.actions = 0;
     play_choices_have_no_villager(&mut g);
 }
+
+// ===========================================================================
+// Stockpile
+// ===========================================================================
 
 fn play_choices_have_no_villager(g: &mut GameState) {
     g.turn.actions = 0;
@@ -524,6 +564,10 @@ fn exiled_cards_count_for_scoring_and_belong_to_their_player() {
     assert_eq!(g.players[0].all_cards().get(I::PROVINCE), before_provinces + 2);
 }
 
+// ===========================================================================
+// Bounty Hunter
+// ===========================================================================
+
 #[test]
 fn bounty_hunter_gives_three_dollars_only_for_a_card_with_no_copy_in_exile() {
     let mut g = game(&[I::BOUNTY_HUNTER]);
@@ -543,6 +587,10 @@ fn bounty_hunter_gives_three_dollars_only_for_a_card_with_no_copy_in_exile() {
     assert_eq!(ex(&g, 0, I::ESTATE), 2);
     assert_eq!(g.turn.coins, 3, "no copy was missing from the mat");
 }
+
+// ===========================================================================
+// Cardinal
+// ===========================================================================
 
 #[test]
 fn cardinal_exiles_a_card_costing_three_to_six_from_the_top_two_and_discards_the_rest() {
@@ -565,6 +613,10 @@ fn cardinal_exiles_a_card_costing_three_to_six_from_the_top_two_and_discards_the
     assert_eq!(g.players[1].men.exile.total(), 0);
     assert_eq!(g.players[1].discard.total(), 2);
 }
+
+// ===========================================================================
+// Cavalry
+// ===========================================================================
 
 #[test]
 fn cavalry_gains_two_horses_and_returns_to_the_action_phase_when_bought() {
@@ -594,6 +646,10 @@ fn cavalry_gained_on_another_players_turn_draws_two_but_gives_no_buy() {
     assert_eq!(g.turn.buys, 1);
 }
 
+// ===========================================================================
+// Groom
+// ===========================================================================
+
 #[test]
 fn groom_gains_a_horse_for_an_action_a_silver_for_a_treasure_and_a_card_for_a_victory_card() {
     // A Silver: another Silver.
@@ -613,6 +669,10 @@ fn groom_gains_a_horse_for_an_action_a_silver_for_a_treasure_and_a_card_for_a_vi
     assert_eq!(g.turn.actions, 1, "+1 Action");
 }
 
+// ===========================================================================
+// Hostelry
+// ===========================================================================
+
 #[test]
 fn hostelry_turns_treasures_into_horses_when_gained() {
     let mut g = game(&[I::HOSTELRY, I::SLEIGH]);
@@ -625,6 +685,10 @@ fn hostelry_turns_treasures_into_horses_when_gained() {
     assert_eq!(g.players[0].discard.get(I::HORSE), 2);
     assert_eq!(g.players[0].hand.total(), 1);
 }
+
+// ===========================================================================
+// Village Green
+// ===========================================================================
 
 #[test]
 fn village_green_now_gives_a_card_and_two_actions() {
@@ -699,6 +763,10 @@ fn village_green_discarded_in_clean_up_is_not_offered() {
     assert_eq!(g.players[0].discard.get(I::VILLAGE_GREEN), 1);
 }
 
+// ===========================================================================
+// Barge
+// ===========================================================================
+
 #[test]
 fn barge_now_draws_three_and_gives_a_buy() {
     let mut g = game(&[I::BARGE]);
@@ -720,6 +788,10 @@ fn barge_for_next_turn_draws_at_the_start_of_it() {
     assert_eq!(g.players[0].pending_durations_len, 1);
 }
 
+// ===========================================================================
+// Coven
+// ===========================================================================
+
 #[test]
 fn coven_exiles_a_curse_for_each_other_player_and_when_there_is_none_they_discard_theirs() {
     let mut g = game(&[I::COVEN]);
@@ -739,6 +811,19 @@ fn coven_exiles_a_curse_for_each_other_player_and_when_there_is_none_they_discar
 }
 
 #[test]
+fn approaching_army_gives_a_coin_for_an_attack_played_as_a_way() {
+    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::COVEN], &[I::COVEN]);
+    g.rs.active = I::APPROACHING_ARMY;
+    play_as(&mut g, I::COVEN, I::WAY_OF_THE_SHEEP);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 2 + 1);
+}
+
+// ===========================================================================
+// Displace
+// ===========================================================================
+
+#[test]
 fn displace_exiles_a_card_for_a_differently_named_one_costing_up_to_two_more() {
     let mut g = game(&[I::DISPLACE, I::SMITHY]);
     set_hand(&mut g, 0, &[I::DISPLACE, I::SILVER]);
@@ -749,6 +834,10 @@ fn displace_exiles_a_card_for_a_differently_named_one_costing_up_to_two_more() {
     assert_eq!(ex(&g, 0, I::SILVER), 1);
     assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
 }
+
+// ===========================================================================
+// Falconer
+// ===========================================================================
 
 #[test]
 fn falconer_gains_a_cheaper_card_into_the_hand() {
@@ -777,6 +866,10 @@ fn falconer_is_played_when_a_card_with_two_types_is_gained_by_anyone() {
     g.gain_card(1, I::SMITHY, Dest::Discard, &mut NoEvents);
     assert!(g.pending_decision().is_none() || !matches!(expect_decision(&mut g).kind, DecisionKind::YesNo { .. }));
 }
+
+// ===========================================================================
+// Gatekeeper
+// ===========================================================================
 
 #[test]
 fn gatekeeper_gives_three_dollars_next_turn_and_exiles_what_others_gain() {
@@ -807,6 +900,27 @@ fn gatekeeper_gives_three_dollars_next_turn_and_exiles_what_others_gain() {
 }
 
 #[test]
+fn a_gatekeepers_attack_ends_when_its_owners_next_turn_starts() {
+    let mut g = game(&[I::GATEKEEPER, I::SMITHY]);
+    set_hand(&mut g, 0, &[I::GATEKEEPER]);
+    play(&mut g, I::GATEKEEPER);
+    let mut guard = 0;
+    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
+        guard += 1;
+        settle_pass(&mut g);
+    }
+    assert_eq!(g.players[0].men.gk, 0);
+    assert_eq!(g.turn.coins, 3, "+$3 at the start of the turn");
+    g.gain_card(1, I::SMITHY, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(ex(&g, 1, I::SMITHY), 0);
+}
+
+// ===========================================================================
+// Hunting Lodge
+// ===========================================================================
+
+#[test]
 fn hunting_lodge_may_discard_the_hand_for_five_cards() {
     let mut g = game(&[I::HUNTING_LODGE]);
     set_hand(&mut g, 0, &[I::HUNTING_LODGE, I::COPPER, I::COPPER]);
@@ -818,6 +932,10 @@ fn hunting_lodge_may_discard_the_hand_for_five_cards() {
     assert_eq!(g.players[0].hand.total(), 5);
     assert_eq!(g.players[0].discard.get(I::COPPER), 2);
 }
+
+// ===========================================================================
+// Kiln
+// ===========================================================================
 
 #[test]
 fn kiln_gains_a_copy_of_the_next_card_played() {
@@ -837,6 +955,39 @@ fn kiln_gains_a_copy_of_the_next_card_played() {
 }
 
 #[test]
+fn kiln_gains_the_copy_of_a_stockpile_before_the_played_one_is_exiled() {
+    let mut g = game(&[I::KILN, I::STOCKPILE]);
+    g.players[0].men.exile.add(I::STOCKPILE, 1);
+    g.men.hook |= dominion_engine::state::H_EXILE;
+    set_hand(&mut g, 0, &[I::KILN, I::STOCKPILE]);
+    play(&mut g, I::KILN);
+    let mut guard = 0;
+    loop {
+        guard += 1;
+        assert!(guard < 12);
+        let d = expect_decision(&mut g);
+        match d.kind {
+            DecisionKind::Gain { .. } => {
+                choose(&mut g, Choice::Card(I::STOCKPILE));
+            }
+            DecisionKind::YesNo { act: Act::Discard } => {
+                choose(&mut g, Choice::Yes); // discard the Stockpile on the mat
+            }
+            DecisionKind::Buy => break,
+            _ => {
+                pass(&mut g);
+            }
+        }
+    }
+    assert_eq!(ex(&g, 0, I::STOCKPILE), 1, "the one played is Exiled last");
+    assert_eq!(g.players[0].discard.get(I::STOCKPILE), 2, "the copy and the discarded one");
+}
+
+// ===========================================================================
+// Livery
+// ===========================================================================
+
+#[test]
 fn livery_gains_a_horse_for_each_card_costing_four_or_more_gained_this_turn() {
     let mut g = game(&[I::LIVERY, I::SLEIGH]);
     set_hand(&mut g, 0, &[I::LIVERY]);
@@ -849,6 +1000,52 @@ fn livery_gains_a_horse_for_each_card_costing_four_or_more_gained_this_turn() {
     adv(&mut g);
     assert_eq!(g.players[0].discard.get(I::HORSE), 1);
 }
+
+#[test]
+fn livery_does_not_give_a_horse_for_a_fisherman_gained_while_it_cost_two() {
+    // Empty discard pile: Fisherman costs $2 as it is gained.
+    let mut g = game(&[I::LIVERY, I::FISHERMAN, I::SLEIGH]);
+    set_hand(&mut g, 0, &[I::LIVERY]);
+    play(&mut g, I::LIVERY);
+    assert!(g.players[0].discard.is_empty());
+    g.gain_card(0, I::FISHERMAN, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::HORSE), 0, "cost $2 when gained");
+    // A non-empty discard pile: it costs $5.
+    let mut g = game(&[I::LIVERY, I::FISHERMAN, I::SLEIGH]);
+    set_hand(&mut g, 0, &[I::LIVERY]);
+    set_discard(&mut g, 0, &[I::COPPER]);
+    play(&mut g, I::LIVERY);
+    g.gain_card(0, I::FISHERMAN, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
+}
+
+#[test]
+fn livery_checks_destriers_cost_as_it_is_gained() {
+    let mut g = game(&[I::LIVERY, I::DESTRIER, I::SLEIGH]);
+    set_hand(&mut g, 0, &[I::LIVERY]);
+    play(&mut g, I::LIVERY);
+    // Destrier is the 1st card gained: $6 -> a Horse.
+    g.gain_card(0, I::DESTRIER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
+    // Three cards gained so far (Destrier, Horse, Silver...): a Destrier now costs $3 or less.
+    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    let h = g.players[0].discard.get(I::HORSE);
+    g.gain_card(0, I::DESTRIER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::HORSE), h, "the Destrier cost less than $4 as it was gained");
+}
+
+// ===========================================================================
+// Mastermind
+// ===========================================================================
 
 #[test]
 fn mastermind_plays_an_action_three_times_next_turn() {
@@ -871,6 +1068,10 @@ fn mastermind_plays_an_action_three_times_next_turn() {
     assert_eq!(g.players[0].hand.total(), 5 - 1 + 3);
 }
 
+// ===========================================================================
+// Paddock
+// ===========================================================================
+
 #[test]
 fn paddock_gains_two_horses_and_gives_an_action_per_empty_pile() {
     let mut g = game(&[I::PADDOCK, I::SMITHY]);
@@ -881,6 +1082,10 @@ fn paddock_gains_two_horses_and_gives_an_action_per_empty_pile() {
     assert_eq!(g.players[0].discard.get(I::HORSE), 2);
     assert_eq!(g.turn.actions, 1, "1 -1 for playing it +1 pile");
 }
+
+// ===========================================================================
+// Sanctuary
+// ===========================================================================
 
 #[test]
 fn sanctuary_may_exile_a_card_from_the_hand() {
@@ -894,6 +1099,10 @@ fn sanctuary_may_exile_a_card_from_the_hand() {
     choose(&mut g, Choice::Card(I::COPPER));
     assert_eq!(ex(&g, 0, I::COPPER), 1);
 }
+
+// ===========================================================================
+// Fisherman
+// ===========================================================================
 
 #[test]
 fn fisherman_and_destrier_cost_less_on_your_turn() {
@@ -909,6 +1118,24 @@ fn fisherman_and_destrier_cost_less_on_your_turn() {
     adv(&mut g);
     assert_eq!(g.cost(I::DESTRIER), 4);
 }
+
+// ===========================================================================
+// Wayfarer
+// ===========================================================================
+
+#[test]
+fn wayfarer_draws_three_and_may_gain_a_silver() {
+    let mut g = game(&[I::WAYFARER]);
+    set_hand(&mut g, 0, &[I::WAYFARER]);
+    play(&mut g, I::WAYFARER);
+    assert_eq!(g.players[0].hand.total(), 3);
+    choose(&mut g, Choice::Card(I::SILVER));
+    assert_eq!(g.players[0].discard.get(I::SILVER), 1);
+}
+
+// ===========================================================================
+// Animal Fair
+// ===========================================================================
 
 #[test]
 fn animal_fair_can_be_bought_by_trashing_an_action() {
@@ -938,50 +1165,9 @@ fn animal_fair_gives_four_dollars_and_a_buy_per_empty_pile() {
     assert!(g.turn.buys >= 2);
 }
 
-#[test]
-fn wayfarer_draws_three_and_may_gain_a_silver() {
-    let mut g = game(&[I::WAYFARER]);
-    set_hand(&mut g, 0, &[I::WAYFARER]);
-    play(&mut g, I::WAYFARER);
-    assert_eq!(g.players[0].hand.total(), 3);
-    choose(&mut g, Choice::Card(I::SILVER));
-    assert_eq!(g.players[0].discard.get(I::SILVER), 1);
-}
-
 // ===========================================================================
-// Events
+// Delay
 // ===========================================================================
-
-fn at_buy(kingdom: &[CardId], coins: u16, hand: &[CardId]) -> GameState {
-    let mut g = game(kingdom);
-    g.turn.phase = Phase::Buy;
-    g.turn.coins = coins;
-    g.turn.buys = 2;
-    set_hand(&mut g, 0, hand);
-    g
-}
-
-#[test]
-fn ride_gains_a_horse() {
-    let mut g = at_buy(&[I::RIDE], 2, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::RIDE);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
-    assert_eq!(g.turn.coins, 0);
-}
-
-#[test]
-fn desperation_gains_a_curse_once_per_turn_for_a_buy_and_two_dollars() {
-    let mut g = at_buy(&[I::DESPERATION], 0, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::DESPERATION);
-    choose(&mut g, Choice::Card(I::CURSE));
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::CURSE), 1);
-    assert_eq!((g.turn.coins, g.turn.buys), (2, 2), "the Buy used, +1 Buy");
-    assert!(!choices(&g).contains(&Choice::Card(I::DESPERATION)), "once per turn");
-}
 
 #[test]
 fn delay_sets_aside_an_action_and_plays_it_next_turn() {
@@ -997,164 +1183,25 @@ fn delay_sets_aside_an_action_and_plays_it_next_turn() {
     assert_eq!(g.players[0].pending_durations_len, 1);
 }
 
-#[test]
-fn stampede_puts_five_horses_on_the_deck_with_five_or_fewer_cards_in_play() {
-    let mut g = at_buy(&[I::STAMPEDE], 5, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::STAMPEDE);
-    adv(&mut g);
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::HORSE));
-    assert_eq!(g.supply.get(I::HORSE), 25);
-    // With six in play: nothing.
-    let mut g = at_buy(&[I::STAMPEDE], 5, &[]);
-    set_in_play(&mut g, 0, &[I::COPPER; 6]);
-    expect_decision(&mut g);
-    buy(&mut g, I::STAMPEDE);
-    adv(&mut g);
-    assert_eq!(g.supply.get(I::HORSE), 30);
-}
+// ===========================================================================
+// Desperation
+// ===========================================================================
 
 #[test]
-fn bargain_gains_a_non_victory_card_and_gives_the_others_a_horse() {
-    let mut g = at_buy(&[I::BARGAIN, I::SMITHY, I::SLEIGH], 4, &[]);
+fn desperation_gains_a_curse_once_per_turn_for_a_buy_and_two_dollars() {
+    let mut g = at_buy(&[I::DESPERATION], 0, &[]);
     expect_decision(&mut g);
-    buy(&mut g, I::BARGAIN);
-    let cs = choices(&g);
-    assert!(cs.contains(&Choice::Card(I::SMITHY)) && !cs.contains(&Choice::Card(I::ESTATE)), "{cs:?}");
-    choose(&mut g, Choice::Card(I::SMITHY));
+    buy(&mut g, I::DESPERATION);
+    choose(&mut g, Choice::Card(I::CURSE));
     adv(&mut g);
-    assert_eq!(g.players[1].discard.get(I::HORSE), 1);
-    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
+    assert_eq!(g.players[0].discard.get(I::CURSE), 1);
+    assert_eq!((g.turn.coins, g.turn.buys), (2, 2), "the Buy used, +1 Buy");
+    assert!(!choices(&g).contains(&Choice::Card(I::DESPERATION)), "once per turn");
 }
 
-#[test]
-fn enclave_gains_a_gold_and_exiles_a_duchy() {
-    let mut g = at_buy(&[I::ENCLAVE], 8, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::ENCLAVE);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::GOLD), 1);
-    assert_eq!(ex(&g, 0, I::DUCHY), 1);
-}
-
-#[test]
-fn alliance_gains_six_cards() {
-    let mut g = at_buy(&[I::ALLIANCE], 10, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::ALLIANCE);
-    adv(&mut g);
-    let d = &g.players[0].discard;
-    assert_eq!([d.get(I::PROVINCE), d.get(I::DUCHY), d.get(I::ESTATE), d.get(I::GOLD), d.get(I::SILVER), d.get(I::COPPER)], [1; 6]);
-}
-
-#[test]
-fn seize_the_day_is_once_per_game_and_gives_an_extra_turn() {
-    let mut g = at_buy(&[I::SEIZE_THE_DAY], 4, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::SEIZE_THE_DAY);
-    let mut guard = 0;
-    while g.turn.number < 2 && guard < 40 {
-        guard += 1;
-        settle_pass(&mut g);
-    }
-    assert_eq!(g.turn.player, 0, "the extra turn is player 0's");
-    expect_decision(&mut g);
-    assert!(!choices(&g).contains(&Choice::Card(I::SEIZE_THE_DAY)));
-}
-
-#[test]
-fn banish_exiles_all_copies_of_a_card_from_the_hand() {
-    let mut g = at_buy(&[I::BANISH], 4, &[I::DUCHY, I::DUCHY, I::ESTATE]);
-    expect_decision(&mut g);
-    buy(&mut g, I::BANISH);
-    choose(&mut g, Choice::Card(I::DUCHY)); // the name
-    choose(&mut g, Choice::Card(I::DUCHY));
-    adv(&mut g);
-    assert_eq!(ex(&g, 0, I::DUCHY), 2);
-    assert_eq!(g.players[0].hand.total(), 1);
-}
-
-#[test]
-fn commerce_gains_a_gold_per_differently_named_card_gained() {
-    let mut g = at_buy(&[I::COMMERCE, I::SMITHY], 5, &[]);
-    expect_decision(&mut g);
-    g.turn.buys = 3;
-    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.gain_card(0, I::SILVER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    buy(&mut g, I::COMMERCE);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::GOLD), 2, "Smithy and Silver: two differently named cards");
-}
-
-#[test]
-fn reap_gains_a_gold_and_plays_it_next_turn() {
-    let mut g = at_buy(&[I::REAP], 7, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::REAP);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::GOLD), 0);
-    assert_eq!(g.players[0].pending_durations_len, 1);
-}
-
-#[test]
-fn demand_gains_a_horse_and_a_card_onto_the_deck() {
-    let mut g = at_buy(&[I::DEMAND, I::SMITHY, I::SLEIGH], 5, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::DEMAND);
-    choose(&mut g, Choice::Card(I::SMITHY));
-    adv(&mut g);
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SMITHY));
-    assert_eq!(g.supply.get(I::HORSE), 29);
-}
-
-#[test]
-fn enhance_trashes_a_non_victory_card_for_one_costing_up_to_two_more() {
-    let mut g = at_buy(&[I::ENHANCE, I::SMITHY], 3, &[I::SMITHY, I::ESTATE]);
-    expect_decision(&mut g);
-    buy(&mut g, I::ENHANCE);
-    let cs = choices(&g);
-    assert!(cs.contains(&Choice::Card(I::SMITHY)) && !cs.contains(&Choice::Card(I::ESTATE)), "{cs:?}");
-    choose(&mut g, Choice::Card(I::SMITHY));
-    let cs = choices(&g);
-    assert!(cs.contains(&Choice::Card(I::GOLD)) && !cs.contains(&Choice::Card(I::PROVINCE)), "{cs:?}");
-    choose(&mut g, Choice::Card(I::GOLD));
-    adv(&mut g);
-    assert_eq!(g.trash.get(I::SMITHY), 1);
-    assert_eq!(g.players[0].discard.get(I::GOLD), 1);
-}
-
-#[test]
-fn toil_plays_an_action_from_the_hand_and_march_from_the_discard_pile() {
-    let mut g = at_buy(&[I::TOIL, I::SMITHY], 2, &[I::SMITHY]);
-    expect_decision(&mut g);
-    buy(&mut g, I::TOIL);
-    choose(&mut g, Choice::Card(I::SMITHY));
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.total(), 3);
-    let mut g = at_buy(&[I::MARCH, I::SMITHY], 3, &[]);
-    set_discard(&mut g, 0, &[I::SMITHY]);
-    expect_decision(&mut g);
-    buy(&mut g, I::MARCH);
-    choose(&mut g, Choice::Card(I::SMITHY));
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.total(), 3);
-}
-
-#[test]
-fn transport_exiles_an_action_from_the_supply_or_returns_an_exiled_one_to_the_deck() {
-    let mut g = at_buy(&[I::TRANSPORT, I::SMITHY], 3, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::TRANSPORT);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
-    choose(&mut g, Choice::Mode(0));
-    adv(&mut g);
-    assert_eq!(ex(&g, 0, I::SMITHY), 1);
-}
+// ===========================================================================
+// Gamble
+// ===========================================================================
 
 #[test]
 fn gamble_may_play_the_top_card_if_it_is_an_action_or_treasure() {
@@ -1167,6 +1214,10 @@ fn gamble_may_play_the_top_card_if_it_is_an_action_or_treasure() {
     choose(&mut g, Choice::Yes);
     assert_eq!(g.turn.coins, 3);
 }
+
+// ===========================================================================
+// Pursue
+// ===========================================================================
 
 #[test]
 fn pursue_names_a_card_and_puts_matches_back() {
@@ -1188,24 +1239,122 @@ fn pursue_names_a_card_and_puts_matches_back() {
     assert_eq!(g.players[0].deck_known.peek_top(), Some(I::ESTATE));
 }
 
-#[test]
-fn populate_gains_one_of_each_action_supply_pile() {
-    let mut g = at_buy(&[I::POPULATE, I::SMITHY, I::VILLAGE], 10, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::POPULATE);
-    let mut guard = 0;
-    while let Some(d) = g.pending_decision() {
-        if matches!(d.kind, DecisionKind::Buy) || guard > 12 {
-            break;
-        }
-        let cs = choices(&g);
-        let c = cs.iter().copied().find(|c| matches!(c, Choice::Card(_))).unwrap_or(cs[0]);
-        choose(&mut g, c);
-        guard += 1;
-    }
-    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
-    assert_eq!(g.players[0].discard.get(I::VILLAGE), 1);
+// ===========================================================================
+// Ride
+// ===========================================================================
+
+fn at_buy(kingdom: &[CardId], coins: u16, hand: &[CardId]) -> GameState {
+    let mut g = game(kingdom);
+    g.turn.phase = Phase::Buy;
+    g.turn.coins = coins;
+    g.turn.buys = 2;
+    set_hand(&mut g, 0, hand);
+    g
 }
+
+#[test]
+fn ride_gains_a_horse() {
+    let mut g = at_buy(&[I::RIDE], 2, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::RIDE);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
+    assert_eq!(g.turn.coins, 0);
+}
+
+// ===========================================================================
+// Toil
+// ===========================================================================
+
+#[test]
+fn toil_plays_an_action_from_the_hand_and_march_from_the_discard_pile() {
+    let mut g = at_buy(&[I::TOIL, I::SMITHY], 2, &[I::SMITHY]);
+    expect_decision(&mut g);
+    buy(&mut g, I::TOIL);
+    choose(&mut g, Choice::Card(I::SMITHY));
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 3);
+    let mut g = at_buy(&[I::MARCH, I::SMITHY], 3, &[]);
+    set_discard(&mut g, 0, &[I::SMITHY]);
+    expect_decision(&mut g);
+    buy(&mut g, I::MARCH);
+    choose(&mut g, Choice::Card(I::SMITHY));
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 3);
+}
+
+// ===========================================================================
+// Enhance
+// ===========================================================================
+
+#[test]
+fn enhance_trashes_a_non_victory_card_for_one_costing_up_to_two_more() {
+    let mut g = at_buy(&[I::ENHANCE, I::SMITHY], 3, &[I::SMITHY, I::ESTATE]);
+    expect_decision(&mut g);
+    buy(&mut g, I::ENHANCE);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(I::SMITHY)) && !cs.contains(&Choice::Card(I::ESTATE)), "{cs:?}");
+    choose(&mut g, Choice::Card(I::SMITHY));
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(I::GOLD)) && !cs.contains(&Choice::Card(I::PROVINCE)), "{cs:?}");
+    choose(&mut g, Choice::Card(I::GOLD));
+    adv(&mut g);
+    assert_eq!(g.trash.get(I::SMITHY), 1);
+    assert_eq!(g.players[0].discard.get(I::GOLD), 1);
+}
+
+// ===========================================================================
+// Transport
+// ===========================================================================
+
+#[test]
+fn transport_exiles_an_action_from_the_supply_or_returns_an_exiled_one_to_the_deck() {
+    let mut g = at_buy(&[I::TRANSPORT, I::SMITHY], 3, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::TRANSPORT);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::Mode { .. }), "{d:?}");
+    choose(&mut g, Choice::Mode(0));
+    adv(&mut g);
+    assert_eq!(ex(&g, 0, I::SMITHY), 1);
+}
+
+// ===========================================================================
+// Banish
+// ===========================================================================
+
+#[test]
+fn banish_exiles_all_copies_of_a_card_from_the_hand() {
+    let mut g = at_buy(&[I::BANISH], 4, &[I::DUCHY, I::DUCHY, I::ESTATE]);
+    expect_decision(&mut g);
+    buy(&mut g, I::BANISH);
+    choose(&mut g, Choice::Card(I::DUCHY)); // the name
+    choose(&mut g, Choice::Card(I::DUCHY));
+    adv(&mut g);
+    assert_eq!(ex(&g, 0, I::DUCHY), 2);
+    assert_eq!(g.players[0].hand.total(), 1);
+}
+
+// ===========================================================================
+// Bargain
+// ===========================================================================
+
+#[test]
+fn bargain_gains_a_non_victory_card_and_gives_the_others_a_horse() {
+    let mut g = at_buy(&[I::BARGAIN, I::SMITHY, I::SLEIGH], 4, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::BARGAIN);
+    let cs = choices(&g);
+    assert!(cs.contains(&Choice::Card(I::SMITHY)) && !cs.contains(&Choice::Card(I::ESTATE)), "{cs:?}");
+    choose(&mut g, Choice::Card(I::SMITHY));
+    adv(&mut g);
+    assert_eq!(g.players[1].discard.get(I::HORSE), 1);
+    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
+}
+
+// ===========================================================================
+// Invest
+// ===========================================================================
 
 #[test]
 fn invest_draws_two_cards_when_another_player_gains_the_exiled_card() {
@@ -1226,7 +1375,376 @@ fn invest_draws_two_cards_when_another_player_gains_the_exiled_card() {
 }
 
 // ===========================================================================
-// Ways
+// Seize the Day
+// ===========================================================================
+
+#[test]
+fn seize_the_day_is_once_per_game_and_gives_an_extra_turn() {
+    let mut g = at_buy(&[I::SEIZE_THE_DAY], 4, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::SEIZE_THE_DAY);
+    let mut guard = 0;
+    while g.turn.number < 2 && guard < 40 {
+        guard += 1;
+        settle_pass(&mut g);
+    }
+    assert_eq!(g.turn.player, 0, "the extra turn is player 0's");
+    expect_decision(&mut g);
+    assert!(!choices(&g).contains(&Choice::Card(I::SEIZE_THE_DAY)));
+}
+
+// ===========================================================================
+// Commerce
+// ===========================================================================
+
+#[test]
+fn commerce_gains_a_gold_per_differently_named_card_gained() {
+    let mut g = at_buy(&[I::COMMERCE, I::SMITHY], 5, &[]);
+    expect_decision(&mut g);
+    g.turn.buys = 3;
+    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.gain_card(0, I::SILVER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    buy(&mut g, I::COMMERCE);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::GOLD), 2, "Smithy and Silver: two differently named cards");
+}
+
+#[test]
+fn commerce_gains_its_golds_one_at_a_time() {
+    let mut g = at_buy(&[I::COMMERCE, I::SLEIGH, I::SMITHY], 5, &[]);
+    expect_decision(&mut g);
+    g.turn.buys = 3;
+    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.gain_card(0, I::SILVER, Dest::Discard, &mut NoEvents);
+    adv(&mut g);
+    g.players[0].hand.add(I::SLEIGH, 1);
+    buy(&mut g, I::COMMERCE);
+    // The first Gold is gained and its reaction resolved (Sleigh declined) before the second Gold.
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.target == I::GOLD, "{d:?}");
+    assert_eq!(g.players[0].discard.get(I::GOLD), 1, "only one Gold gained so far");
+    choose(&mut g, Choice::No);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.target == I::GOLD, "{d:?}");
+    assert_eq!(g.players[0].discard.get(I::GOLD), 2);
+}
+
+// ===========================================================================
+// Demand
+// ===========================================================================
+
+#[test]
+fn demand_gains_a_horse_and_a_card_onto_the_deck() {
+    let mut g = at_buy(&[I::DEMAND, I::SMITHY, I::SLEIGH], 5, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::DEMAND);
+    choose(&mut g, Choice::Card(I::SMITHY));
+    adv(&mut g);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SMITHY));
+    assert_eq!(g.supply.get(I::HORSE), 29);
+}
+
+#[test]
+fn demand_resolves_the_horses_reactions_before_the_second_card_is_gained() {
+    let mut g = at_buy(&[I::DEMAND, I::SLEIGH, I::SMITHY], 5, &[I::SLEIGH]);
+    expect_decision(&mut g);
+    buy(&mut g, I::DEMAND);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.subject == I::SLEIGH && d.target == I::HORSE, "{d:?}");
+    choose(&mut g, Choice::Yes);
+    choose(&mut g, Choice::Mode(0)); // into the hand
+    choose(&mut g, Choice::Card(I::SMITHY));
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.get(I::HORSE), 1);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SMITHY));
+}
+
+// ===========================================================================
+// Stampede
+// ===========================================================================
+
+#[test]
+fn stampede_puts_five_horses_on_the_deck_with_five_or_fewer_cards_in_play() {
+    let mut g = at_buy(&[I::STAMPEDE], 5, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::STAMPEDE);
+    adv(&mut g);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::HORSE));
+    assert_eq!(g.supply.get(I::HORSE), 25);
+    // With six in play: nothing.
+    let mut g = at_buy(&[I::STAMPEDE], 5, &[]);
+    set_in_play(&mut g, 0, &[I::COPPER; 6]);
+    expect_decision(&mut g);
+    buy(&mut g, I::STAMPEDE);
+    adv(&mut g);
+    assert_eq!(g.supply.get(I::HORSE), 30);
+}
+
+// ===========================================================================
+// Reap
+// ===========================================================================
+
+#[test]
+fn reap_gains_a_gold_and_plays_it_next_turn() {
+    let mut g = at_buy(&[I::REAP], 7, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::REAP);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::GOLD), 0);
+    assert_eq!(g.players[0].pending_durations_len, 1);
+}
+
+#[test]
+fn reap_plays_its_gold_at_the_start_of_the_next_turn() {
+    let mut g = at_buy(&[I::REAP], 7, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::REAP);
+    adv(&mut g);
+    let mut guard = 0;
+    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
+        guard += 1;
+        settle_pass(&mut g);
+    }
+    assert_eq!(g.players[0].in_play.get(I::GOLD), 1);
+    assert_eq!(g.turn.coins, 3);
+}
+
+// ===========================================================================
+// Enclave
+// ===========================================================================
+
+#[test]
+fn enclave_gains_a_gold_and_exiles_a_duchy() {
+    let mut g = at_buy(&[I::ENCLAVE], 8, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::ENCLAVE);
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::GOLD), 1);
+    assert_eq!(ex(&g, 0, I::DUCHY), 1);
+}
+
+// ===========================================================================
+// Alliance
+// ===========================================================================
+
+#[test]
+fn alliance_gains_six_cards() {
+    let mut g = at_buy(&[I::ALLIANCE], 10, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::ALLIANCE);
+    adv(&mut g);
+    let d = &g.players[0].discard;
+    assert_eq!([d.get(I::PROVINCE), d.get(I::DUCHY), d.get(I::ESTATE), d.get(I::GOLD), d.get(I::SILVER), d.get(I::COPPER)], [1; 6]);
+}
+
+#[test]
+fn alliance_gains_one_card_at_a_time_so_a_reaction_to_the_first_comes_first() {
+    let mut g = at_buy(&[I::ALLIANCE, I::SLEIGH], 10, &[I::SLEIGH]);
+    expect_decision(&mut g);
+    buy(&mut g, I::ALLIANCE);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.subject == I::SLEIGH, "{d:?}");
+    assert_eq!(d.target, I::PROVINCE, "the Province is gained first");
+}
+
+// ===========================================================================
+// Populate
+// ===========================================================================
+
+#[test]
+fn populate_gains_one_of_each_action_supply_pile() {
+    let mut g = at_buy(&[I::POPULATE, I::SMITHY, I::VILLAGE], 10, &[]);
+    expect_decision(&mut g);
+    buy(&mut g, I::POPULATE);
+    let mut guard = 0;
+    while let Some(d) = g.pending_decision() {
+        if matches!(d.kind, DecisionKind::Buy) || guard > 12 {
+            break;
+        }
+        let cs = choices(&g);
+        let c = cs.iter().copied().find(|c| matches!(c, Choice::Card(_))).unwrap_or(cs[0]);
+        choose(&mut g, c);
+        guard += 1;
+    }
+    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
+    assert_eq!(g.players[0].discard.get(I::VILLAGE), 1);
+}
+
+// ===========================================================================
+// Way of the Butterfly
+// ===========================================================================
+
+#[test]
+fn way_of_the_butterfly_returns_the_card_for_one_costing_exactly_one_more() {
+    let mut g = with_way(I::WAY_OF_THE_BUTTERFLY, &[I::SMITHY, I::MARKET], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_BUTTERFLY);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
+    choose(&mut g, Choice::Yes);
+    let cs = choices(&g);
+    assert!(cs.iter().all(|c| match c { Choice::Card(x) => g.cost(*x) == 5, _ => true }), "{cs:?}");
+}
+
+// ===========================================================================
+// Way of the Camel
+// ===========================================================================
+
+#[test]
+fn way_of_the_camel_and_worm_exile_from_the_supply() {
+    let mut g = with_way(I::WAY_OF_THE_CAMEL, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_CAMEL);
+    adv(&mut g);
+    assert_eq!(ex(&g, 0, I::GOLD), 1);
+    let mut g = with_way(I::WAY_OF_THE_WORM, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_WORM);
+    adv(&mut g);
+    assert_eq!(ex(&g, 0, I::ESTATE), 1);
+}
+
+// ===========================================================================
+// Way of the Chameleon
+// ===========================================================================
+
+#[test]
+fn way_of_the_chameleon_swaps_cards_and_coins() {
+    let mut g = with_way(I::WAY_OF_THE_CHAMELEON, &[I::SMITHY, I::MARKET], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_CHAMELEON);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 3, "+3 Cards became +$3");
+    assert_eq!(g.players[0].hand.total(), 0);
+}
+
+// ===========================================================================
+// Way of the Frog
+// ===========================================================================
+
+#[test]
+fn way_of_the_frog_puts_the_card_on_the_deck_when_discarded_from_play() {
+    let mut g = with_way(I::WAY_OF_THE_FROG, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_FROG);
+    adv(&mut g);
+    assert_eq!(g.turn.actions, 1);
+    let mut guard = 0;
+    let mut saw = false;
+    while g.turn.player == 0 && guard < 20 {
+        guard += 1;
+        if let Step::Decision(d) = adv(&mut g) {
+            if matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }) {
+                saw = true;
+            }
+            let c = choices(&g);
+            choose(&mut g, *c.iter().find(|c| matches!(c, Choice::Card(_))).unwrap_or(&Choice::Pass));
+        }
+    }
+    let _ = saw;
+    assert_eq!(g.players[0].hand.get(I::SMITHY), 1, "Smithy went back to the deck and was drawn again");
+}
+
+// ===========================================================================
+// Way of the Goat
+// ===========================================================================
+
+#[test]
+fn way_of_the_goat_trashes_a_card_from_the_hand() {
+    let mut g = with_way(I::WAY_OF_THE_GOAT, &[I::SMITHY], &[I::SMITHY, I::COPPER]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_GOAT);
+    choose(&mut g, Choice::Card(I::COPPER));
+    assert_eq!(g.trash.get(I::COPPER), 1);
+}
+
+// ===========================================================================
+// Way of the Horse
+// ===========================================================================
+
+#[test]
+fn way_of_the_horse_returns_the_card_to_its_pile() {
+    let mut g = with_way(I::WAY_OF_THE_HORSE, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_HORSE);
+    adv(&mut g);
+    assert_eq!(g.supply.get(I::SMITHY), 11 - 1 + 1 - 1 + 1 - 0 + 0 - 0, "back in the Smithy pile");
+}
+
+// ===========================================================================
+// Way of the Mole
+// ===========================================================================
+
+#[test]
+fn way_of_the_mole_discards_the_hand_and_draws_three() {
+    let mut g = with_way(I::WAY_OF_THE_MOLE, &[I::SMITHY], &[I::SMITHY, I::COPPER, I::COPPER]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_MOLE);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 3);
+    assert_eq!(g.players[0].discard.get(I::COPPER), 2);
+    assert_eq!(g.turn.actions, 1);
+}
+
+// ===========================================================================
+// Way of the Mouse
+// ===========================================================================
+
+#[test]
+fn way_of_the_mouse_plays_the_set_aside_card() {
+    let mut g = with_way(I::WAY_OF_THE_MOUSE, &[I::SMITHY], &[I::SMITHY]);
+    let aside = g.men.mouse;
+    assert_ne!(aside, 0, "set-up chose a card to set aside");
+    assert!(cards::cost(aside) == 2 || cards::cost(aside) == 3);
+    let mut ev: Vec<Event> = Vec::new();
+    expect_decision(&mut g);
+    choose_ev(&mut g, Choice::Card(I::SMITHY), &mut ev);
+    choose_ev(&mut g, Choice::Card(I::WAY_OF_THE_MOUSE), &mut ev);
+    let mut guard = 0;
+    while g.turn.phase == Phase::Action && guard < 8 {
+        guard += 1;
+        if g.pending_decision().map_or(true, |d| matches!(d.kind, DecisionKind::PlayAction)) {
+            break;
+        }
+        let c = choices(&g)[0];
+        choose_ev(&mut g, c, &mut ev);
+    }
+    assert!(ev.iter().any(|e| matches!(e, Event::StartPlay { card, .. } if *card == aside)), "the set-aside card was played: {ev:?}");
+    assert_eq!(g.players[0].hand.get(I::SMITHY), 0);
+}
+
+// ===========================================================================
+// Way of the Rat
+// ===========================================================================
+
+#[test]
+fn way_of_the_rat_may_discard_a_treasure_for_a_copy_of_the_card() {
+    let mut g = with_way(I::WAY_OF_THE_RAT, &[I::SMITHY], &[I::SMITHY, I::COPPER]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_RAT);
+    choose(&mut g, Choice::Card(I::COPPER));
+    adv(&mut g);
+    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
+}
+
+// ===========================================================================
+// Way of the Seal
+// ===========================================================================
+
+#[test]
+fn way_of_the_seal_lets_gains_go_onto_the_deck() {
+    let mut g = with_way(I::WAY_OF_THE_SEAL, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SEAL);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 1);
+    g.turn.phase = Phase::Buy;
+    g.turn.buys = 2;
+    expect_decision(&mut g);
+    buy(&mut g, I::COPPER);
+    let d = expect_decision(&mut g);
+    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
+    choose(&mut g, Choice::Yes);
+    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::COPPER));
+}
+
+// ===========================================================================
+// Way of the Sheep
 // ===========================================================================
 
 fn with_way(way: CardId, kingdom: &[CardId], hand: &[CardId]) -> GameState {
@@ -1257,14 +1775,6 @@ fn a_way_is_offered_when_a_card_is_played_and_none_leaves_the_card_alone() {
 }
 
 #[test]
-fn no_way_decision_in_a_game_without_ways() {
-    let mut g = game(&[I::SMITHY]);
-    set_hand(&mut g, 0, &[I::SMITHY]);
-    play(&mut g, I::SMITHY);
-    assert_eq!(g.players[0].hand.total(), 3);
-}
-
-#[test]
 fn simple_ways_give_their_bonuses() {
     let table: &[(CardId, u8, u8, u8, u16)] = &[
         // way, hand size after, actions, buys, coins
@@ -1284,158 +1794,6 @@ fn simple_ways_give_their_bonuses() {
         assert_eq!(g.players[0].hand.total() as u8, hand, "{}", cards::name(way));
         assert_eq!((g.turn.actions, g.turn.buys, g.turn.coins), (actions, buys, coins), "{}", cards::name(way));
     }
-}
-
-#[test]
-fn way_of_the_horse_returns_the_card_to_its_pile() {
-    let mut g = with_way(I::WAY_OF_THE_HORSE, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_HORSE);
-    adv(&mut g);
-    assert_eq!(g.supply.get(I::SMITHY), 11 - 1 + 1 - 1 + 1 - 0 + 0 - 0, "back in the Smithy pile");
-}
-
-#[test]
-fn way_of_the_camel_and_worm_exile_from_the_supply() {
-    let mut g = with_way(I::WAY_OF_THE_CAMEL, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_CAMEL);
-    adv(&mut g);
-    assert_eq!(ex(&g, 0, I::GOLD), 1);
-    let mut g = with_way(I::WAY_OF_THE_WORM, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_WORM);
-    adv(&mut g);
-    assert_eq!(ex(&g, 0, I::ESTATE), 1);
-}
-
-#[test]
-fn way_of_the_mole_discards_the_hand_and_draws_three() {
-    let mut g = with_way(I::WAY_OF_THE_MOLE, &[I::SMITHY], &[I::SMITHY, I::COPPER, I::COPPER]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_MOLE);
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.total(), 3);
-    assert_eq!(g.players[0].discard.get(I::COPPER), 2);
-    assert_eq!(g.turn.actions, 1);
-}
-
-#[test]
-fn way_of_the_goat_trashes_a_card_from_the_hand() {
-    let mut g = with_way(I::WAY_OF_THE_GOAT, &[I::SMITHY], &[I::SMITHY, I::COPPER]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_GOAT);
-    choose(&mut g, Choice::Card(I::COPPER));
-    assert_eq!(g.trash.get(I::COPPER), 1);
-}
-
-#[test]
-fn way_of_the_squirrel_draws_at_the_end_of_the_turn() {
-    let mut g = with_way(I::WAY_OF_THE_SQUIRREL, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SQUIRREL);
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.total(), 0);
-    let mut guard = 0;
-    while g.turn.player == 0 && guard < 20 {
-        guard += 1;
-        settle_pass(&mut g);
-    }
-    assert_eq!(g.players[0].hand.total(), 5 + 2, "the next hand and Squirrel's two");
-}
-
-#[test]
-fn way_of_the_turtle_sets_the_card_aside_for_next_turn() {
-    let mut g = with_way(I::WAY_OF_THE_TURTLE, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_TURTLE);
-    adv(&mut g);
-    assert_eq!(g.players[0].in_play.get(I::SMITHY), 0);
-    assert_eq!(g.players[0].pending_durations_len, 1);
-    assert_eq!(g.players[0].all_cards().get(I::SMITHY), 1);
-}
-
-#[test]
-fn way_of_the_frog_puts_the_card_on_the_deck_when_discarded_from_play() {
-    let mut g = with_way(I::WAY_OF_THE_FROG, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_FROG);
-    adv(&mut g);
-    assert_eq!(g.turn.actions, 1);
-    let mut guard = 0;
-    let mut saw = false;
-    while g.turn.player == 0 && guard < 20 {
-        guard += 1;
-        if let Step::Decision(d) = adv(&mut g) {
-            if matches!(d.kind, DecisionKind::Select { act: Act::Topdeck, .. }) {
-                saw = true;
-            }
-            let c = choices(&g);
-            choose(&mut g, *c.iter().find(|c| matches!(c, Choice::Card(_))).unwrap_or(&Choice::Pass));
-        }
-    }
-    let _ = saw;
-    assert_eq!(g.players[0].hand.get(I::SMITHY), 1, "Smithy went back to the deck and was drawn again");
-}
-
-#[test]
-fn way_of_the_rat_may_discard_a_treasure_for_a_copy_of_the_card() {
-    let mut g = with_way(I::WAY_OF_THE_RAT, &[I::SMITHY], &[I::SMITHY, I::COPPER]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_RAT);
-    choose(&mut g, Choice::Card(I::COPPER));
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::SMITHY), 1);
-}
-
-#[test]
-fn way_of_the_butterfly_returns_the_card_for_one_costing_exactly_one_more() {
-    let mut g = with_way(I::WAY_OF_THE_BUTTERFLY, &[I::SMITHY, I::MARKET], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_BUTTERFLY);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
-    choose(&mut g, Choice::Yes);
-    let cs = choices(&g);
-    assert!(cs.iter().all(|c| match c { Choice::Card(x) => g.cost(*x) == 5, _ => true }), "{cs:?}");
-}
-
-#[test]
-fn way_of_the_seal_lets_gains_go_onto_the_deck() {
-    let mut g = with_way(I::WAY_OF_THE_SEAL, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SEAL);
-    adv(&mut g);
-    assert_eq!(g.turn.coins, 1);
-    g.turn.phase = Phase::Buy;
-    g.turn.buys = 2;
-    expect_decision(&mut g);
-    buy(&mut g, I::COPPER);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { .. }), "{d:?}");
-    choose(&mut g, Choice::Yes);
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::COPPER));
-}
-
-#[test]
-fn way_of_the_mouse_plays_the_set_aside_card() {
-    let mut g = with_way(I::WAY_OF_THE_MOUSE, &[I::SMITHY], &[I::SMITHY]);
-    let aside = g.men.mouse;
-    assert_ne!(aside, 0, "set-up chose a card to set aside");
-    assert!(cards::cost(aside) == 2 || cards::cost(aside) == 3);
-    let mut ev: Vec<Event> = Vec::new();
-    expect_decision(&mut g);
-    choose_ev(&mut g, Choice::Card(I::SMITHY), &mut ev);
-    choose_ev(&mut g, Choice::Card(I::WAY_OF_THE_MOUSE), &mut ev);
-    let mut guard = 0;
-    while g.turn.phase == Phase::Action && guard < 8 {
-        guard += 1;
-        if g.pending_decision().map_or(true, |d| matches!(d.kind, DecisionKind::PlayAction)) {
-            break;
-        }
-        let c = choices(&g)[0];
-        choose_ev(&mut g, c, &mut ev);
-    }
-    assert!(ev.iter().any(|e| matches!(e, Event::StartPlay { card, .. } if *card == aside)), "the set-aside card was played: {ev:?}");
-    assert_eq!(g.players[0].hand.get(I::SMITHY), 0);
-}
-
-#[test]
-fn way_of_the_chameleon_swaps_cards_and_coins() {
-    let mut g = with_way(I::WAY_OF_THE_CHAMELEON, &[I::SMITHY, I::MARKET], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_CHAMELEON);
-    adv(&mut g);
-    assert_eq!(g.turn.coins, 3, "+3 Cards became +$3");
-    assert_eq!(g.players[0].hand.total(), 0);
 }
 
 #[test]
@@ -1469,6 +1827,86 @@ fn throne_room_plays_a_card_twice_each_with_its_own_way() {
 }
 
 #[test]
+fn a_way_used_on_the_first_action_uses_up_enchantresss_effect() {
+    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::ENCHANTRESS, I::SMITHY], &[I::SMITHY, I::SMITHY]);
+    g.players[0].ench_by = 2;
+    g.emp.flags |= dominion_engine::state::E_ENCHANT;
+    g.turn.actions = 2;
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SHEEP);
+    adv(&mut g);
+    assert_eq!(g.turn.coins, 2);
+    // The second Action is no longer the first: it does what it says.
+    play(&mut g, I::SMITHY);
+    choose(&mut g, Choice::Pass);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 3, "Smithy drew 3");
+}
+
+#[test]
+fn great_leader_gives_an_action_after_an_action_played_as_a_way() {
+    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::SMITHY], &[I::SMITHY]);
+    g.rs.active = I::GREAT_LEADER;
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SHEEP);
+    adv(&mut g);
+    assert_eq!(g.turn.actions, 1, "0 left + 1 from Great Leader");
+}
+
+// ===========================================================================
+// Way of the Squirrel
+// ===========================================================================
+
+#[test]
+fn way_of_the_squirrel_draws_at_the_end_of_the_turn() {
+    let mut g = with_way(I::WAY_OF_THE_SQUIRREL, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SQUIRREL);
+    adv(&mut g);
+    assert_eq!(g.players[0].hand.total(), 0);
+    let mut guard = 0;
+    while g.turn.player == 0 && guard < 20 {
+        guard += 1;
+        settle_pass(&mut g);
+    }
+    assert_eq!(g.players[0].hand.total(), 5 + 2, "the next hand and Squirrel's two");
+}
+
+// ===========================================================================
+// Way of the Turtle
+// ===========================================================================
+
+#[test]
+fn way_of_the_turtle_sets_the_card_aside_for_next_turn() {
+    let mut g = with_way(I::WAY_OF_THE_TURTLE, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_TURTLE);
+    adv(&mut g);
+    assert_eq!(g.players[0].in_play.get(I::SMITHY), 0);
+    assert_eq!(g.players[0].pending_durations_len, 1);
+    assert_eq!(g.players[0].all_cards().get(I::SMITHY), 1);
+}
+
+#[test]
+fn a_card_set_aside_by_way_of_the_turtle_is_played_at_the_start_of_the_next_turn() {
+    let mut g = with_way(I::WAY_OF_THE_TURTLE, &[I::SMITHY], &[I::SMITHY]);
+    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_TURTLE);
+    adv(&mut g);
+    let mut guard = 0;
+    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
+        guard += 1;
+        settle_pass(&mut g);
+    }
+    if let Step::Decision(d) = adv(&mut g) {
+        assert!(matches!(d.kind, DecisionKind::Way), "{d:?}");
+        choose(&mut g, Choice::Pass);
+    }
+    adv(&mut g);
+    assert_eq!(g.players[0].in_play.get(I::SMITHY), 1, "Smithy is in play");
+    assert_eq!(g.players[0].hand.total(), 5 + 3, "a hand and Smithy's 3 Cards");
+}
+
+// ===========================================================================
+// Exile
+// ===========================================================================
+
+#[test]
 fn text_round_trip_keeps_exile_horses_and_ways() {
     let mut g = with_way(I::WAY_OF_THE_OWL, &[I::SMITHY, I::SLEIGH, I::STOCKPILE], &[I::SMITHY]);
     g.players[0].men.exile.add(I::SMITHY, 2);
@@ -1478,6 +1916,18 @@ fn text_round_trip_keeps_exile_horses_and_ways() {
     assert_eq!(strip_seed(&format_state(&h)), strip_seed(&text));
     assert_eq!(h.players[0].men.exile.get(I::SMITHY), 2);
     assert_eq!(h.supply.get(I::HORSE), g.supply.get(I::HORSE));
+}
+
+// ===========================================================================
+// Ways
+// ===========================================================================
+
+#[test]
+fn no_way_decision_in_a_game_without_ways() {
+    let mut g = game(&[I::SMITHY]);
+    set_hand(&mut g, 0, &[I::SMITHY]);
+    play(&mut g, I::SMITHY);
+    assert_eq!(g.players[0].hand.total(), 3);
 }
 
 fn strip_seed(s: &str) -> String {
@@ -1539,218 +1989,4 @@ fn exile_discard_on_gain_conserves_cards() {
     assert_eq!(ex(&g, 0, I::SILVER), 0);
     assert_eq!(g.players[0].discard.get(I::SILVER), 4);
     assert_eq!(total_cards(&g), before, "bought from the Supply: nothing is made");
-}
-
-// ===========================================================================
-// Audit: bugs found by reading the cards against the wiki
-// ===========================================================================
-
-#[test]
-fn demand_resolves_the_horses_reactions_before_the_second_card_is_gained() {
-    let mut g = at_buy(&[I::DEMAND, I::SLEIGH, I::SMITHY], 5, &[I::SLEIGH]);
-    expect_decision(&mut g);
-    buy(&mut g, I::DEMAND);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.subject == I::SLEIGH && d.target == I::HORSE, "{d:?}");
-    choose(&mut g, Choice::Yes);
-    choose(&mut g, Choice::Mode(0)); // into the hand
-    choose(&mut g, Choice::Card(I::SMITHY));
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.get(I::HORSE), 1);
-    assert_eq!(g.players[0].deck_known.peek_top(), Some(I::SMITHY));
-}
-
-#[test]
-fn alliance_gains_one_card_at_a_time_so_a_reaction_to_the_first_comes_first() {
-    let mut g = at_buy(&[I::ALLIANCE, I::SLEIGH], 10, &[I::SLEIGH]);
-    expect_decision(&mut g);
-    buy(&mut g, I::ALLIANCE);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.subject == I::SLEIGH, "{d:?}");
-    assert_eq!(d.target, I::PROVINCE, "the Province is gained first");
-}
-
-#[test]
-fn commerce_gains_its_golds_one_at_a_time() {
-    let mut g = at_buy(&[I::COMMERCE, I::SLEIGH, I::SMITHY], 5, &[]);
-    expect_decision(&mut g);
-    g.turn.buys = 3;
-    g.gain_card(0, I::SMITHY, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.gain_card(0, I::SILVER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.players[0].hand.add(I::SLEIGH, 1);
-    buy(&mut g, I::COMMERCE);
-    // The first Gold is gained and its reaction resolved (Sleigh declined) before the second Gold.
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.target == I::GOLD, "{d:?}");
-    assert_eq!(g.players[0].discard.get(I::GOLD), 1, "only one Gold gained so far");
-    choose(&mut g, Choice::No);
-    let d = expect_decision(&mut g);
-    assert!(matches!(d.kind, DecisionKind::YesNo { act: Act::Discard }) && d.target == I::GOLD, "{d:?}");
-    assert_eq!(g.players[0].discard.get(I::GOLD), 2);
-}
-
-#[test]
-fn livery_does_not_give_a_horse_for_a_fisherman_gained_while_it_cost_two() {
-    // Empty discard pile: Fisherman costs $2 as it is gained.
-    let mut g = game(&[I::LIVERY, I::FISHERMAN, I::SLEIGH]);
-    set_hand(&mut g, 0, &[I::LIVERY]);
-    play(&mut g, I::LIVERY);
-    assert!(g.players[0].discard.is_empty());
-    g.gain_card(0, I::FISHERMAN, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::HORSE), 0, "cost $2 when gained");
-    // A non-empty discard pile: it costs $5.
-    let mut g = game(&[I::LIVERY, I::FISHERMAN, I::SLEIGH]);
-    set_hand(&mut g, 0, &[I::LIVERY]);
-    set_discard(&mut g, 0, &[I::COPPER]);
-    play(&mut g, I::LIVERY);
-    g.gain_card(0, I::FISHERMAN, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
-}
-
-#[test]
-fn livery_checks_destriers_cost_as_it_is_gained() {
-    let mut g = game(&[I::LIVERY, I::DESTRIER, I::SLEIGH]);
-    set_hand(&mut g, 0, &[I::LIVERY]);
-    play(&mut g, I::LIVERY);
-    // Destrier is the 1st card gained: $6 -> a Horse.
-    g.gain_card(0, I::DESTRIER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::HORSE), 1);
-    // Three cards gained so far (Destrier, Horse, Silver...): a Destrier now costs $3 or less.
-    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    g.gain_card(0, I::COPPER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    let h = g.players[0].discard.get(I::HORSE);
-    g.gain_card(0, I::DESTRIER, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    assert_eq!(g.players[0].discard.get(I::HORSE), h, "the Destrier cost less than $4 as it was gained");
-}
-
-#[test]
-fn kiln_gains_the_copy_of_a_stockpile_before_the_played_one_is_exiled() {
-    let mut g = game(&[I::KILN, I::STOCKPILE]);
-    g.players[0].men.exile.add(I::STOCKPILE, 1);
-    g.men.hook |= dominion_engine::state::H_EXILE;
-    set_hand(&mut g, 0, &[I::KILN, I::STOCKPILE]);
-    play(&mut g, I::KILN);
-    let mut guard = 0;
-    loop {
-        guard += 1;
-        assert!(guard < 12);
-        let d = expect_decision(&mut g);
-        match d.kind {
-            DecisionKind::Gain { .. } => {
-                choose(&mut g, Choice::Card(I::STOCKPILE));
-            }
-            DecisionKind::YesNo { act: Act::Discard } => {
-                choose(&mut g, Choice::Yes); // discard the Stockpile on the mat
-            }
-            DecisionKind::Buy => break,
-            _ => {
-                pass(&mut g);
-            }
-        }
-    }
-    assert_eq!(ex(&g, 0, I::STOCKPILE), 1, "the one played is Exiled last");
-    assert_eq!(g.players[0].discard.get(I::STOCKPILE), 2, "the copy and the discarded one");
-}
-
-#[test]
-fn a_gatekeepers_attack_ends_when_its_owners_next_turn_starts() {
-    let mut g = game(&[I::GATEKEEPER, I::SMITHY]);
-    set_hand(&mut g, 0, &[I::GATEKEEPER]);
-    play(&mut g, I::GATEKEEPER);
-    let mut guard = 0;
-    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
-        guard += 1;
-        settle_pass(&mut g);
-    }
-    assert_eq!(g.players[0].men.gk, 0);
-    assert_eq!(g.turn.coins, 3, "+$3 at the start of the turn");
-    g.gain_card(1, I::SMITHY, Dest::Discard, &mut NoEvents);
-    adv(&mut g);
-    assert_eq!(ex(&g, 1, I::SMITHY), 0);
-}
-
-#[test]
-fn goatherd_as_way_of_the_mouses_card_counts_the_trashes() {
-    let cfg = GameConfig { num_players: 2, kingdom: vec![I::SMITHY, I::CHAPEL, I::WAY_OF_THE_MOUSE], seed: 1, max_turns: 100, mouse: Some(I::GOATHERD), ..Default::default() };
-    let g = GameState::new(&cfg);
-    assert_eq!(g.men.mouse, I::GOATHERD);
-    assert_ne!(g.men.flags & dominion_engine::state::M_TRASHES, 0, "the trashes are counted");
-}
-
-#[test]
-fn a_way_used_on_the_first_action_uses_up_enchantresss_effect() {
-    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::ENCHANTRESS, I::SMITHY], &[I::SMITHY, I::SMITHY]);
-    g.players[0].ench_by = 2;
-    g.emp.flags |= dominion_engine::state::E_ENCHANT;
-    g.turn.actions = 2;
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SHEEP);
-    adv(&mut g);
-    assert_eq!(g.turn.coins, 2);
-    // The second Action is no longer the first: it does what it says.
-    play(&mut g, I::SMITHY);
-    choose(&mut g, Choice::Pass);
-    adv(&mut g);
-    assert_eq!(g.players[0].hand.total(), 3, "Smithy drew 3");
-}
-
-#[test]
-fn great_leader_gives_an_action_after_an_action_played_as_a_way() {
-    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::SMITHY], &[I::SMITHY]);
-    g.rs.active = I::GREAT_LEADER;
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_SHEEP);
-    adv(&mut g);
-    assert_eq!(g.turn.actions, 1, "0 left + 1 from Great Leader");
-}
-
-#[test]
-fn approaching_army_gives_a_coin_for_an_attack_played_as_a_way() {
-    let mut g = with_way(I::WAY_OF_THE_SHEEP, &[I::COVEN], &[I::COVEN]);
-    g.rs.active = I::APPROACHING_ARMY;
-    play_as(&mut g, I::COVEN, I::WAY_OF_THE_SHEEP);
-    adv(&mut g);
-    assert_eq!(g.turn.coins, 2 + 1);
-}
-
-#[test]
-fn a_card_set_aside_by_way_of_the_turtle_is_played_at_the_start_of_the_next_turn() {
-    let mut g = with_way(I::WAY_OF_THE_TURTLE, &[I::SMITHY], &[I::SMITHY]);
-    play_as(&mut g, I::SMITHY, I::WAY_OF_THE_TURTLE);
-    adv(&mut g);
-    let mut guard = 0;
-    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
-        guard += 1;
-        settle_pass(&mut g);
-    }
-    if let Step::Decision(d) = adv(&mut g) {
-        assert!(matches!(d.kind, DecisionKind::Way), "{d:?}");
-        choose(&mut g, Choice::Pass);
-    }
-    adv(&mut g);
-    assert_eq!(g.players[0].in_play.get(I::SMITHY), 1, "Smithy is in play");
-    assert_eq!(g.players[0].hand.total(), 5 + 3, "a hand and Smithy's 3 Cards");
-}
-
-#[test]
-fn reap_plays_its_gold_at_the_start_of_the_next_turn() {
-    let mut g = at_buy(&[I::REAP], 7, &[]);
-    expect_decision(&mut g);
-    buy(&mut g, I::REAP);
-    adv(&mut g);
-    let mut guard = 0;
-    while !(g.turn.player == 0 && g.turn.number > 2) && guard < 80 {
-        guard += 1;
-        settle_pass(&mut g);
-    }
-    assert_eq!(g.players[0].in_play.get(I::GOLD), 1);
-    assert_eq!(g.turn.coins, 3);
 }

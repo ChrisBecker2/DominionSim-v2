@@ -492,10 +492,3 @@ fn a_treasure_hunter_is_not_played_when_it_would_gain_a_pile_of_silvers() {
     assert_eq!(decide(&strat, &g, &d, &ch), Choice::Pass);
 }
 
-#[test]
-fn the_default_for_a_second_champion_assumes_its_action_does_not_stack_but_the_engine_stacks_it() {
-    // docs/adventures-plan.md says a second Champion's +1 Action "does not stack"; the engine gives +1 Action per Champion in play
-    // (`two_champions_each_give_an_action_per_action_played`). The default still declines the exchange (`a_hero_is_not_exchanged_for_a_second_champion`).
-    let strat = money("search_play = false");
-    assert_eq!(hero_exchange(&strat, "Champion, 5 Copper"), Choice::No);
-}

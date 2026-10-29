@@ -737,12 +737,12 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
     let p = g.turn.player as usize;
     let ps = &g.players[p];
     match e {
-        ids::BURY => !ps.discard.is_empty(),
+        // (Bury's +1 Buy comes even with an empty discard pile.)
         ids::PERIL => ps.hand.iter().any(|(c, _)| g.is_action(c)),
-        ids::LAUNCH => g.turn.phase == Phase::Buy,
         ids::PREPARE => !ps.hand.is_empty(),
         ids::JOURNEY => !g.turn.plu.journey,
-        ids::MAELSTROM => !ps.hand.is_empty(),
+        // The others with 5 or more cards in hand trash one even when the buyer has nothing to trash.
+        ids::MAELSTROM => !ps.hand.is_empty() || (0..g.num_players as usize).any(|q| q != p && g.players[q].hand.total() >= 5),
         ids::FORAY => !ps.hand.is_empty(),
         ids::LOOTING | ids::INVASION | ids::PROSPER => true,
         _ => true,
@@ -781,12 +781,10 @@ pub(crate) fn event_effect<S: EventSink>(g: &mut GameState, e: CardId, p: u8, si
         ids::FORAY => g.stack.push(select(p, e, Zone::Hand, Discard, Filter::Any, 3, 3, Then::Plu(T_FORAY))),
         ids::LAUNCH => {
             // Back to the Action phase: +1 Card, +1 Action and +1 Buy.
-            g.turn.phase = Phase::Action;
-            g.turn.treasures_done = false;
+            g.back_to_action_phase(p, sink);
             g.turn.actions += 1;
             g.turn.buys += 1;
             sink.bonus(p, e, 1, 1, 0, 0);
-            sink.event(Event::PhaseStart { player: p, phase: Phase::Action });
             g.stack.push(draw_frame(p, e, 1));
         }
         ids::MIRROR => {

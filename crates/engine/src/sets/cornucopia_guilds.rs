@@ -263,7 +263,8 @@ impl SetRules for CornucopiaGuilds {
     /// Merchant Guild: +1 Coffers per card gained this Buy phase, per play (at the end of the Buy phase).
     fn end_of_buy<S: EventSink>(g: &mut GameState, sink: &mut S) {
         if g.turn.guilds > 0 {
-            let n = g.turn.guilds as u16 * g.turn.gained_in_buy as u16;
+            // "per card you gained in it": this Buy phase's gains (a turn can have several, Villa).
+            let n = g.turn.guilds as u16 * g.turn.gained_in_buy.saturating_sub(g.turn.buy_gain_base) as u16;
             if n > 0 {
                 let p = g.turn.player;
                 g.players[p as usize].coffers += n;

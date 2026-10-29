@@ -29,6 +29,7 @@
 //! `prince:` lists the Action cards its Princes set aside, `prince stays:` the Princes (and Throne
 //! Rooms / King's Courts) that hold cards and so stay in play (cleanup keeps them). If a
 //! hand-written state has `prince:` but no `prince stays:`, one Prince in play is taken to hold them.
+//! `champions:` is the number of Champion effects (two for a Throne-Roomed Champion); without it each Champion in play has one and stays.
 //!
 //! Cornucopia & Guilds: `bane: <card>` and `ferryman: <card>` name the set-up piles (the Bane is also
 //! in `kingdom:`, being a Supply pile; Ferryman's is not), `side piles: Card=N, ...` the cards left in
@@ -1154,8 +1155,11 @@ pub fn format_state(state: &GameState) -> String {
         if ps.inherit != 0 {
             out.push_str(&format!("inherit: {}\n", cards::name(ps.inherit)));
         }
-        if ps.saved != 0 {
-            out.push_str(&format!("saved: {}\n", cards::name(ps.saved)));
+        if ps.champions() != 0 || ps.in_play.has(cards::id::CHAMPION) {
+            out.push_str(&format!("champions: {}\n", ps.champions()));
+        }
+        if let Some(s) = ps.saved_card() {
+            out.push_str(&format!("saved: {}\n", cards::name(s)));
         }
         // Empires: Debt, the Archives' cards, the Enchantresses that affect the player, Donate.
         if ps.debt > 0 {
@@ -1848,6 +1852,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 
         let mut ps = PlayerState::default();
         let mut plot_tokens = 0u8;
+        let mut champions: Option<u8> = None;
         while i < lines.len() {
             let ln2 = i + 1;
             let l2 = lines[i].trim();
@@ -1979,7 +1984,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                     }
                 }
                 "inherit" => ps.inherit = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
-                "saved" => ps.saved = cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?,
+                "saved" => ps.set_saved(Some(cards::by_name(val).ok_or_else(|| format!("line {ln2}: unknown card '{val}'"))?)),
                 "biding" | "rapid" => ps.aside = parse_small_multiset(val, "biding").map_err(|e| format!("line {ln2}: {e}"))?,
                 "foresight" => ps.foresight = parse_small_multiset(val, "foresight").map_err(|e| format!("line {ln2}: {e}"))?,
                 "rs gold" => {
@@ -2030,6 +2035,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 }
                 "prince" => ps.prince_cards = parse_small_multiset::<PRINCE_CAP>(val, "prince").map_err(|e| format!("line {ln2}: {e}"))?,
                 "stays" | "prince stays" => ps.stays = parse_small_multiset::<STAYS_CAP>(val, "stays").map_err(|e| format!("line {ln2}: {e}"))?,
+                "champions" => champions = Some(val.parse().map_err(|_| format!("line {ln2}: invalid champions '{val}'"))?),
                 "native village" => ps.native_village_mat = parse_small_multiset(val, "native village").map_err(|e| format!("line {ln2}: {e}"))?,
                 "island" => ps.island_mat = parse_small_multiset(val, "island").map_err(|e| format!("line {ln2}: {e}"))?,
                 "last turn gains" => ps.last_turn_gains = parse_small_multiset(val, "last turn gains").map_err(|e| format!("line {ln2}: {e}"))?,
@@ -2044,6 +2050,19 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
                 other => return Err(format!("line {ln2}: unknown field '{other}' in player block")),
             }
             i += 1;
+        }
+        // Champion: a hand-written state without `champions:` gives each Champion in play its one effect and keeps it in play.
+        match champions {
+            Some(n) => ps.set_champions(n),
+            None if ps.in_play.has(cards::id::CHAMPION) => {
+                let n = ps.in_play.get(cards::id::CHAMPION);
+                ps.set_champions(n);
+                let stays = ps.stays.get(cards::id::CHAMPION);
+                if stays < n {
+                    ps.stays.add(cards::id::CHAMPION, n - stays);
+                }
+            }
+            None => {}
         }
         state.players[p] = ps;
         state.ren.plot[p] = plot_tokens;
@@ -2084,7 +2103,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         if ps.tok[TOK_TRASH] != 0 {
             state.adv |= G_TRASH_TOKEN;
         }
-        if ps.in_play.has(cards::id::CHAMPION) {
+        if ps.champions() != 0 {
             state.adv |= G_CHAMPION;
         }
     }

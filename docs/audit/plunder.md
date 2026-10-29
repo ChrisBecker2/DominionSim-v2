@@ -80,7 +80,7 @@ OK. Trickster OK. Wealthy Village OK. Sack of Loot OK. King's Cache OK.
 Loot (15): Amphora OK. Doubloons OK. Endless Chalice OK. Figurehead OK. Hammer OK. Insignia OK. Jewels OK. Orb OK. Prize Goat OK. Puzzle Box OK. Sextant OK. Shield OK. Spell
 Scroll OK (after the cost fix). Staff OK. Sword OK. The Loot pile (30 cards, outside the Supply, revealed when gained, shuffled only in games with a Loot gainer) OK.
 
-Events (15): Bury OK (note: not offered with an empty discard pile). Avoid OK (too-few-cards case open). Deliver OK. Peril OK. Rush OK (after the fix). Foray OK. Launch OK. Mirror
+Events (15): Bury OK (offered with an empty discard pile too since 2026-10-28: its +1 Buy still counts). Avoid OK (too-few-cards case open). Deliver OK. Peril OK. Rush OK (after the fix). Foray OK. Launch OK. Mirror
 OK. Prepare OK. Scrounge OK. Journey OK. Maelstrom OK. Looting OK. Invasion OK. Prosper OK.
 
 Traits (15): Cheap OK. Cursed OK. Fated OK. Fawning OK. Friendly OK. Hasty OK. Inherited OK. Inspiring OK. Nearby OK. Patient OK. Pious OK. Reckless OK (reveal window open).
@@ -220,7 +220,7 @@ Test names are in `crates/engine/tests/plunder_cards.rs` unless said otherwise. 
 | Loot pile | 15 x 2, shuffled only with a gainer, revealed, not buyable | `a_game_with_a_loot_gainer_has_the_loot_pile_and_others_do_not`, `the_ids_and_piles_line_up`, `the_loot_is_drawn_by_chance_in_the_search` |
 | Loot pile | exchanged Loot (Changeling) goes back on top | not tested: needs Changeling's flow; `return_to_own_pile` is shared with the Reckless test |
 | Bury | mandatory; +1 Buy | `bury_puts_a_card_of_the_discard_pile_on_the_bottom_of_the_deck` |
-| Bury | cannot look at the discard pile before buying | open note: the Event is not offered with an empty discard pile |
+| Bury | cannot look at the discard pile before buying | offered with an empty discard pile (fixed 2026-10-28) |
 | Avoid | cumulative (2 Avoids: up to 6) | `avoid_is_cumulative` |
 | Avoid | no shuffle: nothing | `avoid_does_nothing_without_a_shuffle` |
 | Avoid | too few cards left: no second shuffle | `avoid_leaving_too_few_cards_does_not_shuffle_again` (ignored: open) |

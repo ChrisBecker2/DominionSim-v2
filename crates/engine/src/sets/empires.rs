@@ -515,9 +515,7 @@ impl SetRules for Empires {
                     g.turn.actions += 1;
                     sink.bonus(p, c, 1, 0, 0, 0);
                     if g.turn.phase == Phase::Buy {
-                        g.turn.phase = Phase::Action;
-                        g.turn.treasures_done = false;
-                        sink.event(Event::PhaseStart { player: p, phase: Phase::Action });
+                        g.back_to_action_phase(p, sink);
                     }
                 }
             }
@@ -921,7 +919,7 @@ pub(crate) fn event_available(g: &GameState, e: CardId) -> bool {
         ids::DOMINATE => supply(id::PROVINCE),
         ids::DONATE => g.players[p].emp & P_DONATE == 0,
         ids::RITUAL => supply(id::CURSE) && !g.players[p].hand.is_empty(),
-        ids::SALT_THE_EARTH => g.supply_cards().any(|c| g.supply.get(c) > 0 && cards::is(c, VIC) && g.pile_open(c)),
+        // (Salt the Earth's +1 VP comes even with no Victory card to trash.)
         ids::TRIUMPH => supply(id::ESTATE),
         ids::WINDFALL => g.players[p].deck_size() == 0 && g.players[p].discard.is_empty() && supply(id::GOLD),
         _ => true,

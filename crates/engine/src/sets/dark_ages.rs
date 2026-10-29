@@ -398,10 +398,11 @@ impl SetRules for DarkAges {
                 });
             }
             id::BAND_OF_MISFITS => {
-                // A non-Duration Action in the Supply costing less than this card now; it stays there.
+                // A non-Command non-Duration Action in the Supply costing less than this card now (both costs after any reduction: a
+                // Band of Misfits that costs $0 plays nothing); it stays there.
                 let cost = g.cost(card);
                 if cost > 0 {
-                    g.stack.push(select(p, card, Zone::Supply, Play, Filter::ActionCostUpTo(cost - 1), 1, 1, Then::PlayPicked { times: 1 }));
+                    g.stack.push(select(p, card, Zone::Supply, Play, Filter::CommandCostUpTo(cost - 1), 1, 1, Then::PlayPicked { times: 1 }));
                 }
             }
             id::BANDIT_CAMP => {

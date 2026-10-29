@@ -3011,7 +3011,7 @@ fn player_json(state: &GameState, p: usize) -> String {
         mcard = ps.adv & dominion_engine::state::ADV_MINUS_CARD != 0,
         mcoin = ps.adv & dominion_engine::state::ADV_MINUS_COIN != 0,
         inherit = if ps.inherit != 0 { jstr(cards::name(ps.inherit)) } else { "null".to_string() },
-        saved = if ps.saved != 0 { jstr(cards::name(ps.saved)) } else { "null".to_string() },
+        saved = ps.saved_card().map_or("null".to_string(), |s| jstr(cards::name(s))),
         bought = {
             let items: Vec<String> = ps.events_bought.events().map(|e| jstr(cards::name(e))).collect();
             format!("[{}]", items.join(","))

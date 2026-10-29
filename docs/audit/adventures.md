@@ -19,8 +19,8 @@ Counts: 6 bugs found, 6 fixed, 3 left open (below) + 1 policy note with an ignor
 
 ## Open issues (ignored `audit:` tests)
 
-1. **End-of-Buy-phase offers once per turn.** `end_buy_phase` runs `end_of_buy` once (`treasury_offered`), so Wine Merchant's discard is offered only at the true end of the turn, not when Villa / Cavalry / Continue / Launch return the player to the Action phase (Wine Merchant FAQ). Test: `wine_merchant_may_be_discarded_when_a_villa_returns_the_player_to_the_action_phase_with_two_unspent` (ignored). Needs the shared turn flow.
-2. **Messenger in a second Buy phase.** `adventures.rs:472` tests `gained_in_buy == 1`, a per-turn count shared with Merchant Guild / Exploration / Hunting Grounds; a Messenger bought in the second Buy phase of a Villa turn does nothing (Messenger FAQ: "you can use Messenger's on-gain effect multiple times in the same turn"). Test: `messenger_works_again_in_a_second_buy_phase_taken_with_villa` (ignored). Fix: a per-Buy-phase counter reset where the Buy phase starts.
+1. **Fixed (2026-10-28):** `GameState::back_to_action_phase` (Villa, Cavalry, Continue, Launch) runs the end-of-Buy-phase hooks for each Buy phase; Merchant Guild and Exploration count that Buy phase only. Was: **End-of-Buy-phase offers once per turn.** `end_buy_phase` runs `end_of_buy` once (`treasury_offered`), so Wine Merchant's discard is offered only at the true end of the turn, not when Villa / Cavalry / Continue / Launch return the player to the Action phase (Wine Merchant FAQ). Test: `wine_merchant_may_be_discarded_when_a_villa_returns_the_player_to_the_action_phase_with_two_unspent` (ignored). Needs the shared turn flow.
+2. **Fixed (2026-10-28):** Messenger compares with `buy_gain_base`. Was: **Messenger in a second Buy phase.** `adventures.rs:472` tests `gained_in_buy == 1`, a per-turn count shared with Merchant Guild / Exploration / Hunting Grounds; a Messenger bought in the second Buy phase of a Villa turn does nothing (Messenger FAQ: "you can use Messenger's on-gain effect multiple times in the same turn"). Test: `messenger_works_again_in_a_second_buy_phase_taken_with_villa` (ignored). Fix: a per-Buy-phase counter reset where the Buy phase starts.
 3. **Seaway cannot gain an Estate for a player with Inheritance** (the gain filter tests printed types; Estates are Actions on the Inheriting player's turn; Seaway FAQ: "with Inheritance, you can put the +1 Buy token on Estates"). Test: `seaway_can_gain_an_estate_for_a_player_with_inheritance_and_put_the_token_on_the_estate_pile` (ignored).
 
 Known limitation of the Warrior fix: for Tunnel/Trail/Weaver/Village Green the trash is a forced `Select` of "that name from the discard pile", so if the victim already had another copy of the same card in the discard pile and plays the discarded one (Village Green / Trail / Weaver), the other copy is trashed instead (stop-moving rule not tracked here).
@@ -28,8 +28,8 @@ Known limitation of the Warrior fix: for Tunnel/Trail/Weaver/Village Green the t
 ## Policy notes (bots)
 
 - Treasure Hunter is always played (`worth_playing` default true). Wiki (Treasure Hunter): "gaining two or more Silvers is less likely to be desirable ... Later in the game, it can often be preferable to avoid playing Treasure Hunter". Test: `a_treasure_hunter_is_not_played_when_it_would_gain_a_pile_of_silvers` (ignored, fails today).
-- Hero is not exchanged for a second Champion because "its +1 Action does not stack" (`defaults/adventures.rs:58`, plan doc 3.4). The engine does stack it (each Champion in play gives +1 Action per Action played), so two Champions make every Action a village; the premise is wrong. Documented by `the_default_for_a_second_champion_assumes_its_action_does_not_stack_but_the_engine_stacks_it` and `two_champions_each_give_an_action_per_action_played`.
-- Open rules question (not changed): a Throne-Roomed Champion counts once (`in_play.get(CHAMPION)`), whereas Hireling counts each play (Hireling FAQ). The wiki is silent for Champion.
+- Hero is not exchanged for a second Champion. The old reason ("its +1 Action does not stack") was wrong: each Champion effect gives +1 Action per Action played (`two_champions_each_give_an_action_per_action_played`). The default is kept on measurement: with one Champion every Action is already free to play, and keeping the Hero won 51.1% against exchanging it (two Pages and Smithies, 20000 games).
+- Resolved: Champion effects are counted per play (`PlayerState::champions`), so a Throne-Roomed Champion gives +2 Actions per Action (as Hireling's FAQ counts each play); a Champion taken out of play (Throne Room with Way of the Horse) works until the end of that turn (wiki), and its Throne Room is then discarded. Tests: `a_throne_roomed_champion_is_two_champion_effects_for_the_rest_of_the_game`, `a_champion_returned_by_way_of_the_horse_works_until_the_end_of_the_turn`, `a_champion_played_as_way_of_the_horse_first_then_as_itself_works_this_turn_only`, `two_champions_give_their_actions_before_snowy_village_and_nothing_after`.
 - Gear's default set-aside (`gear_pick`) has dead code (`coins_in_play * 0`); only sets aside Actions when no Actions are left or Treasures at $11+. Wiki (Gear): "set aside junk to miss a reshuffle", "set aside a terminal that collides" are not modelled. Not changed.
 - Wiki (Page / Peasant): "Most importantly, exchanging for Teacher causes you to lose out on the explosive power of Disciple"; default always exchanges (a stated `[[exchange]]` rule can keep the card).
 - Whole-set bot fuzz added: `bots_that_buy_every_adventures_card_and_event_play_whole_games_without_an_illegal_choice` (no illegal Pass / choice found).
@@ -48,7 +48,7 @@ All 30 kingdom cards, the 8 Traveller upgrades, the 20 Events, the 10 tokens and
 | Caravan Guard | Fixed (multiple copies) |
 | Duplicate | Fixed (Debt) |
 | Magpie | OK |
-| Messenger | OK for the first Buy phase; open issue 2 |
+| Messenger | OK (second Buy phase fixed) |
 | Miser | OK (Coppers on the mat count for Gardens; mat capacity 10 distinct ids is exactly enough) |
 | Port | OK |
 | Ranger, Giant | OK (shared Journey token; Giant reactions even when face down; $3-$6 test excludes Potion) |
@@ -61,7 +61,7 @@ All 30 kingdom cards, the 8 Traveller upgrades, the 20 Events, the 10 tokens and
 | Royal Carriage | OK |
 | Storyteller | OK (2022 text) |
 | Treasure Trove | OK |
-| Wine Merchant | OK at the end of the turn; open issue 1 |
+| Wine Merchant | OK (return to the Action phase fixed) |
 | Hireling | OK |
 | Treasure Hunter | OK (counts every gain; exchanges are not gains) |
 | Warrior | Fixed (Tunnel etc.) |
@@ -123,7 +123,7 @@ All 30 kingdom cards, the 8 Traveller upgrades, the 20 Events, the 10 tokens and
 | Messenger | +1 Buy +$2, may discard the deck | `messenger_gives_a_buy_and_two_coins_and_may_discard_the_deck` |
 | Messenger | first gain in the Buy phase; others copy; not otherwise | `messenger_gains_a_card_for_everyone_when_it_is_the_first_gain_of_the_buy_phase`, `messenger_does_nothing_extra_when_it_is_not_the_first_gain_or_not_in_the_buy_phase` |
 | Messenger | gained by Ball counts | `messenger_gained_by_ball_first_in_the_buy_phase_gives_everyone_a_card` (new) |
-| Messenger | second Buy phase (Villa) | `messenger_works_again_in_a_second_buy_phase_taken_with_villa` (new, ignored: open issue 2) |
+| Messenger | second Buy phase (Villa) | `messenger_works_again_in_a_second_buy_phase_taken_with_villa` (passes) |
 | Messenger | no Tunnel trigger; copies run out for later players; Watchtower trick | not tested: copies running out is `push_gain_to_each` generic code; Tunnel/Watchtower belong to other sets |
 | Miser | both choices with nothing to do; mat Coppers score | `miser_puts_coppers_on_the_mat_or_pays_for_them`, `miser_with_no_copper_in_the_hand_does_nothing_and_mat_coppers_score` (new), `a_tavern_mat_holds_many_coppers_and_other_reserves_together` (new) |
 | Port | gain another Port that has none; pile of 12 | `port_comes_with_another_port_that_does_not_come_with_another`, `set_up_has_the_piles_the_traveller_lines_and_the_events` |
@@ -151,7 +151,7 @@ All 30 kingdom cards, the 8 Traveller upgrades, the 20 Events, the 10 tokens and
 | Treasure Trove | $2; Gold and Copper; one pile empty | `treasure_trove_gains_a_gold_and_a_copper`, `treasure_trove_still_gains_the_other_card_when_one_pile_is_empty` (new) |
 | Wine Merchant | +1 Buy +$4; mat; $2 total for several; Throne Room | `wine_merchant_is_discarded_from_the_mat_with_two_coins_unspent`, `wine_merchant_needs_two_unspent_in_total_and_is_kept_otherwise`, `wine_merchant_throned_gives_its_bonus_both_times_and_goes_to_the_mat_once` (new) |
 | Wine Merchant | unplayed Treasures are not unspent | `unplayed_treasures_in_hand_are_not_unspent_money_for_wine_merchant` (new) |
-| Wine Merchant | discard on return to the Action phase (Villa) | `wine_merchant_may_be_discarded_when_a_villa_returns_the_player_to_the_action_phase_with_two_unspent` (new, ignored: open issue 1) |
+| Wine Merchant | discard on return to the Action phase (Villa) | `wine_merchant_may_be_discarded_when_a_villa_returns_the_player_to_the_action_phase_with_two_unspent` (passes) |
 | Hireling | +1 Card every turn; stays in play; Throne Room draws two and keeps the Throne Room | `hireling_draws_a_card_at_the_start_of_every_turn_for_the_rest_of_the_game`, `a_throne_roomed_hireling_draws_two_and_keeps_the_throne_room_with_it` |
 | Hireling | Royal Carriage replay draws two | `a_hireling_played_twice_by_royal_carriage_draws_two_cards_each_turn` (new) |
 | Hireling | played at the start of a turn (Piazza) draws at once; removed from play stops; tokens only on new plays | not tested: Piazza needs Renaissance Project state; "removed from play" needs a Way |
@@ -187,7 +187,7 @@ All 30 kingdom cards, the 8 Traveller upgrades, the 20 Events, the 10 tokens and
 | Ball | -$1 token once; two cards up to $4; repeatable | `ball_takes_the_minus_coin_token_once_and_gains_two_cards_up_to_four`, `ball_costing_five_with_the_token_makes_the_next_money_a_coin_short` |
 | Raid | Silver per Silver in play; what is left; token to others; not an Attack | `raid_gains_a_silver_per_silver_in_play_and_gives_the_others_the_minus_one_card_token`, `raid_cannot_be_blocked_by_a_moat_or_a_champion`, `raid_gains_what_is_left_when_there_are_not_enough_silvers` (new) |
 | Seaway | Action up to $4, token to its pile (after the gain) | `seaway_gains_an_action_up_to_four_and_puts_the_buy_token_on_its_pile`, `seaway_puts_the_buy_token_on_the_knights_pile_when_a_knight_is_gained` (new, conditional on the Knights top card), `seaway_is_not_available_when_only_a_debt_cost_action_is_left` (new) |
-| Seaway | Castles / Estates with Inheritance; token after on-gain effects (Innovation) | Estates: `seaway_can_gain_an_estate_...` (new, ignored: open issue 3); Castles / Innovation not tested |
+| Seaway | Castles / Estates with Inheritance; token after on-gain effects (Innovation) | Estates: `seaway_can_gain_an_estate_...` (passes); Castles / Innovation not tested |
 | Trade | up to 2; Silver per card trashed | `trade_trashes_up_to_two_cards_for_a_silver_each`, `trade_may_trash_nothing` |
 | Lost Arts / Training / Pathfinding | token to an Action pile; bonus before the card | `lost_arts_training_and_pathfinding_move_their_tokens`, `a_token_on_a_pile_gives_its_bonus_each_time_a_card_from_it_is_played`, `tokens_apply_to_every_play_of_a_throne_roomed_card_and_not_to_other_piles` |
 | Inheritance | once per game; non-Command non-Duration Action up to $4; Estates play it | `inheritance_sets_an_action_aside_and_makes_estates_play_it`, `inheritance_is_once_per_game`, `inheritance_does_not_offer_duration_or_command_cards_or_cards_over_four` (new) |

@@ -42,7 +42,7 @@ Rising Sun kingdom cards (25): Mountain Shrine OK; Daimyo OK; Artist OK; Fishmon
 Riverboat fixed (#5); Root Cellar OK; Alley OK; Ninja OK; Poet OK; River Shrine OK; Rustic Village OK; Gold Mine OK; Imperial Envoy OK; Kitsune OK; Litter OK;
 Rice Broker OK; Ronin OK; Tanuki OK; Tea House OK (mark: choice-free is slightly optimistic when the last Sun token is removed with Kind Emperor, whose gain is a
 decision; the card is still played correctly, only the bot's shortcut); Samurai OK; Rice OK; Change OK (tests in `empires_cards.rs`).
-Events (10): Amass OK (availability: open), Asceticism OK, Continue OK, Credit OK, Foresight fixed (#2), Gather OK, Kintsugi OK, Practice OK, Receive Tribute OK, Sea Trade OK.
+Events (10): Amass OK (offered with an Action in play since 2026-10-28), Asceticism OK, Continue OK, Credit OK, Foresight fixed (#2), Gather OK, Kintsugi OK, Practice OK, Receive Tribute OK, Sea Trade OK.
 Prophecies (15): Approaching Army fixed (#3), Biding Time OK, Bureaucracy OK, Divine Wind (disabled; #6), Enlightenment OK (Highwayman open), Flourishing Trade OK,
 Good Harvest OK, Great Leader fixed (#3), Growth OK, Harsh Winter OK (caps noted), Kind Emperor OK, Panic fixed (#1), Progress OK, Rapid Expansion OK, Sickness OK.
 Omen, Shadow, Sun token set-up rules: OK (Shadow shuffles fixed, #4).

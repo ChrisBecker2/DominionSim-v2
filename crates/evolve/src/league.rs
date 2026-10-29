@@ -11,7 +11,8 @@
 //!   best and of a niche champion; an island that stops contributing niche champions is shaken
 //!   up or restarted from another baseline; new niches earn a small novelty bonus.
 //! - **Final ranking** ([`crate::rank`]): a round robin of the niche champions and the anchors
-//!   with full bots, a crosstable, each strategy's mean against the field and a Nash mix.
+//!   (fast bots by default, `LeagueConfig::final_bots`; a pair stops once its result is clear), a
+//!   crosstable, each strategy's mean against the field and a Nash mix.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -25,7 +26,7 @@ use rayon::prelude::*;
 
 use crate::arena::{vs_text, Arena, OppRate, Opponent, Scenario, Score};
 use crate::baselines::{baselines, Baseline};
-use crate::config::{EvolveConfig, LeagueConfig, OpponentSpec};
+use crate::config::{EvolveConfig, FinalBots, LeagueConfig, OpponentSpec};
 use crate::ga::{Control, Setup};
 use crate::genome::{Genome, TomlMeta};
 use crate::niche::{Archive, Behaviour, Descriptor, Elite, NicheParams, Offer};
@@ -623,8 +624,8 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     // ---- Final ranking -------------------------------------------------------------------
     progress.status = "polishing".into();
     report(&progress);
-    let final_fast = !lc.final_full;
-    let final_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: final_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
+    let (final_fast, final_search) = cfg.final_play(lc.final_bots);
+    let final_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: final_fast, search_cards: final_search.clone(), max_turns: cfg.max_turns };
     let mut champions: Vec<(Descriptor, Genome, Elite)> = archive.champions().into_iter().map(|(d, e)| (*d, e.genome.clone(), e.clone())).collect();
     // Champions that are exactly an anchor are ranked as that anchor.
     champions.retain(|(_, g, _)| !anchor_keys.contains_key(&g.key()));
@@ -648,11 +649,15 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
 
     progress.status = "ranking".into();
     progress.note(format!(
-        "round robin: {} anchors + {} niche champions, {} games per pair ({} bots)",
+        "round robin: {} anchors + {} niche champions, up to {} games per pair, fewer once a pair's result is clear ({} bots)",
         anchors.len(),
         champions.len(),
         lc.final_games,
-        if lc.final_full { "full" } else { "fast" }
+        match lc.final_bots {
+            FinalBots::Fast => "fast",
+            FinalBots::Selective => "selective",
+            FinalBots::Full => "full",
+        }
     ));
     report(&progress);
     let mut names: Vec<String> = anchors.iter().map(|a| a.base.name.clone()).collect();
@@ -675,7 +680,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
             progress.elapsed_secs = start.elapsed().as_secs_f64();
             report(&progress);
         };
-        rank::round_robin(&refs, &names, lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
+        rank::round_robin(&refs, &names, anchors.len(), lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
     };
     let Some(rr) = rr else {
         // Stopped during the final ranking: the niche champions found so far stay in the report.
@@ -686,7 +691,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         return Ok(progress);
     };
     let n0 = names.len();
-    progress.games_played += (n0 * (n0 - 1) / 2) as u64 * rr.table.games;
+    progress.games_played += rr.games_played.iter().sum::<u64>() / 2;
 
     // ---- Exploiter rounds (PSRO): evolve a best response to the current Nash mix; if it beats the
     // mix by more than the margin it joins the population, the table and the mix are recomputed,
@@ -750,8 +755,8 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         };
 
         // Measure it against the mix with the round robin's kind of bots, on fresh deals.
-        let meas_fast = !(cfg.validate_full || lc.final_full);
-        let meas_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: meas_fast, search_cards: cfg.search_mask(), max_turns: cfg.max_turns };
+        let (meas_fast, meas_search) = if cfg.validate_full { (false, None) } else { (final_fast, final_search.clone()) };
+        let meas_template = Arena { opponents: Vec::new(), forbidden: forbidden.clone(), fast: meas_fast, search_cards: meas_search.clone(), max_turns: cfg.max_turns };
         let meas = Arena {
             opponents: support
                 .iter()
@@ -759,7 +764,7 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
                 .collect(),
             forbidden: forbidden.clone(),
             fast: meas_fast,
-            search_cards: cfg.search_mask(),
+            search_cards: meas_search,
             max_turns: cfg.max_turns,
         };
         let exploiter = match meas.compile(&found) {
@@ -795,11 +800,11 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
                     progress.elapsed_secs = start.elapsed().as_secs_f64();
                     report(&progress);
                 };
-                rank::extend(&rr, &refs, &new_names, lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
+                rank::extend(&rr, &refs, &new_names, anchors.len(), lc.final_games.max(2), &kingdom, rr_seed, cfg.max_turns, &control.stop, &mut on_pair)
             };
             match extended {
                 Some(next) => {
-                    progress.games_played += n_old as u64 * next.table.games;
+                    progress.games_played += next.table.pair_games[n_old].iter().sum::<u64>();
                     rr = next;
                     names = new_names;
                     genomes.push(found.clone());
@@ -882,14 +887,14 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         descriptors.push(b.listed_in(&genomes[i]).describe(reference_turns, &prm));
         behaviours.push(b);
     }
-    let field_games = (rr.table.games * (n as u64 - 1).max(1)) as f64;
     let mut entries: Vec<Entry> = Vec::new();
     for i in 0..n {
         let is_anchor = i < anchors.len();
+        let field_games = rr.games_played[i].max(1) as f64;
         // This strategy against each other one, from the round robin.
         let vs: Vec<OppRate> = (0..n)
             .filter(|&j| j != i)
-            .map(|j| OppRate { name: names[j].clone(), weight: 1.0 / (n - 1).max(1) as f64, win_rate: rr.table.rate[i][j], ci_lo: rr.table.lo[i][j], ci_hi: rr.table.hi[i][j], games: rr.table.games })
+            .map(|j| OppRate { name: names[j].clone(), weight: 1.0 / (n - 1).max(1) as f64, win_rate: rr.table.rate[i][j], ci_lo: rr.table.lo[i][j], ci_hi: rr.table.hi[i][j], games: rr.table.pair_games[i][j] })
             .collect();
         let mut worst: Vec<&OppRate> = vs.iter().collect();
         worst.sort_by(|a, b| a.win_rate.total_cmp(&b.win_rate));

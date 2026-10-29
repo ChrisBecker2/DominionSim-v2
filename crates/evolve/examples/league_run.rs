@@ -1,8 +1,8 @@
 //! Run a kingdom league from the command line and print the niche table and crosstable.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
-//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED, FINAL_FULL=0 (fast bots in the final ranking),
+//! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED, FINAL=fast|selective|full (the bots of the final ranking, default fast),
 //! SEARCH=off|selective|full with SEARCH_GAP (points) and SEARCH_COST (times a fast game): how much turn search the evaluation bots keep)
-use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, SearchMode, Track};
+use dominion_evolve::{run, Control, EvolveConfig, FinalBots, LeagueConfig, SearchMode, Track};
 
 /// An environment override of a count (`ISLANDS=3`), for quicker runs.
 fn env(name: &str, default: usize) -> usize {
@@ -20,7 +20,11 @@ fn main() {
             final_games,
             exploit_rounds: env("EXPLOIT_ROUNDS", 3),
             exploit_generations: env("EXPLOIT_GENS", 30),
-            final_full: env("FINAL_FULL", 1) != 0,
+            final_bots: match std::env::var("FINAL").as_deref() {
+                Ok("full") => FinalBots::Full,
+                Ok("selective") => FinalBots::Selective,
+                _ => FinalBots::Fast,
+            },
             ..LeagueConfig::default()
         }),
         forbidden: vec![],

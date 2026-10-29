@@ -220,7 +220,13 @@ best) or restarted from another anchor, alternately. A run stops after `stall_ge
 with no new champion or hall-of-fame member.
 
 **Final ranking** (`rank.rs`). The niche champions (polished) and all anchors play a round robin of
-`final_games` games per pair on one seed (the same deals for every pair), with full bots by default.
+at most `final_games` games per pair on one seed (the same deals for every pair). A pair stops early once its result is
+clear (`rank::pair_settled`: at least 500 games, the 99% interval on one side of 50% and the 95% interval within 3 points either
+way), so one-sided pairs stop after 500 games and only close ones play them all; two anchors play only 500 against each other.
+The bots are `final_bots`: `fast` (the default, rules only, as evolved), `selective` (search only the cards of the search-gap
+table, as `search_mode = "selective"`) or `full` (search every turn, like the game page). Full bots used to be the default; on a
+12-card Empires / Rising Sun kingdom with Forum they played 7 games a second against 400,000 for fast bots, so a Standard run's
+round robin would have taken about 13 hours.
 The report holds:
 - the crosstable: row beats column, ties counting half, with 95% Wilson intervals (hover in the UI);
 - each strategy's mean against the field (the other strategies equally weighted);
@@ -251,8 +257,8 @@ compare; it cannot say whether something unseen beats all of them. After the fin
 2. Evolve a best response: an ordinary `ga::run` (not league mode) whose opponents are the support, weighted by
    their Nash shares, for `exploit_generations` (30) generations, seeded with the support members and the user's
    seeds, with the usual polish and held-out validation (`validate_full` applies).
-3. Measure it against the mix with `exploit_games` (4000) fresh games, with full bots when `final_full` (or
-   `validate_full`) is set. If it wins by more than `exploit_margin` (0.03: above 53%) it is added: only its row
+3. Measure it against the mix with `exploit_games` (4000) fresh games, with the round robin's bots (`final_bots`;
+   full bots when `validate_full` is set). If it wins by more than `exploit_margin` (0.03: above 53%) it is added: only its row
    and column of the round robin are played (`rank::extend`, the same deals as the original), and the
    crosstable, means and Nash mix are recomputed for the next round. Otherwise the loop stops: the mix is not
    exploitable within the margin. Exploiters that fail still count as challengers (below).
@@ -286,7 +292,7 @@ section; each number appears once. A preset fills in every number (league and GA
 "Custom" (and back to a preset if the numbers match one again). The form is not remembered between page loads. Kingdom mode and
 opponent mode keep their own numbers when you switch (the same settings block moves between the two panels); "Hall-of-fame validation
 games" and "Validation games" are the one `validate_games` input. Exact settings are grouped: Search size (islands, island size,
-generations, stall generations, seed), Diversity (niches, novelty bonus, island stagnation), Final ranking (games per pair, full bots),
+generations, stall generations, seed), Diversity (niches, novelty bonus, island stagnation), Final ranking (most games per pair, bots: fast / selective / full),
 Challengers (exploiter rounds, generations, margin), Scoring weights (anchor/recent/older weights, parsimony), Rule limits, Breeding
 (elite, tournament, crossover, migration, hall of fame size) and Speed / accuracy (race games and keep, validation games and interval,
 polish games, max turns, full-behaviour validation). Standard equals the server defaults.
@@ -299,7 +305,7 @@ polish games, max turns, full-behaviour validation). Standard equals the server 
 | Wide exploration | 8 x 32 x 150 (60), novelty 3%, stagnation 5 | 16 | 2000 | 5 x 30 | 10000 / 20000 | 1624 s (11 niches) |
 
 Times are wall clock on a 32-thread desktop, one run each on the Deck Top kingdom, full bots in the final ranking (except Quick's
-tiny round robin). They vary with the kingdom and the cores, and
+tiny round robin); the presets now rank with fast bots and stop settled pairs early, so the final ranking takes seconds. They vary with the kingdom and the cores, and
 with other load on the machine: the identical Standard run (same seed, same 69.4M games, same result) took 302 s and later 1123 s, and
 an identical `3 x 24 x 30` run 245 s and 503 s, so read the labels as the best case on an otherwise idle machine. Wide exploration found the most niches. Opponent mode has Quick / Standard / Thorough (GA numbers only, not timed).
 

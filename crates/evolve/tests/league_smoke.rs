@@ -1,12 +1,12 @@
 //! Kingdom league end to end on Biggest Money: a short run yields several niche champions and a
 //! valid crosstable, and every strategy loads.
-use dominion_evolve::{run, Control, EvolveConfig, LeagueConfig, Track};
+use dominion_evolve::{run, Control, EvolveConfig, FinalBots, LeagueConfig, Track};
 
 fn bm_cfg() -> EvolveConfig {
     let k = ["Artisan", "Harbinger", "Laboratory", "Mine", "Moneylender", "Bank", "Crystal Ball", "Grand Market", "Mint", "Tiara"];
     EvolveConfig {
         track: Track::Fixed { kingdom: k.iter().map(|s| s.to_string()).collect() },
-        league: Some(LeagueConfig { final_games: 200, final_full: false, ..LeagueConfig::default() }),
+        league: Some(LeagueConfig { final_games: 200, final_bots: FinalBots::Fast, ..LeagueConfig::default() }),
         forbidden: vec![],
         islands: 3,
         island_size: 10,
@@ -59,7 +59,7 @@ fn stop_during_the_final_ranking_ends_the_run_promptly() {
     let k = ["Artisan", "Council Room", "Market", "Militia", "Workshop", "Bridge", "Mill", "Mining Village", "Patrol", "Shanty Town"];
     let cfg = EvolveConfig {
         track: Track::Fixed { kingdom: k.iter().map(|s| s.to_string()).collect() },
-        league: Some(LeagueConfig { final_games: 2000, final_full: true, ..LeagueConfig::default() }),
+        league: Some(LeagueConfig { final_games: 2000, final_bots: FinalBots::Full, ..LeagueConfig::default() }),
         forbidden: vec![],
         islands: 2,
         island_size: 8,

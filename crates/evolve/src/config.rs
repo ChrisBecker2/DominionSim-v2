@@ -74,10 +74,11 @@ pub struct LeagueConfig {
     /// An island that contributed no new niche champion for this many generations is shaken up
     /// (stronger mutation) or restarted from another baseline, alternately (0 = never).
     pub stagnation_generations: usize,
-    /// Round robin among the niche champions and the anchors: games per pair.
+    /// Round robin among the niche champions and the anchors: most games per pair (a pair whose
+    /// result is clear stops earlier, two anchors play `rank::RR_MIN_GAMES`).
     pub final_games: u64,
-    /// Play the final round robin with full bot behaviour (turn search), not fast mode.
-    pub final_full: bool,
+    /// The bots of the final round robin and of the exploiters' measurement.
+    pub final_bots: FinalBots,
     /// How many distinct top strategies the final report presents.
     pub top_n: usize,
     /// Exploiter rounds after the final round robin (0 = none): each evolves a best response to
@@ -88,7 +89,7 @@ pub struct LeagueConfig {
     pub exploit_generations: usize,
     /// An exploiter must beat the mix by more than this (0.03: win rate above 53%) to be added.
     pub exploit_margin: f64,
-    /// Games measuring an exploiter against the mix (full bots when `final_full`).
+    /// Games measuring an exploiter against the mix (with `final_bots`, or full bots when `validate_full`).
     pub exploit_games: u64,
 }
 
@@ -107,7 +108,7 @@ impl Default for LeagueConfig {
             novelty_bonus: 0.01,
             stagnation_generations: 8,
             final_games: 2_000,
-            final_full: true,
+            final_bots: FinalBots::Fast,
             top_n: 5,
             exploit_rounds: 3,
             exploit_generations: 30,
@@ -115,6 +116,22 @@ impl Default for LeagueConfig {
             exploit_games: 4_000,
         }
     }
+}
+
+/// The bots that play the league's final round robin. Full bots search every turn: on a kingdom with many choices that can be
+/// thousands of times slower than fast bots (a 12-card Empires / Rising Sun kingdom: 7 games a second against 400,000), so the
+/// default is fast, the way the candidates were evolved.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FinalBots {
+    /// Rules only, as in evolution.
+    #[default]
+    Fast,
+    /// Search only the decisions of the cards with a measured fast-versus-full gap (`search_gap`, `search_max_cost`,
+    /// `search_budget`, as `SearchMode::Selective`); the rest follow the rules.
+    Selective,
+    /// Turn search everywhere, like the game page's bots.
+    Full,
 }
 
 /// How much turn search the bots of a fast evaluation (`fast_eval`) keep. `Full` is `fast_eval = false`.
@@ -200,8 +217,20 @@ pub struct EvolveConfig {
 impl EvolveConfig {
     /// The cards (by id) whose decisions fast bots search, under `SearchMode::Selective`.
     pub fn search_mask(&self) -> Option<Selective> {
-        (self.fast_eval && self.search_mode == SearchMode::Selective)
-            .then(|| Selective { cards: dominion_sim::search_gap::mask(self.search_gap, self.search_max_cost), budget: self.search_budget })
+        (self.fast_eval && self.search_mode == SearchMode::Selective).then(|| self.selective())
+    }
+
+    fn selective(&self) -> Selective {
+        Selective { cards: dominion_sim::search_gap::mask(self.search_gap, self.search_max_cost), budget: self.search_budget }
+    }
+
+    /// How the league's final round robin plays (`LeagueConfig::final_bots`): fast or not, and the cards still searched.
+    pub fn final_play(&self, bots: FinalBots) -> (bool, Option<Selective>) {
+        match bots {
+            FinalBots::Fast => (true, None),
+            FinalBots::Selective => (true, Some(self.selective())),
+            FinalBots::Full => (false, None),
+        }
     }
 }
 

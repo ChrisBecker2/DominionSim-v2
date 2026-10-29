@@ -1,10 +1,11 @@
 //! Final ranking: a round robin between strategies on one kingdom (common random numbers: every
 //! pair plays the same deals), a crosstable with confidence intervals, each strategy's mean
-//! against the field, and an approximate Nash mix of the payoff matrix.
+//! against the field, and an approximate Nash mix of the payoff matrix. A pair stops early once
+//! its result is clear (`pair_settled`), and two anchors only get a short look at each other.
 
 use dominion_engine::cards::CardId;
 use dominion_sim::batch::{run_match_profiled, MatchConfig, Profile};
-use dominion_sim::stats::{wilson_ci, Z_95};
+use dominion_sim::stats::{wilson_ci, StratStats, Z_95};
 use dominion_sim::Strategy;
 use dominion_engine::rng::Rng;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,8 +19,10 @@ pub struct Crosstable {
     pub rate: Vec<Vec<f64>>,
     pub lo: Vec<Vec<f64>>,
     pub hi: Vec<Vec<f64>>,
-    /// Games per pair.
+    /// Most games per pair (a pair whose result is clear stops earlier: see `pair_games`).
     pub games: u64,
+    /// Games each pair played (symmetric; the diagonal is 0).
+    pub pair_games: Vec<Vec<u64>>,
     /// Mean of `rate[i][j]` over the other strategies `j`.
     pub mean_vs_field: Vec<f64>,
     /// Approximate Nash mix over the strategies (sums to 1).
@@ -39,15 +42,33 @@ pub struct RoundRobin {
 /// slow round robin (full searching bots on a choice-heavy kingdom) can be watched and stopped.
 const RR_BATCH: u64 = 250;
 
+/// Fewest games a pair plays before it may stop early, and all that two anchors play against each other.
+pub const RR_MIN_GAMES: u64 = 2 * RR_BATCH;
+
+/// Whether a pair's result is clear enough to stop: at least `RR_MIN_GAMES` games, the 99% interval of the win rate on one side of
+/// one half, and the 95% interval at most 3 points either way. A one-sided pair (95% after 500 games) stops at once; a close one
+/// (55%) plays about 1700 games; an even one plays them all.
+pub fn pair_settled(wins: f64, games: f64) -> bool {
+    if games < RR_MIN_GAMES as f64 {
+        return false;
+    }
+    let (lo99, hi99) = wilson_ci(wins, games, 2.576);
+    let (lo, hi) = wilson_ci(wins, games, Z_95);
+    (lo99 > 0.5 || hi99 < 0.5) && hi - lo <= 0.06
+}
+
 type PairResult = (usize, usize, dominion_sim::stats::StratStats, dominion_sim::stats::StratStats, Profile, Profile);
 
-/// Every pair plays `games` games (seats balanced) on `kingdom` with the same seeds, so all pairs
-/// see the same deals. Strategies are used as given (callers decide fast or full behaviour). Pairs
-/// are played one after another, each in batches of `RR_BATCH` games run in parallel; after each
-/// batch `progress(pairs_done, pairs_total)` is called and `stop` checked. `None` when stopped.
+/// Every pair plays up to `games` games (seats balanced) on `kingdom` with the same seeds, so all
+/// pairs see the same deals; a pair stops once `pair_settled`, and a pair of two of the first
+/// `anchors` strategies (baselines, whose standing against each other matters little) plays only
+/// `RR_MIN_GAMES`. Strategies are used as given (callers decide fast or full behaviour). Pairs are
+/// played one after another, each in batches of `RR_BATCH` games run in parallel; after each pair
+/// `progress(pairs_done, pairs_total)` is called, and `stop` is checked between batches. `None` when stopped.
 pub fn round_robin(
     strategies: &[&Strategy],
     names: &[String],
+    anchors: usize,
     games: u64,
     kingdom: &[CardId],
     seed: u64,
@@ -55,7 +76,7 @@ pub fn round_robin(
     stop: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Option<RoundRobin> {
-    grow(None, strategies, names, games, kingdom, seed, max_turns, stop, progress)
+    grow(None, strategies, names, anchors, games, kingdom, seed, max_turns, stop, progress)
 }
 
 /// Add the strategies beyond the first `prev.table.names.len()` to a finished round robin: only the
@@ -66,6 +87,7 @@ pub fn extend(
     prev: &RoundRobin,
     strategies: &[&Strategy],
     names: &[String],
+    anchors: usize,
     games: u64,
     kingdom: &[CardId],
     seed: u64,
@@ -73,13 +95,14 @@ pub fn extend(
     stop: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Option<RoundRobin> {
-    grow(Some(prev), strategies, names, games, kingdom, seed, max_turns, stop, progress)
+    grow(Some(prev), strategies, names, anchors, games, kingdom, seed, max_turns, stop, progress)
 }
 
 fn grow(
     prev: Option<&RoundRobin>,
     strategies: &[&Strategy],
     names: &[String],
+    anchors: usize,
     games: u64,
     kingdom: &[CardId],
     seed: u64,
@@ -99,15 +122,16 @@ fn grow(
     let total = pairs.len();
     let mut results: Vec<PairResult> = Vec::new();
     for (k, &(i, j)) in pairs.iter().enumerate() {
-        let (mut si, mut sj) = Default::default();
+        let (mut si, mut sj): (StratStats, StratStats) = Default::default();
         let (mut pi, mut pj) = (Profile::default(), Profile::default());
         let mut played = 0u64;
         let mut batch = 0u64;
-        while played < games {
+        let cap = if j < anchors { games.min(RR_MIN_GAMES) } else { games };
+        while played < cap && !pair_settled(si.wins, si.games as f64) {
             if stop.load(Ordering::Relaxed) {
                 return None;
             }
-            let n_games = RR_BATCH.min(games - played);
+            let n_games = RR_BATCH.min(cap - played);
             // Each batch has its own seed, the same for every pair: all pairs still see the same deals.
             let cfg = MatchConfig { games: n_games, kingdom: kingdom.to_vec(), seed: Rng::derive(seed, batch).next_u64(), max_turns };
             let (s, mut p) = run_match_profiled(&[strategies[i], strategies[j]], &cfg);
@@ -126,6 +150,7 @@ fn grow(
     let mut rate = vec![vec![0.5; n]; n];
     let mut lo = vec![vec![0.5; n]; n];
     let mut hi = vec![vec![0.5; n]; n];
+    let mut pair_games = vec![vec![0u64; n]; n];
     let mut profiles = vec![Profile::default(); n];
     let mut turns_sum = vec![0.0; n];
     let mut games_played = vec![0u64; n];
@@ -135,6 +160,7 @@ fn grow(
                 rate[i][j] = p.table.rate[i][j];
                 lo[i][j] = p.table.lo[i][j];
                 hi[i][j] = p.table.hi[i][j];
+                pair_games[i][j] = p.table.pair_games[i][j];
             }
             profiles[i].merge(&p.profiles[i]);
             turns_sum[i] = p.turns_sum[i];
@@ -150,6 +176,8 @@ fn grow(
         hi[i][j] = h;
         lo[j][i] = 1.0 - h;
         hi[j][i] = 1.0 - l;
+        pair_games[i][j] = si.games;
+        pair_games[j][i] = si.games;
         profiles[i].merge(&pi);
         profiles[j].merge(&pj);
         turns_sum[i] += si.turns_sum;
@@ -160,7 +188,7 @@ fn grow(
     let mean_vs_field = mean_vs_field(&rate);
     let payoff: Vec<Vec<f64>> = rate.iter().map(|r| r.iter().map(|x| x - 0.5).collect()).collect();
     let nash = nash_mix(&payoff, 20_000);
-    Some(RoundRobin { table: Crosstable { names: names.to_vec(), rate, lo, hi, games, mean_vs_field, nash }, profiles, turns_sum, games_played })
+    Some(RoundRobin { table: Crosstable { names: names.to_vec(), rate, lo, hi, games, pair_games, mean_vs_field, nash }, profiles, turns_sum, games_played })
 }
 
 
@@ -244,13 +272,13 @@ mod tests {
         let silver_only = Strategy::parse("name = \"S\"\n\n[[gain]]\ncard = \"Silver\"\n").unwrap();
         let stop = AtomicBool::new(false);
         let names: Vec<String> = ["plain", "silver"].iter().map(|s| s.to_string()).collect();
-        let rr = round_robin(&[&plain, &silver_only], &names, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).unwrap();
+        let rr = round_robin(&[&plain, &silver_only], &names, 0, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).unwrap();
         assert_eq!(rr.table.names.len(), 2);
         assert!(rr.table.rate[0][1] > 0.9, "money beats silver-only: {}", rr.table.rate[0][1]);
         assert!(rr.table.nash[0] > 0.95);
         let names3: Vec<String> = ["plain", "silver", "smithy"].iter().map(|s| s.to_string()).collect();
         let mut pairs_played = 0;
-        let rr3 = extend(&rr, &[&plain, &silver_only, &smithy], &names3, 200, &kingdom, 5, 60, &stop, &mut |_, t| pairs_played = t).unwrap();
+        let rr3 = extend(&rr, &[&plain, &silver_only, &smithy], &names3, 0, 200, &kingdom, 5, 60, &stop, &mut |_, t| pairs_played = t).unwrap();
         assert_eq!(pairs_played, 2, "only the new row is played");
         assert_eq!(rr3.table.rate[0][1], rr.table.rate[0][1]);
         assert_eq!(rr3.games_played[0], rr.games_played[0] + 200);
@@ -260,11 +288,39 @@ mod tests {
         // The Nash mix is recomputed over the whole table: silver-only still gets nothing.
         assert!(rr3.table.nash[1] < 0.02, "{:?}", rr3.table.nash);
         // The same as a round robin of the three from scratch.
-        let all = round_robin(&[&plain, &silver_only, &smithy], &names3, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).unwrap();
+        let all = round_robin(&[&plain, &silver_only, &smithy], &names3, 0, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).unwrap();
         assert_eq!(all.table.rate, rr3.table.rate);
         // Stopping returns None.
         stop.store(true, Ordering::Relaxed);
-        assert!(extend(&rr, &[&plain, &silver_only, &smithy], &names3, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).is_none());
+        assert!(extend(&rr, &[&plain, &silver_only, &smithy], &names3, 0, 200, &kingdom, 5, 60, &stop, &mut |_, _| {}).is_none());
+    }
+
+    #[test]
+    fn a_one_sided_pair_stops_early_and_two_anchors_only_take_a_short_look() {
+        let kingdom = vec![dominion_engine::cards::by_name("Smithy").unwrap()];
+        let plain = bmu("");
+        let silver_only = Strategy::parse("name = \"S\"
+
+[[gain]]
+card = \"Silver\"
+").unwrap();
+        let smithy = bmu("[[gain]]
+card = \"Smithy\"
+if = \"count(Smithy) < 2\"
+
+");
+        let stop = AtomicBool::new(false);
+        let names: Vec<String> = ["plain", "silver", "smithy"].iter().map(|s| s.to_string()).collect();
+        let rr = round_robin(&[&plain, &silver_only, &smithy], &names, 2, 4000, &kingdom, 5, 60, &stop, &mut |_, _| {}).unwrap();
+        let g = &rr.table.pair_games;
+        assert_eq!(g[0][1], RR_MIN_GAMES, "two anchors: a short look");
+        assert_eq!(g[1][2], RR_MIN_GAMES, "money against silver-only is settled at once: {g:?}");
+        assert!(g[0][2] > RR_MIN_GAMES && g[0][2] <= 4000, "a close pair plays on: {g:?}");
+        assert_eq!(g[2][0], g[0][2]);
+        assert_eq!(rr.games_played[2], g[2][0] + g[2][1]);
+        assert!(!pair_settled(270.0, 500.0), "54% after 500 games is not clear");
+        assert!(pair_settled(475.0, 500.0));
+        assert!(!pair_settled(250.0, 250.0), "never before the minimum");
     }
 
     #[test]

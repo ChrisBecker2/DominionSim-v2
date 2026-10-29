@@ -35,7 +35,7 @@ fn a_league_run_through_the_api_reports_niches_and_a_crosstable() {
         "config": {
             "track": { "kind": "fixed", "kingdom": k },
             "forbidden": [],
-            "league": { "final_games": 100, "final_full": false },
+            "league": { "final_games": 100, "final_bots": "fast" },
             "islands": 2, "island_size": 8, "generations": 2,
             "race_games": [100, 200], "validate_games": 200, "polish_games": 0
         },
@@ -90,7 +90,7 @@ fn a_league_result_carries_its_kingdom_with_events_prophecy_and_colonies() {
             "config": {
                 "track": { "kind": "fixed", "kingdom": k },
                 "forbidden": [],
-                "league": { "final_games": 100, "final_full": false, "exploit_rounds": 0 },
+                "league": { "final_games": 100, "final_bots": "fast", "exploit_rounds": 0 },
                 "islands": 1, "island_size": 6, "generations": 1,
                 "race_games": [100], "validate_games": 200, "polish_games": 0
             },

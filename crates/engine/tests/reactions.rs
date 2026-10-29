@@ -195,6 +195,114 @@ fn watchtower_trashing_replaces_gain_stops_the_topdeck_and_spares_an_older_copy(
 }
 
 // ===========================================================================
+// Trash triggers together: Fortress, Watchtower, Market Square, Tomb, Sewers, Priest
+// ===========================================================================
+
+/// Answer the trash triggers until the turn goes on (an Action or Buy decision): Sewers' optional trash takes `sewers` (and must
+/// be offered exactly once: its own trash does not set it off again), and the first `squares` Market Square offers are taken. A
+/// Gold gained by Market Square sets off the Watchtower in hand: it is kept. Returns how many Golds Watchtower was offered.
+fn settle_trash_triggers(g: &mut GameState, sewers: CardId, mut squares: u32) -> u32 {
+    let (mut sewers_offers, mut gold_offers) = (0, 0);
+    loop {
+        let d = expect_decision(g);
+        match d.kind {
+            DecisionKind::Select { act, filter: Filter::Card(id::GOLD), .. } if d.source == Some(id::WATCHTOWER) => {
+                // Trash it? then: put it onto the deck? Both declined.
+                gold_offers += (act == Act::Trash) as u32;
+                choose(g, Choice::Pass);
+            }
+            DecisionKind::Select { from: Zone::Hand, act: Act::Trash, min: 0, max: 1, .. } => {
+                sewers_offers += 1;
+                assert_eq!(sewers_offers, 1, "Sewers is not set off by its own trash");
+                choose(g, Choice::Card(sewers));
+            }
+            DecisionKind::YesNo { act: Act::Discard } if d.subject == id::MARKET_SQUARE => {
+                choose(g, if squares > 0 { Choice::Yes } else { Choice::No });
+                squares = squares.saturating_sub(1);
+            }
+            DecisionKind::PlayAction | DecisionKind::Buy => break,
+            k => panic!("unexpected decision {k:?} from {:?}", d.source),
+        }
+    }
+    assert_eq!(sewers_offers, 1, "Sewers offered once");
+    gold_offers
+}
+
+#[test]
+fn a_trashed_fortress_and_a_watchtower_trash_set_off_market_square_tomb_sewers_and_priest() {
+    let mut g = new_state(&[id::PRIEST, id::FORTRESS, id::MARKET_SQUARE, id::WATCHTOWER, id::SEWERS, id::TOMB], 2);
+    let bit = 1u32 << (id::SEWERS - dominion_engine::cards::FIRST_PROJECT);
+    g.players[0].ren.projects |= bit;
+    g.ren.projects |= bit;
+    g.ren_update_hooks();
+    set_hand(&mut g, 0, &[id::PRIEST, id::FORTRESS, id::MARKET_SQUARE, id::MARKET_SQUARE, id::WATCHTOWER, id::ESTATE, id::CURSE]);
+    g.turn.buys = 2; // stay in the Buy phase after the first buy, so the hand can be checked
+
+    // Priest (+$2) trashes the Fortress: it goes back to the hand. Tomb +1 VP; Sewers trashes the Estate (Tomb +1 VP); Market Square
+    // is discarded for a Gold. Both trashes come before Priest's ability is set up: no $2 for them.
+    play(&mut g, id::PRIEST);
+    choose(&mut g, Choice::Card(id::FORTRESS));
+    assert_eq!(settle_trash_triggers(&mut g, id::ESTATE, 1), 1, "Watchtower may react to Market Square's Gold");
+    assert_eq!(g.turn.coins, 2);
+    assert_eq!(g.players[0].vp_tokens, 2, "Tomb: the Fortress and the Estate");
+    assert_eq!(g.trash, counts_of(&[id::ESTATE]), "the Fortress left the trash");
+    assert!(g.players[0].hand.has(id::FORTRESS));
+    assert_eq!(g.players[0].hand.get(id::MARKET_SQUARE), 1);
+    assert_eq!(g.players[0].discard.get(id::GOLD), 1);
+
+    // Buy a Copper; Watchtower trashes it (Priest +$2, Tomb +1 VP). Sewers trashes the Fortress again (Priest +$2, Tomb +1 VP, back to
+    // the hand); the second Market Square is discarded for a Gold.
+    if g.pending_decision().map(|d| d.kind) == Some(DecisionKind::PlayAction) {
+        pass(&mut g);
+    }
+    buy(&mut g, id::COPPER);
+    let d = expect_decision(&mut g);
+    assert_eq!((d.player, d.source), (0, Some(id::WATCHTOWER)));
+    choose(&mut g, Choice::Card(id::COPPER));
+    assert_eq!(settle_trash_triggers(&mut g, id::FORTRESS, 1), 1);
+    assert_eq!(g.turn.coins, 6, "$2 from Priest's play, $2 for each of the two trashes after it");
+    assert_eq!(g.players[0].vp_tokens, 4);
+    assert_eq!(g.trash, counts_of(&[id::ESTATE, id::COPPER]));
+    assert!(g.players[0].hand.has(id::FORTRESS), "the Fortress is back in the hand again");
+    assert_eq!(g.players[0].hand.get(id::MARKET_SQUARE), 0);
+    assert_eq!(g.players[0].discard.get(id::GOLD), 2);
+    assert!(g.players[0].hand.has(id::WATCHTOWER) && g.players[0].hand.has(id::CURSE));
+}
+
+// ===========================================================================
+// Gains another player chooses for you: Watchtower reacts to them
+// ===========================================================================
+
+#[test]
+fn watchtower_trashes_the_curse_a_swindler_makes_its_victim_gain() {
+    // Swindler trashes the victim's top Copper and its player picks a Curse ($0) for them; the victim gains it, so their
+    // Watchtower may be revealed to trash it. An older Curse in their discard pile stays.
+    let mut g = new_state(&[id::SWINDLER, id::WATCHTOWER], 2);
+    set_hand(&mut g, 0, &[id::SWINDLER]);
+    set_hand(&mut g, 1, &[id::WATCHTOWER]);
+    set_deck_known(&mut g, 1, &[id::COPPER]);
+    set_discard(&mut g, 1, &[id::CURSE]);
+    let curses = g.supply.get(id::CURSE);
+    play(&mut g, id::SWINDLER);
+    assert_eq!(g.trash, counts_of(&[id::COPPER]));
+    let d = g.pending_decision().expect("Swindler's choice");
+    assert_eq!((d.player, d.for_player), (0, 1), "the attacker picks the victim's gain");
+    choose(&mut g, Choice::Card(id::CURSE));
+    let d = g.pending_decision().expect("Watchtower's offer");
+    assert_eq!(d.player, 1, "the victim decides the reaction");
+    assert_eq!(d.source, Some(id::WATCHTOWER));
+    let mut ev: Vec<Event> = Vec::new();
+    choose_ev(&mut g, Choice::Card(id::CURSE), &mut ev);
+    assert!(ev.iter().any(|e| matches!(e, Event::Reaction { player: 1, card: id::WATCHTOWER })), "reveal logged: {ev:?}");
+    assert_eq!(g.trash, counts_of(&[id::COPPER, id::CURSE]));
+    assert_eq!(g.supply.get(id::CURSE), curses - 1, "the Curse was gained, then trashed (not returned)");
+    assert_eq!(g.players[1].all_cards().get(id::CURSE), 1, "only the older Curse is left");
+    assert!(g.players[1].hand.has(id::WATCHTOWER), "revealing keeps it in hand");
+    assert_eq!(g.turn.coins, 2);
+    assert!(matches!(g.pending_decision(), Some(Decision { kind: DecisionKind::Buy, player: 0, .. })), "{:?}", g.pending_decision());
+}
+
+// ===========================================================================
 // Sailor: one use per play
 // ===========================================================================
 

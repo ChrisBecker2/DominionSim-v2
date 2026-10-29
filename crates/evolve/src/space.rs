@@ -2,7 +2,7 @@
 
 use dominion_engine::cards::{self, id, CardId, ACTION};
 
-use crate::genome::{Genome, List, Rule};
+use crate::genome::{Genome, List, Rule, Var};
 
 /// Whether a rule for `c` plays an Action or a Night card (Nocturne: Night cards are ranked in the same `[[play]]` list): an Action or Night card, or the Knights pile (a rule for "Knights" plays whichever Knight is in hand).
 pub fn is_action(c: CardId) -> bool {
@@ -36,6 +36,13 @@ pub struct SearchSpace {
     pub debt_rules: bool,
     pub max_debt_rules: usize,
     pub max_conds: usize,
+    /// Kingdom cards whose effect may trash from the hand (the Actions and Treasures of the pool): the cards a `by(..)` condition on a
+    /// `[[trash]]` rule may name.
+    pub trashers: Vec<CardId>,
+    /// Whether differently named cards score (Museum, Fairgrounds): `distinct_cards` conditions are searched.
+    pub names_matter: bool,
+    /// Whether cards are gained outside the Buy phase every turn (Kind Emperor): `buy_phase < 1` conditions are searched.
+    pub free_gains: bool,
 }
 
 impl SearchSpace {
@@ -77,7 +84,12 @@ impl SearchSpace {
         .into_iter()
         .filter(|&c| has(c))
         .collect();
+        let trashers: Vec<CardId> =
+            kingdom_pool.iter().copied().filter(|&c| !forbidden.contains(&c) && (is_action(c) || cards::is(c, cards::TREASURE)) && c >= cards::FIRST_KINGDOM).collect();
         SearchSpace {
+            trashers,
+            names_matter: has(id::MUSEUM) || has(id::FAIRGROUNDS),
+            free_gains: has(id::KIND_EMPEROR),
             token_piles,
             token_kinds,
             reserves,
@@ -134,6 +146,8 @@ impl SearchSpace {
             let max = self.max_rules(list);
             let rules = g.list_mut(list);
             for r in rules.iter_mut() {
+                // `by(..)` only means something on a trash rule, and only for a card of the pool.
+                r.conds.retain(|a| !matches!(a.var, Var::By(c) if list != List::Trash || !self.trashers.contains(&c)));
                 tidy_conds(r, self.max_conds);
             }
             // An unconditional rule makes later rules for the same card unreachable.

@@ -76,11 +76,18 @@ pub fn random_pair(space: &SearchSpace, rng: &mut Rng) -> Genome {
 
 /// A random condition, biased towards the ones people actually write for `card`.
 pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
+    // Museum, Fairgrounds: how many differently named cards I have. Kind Emperor: an Action gained outside the Buy phase (free).
+    if space.names_matter && rng.chance(0.08) {
+        let (lo, hi) = Var::DistinctCards.range();
+        return Atom { var: Var::DistinctCards, op: if rng.chance(0.5) { Op::Lt } else { Op::Ge }, n: lo + rng.below((hi - lo + 1) as u32) as i16 };
+    }
+    if space.free_gains && crate::space::is_action(card) && rng.chance(0.1) {
+        return Atom { var: Var::BuyPhase, op: Op::Lt, n: 1 };
+    }
     let r = rng.below(100);
+    // (Province and Colony get no `loses_game` condition: the default don't-lose guard covers it, and does more.)
     let (var, op) = match r {
         0..=39 if cards::is_bought_pseudo(card) => (Var::Bought(card), Op::Lt),
-        // Province and Colony can end the game: "unless it loses the game".
-        0..=24 if card == id::PROVINCE || card == id::COLONY => (Var::LosesGame, Op::Lt),
         // A Traveller line starter (Page, Peasant): half the time a cap on the whole line (Page + Treasure Hunter + ... + Champion).
         20..=39 if card == id::PAGE || card == id::PEASANT => (Var::CountLine(card), Op::Lt),
         0..=39 if card >= cards::FIRST_KINGDOM || card == id::GOLD || card == id::SILVER => (Var::Count(card), Op::Lt),
@@ -112,7 +119,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     let n = match var {
         Var::Count(_) => 1 + rng.below(3) as i16,
         Var::CountLine(_) => 2 + rng.below(4) as i16,
-        Var::Bought(_) | Var::LosesGame => 1,
+        Var::Bought(_) | Var::LosesGame | Var::BuyPhase | Var::By(_) => 1,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,
         // "supply(X) <= 1 .. 4", "low_piles >= 1 .. 3", "empty_piles >= 1 .. 2".
         Var::Supply(_) => 2 + rng.below(4) as i16,
@@ -170,6 +177,11 @@ fn random_rule(space: &SearchSpace, rng: &mut Rng, list: List) -> Option<Rule> {
         r.opt = rng.below(crate::genome::DEBT_PAY.len() as u32) as u8;
         let atom = if rng.chance(0.5) { Atom { var: Var::Debt, op: Op::Ge, n: 1 + rng.below(4) as i16 } } else { random_atom(space, rng, 0) };
         r.conds.push(atom);
+        return Some(r);
+    }
+    // A trash rule may be limited to one trasher's trashes (`by(Change) >= 1`: Change upgrades a Silver, River Shrine would just lose it).
+    if list == List::Trash && !space.trashers.is_empty() && rng.chance(0.4) {
+        r.conds.push(Atom { var: Var::By(pick(rng, &space.trashers)), op: Op::Ge, n: 1 });
         return Some(r);
     }
     let p_cond = if list == List::Gain && card >= cards::FIRST_KINGDOM { 0.8 } else if list == List::Mode { 0.6 } else { 0.3 };
@@ -287,7 +299,11 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
     let nconds = rules[at].conds.len();
     match rng.below(4) {
         0 if nconds < space.max_conds => {
-            let a = random_atom(space, rng, card);
+            let a = if list == List::Trash && !space.trashers.is_empty() && rng.chance(0.4) {
+                Atom { var: Var::By(pick(rng, &space.trashers)), op: Op::Ge, n: 1 }
+            } else {
+                random_atom(space, rng, card)
+            };
             g.list_mut(list)[at].conds.push(a);
             "add condition"
         }

@@ -39,9 +39,13 @@ A candidate is exactly what `Strategy::parse` accepts:
   - `money >= N`
   - `vp_lead >= N`
   - `turn >= N`
+  - `distinct_cards < N` (differently named cards owned; searched when Museum or Fairgrounds is in the kingdom)
+  - `buy_phase < 1` (a gain outside the Buy phase: Kind Emperor's Action to the hand; searched with Kind Emperor)
   - `and` of at most 2 of the above
 - **`[[play]]`**: ordered action preferences, optional conditions.
-- **`[[trash]]`**: what to trash (defaults: Curse, Estate, Copper).
+- **`[[trash]]`**: what to trash (defaults: Curse, Estate, Copper). `by(C) >= 1` limits a rule to the trashes card C makes (`trash Silver if
+  by(Change) >= 1`: Change upgrades Silvers, River Shrine leaves them); `by(C) < 1` excludes them.
+- The don't-lose guard is built in (a bot never takes the gain that ends the game with it losing); the search does not write `loses_game` itself.
 - **Numbers:** `keep_treasure`, `win_this_turn`.
 
 **Mutation operators:**

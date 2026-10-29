@@ -147,6 +147,60 @@ fn change_trashes_junk_first_when_every_card_unlocks_the_best_gain() {
     assert_eq!(c, Choice::Card(id::ESTATE));
 }
 
+const SHRINE_KINGDOM: &str = "Change, River Shrine, Smithy, Village, Archive, Crown, Gladiator, Annex, Engineer, Charm";
+
+/// The cards `strat` trashes when player 1 plays `card` from `hand` (the picks of the selection, in the order made: canonical, by card id).
+fn trashes(strat: &Strategy, card: dominion_engine::cards::CardId, hand: &str) -> Vec<Choice> {
+    let mut g = state_with(SHRINE_KINGDOM, "", "action", 1, 0, 1, &format!("hand: {hand}\ndeck: 8 Estate"));
+    do_card(&mut g, card);
+    let mut out = Vec::new();
+    loop {
+        let (d, ch) = next_decision(&mut g);
+        if !matches!(d.kind, DecisionKind::Select { act: Act::Trash, .. }) {
+            break;
+        }
+        assert_eq!(d.source, Some(card));
+        let c = decide(strat, &g, &d, &ch);
+        if c == Choice::Pass {
+            break;
+        }
+        out.push(c);
+        g.apply(c, &mut NoEvents).unwrap();
+    }
+    out
+}
+
+#[test]
+fn a_trash_rule_limited_by_change_trashes_silver_to_change_and_not_to_river_shrine() {
+    let rules = |trash: &str| money(&format!("search_play = false\nkeep_treasure = 0\n{trash}"));
+    let by_change = rules("[[trash]]\ncard = \"Silver\"\nif = \"by(Change) >= 1\"\n");
+    let always = rules("[[trash]]\ncard = \"Silver\"\n");
+    // Change: every card unlocks the Province, so the trash rules break the tie. With the rule the Silver goes; without a rule for
+    // Silver, the Duchy (worth least).
+    assert_eq!(trashes(&by_change, id::CHANGE, "Change, Silver, Duchy"), vec![Choice::Card(id::SILVER)]);
+    assert_eq!(trashes(&rules(""), id::CHANGE, "Change, Silver, Duchy"), vec![Choice::Card(id::DUCHY)]);
+    // River Shrine (trash up to 2): the rule for Change's trashes is off, so two Coppers go and the Silver stays; a rule for every
+    // trash takes the Silver and a Copper.
+    assert_eq!(trashes(&by_change, id::RIVER_SHRINE, "River Shrine, Silver, Copper, Copper"), vec![Choice::Card(id::COPPER); 2]);
+    assert_eq!(trashes(&always, id::RIVER_SHRINE, "River Shrine, Silver, Copper, Copper"), vec![Choice::Card(id::COPPER), Choice::Card(id::SILVER)]);
+    // `by(Change) < 1`: every trasher but Change.
+    let not_change = rules("[[trash]]\ncard = \"Silver\"\nif = \"by(Change) < 1\"\n");
+    assert_eq!(trashes(&not_change, id::RIVER_SHRINE, "River Shrine, Silver, Copper, Copper"), vec![Choice::Card(id::COPPER), Choice::Card(id::SILVER)]);
+}
+
+#[test]
+fn distinct_cards_and_buy_phase_conditions_read_the_deck_and_the_phase() {
+    use dominion_sim::expr::Expr;
+    let g = state_with(SHRINE_KINGDOM, "", "buy", 1, 0, 1, "hand: Change, Silver, Copper\ndeck: Estate, Estate, Duchy");
+    let view = PlayerView::new(&g, 0);
+    // Change, Silver, Copper, Estate, Duchy: five names.
+    assert_eq!(Expr::parse("distinct_cards").unwrap().eval(&view), 5);
+    assert_eq!(Expr::parse("buy_phase").unwrap().eval(&view), 1);
+    let g = state_with(SHRINE_KINGDOM, "", "action", 1, 0, 1, "hand: Change, Silver, Copper\ndeck: Estate, Estate, Duchy");
+    assert_eq!(Expr::parse("buy_phase").unwrap().eval(&PlayerView::new(&g, 0)), 0);
+    assert!(Expr::parse("by(Nonsense)").is_err());
+}
+
 // --- Events and Castles in gain lists -----------------------------------------------------------------------
 
 #[test]

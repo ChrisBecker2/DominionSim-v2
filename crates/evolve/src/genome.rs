@@ -38,8 +38,15 @@ pub enum Var {
     /// Debt tokens I have (Empires).
     Debt,
     /// 1 if gaining this rule's card would end the game with me not winning (the last Province
-    /// while behind), else 0. `loses_game < 1` reads "unless it loses the game".
+    /// while behind), else 0. `loses_game < 1` reads "unless it loses the game". Read from files only: the search never writes it (the
+    /// default don't-lose guard does more, and a rule that names `loses_game` turns that guard off).
     LosesGame,
+    /// Differently named cards I own (Museum, Fairgrounds).
+    DistinctCards,
+    /// 1 during my Buy phase (`buy_phase < 1`: a gain outside it, e.g. Kind Emperor's Action to the hand).
+    BuyPhase,
+    /// 1 if the card making the decision is this one: `by(Change) >= 1` on a `[[trash]]` rule limits it to Change's trashes.
+    By(CardId),
 }
 
 /// `Lt` prints as `<` (`<=` for `provinces_left`/`empty_piles`, which read better that way);
@@ -138,7 +145,8 @@ impl Var {
             // 0 or 1 ("bought it this game"): the only threshold that changes anything is 1.
             Var::Bought(_) => (1, 1),
             Var::Debt => (1, 8),
-            Var::LosesGame => (1, 1),
+            Var::LosesGame | Var::BuyPhase | Var::By(_) => (1, 1),
+            Var::DistinctCards => (6, 24),
         }
     }
 
@@ -167,6 +175,9 @@ impl Var {
             Var::Bought(c) => format!("bought({})", cards::name(c)),
             Var::Debt => "debt".into(),
             Var::LosesGame => "loses_game".into(),
+            Var::DistinctCards => "distinct_cards".into(),
+            Var::BuyPhase => "buy_phase".into(),
+            Var::By(c) => format!("by({})", cards::name(c).replace([' ', '\''], "")),
         }
     }
 
@@ -188,6 +199,9 @@ impl Var {
             let _ = inner;
             return cards::by_name(&s[7..s.len() - 1]).filter(|&c| cards::is_bought_pseudo(c)).map(Var::Bought);
         }
+        if lower.starts_with("by(") && lower.ends_with(')') {
+            return cards::by_name(&s[3..s.len() - 1]).filter(|&c| !cards::is_pseudo(c)).map(Var::By);
+        }
         if lower.replace(' ', "") == "count_type(action)" {
             return Some(Var::CountActions);
         }
@@ -202,6 +216,8 @@ impl Var {
             "low_piles" | "lowpiles" => Var::LowPiles,
             "debt" => Var::Debt,
             "loses_game" | "losesgame" => Var::LosesGame,
+            "distinct_cards" | "distinctcards" => Var::DistinctCards,
+            "buy_phase" | "buyphase" => Var::BuyPhase,
             _ => return None,
         })
     }
@@ -591,6 +607,42 @@ mod tests {
         let g = Genome::from_toml(text).unwrap();
         assert_eq!(g.gain[0].conds, vec![a]);
         dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
+    }
+
+    #[test]
+    fn trasher_name_and_deck_conditions_round_trip_load_and_stay_where_they_mean_something() {
+        for (src, var) in [("by(River Shrine) >= 1", Var::By(id::RIVER_SHRINE)), ("distinct_cards < 14", Var::DistinctCards), ("buy_phase < 1", Var::BuyPhase)] {
+            let a = Atom::parse(src).unwrap();
+            assert_eq!(a.var, var);
+            assert_eq!(Atom::parse(&a.text()).unwrap(), a, "{}", a.text());
+        }
+        let text = "name = \"E\"\n[[gain]]\ncard = \"Silver\"\nif = \"by(Change) >= 1\"\n[[gain]]\ncard = \"Duchy\"\nif = \"distinct_cards >= 12\"\n\
+                    [[gain]]\ncard = \"Forum\"\nif = \"buy_phase < 1\"\n[[trash]]\ncard = \"Silver\"\nif = \"by(Change) >= 1\"\n";
+        let mut g = Genome::from_toml(text).unwrap();
+        dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
+        // `by(..)` only on a trash rule, for a card of the pool.
+        let space = crate::space::SearchSpace::new(&[id::CHANGE, id::FORUM, id::MUSEUM, id::KIND_EMPEROR], &[]);
+        assert!(space.names_matter && space.free_gains && space.trashers.contains(&id::CHANGE));
+        space.sanitize(&mut g);
+        assert!(g.gain[0].conds.is_empty(), "by() dropped from a gain rule");
+        assert_eq!(g.trash[0].conds, vec![Atom { var: Var::By(id::CHANGE), op: Op::Ge, n: 1 }]);
+        let space = crate::space::SearchSpace::new(&[id::FORUM], &[]);
+        space.sanitize(&mut g);
+        assert!(g.trash[0].conds.is_empty(), "Change is not in this pool");
+        // Random conditions: never `loses_game`; the new ones only where they matter.
+        let mut rng = dominion_engine::rng::Rng::new(9);
+        let space = crate::space::SearchSpace::new(&[id::CHANGE, id::FORUM, id::MUSEUM, id::KIND_EMPEROR], &[]);
+        let plain = crate::space::SearchSpace::new(&[id::CHANGE, id::FORUM], &[]);
+        let (mut distinct, mut buy_phase) = (0, 0);
+        for _ in 0..3000 {
+            let a = crate::ops::random_atom(&space, &mut rng, id::PROVINCE);
+            assert_ne!(a.var, Var::LosesGame);
+            distinct += (a.var == Var::DistinctCards) as u32;
+            buy_phase += (crate::ops::random_atom(&space, &mut rng, id::FORUM).var == Var::BuyPhase) as u32;
+            let b = crate::ops::random_atom(&plain, &mut rng, id::FORUM);
+            assert!(!matches!(b.var, Var::DistinctCards | Var::BuyPhase), "{b:?}");
+        }
+        assert!(distinct > 100 && buy_phase > 100, "{distinct} {buy_phase}");
     }
 
     #[test]

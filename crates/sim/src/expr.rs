@@ -102,6 +102,10 @@ pub enum Var {
     /// My Favors (Allies) and the most any opponent has.
     Favors,
     OppFavors,
+    /// Differently named cards I own (Museum, Fairgrounds: each new name is worth points).
+    DistinctCards,
+    /// 1 during my Buy phase: a gain rule with `buy_phase < 1` only takes cards gained otherwise (Kind Emperor's Action to the hand, a Workshop).
+    BuyPhase,
 }
 
 impl Var {
@@ -152,6 +156,8 @@ impl Var {
             Var::Horses => view.horses_left() as i64,
             Var::Favors => view.favors() as i64,
             Var::OppFavors => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.favors_of(p)).max().unwrap_or(0) as i64,
+            Var::DistinctCards => view.my_cards().iter().filter(|&(_, n)| n > 0).count() as i64,
+            Var::BuyPhase => (view.is_my_turn() && view.phase() == dominion_engine::Phase::Buy) as i64,
         }
     }
 
@@ -198,6 +204,8 @@ impl Var {
             "horses" => Var::Horses,
             "favors" => Var::Favors,
             "opp_favors" | "opponent_favors" => Var::OppFavors,
+            "distinct_cards" | "distinctcards" => Var::DistinctCards,
+            "buy_phase" | "buyphase" => Var::BuyPhase,
             _ => return None,
         })
     }
@@ -268,6 +276,9 @@ pub enum Expr {
     OppHasState(CardId),
     /// `boon_in_discard(The Sea's Gift)`, `boon_in_deck(..)`, `hex_in_discard(..)`, `hex_in_deck(..)`: 1 if the Boon or Hex is there (public information).
     InPile(CardId, bool),
+    /// `by(Change)`: 1 if the decision being made is asked by that card's effect (`[[trash]] card = "Silver"` with `if = "by(Change)"`
+    /// trashes Silvers to Change only, not to River Shrine).
+    By(CardId),
     /// `wins_game`: gaining this entry's card ends the game this turn with me winning outright.
     WinsGame,
     /// `loses_game`: gaining this entry's card ends the game this turn with me not winning
@@ -351,6 +362,7 @@ impl Expr {
                 (false, true) => view.hex_in_discard(*c) as i64,
                 (false, false) => view.hex_in_deck(*c) as i64,
             },
+            By(c) => (view.pending_source() == Some(*c)) as i64,
             WinsGame => card.is_some_and(|c| view.result_if_gained(c) == Some(1 << view.me())) as i64,
             LosesGame => card.is_some_and(|c| matches!(view.result_if_gained(c), Some(w) if w != 1 << view.me())) as i64,
             Neg(a) => -a.eval_in(view, card),
@@ -406,7 +418,7 @@ impl Expr {
             CountPair(a, _) => f(*a),
             CountLine(c) => f(*c),
             Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
-            HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) | OnTop(c) => f(*c),
+            HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) | OnTop(c) | By(c) => f(*c),
             AllyIs(_) => {}
             Exiled(c) => f(*c),
             HasArtifact(_) | OppHasArtifact(_) => {}
@@ -720,6 +732,10 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
         "on_top" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
             Ok(Expr::OnTop(zone_card(c, "in a pile")?))
+        }
+        "by" => {
+            let c = cards::by_name(arg).filter(|&c| !cards::is_pseudo(c)).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::By(c))
         }
         "has_way" | "way" => {
             let w = cards::by_name(arg).filter(|&w| cards::is_way(w)).ok_or_else(|| format!("{arg:?} is not a Way, in condition {src:?}"))?;

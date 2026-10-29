@@ -78,6 +78,10 @@ impl<'a> PlayerView<'a> {
     pub fn pending_subject(&self) -> Option<CardId> {
         self.state.pending_decision().map(|d| d.subject)
     }
+    /// The card whose effect asks the pending decision (Change for its trash, River Shrine for its own...), if any.
+    pub fn pending_source(&self) -> Option<CardId> {
+        self.state.pending_decision().and_then(|d| d.source)
+    }
     /// For a multi-card selection pending (Artificer's discards): the cards picked so far and the last card picked (picks come in
     /// non-decreasing card order, so the next one is at least that). `None` when no selection is on top of the effect stack.
     pub fn select_progress(&self) -> Option<(u8, CardId)> {

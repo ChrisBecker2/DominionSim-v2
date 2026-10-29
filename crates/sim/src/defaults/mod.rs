@@ -165,6 +165,11 @@ pub(super) trait SetDefaults {
     fn useless_buy(_s: &Strategy, _view: &PlayerView, _card: CardId) -> bool {
         false
     }
+    /// A +Actions card that is order-sensitive only because it discards from the hand after drawing (Forum): next to choice-free or
+    /// `safe_alone` +Actions cards, the bot plays those first and it last (the discard sees the fullest hand), without a search.
+    fn sifts_last(_card: CardId) -> bool {
+        false
+    }
     /// A Treasure that is best played after every other one, ranked among such Treasures (lower first).
     fn plays_last_rank(_card: CardId) -> Option<u8> {
         None
@@ -249,6 +254,10 @@ pub(super) fn useless_play(s: &Strategy, view: &PlayerView, card: CardId) -> boo
 
 pub(super) fn useless_buy(s: &Strategy, view: &PlayerView, card: CardId) -> bool {
     with_set!(cards::set_of(card), S => S::useless_buy(s, view, card))
+}
+
+pub(crate) fn sifts_last(card: CardId) -> bool {
+    with_set!(cards::set_of(card), S => S::sifts_last(card))
 }
 
 pub(super) fn plays_last_rank(card: CardId) -> Option<u8> {

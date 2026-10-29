@@ -438,3 +438,23 @@ fn the_first_bid_for_mountain_pass_is_not_less_than_the_price_of_a_province() {
     let c = decide(&strat, &g, &d, &ch);
     assert!(matches!(c, Choice::Bid(n) if n >= 6), "{c:?}");
 }
+
+#[test]
+fn forum_is_played_after_the_cantrips_and_before_a_terminal_without_a_search() {
+    let k = "Forum, Patrician, Change, Smithy, Village, Archive, Crown, Gladiator, Annex, Engineer";
+    assert!(cards::safe_alone(id::FORUM) && cards::safe_alone(id::PATRICIAN), "a lone Forum or Patrician is played without a search");
+    let full = money("");
+    let first = |hand: &str| {
+        let mut g = state_with(k, "", "action", 1, 0, 1, &format!("hand: {hand}\ndeck: 3 Copper, 2 Estate, Gold, Silver, 3 Copper"));
+        let (d, ch) = next_decision(&mut g);
+        let view = PlayerView::new(&g, d.player);
+        let rule = dominion_sim::strategy::sifter_last(&view, &ch);
+        (decide(&full, &g, &d, &ch), rule)
+    };
+    // The cantrip first (Forum's discard then picks from the fullest hand), Forum before a terminal (it gives the Action back).
+    assert_eq!(first("Forum, Patrician, Copper, Copper, Estate"), (Choice::Card(id::PATRICIAN), Some(id::PATRICIAN)));
+    assert_eq!(first("Forum, Change, Copper, Copper, Estate"), (Choice::Card(id::FORUM), Some(id::FORUM)));
+    assert_eq!(first("Forum, Patrician, Change, Copper, Estate"), (Choice::Card(id::PATRICIAN), Some(id::PATRICIAN)));
+    // A Throne-like in hand is a real choice: the rule leaves it to the search.
+    assert_eq!(first("Forum, Crown, Copper, Copper, Estate").1, None);
+}

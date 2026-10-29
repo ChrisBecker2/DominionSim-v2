@@ -1377,7 +1377,7 @@ impl Strategy {
             // A real choice, but the +Actions cantrips go first (unless the hand is
             // order-sensitive or the stated play rules speak to it).
             if !self.states_play_for_hand(view) {
-                if let Some(c) = cantrip_first(view, choices) {
+                if let Some(c) = cantrip_first(view, choices).or_else(|| sifter_last(view, choices)) {
                     return Choice::Card(c);
                 }
             }
@@ -2060,6 +2060,29 @@ pub fn cantrip_first(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
             let d = cards::def(c);
             (d.actions, std::cmp::Reverse(d.cards), d.coins, d.buys, std::cmp::Reverse(c))
         })
+}
+
+/// A play order without a search for a hand whose Actions are sifters (`SetDefaults::sifts_last`: Forum), +Actions cards that are
+/// choice-free or safe alone (Patrician) and terminals that are not Throne-likes (Change): the +Actions cards first (as `cantrip_first`
+/// ranks them), then the sifters, so their discard picks from the fullest hand (and, when the draws reach a reshuffle, the cards it
+/// discards miss it); the terminals are left to the next decision. `None` when anything else is in the hand or under the same risks
+/// as `cantrip_first`.
+pub fn sifter_last(view: &PlayerView, choices: &[Choice]) -> Option<CardId> {
+    if !iter_cards(choices).any(defaults::sifts_last) || empty_pile_risk(view) || call_order_risk(view) || urchin_risk(view) || rising_sun_risk(view) {
+        return None;
+    }
+    let simple = |c: CardId| {
+        let d = cards::def(c);
+        defaults::sifts_last(c) || (d.actions > 0 && (cards::is_choice_free(c) || cards::safe_alone(c))) || (d.actions == 0 && d.plays == 0)
+    };
+    if view.hand().iter().any(|(c, _)| cards::is(c, ACTION) && !simple(c)) {
+        return None;
+    }
+    let first = iter_cards(choices).filter(|&c| !defaults::sifts_last(c) && cards::def(c).actions > 0).max_by_key(|&c| {
+        let d = cards::def(c);
+        (d.actions, std::cmp::Reverse(d.cards), d.coins, d.buys, std::cmp::Reverse(c))
+    });
+    first.or_else(|| iter_cards(choices).find(|&c| defaults::sifts_last(c)))
 }
 
 /// Whether an Urchin (Dark Ages) is in hand, in play or in the deck (it may be drawn) while an Attack is in the hand or could be drawn: the Urchin is trashed for a Mercenary when

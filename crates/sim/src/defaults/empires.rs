@@ -131,6 +131,11 @@ impl SetDefaults for Empires {
         }
     }
 
+    /// Forum: +3 Cards +1 Action, then discard 2: after the other +Actions cards, so the discard picks from the fullest hand.
+    fn sifts_last(card: CardId) -> bool {
+        card == id::FORUM
+    }
+
     /// Fortune doubles the $ in hand: it goes last among the Treasures (after the Coffers, which the Treasure decision offers first).
     fn plays_last_rank(card: CardId) -> Option<u8> {
         (card == id::FORTUNE).then_some(2)

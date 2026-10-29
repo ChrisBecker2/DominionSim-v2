@@ -309,6 +309,11 @@ pub struct Empires;
 
 impl SetRules for Empires {
     const CARDS: &'static [(CardId, CardDef)] = CARDS;
+    /// Patrician alone: +1 Card +1 Action, and a revealed card costing $5 or more goes to the hand. Forum alone: +3 Cards +1 Action,
+    /// then 2 of the larger hand discarded (the cards it drew can be the ones). Never worse than not playing them.
+    fn safe_alone(card: CardId) -> bool {
+        matches!(card, ids::PATRICIAN | ids::FORUM)
+    }
     /// "When you gain" effects by card: Temple (the VP tokens), Villa and Forum; above id 255, Emporium, Rocks, Fortune and the Castles that
     /// do something (Crumbling, Haunted, Sprawling, Grand).
     const GAIN_HI: u128 = (1u128 << (ids::TEMPLE - 128)) | (1u128 << (ids::VILLA - 128)) | (1u128 << (ids::FORUM - 128));

@@ -126,6 +126,17 @@ pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border
 .checkbox-row .fh { flex-basis: 100%; }
 #play-panel { position: sticky; bottom: 8px; z-index: 4; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
 td.pickcell { white-space: nowrap; }
+/* Insight panel */
+table.ins { border-collapse: collapse; font-size: 11.5px; margin: 4px 0 10px; }
+table.ins th, table.ins td { padding: 2px 5px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+table.ins th { color: var(--text-dim); font-weight: 500; }
+table.ins td.l, table.ins th.l { text-align: left; }
+table.ins td.cell { width: 15px; min-width: 15px; padding: 0; height: 15px; border: 1px solid var(--panel); }
+.ins-side { border-top: 2px solid var(--border); margin-top: 12px; padding-top: 6px; }
+.ins-grid { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.ins-leaf { font-size: 12px; margin: 1px 0; }
+.ins-leaf .p { display: inline-block; width: 52px; text-align: right; font-family: var(--mono); margin-right: 6px; padding: 0 3px; border-radius: 3px; }
+.ins-caution { font-size: 11px; color: var(--text-dim); border-left: 3px solid var(--accent); padding-left: 8px; margin: 6px 0; }
 td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin-right: 4px; }
 .saved-path { font-size: 12px; color: var(--accent-2); word-break: break-all; }
 </style>
@@ -397,6 +408,37 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
         </div>
         <div class="hint">Opens the game page on this league's kingdom with the checked strategies seated as the players (2 to 6; one checked plays against the best other strategy of this run). The niche, ranking and challenger tables share the checks: the same strategy is checked everywhere.</div>
         <div id="play-msg" class="error-msg"></div>
+      </section>
+
+      <section id="insight-panel">
+        <h2>Insight: how two strategies play</h2>
+        <div class="hint">Plays two strategies against each other and shows what happens: opening splits, what is gained and trashed on each turn,
+          the win rate by copies of a card, decision trees over the position, the gains that turn games, and (optional) what each rule of strategy A is worth.
+          Check strategies in the tables above and press "Use the checked", or pick strategy files.</div>
+        <div class="row" style="margin-top:6px">
+          <label style="flex:1 1 100%">Kingdom (card names, comma separated; Events, Landmarks and Prophecies too)
+            <input type="text" id="ins-kingdom" placeholder="e.g. Village, Smithy, ... (empty: the kingdom of the last run)" style="width:100%"></label>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div style="flex:1 1 300px">
+            <label>Strategy A <select id="ins-a-file"><option value="">(strategy file)</option></select></label>
+            <textarea id="ins-a" rows="6" placeholder="Strategy A TOML"></textarea>
+          </div>
+          <div style="flex:1 1 300px">
+            <label>Strategy B (opponent) <select id="ins-b-file"><option value="">(strategy file)</option></select></label>
+            <textarea id="ins-b" rows="6" placeholder="Strategy B TOML"></textarea>
+          </div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button id="ins-checked">Use the checked strategies</button>
+          <button id="ins-swap">Swap A and B</button>
+          <label>Games <input type="number" id="ins-games" value="10000" min="100" step="1000"></label>
+          <label class="checkbox-row"><input type="checkbox" id="ins-explain" checked> Explain A's rules</label>
+          <label class="checkbox-row"><input type="checkbox" id="ins-full"> Full behaviour (slow)</label>
+          <button class="primary" id="ins-run">Analyze</button>
+        </div>
+        <div id="ins-msg" class="error-msg"></div>
+        <div id="ins-body"></div>
       </section>
 
       <section id="result-panel">
@@ -1644,8 +1686,191 @@ function renderLeague(p) {
   cb.appendChild(x);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Insight panel
+// ---------------------------------------------------------------------------------------------
+
+function insFillFiles() {
+  ["ins-a-file", "ins-b-file"].forEach(function (id) {
+    var sel = $(id);
+    if (sel.options.length > 1) return;
+    (state.strategies || []).forEach(function (s) {
+      if (s.error) return;
+      var o = document.createElement("option");
+      o.value = s.file; o.textContent = s.name + " (" + s.file + ")";
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () {
+      var s = (state.strategies || []).filter(function (x) { return x.file === sel.value; })[0];
+      if (s) $(id === "ins-a-file" ? "ins-a" : "ins-b").value = s.toml;
+    });
+  });
+}
+
+// Win rate as a colour: red (0%) through yellow (50%) to green (100%).
+function insWinColor(w) {
+  var h = Math.max(0, Math.min(1, w)) * 120;
+  return "hsla(" + h.toFixed(0) + ",70%,45%,0.35)";
+}
+// Heat (copies per game) as the accent colour's strength.
+function insHeatColor(x) {
+  var a = Math.min(1, Math.sqrt(Math.max(0, x)));
+  return "rgba(138,90,43," + a.toFixed(2) + ")";
+}
+function insPct(r) { return r && r.games ? fmtPct(r.win) : "-"; }
+function insRateCell(r, extra) {
+  if (!r || !r.games) return "<td>-</td>";
+  return "<td style=\"background:" + insWinColor(r.win) + "\" title=\"" + r.games + " games\">" + fmtPct(r.win) + (extra || "") + "</td>";
+}
+
+function insHeatTable(rows, turns, title, what) {
+  if (!rows.length) return "<h3>" + title + "</h3><div class=\"muted\">None.</div>";
+  var h = "<h3>" + title + "</h3><table class=\"ins\"><tr><th class=\"l\">card</th>";
+  for (var t = 1; t <= turns; t++) h += "<th style=\"padding:0 1px\">" + (t % 5 === 0 || t === 1 ? t : "") + "</th>";
+  h += "<th>per game</th><th title=\"games with one " + what + " before turn 10\">with one by turn 9</th><th>without</th></tr>";
+  rows.forEach(function (r) {
+    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>";
+    r.per_turn.forEach(function (x, i) {
+      h += "<td class=\"cell\" style=\"background:" + insHeatColor(x) + "\" title=\"turn " + (i + 1) + ": " + x.toFixed(2) + " per game\"></td>";
+    });
+    h += "<td>" + r.total.toFixed(2) + "</td>" + insRateCell(r.early, " <span class=\"muted\">(" + r.early.games + ")</span>") + insRateCell(r.late) + "</tr>";
+  });
+  return h + "</table>";
+}
+
+function insCurves(curves, title) {
+  if (!curves.length) return "";
+  var h = "<h3>" + title + "</h3><table class=\"ins\"><tr><th class=\"l\">card</th>";
+  var keys = ["0", "1", "2", "3", "4", "5", "6", "7", "8+"];
+  keys.forEach(function (k) { h += "<th>" + k + "</th>"; });
+  h += "</tr>";
+  curves.forEach(function (c) {
+    var by = {};
+    c.points.forEach(function (p) { by[p[0]] = p[1]; });
+    h += "<tr><td class=\"l\">" + escapeHtml(c.card) + "</td>";
+    keys.forEach(function (k) { h += by[k] ? insRateCell(by[k]) : "<td></td>"; });
+    h += "</tr>";
+  });
+  return h + "</table>";
+}
+
+function insSide(s, turns) {
+  var h = "<div class=\"ins-side\"><h3 style=\"font-size:14px;color:var(--text)\">" + escapeHtml(s.name) + ": wins " + insPct(s.rate) +
+    ", " + s.avg_vp.toFixed(1) + " VP, " + s.avg_turns.toFixed(1) + " turns</h3>";
+  // Opening splits.
+  h += "<h3>Opening split (the Coppers in the first two hands)</h3><table class=\"ins\"><tr><th class=\"l\">split</th><th>games</th><th>wins</th><th>opp 5/2</th><th>opp 4/3</th><th class=\"l\">openings (games, wins)</th></tr>";
+  s.splits.forEach(function (r) {
+    h += "<tr><td class=\"l\">" + r.split + "</td><td>" + r.rate.games + "</td>" + insRateCell(r.rate) + insRateCell(r.vs[0][1]) + insRateCell(r.vs[1][1]) +
+      "<td class=\"l\">" + r.openings.slice(0, 3).map(function (o) { return escapeHtml(o.cards) + " (" + o.rate.games + ", " + insPct(o.rate) + ")"; }).join("; ") + "</td></tr>";
+  });
+  h += "</table>";
+  h += insHeatTable(s.gains, turns, "Gains by own turn", "gained");
+  h += insHeatTable(s.trashes, turns, "Trashes by own turn", "trashed");
+  // Decision trees.
+  if (s.trees.length) {
+    h += "<h3>Decision trees: the position at the start of own turn N, and how often games from there are won</h3><div class=\"ins-grid\">";
+    s.trees.forEach(function (tr) {
+      h += "<div><div class=\"muted\" style=\"font-size:12px\">turn " + tr.turn + " (" + tr.rate.games + " games, " + insPct(tr.rate) + ")</div>";
+      tr.leaves.forEach(function (l) {
+        h += "<div class=\"ins-leaf\"><span class=\"p\" style=\"background:" + insWinColor(l.rate.win) + "\" title=\"" + l.rate.games + " games\">" + fmtPct(l.rate.win) +
+          "</span>" + escapeHtml(l.path.join(" and ") || "every position") + " <span class=\"muted\">(" + l.rate.games + ")</span></div>";
+      });
+      h += "</div>";
+    });
+    h += "</div>";
+  }
+  // Turning points.
+  if (s.swings.length) {
+    h += "<h3>Turning points: gaining the card in the window moves the win estimate this much more than not gaining it</h3><table class=\"ins\"><tr><th>effect</th><th class=\"l\">who</th><th class=\"l\">card</th><th class=\"l\">when</th><th>games</th></tr>";
+    s.swings.forEach(function (w) {
+      h += "<tr><td style=\"background:" + insWinColor(0.5 + w.effect) + "\">" + (w.effect >= 0 ? "+" : "") + (100 * w.effect).toFixed(1) + " pts</td><td class=\"l\">" + w.who +
+        "</td><td class=\"l\">" + escapeHtml(w.card) + "</td><td class=\"l\">" + escapeHtml(w.window) + "</td><td>" + w.games + "</td></tr>";
+    });
+    h += "</table>";
+  }
+  h += "<div class=\"ins-caution\">The \"owned at the end\" curves are partly a symptom: a game being lost runs longer and gains more of everything. The \"gained by turn 10\" curves, the trees and the turning points are the better guide.</div>";
+  h += "<div class=\"ins-grid\"><div>" + insCurves(s.by_turn_10, "Win rate by copies gained by turn 10") + "</div><div>" + insCurves(s.at_end, "Win rate by copies owned at the end") + "</div></div>";
+  // Pairs.
+  if (s.pairs.cards.length > 1) {
+    h += "<h3>Final deck pairs: win rate when both are owned (the diagonal: the card alone)</h3><table class=\"ins\"><tr><th></th>";
+    s.pairs.cards.forEach(function (c) { h += "<th title=\"" + escapeHtml(c) + "\">" + escapeHtml(c.slice(0, 7)) + "</th>"; });
+    h += "</tr>";
+    s.pairs.cells.forEach(function (row, i) {
+      h += "<tr><td class=\"l\">" + escapeHtml(s.pairs.cards[i]) + "</td>";
+      row.forEach(function (cell) { h += cell ? insRateCell(cell) : "<td></td>"; });
+      h += "</tr>";
+    });
+    h += "</table>";
+  }
+  h += "<div class=\"hint\">Differently named cards at the end: " + s.names_in_wins.toFixed(1) + " in wins, " + s.names_in_losses.toFixed(1) + " in losses.</div>";
+  return h + "</div>";
+}
+
+function insExplanation(e, name) {
+  var h = "<div class=\"ins-side\"><h3 style=\"font-size:14px;color:var(--text)\">What each rule of " + escapeHtml(name) + " is worth</h3>" +
+    "<div class=\"hint\">Each rule taken out in turn, the same " + e.games + " deals replayed (" + fmtPct(e.with) + " with every rule). The bar: own turns where the rule's card is gained (trashed) more with the rule than without.</div>" +
+    "<table class=\"ins\"><tr><th>worth</th><th class=\"l\">list</th><th class=\"l\">rule</th><th>without it</th><th class=\"l\">when</th><th class=\"l\">by turn</th></tr>";
+  e.rules.forEach(function (r) {
+    var bar = r.per_turn.map(function (d) { return "<span style=\"display:inline-block;width:6px;height:12px;vertical-align:middle;background:" + (d >= 0 ? insHeatColor(d) : "rgba(43,107,74," + Math.min(1, Math.sqrt(-d)).toFixed(2) + ")") + "\"></span>"; }).join("");
+    h += "<tr><td style=\"background:" + insWinColor(0.5 + r.delta) + "\">" + (r.delta >= 0 ? "+" : "") + (100 * r.delta).toFixed(1) + " pts</td><td class=\"l\">" + r.list + "</td><td class=\"l\">" +
+      escapeHtml(r.rule) + "</td><td>" + fmtPct(r.without) + "</td><td class=\"l\">" + escapeHtml(r.when) + "</td><td class=\"l\">" + bar + "</td></tr>";
+  });
+  return h + "</table></div>";
+}
+
+function renderInsight(resp) {
+  var ins = resp.insight;
+  var h = "<div class=\"hint\">" + ins.games + " games on " + escapeHtml(ins.kingdom.join(", ")) + ".</div>";
+  if (ins.prophecy) {
+    h += "<div class=\"hint\">The Prophecy happened in " + ins.prophecy.happened + " games: " + ins.sides.map(function (s, i) {
+      var m = ins.prophecy.made_by[i];
+      return escapeHtml(s.name) + " made it happen in " + m[0].games + " (on its turn " + m[1].toFixed(1) + " on average; it won " + insPct(m[0]) + " of those)";
+    }).join("; ") + ".</div>";
+  }
+  if (resp.explanation) h += insExplanation(resp.explanation, ins.sides[0].name);
+  if (resp.explain_error) h += "<div class=\"hint\">" + escapeHtml(resp.explain_error) + "</div>";
+  h += insSide(ins.sides[0], ins.turns);
+  h += "<details style=\"margin-top:10px\"><summary>" + escapeHtml(ins.sides[1].name) + " (the opponent)</summary>" + insSide(ins.sides[1], ins.turns) + "</details>";
+  $("ins-body").innerHTML = h;
+}
+
+function runInsight() {
+  var msg = $("ins-msg");
+  msg.textContent = "";
+  var kingdom = $("ins-kingdom").value.split(/[,;]|\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  if (!kingdom.length) kingdom = runKingdom();
+  if (!kingdom.length) { msg.textContent = "Type a kingdom first (no run with a fixed kingdom to take it from)."; return; }
+  var a = $("ins-a").value, b = $("ins-b").value;
+  if (!a.trim() || !b.trim()) { msg.textContent = "Fill in both strategies (check two in the tables above, or pick files)."; return; }
+  var body = { kingdom: kingdom, a: a, b: b, games: parseInt($("ins-games").value, 10) || 10000, explain: $("ins-explain").checked, full: $("ins-full").checked };
+  $("ins-run").disabled = true;
+  $("ins-body").innerHTML = "<div class=\"muted\">Playing...</div>";
+  postJson("/api/insight", body).then(function (resp) {
+    $("ins-run").disabled = false;
+    renderInsight(resp);
+  }).catch(function (e) {
+    $("ins-run").disabled = false;
+    $("ins-body").innerHTML = "";
+    msg.textContent = "error: " + e.message;
+  });
+}
+
+function wireInsight() {
+  $("ins-run").addEventListener("click", runInsight);
+  $("ins-swap").addEventListener("click", function () { var a = $("ins-a").value; $("ins-a").value = $("ins-b").value; $("ins-b").value = a; });
+  $("ins-checked").addEventListener("click", function () {
+    var tomls = withOpponent(picked.map(function (p) { return p.toml; }));
+    if (tomls.length < 2) { $("ins-msg").textContent = "Check two strategies (or one, to play it against the best other of the run)."; return; }
+    $("ins-msg").textContent = "";
+    $("ins-a").value = tomls[tomls.length === 2 && picked.length === 1 ? 1 : 0];
+    $("ins-b").value = tomls[tomls.length === 2 && picked.length === 1 ? 0 : 1];
+    if (!$("ins-kingdom").value.trim()) $("ins-kingdom").value = runKingdom().join(", ");
+  });
+}
+
 function init() {
   wireStaticEvents();
+  wireInsight();
   wireLeague();
   wireFixedKingdomText();
   leagueFormShow(); // Kingdom mode is the default
@@ -1659,6 +1884,7 @@ function init() {
     state.strategies = results[1];
     state.defaults = results[2];
     state.status = results[3];
+    insFillFiles();
 
     var running = !!(state.status && state.status.running && state.status.request);
     var initial = running ? state.status.request : (loadSavedConfig() || state.defaults);

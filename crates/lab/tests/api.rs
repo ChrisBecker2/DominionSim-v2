@@ -270,3 +270,26 @@ fn cards_lists_the_plunder_traits() {
     let kingdom = resp["kingdom"].as_array().unwrap();
     assert!(kingdom.iter().any(|c| c["name"] == "Cheap"), "no Trait in the card list");
 }
+
+#[test]
+fn insight_reports_both_strategies_and_explains_the_first_ones_rules() {
+    let state = AppState::new(strategies_fixture());
+    let a = std::fs::read_to_string(state.strategies_dir.join("smithy_bm.toml")).unwrap();
+    let b = std::fs::read_to_string(state.strategies_dir.join("big_money.toml")).unwrap();
+    let kingdom = ["Cellar", "Market", "Merchant", "Militia", "Mine", "Moat", "Remodel", "Smithy", "Village", "Workshop"];
+    let body = serde_json::json!({ "kingdom": kingdom, "a": a, "b": b, "games": 400, "explain": true });
+    let (status, v) = call(&state, "POST", "/api/insight", body.to_string().as_bytes());
+    assert_eq!(status, 200, "{v}");
+    let sides = v["insight"]["sides"].as_array().unwrap();
+    assert_eq!(sides.len(), 2);
+    assert_eq!(v["insight"]["games"], 400);
+    assert!(sides[0]["gains"].as_array().unwrap().iter().any(|h| h["card"] == "Smithy"), "{}", sides[0]["gains"]);
+    assert!(sides[0]["trees"].as_array().is_some() && sides[0]["splits"].as_array().unwrap().len() == 2);
+    // Smithy-BM's file is in the search's rule language: every rule gets a value, or the error says why not.
+    assert!(v["explanation"]["rules"].as_array().is_some_and(|r| !r.is_empty()) || v["explain_error"].is_string(), "{v}");
+    // A bad kingdom or strategy is a 400 with a message.
+    let bad = serde_json::json!({ "kingdom": ["Nonsense"], "a": a, "b": b });
+    let (status, v) = call(&state, "POST", "/api/insight", bad.to_string().as_bytes());
+    assert_eq!(status, 400);
+    assert!(v["error"].as_str().unwrap().contains("Nonsense"), "{v}");
+}

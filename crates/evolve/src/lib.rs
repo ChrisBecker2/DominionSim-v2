@@ -22,6 +22,7 @@ pub mod baselines;
 pub mod config;
 pub mod ga;
 pub mod genome;
+pub mod insight;
 pub mod league;
 pub mod niche;
 pub mod ops;

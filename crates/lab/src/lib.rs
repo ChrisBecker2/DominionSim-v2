@@ -81,6 +81,7 @@ pub fn handle(state: &AppState, method: &str, path: &str, body: &[u8]) -> Respon
         ("GET", "/api/status") => handle_status(state),
         ("POST", "/api/save") => handle_save(state, body),
         ("POST", "/api/assess") => handle_assess(state, body),
+        ("POST", "/api/insight") => handle_insight(body),
         ("GET", "/game") => game_page(state),
         _ => Response::err(404, "not found"),
     }
@@ -170,6 +171,36 @@ struct AssessRequest {
 }
 fn default_games() -> u64 {
     20_000
+}
+
+/// `/api/insight`: two strategies (TOML) on a kingdom (card names); `explain` adds what each rule of `a` is worth.
+#[derive(Deserialize)]
+struct InsightRequest {
+    kingdom: Vec<String>,
+    a: String,
+    b: String,
+    #[serde(default = "insight_games")]
+    games: u64,
+    #[serde(default = "one_u64")]
+    seed: u64,
+    /// Exact bot behaviour (turn search) instead of the fast rules-only bots.
+    #[serde(default)]
+    full: bool,
+    #[serde(default)]
+    explain: bool,
+}
+fn insight_games() -> u64 {
+    10_000
+}
+fn one_u64() -> u64 {
+    1
+}
+
+#[derive(Serialize)]
+struct InsightResponse {
+    insight: dominion_evolve::insight::Insight,
+    explanation: Option<dominion_evolve::insight::Explanation>,
+    explain_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -545,4 +576,42 @@ fn handle_assess(state: &AppState, body: &[u8]) -> Response {
         Ok(entry) => Response::json(200, &entry),
         Err(e) => Response::err(400, e),
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// /api/insight
+// ---------------------------------------------------------------------------------------------
+
+fn handle_insight(body: &[u8]) -> Response {
+    use dominion_evolve::insight;
+    let req: InsightRequest = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(e) => return Response::err(400, format!("bad request: {e}")),
+    };
+    let kingdom = match dominion_sim::kingdom::resolve(&req.kingdom.join(","), &[], req.seed) {
+        Ok(k) => k,
+        Err(e) => return Response::err(400, e),
+    };
+    let parse = |src: &str, which: &str| -> Result<Strategy, String> {
+        let mut s = Strategy::parse(src).map_err(|e| format!("strategy {which}: {e}"))?;
+        if !req.full {
+            insight::make_fast(&mut s);
+        }
+        Ok(s)
+    };
+    let (a, b) = match (parse(&req.a, "A"), parse(&req.b, "B")) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => return Response::err(400, e),
+    };
+    let games = req.games.clamp(2, 200_000);
+    let report = insight::analyze(&kingdom, &a, &b, games, req.seed);
+    let (explanation, explain_error) = if req.explain {
+        match insight::explain(&kingdom, &req.a, &b, games, req.seed, !req.full) {
+            Ok(e) => (Some(e), None),
+            Err(e) => (None, Some(e)),
+        }
+    } else {
+        (None, None)
+    };
+    Response::json(200, &InsightResponse { insight: report, explanation, explain_error })
 }

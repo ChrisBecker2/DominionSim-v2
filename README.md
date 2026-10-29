@@ -27,6 +27,15 @@ starts the server on `http://127.0.0.1:8723` and opens it in your browser (add `
 skip that, `--port` to change it, `--strategies <dir>` to point at a different strategies
 directory).
 
+The **Insight** panel plays two strategies against each other and explains the games: win rate by opening split, what is
+gained and trashed on each turn (heat maps), win rate by copies of a card, decision trees over the position at turns
+5/9/13/17 (their branches read as strategy conditions), the gains that turn games, and what each rule of a strategy is
+worth (each one taken out, the same deals replayed). The same report on the command line:
+
+```
+cargo run -p dominion-evolve --release --example insight -- "<kingdom>" a.toml b.toml 10000 1 --fast --explain
+```
+
 For a headless run, pass the same JSON the UI posts to `/api/start`:
 
 ```

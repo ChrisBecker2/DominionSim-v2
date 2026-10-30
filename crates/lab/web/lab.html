@@ -1772,7 +1772,9 @@ function insHeatTable(rows, turns, title, what) {
   if (!rows.length) return "<h3>" + title + "</h3><div class=\"muted\">None.</div>";
   var h = "<h3>" + title + "</h3><table class=\"ins\"><tr><th class=\"l\">card</th>";
   for (var t = 1; t <= turns; t++) h += "<th style=\"padding:0 1px\">" + (t % 5 === 0 || t === 1 ? t : "") + "</th>";
-  h += "<th>per game</th><th title=\"games with one " + what + " before turn 10\">with one by turn 9</th><th>without</th></tr>";
+  // The three figures get columns of one width, their headers wrapped ("with one by turn 9" on two lines).
+  var stat = "<th style=\"white-space:normal;width:58px;vertical-align:bottom\"";
+  h += stat + ">per game</th>" + stat + " title=\"games with one " + what + " before turn 10\">with one by turn 9</th>" + stat + ">without</th></tr>";
   rows.forEach(function (r) {
     h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>";
     r.per_turn.forEach(function (x, i) {

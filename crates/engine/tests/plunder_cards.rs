@@ -464,6 +464,31 @@ fn the_state_round_trips_through_text() {
     assert_eq!(strip(&format_state(&back)), strip(&text));
 }
 
+#[test]
+fn the_kingdom_line_takes_every_kind_of_card_a_game_is_set_up_with() {
+    let names = ["Village", "Smithy", "Alms", "Aqueduct", "Academy", "Way of the Ox", "Plateau Shepherds", "Rapid Expansion", "Workshop"];
+    let kingdom: Vec<CardId> = names.iter().map(|n| cards::by_name(n).unwrap()).chain([I::CHEAP]).collect();
+    let g = GameState::new(&GameConfig { num_players: 2, kingdom, seed: 1, max_turns: 100, trait_piles: vec![(I::CHEAP, I::WORKSHOP)], ..Default::default() });
+    let text = format_state(&g);
+    // Everything moved onto the kingdom line: the Event, Landmark, Project, Way, Ally, Prophecy and the Trait with its pile.
+    let own_lines = ["events", "landmarks", "projects", "ways", "ally", "prophecy", "traits"];
+    let one_line: Vec<String> = text
+        .lines()
+        .filter(|l| !own_lines.contains(&l.split(':').next().unwrap()))
+        .map(|l| if l.starts_with("kingdom:") { format!("kingdom: {}, Cheap on Workshop", names.join(", ")) } else { l.to_string() })
+        .collect();
+    let back = parse_state(&one_line.join("\n")).unwrap();
+    let strip = |s: &str| s.lines().filter(|l| !l.starts_with("seed:")).collect::<Vec<_>>().join("\n");
+    assert_eq!(strip(&format_state(&back)), strip(&text));
+    assert_eq!(back.cost(I::WORKSHOP), 2, "Cheap on Workshop");
+    // A Trait without a pile gets one at set-up.
+    let bare = one_line.join("\n").replace("Cheap on Workshop", "Cheap");
+    assert!(parse_state(&bare).unwrap().plu.trait_pile.iter().any(|&p| p != 0));
+    // Anything else is still refused.
+    let err = parse_state(&one_line.join("\n").replace("Cheap on Workshop", "Spoils")).err().expect("Spoils is no kingdom card");
+    assert!(err.contains("not a kingdom card"), "{err}");
+}
+
 /// Answer every decision that is not the turn player's Action / Buy / Treasure prompt with its first choice (or Pass / Yes if offered, in that order of preference when `yes_first`).
 fn settle(g: &mut GameState, yes_first: bool) {
     for _ in 0..60 {

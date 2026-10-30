@@ -11,7 +11,9 @@
 //!   prefix expands to that many consecutive identical entries.
 //!
 //! `parse_state` / `format_state` cover a full `GameState`: supply, trash, whose turn it is
-//! and every player's zones. Parsing always resets the effect stack and pending decision
+//! and every player's zones. The `kingdom:` line may hold everything the game is set up with, not only the kingdom
+//! cards: Events, Landmarks, Projects, Ways, the Ally, the Prophecy and Traits (`Cheap` gets its pile at set-up, `Cheap on
+//! Village` names it); the separate `events:`, `landmarks:`, ... lines `format_state` writes say the same. Parsing always resets the effect stack and pending decision
 //! (`GameState::stack` empty, `GameState::pending = Pending::None`) — the format only
 //! describes phase boundaries (start of the Action or Buy phase, or game over), never a
 //! card effect that's mid-resolution. A state produced by `format_state` while a decision is
@@ -283,7 +285,9 @@ fn parse_small_multiset<const N: usize>(s: &str, field: &str) -> Result<SmallMul
 }
 
 /// Parse a plain comma-separated list of kingdom card names (no counts), e.g.
-/// `"Cellar, Market, Village"`. Rejects non-kingdom cards and duplicates.
+/// `"Cellar, Market, Village"`. Besides the kingdom cards it takes every card-shaped thing a game is set up with: Platinum and Colony,
+/// Events, Landmarks, Projects, Ways, the Ally, the Prophecy and Traits (whose pile is then chosen at set-up). Rejects anything else
+/// and duplicates.
 pub fn parse_kingdom(s: &str) -> Result<Vec<CardId>, String> {
     parse_kingdom_list(s)
 }
@@ -298,8 +302,17 @@ fn parse_kingdom_list(s: &str) -> Result<Vec<CardId>, String> {
         // Either half of a split pile names the pile.
         let id = if cards::is_split_bottom(id) { cards::split_top(id).unwrap_or(id) } else { id };
         // Platinum and Colony may be listed to include them (Prosperity games with Colonies); so may the Events and the Landmarks.
-        if !cards::is_kingdom(id) && !cards::is_optional_basic(id) && !cards::is_event(id) && !cards::is_landmark(id) && !cards::is_prophecy(id) && !cards::is_project(id) && !cards::is_way(id) && !cards::is_ally(id) {
-            return Err(format!("'{name}' is not a kingdom card"));
+        if !cards::is_kingdom(id)
+            && !cards::is_optional_basic(id)
+            && !cards::is_event(id)
+            && !cards::is_landmark(id)
+            && !cards::is_prophecy(id)
+            && !cards::is_project(id)
+            && !cards::is_way(id)
+            && !cards::is_ally(id)
+            && !cards::is_trait(id)
+        {
+            return Err(format!("'{name}' is not a kingdom card, Event, Landmark, Project, Way, Ally, Prophecy or Trait"));
         }
         if !cards::is_ready(id) {
             return Err(format!("'{name}' is not implemented yet"));
@@ -1491,7 +1504,25 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
 
     let (kingdom_line, kingdom_str) =
         kingdom_val.ok_or_else(|| "missing 'kingdom' field".to_string())?;
-    let mut kingdom = parse_kingdom_list(&kingdom_str).map_err(|e| format!("line {kingdom_line}: {e}"))?;
+    // The kingdom line may name a Trait's pile too (`Cheap on Village`), as the `traits:` line does.
+    let mut kingdom_traits: Vec<(CardId, CardId)> = Vec::new();
+    let mut plain: Vec<&str> = Vec::new();
+    for part in split_parts(&kingdom_str) {
+        match part.split_once(" on ").and_then(|(t, pile)| Some((cards::by_name(t.trim()).filter(|&t| cards::is_trait(t))?, pile))) {
+            Some((t, pile)) => {
+                let pile = cards::by_name(pile.trim()).ok_or_else(|| format!("line {kingdom_line}: unknown card '{}'", pile.trim()))?;
+                kingdom_traits.push((t, pile));
+            }
+            None => plain.push(part),
+        }
+    }
+    let mut kingdom = parse_kingdom_list(&plain.join(", ")).map_err(|e| format!("line {kingdom_line}: {e}"))?;
+    for &(t, _) in &kingdom_traits {
+        if kingdom.contains(&t) {
+            return Err(format!("line {kingdom_line}: duplicate kingdom card '{}'", cards::name(t)));
+        }
+        kingdom.push(t);
+    }
     if let Some((ln, s)) = &events_val {
         for e in parse_kingdom_list(s).map_err(|e| format!("line {ln}: {e}"))? {
             if !cards::is_event(e) {
@@ -1501,7 +1532,7 @@ pub fn parse_state(text: &str) -> Result<GameState, String> {
         }
     }
     // Plunder: each Trait with the pile it sits on.
-    let mut trait_piles: Vec<(CardId, CardId)> = Vec::new();
+    let mut trait_piles: Vec<(CardId, CardId)> = kingdom_traits;
     if let Some((ln, s)) = &traits_val {
         for part in split_parts(s) {
             let (t, pile) = part.split_once(" on ").ok_or_else(|| format!("line {ln}: expected 'Trait on Card', found '{part}'"))?;

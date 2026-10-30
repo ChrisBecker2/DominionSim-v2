@@ -2538,6 +2538,33 @@ fn paying_debt_in_the_action_phase_lets_change_remodel() {
     assert_eq!(g.players[0].debt, 2, "Estate $2 -> Smithy $4: 2 Debt");
 }
 
+#[test]
+fn a_villa_bought_after_paying_changes_debt_lets_a_second_change_remodel_and_take_more_debt() {
+    let mut g = new_state(&[id::CHANGE, id::VILLA, id::SMITHY], 2);
+    set_hand(&mut g, 0, &[id::CHANGE, id::CHANGE, id::ESTATE, id::GOLD, id::SILVER]);
+    // The first Change, with no Debt: Estate ($2) -> Silver ($3), 1 Debt. It used the only Action.
+    play(&mut g, id::CHANGE);
+    pick(&mut g, id::ESTATE);
+    pick(&mut g, id::SILVER);
+    assert_eq!((g.players[0].debt, g.turn.actions), (1, 0));
+    // The Buy phase: Gold and Silver make $5; paying the Debt leaves $4 for a Villa.
+    adv(&mut g);
+    assert_eq!((g.turn.phase, g.turn.coins), (Phase::Buy, 5));
+    choose(&mut g, Choice::PayDebt);
+    assert_eq!((g.players[0].debt, g.turn.coins), (0, 4));
+    buy(&mut g, id::VILLA);
+    // The Villa goes to the hand with +1 Action and returns the player to the Action phase.
+    assert_eq!((g.turn.phase, g.turn.actions), (Phase::Action, 1));
+    assert!(g.players[0].hand.has(id::VILLA) && g.players[0].hand.has(id::CHANGE));
+    // The second Change: no Debt again, so it remodels too: Villa ($4) -> Gold ($6), 2 more Debt.
+    play(&mut g, id::CHANGE);
+    pick_if(&mut g, id::VILLA); // the only card in the hand: picked by the engine
+    assert_eq!(g.players[0].in_play.get(id::CHANGE), 2, "both Changes played this turn");
+    pick(&mut g, id::GOLD);
+    assert_eq!(g.players[0].debt, 2);
+    assert_eq!((g.trash.get(id::ESTATE), g.trash.get(id::VILLA)), (1, 1));
+}
+
 // ===========================================================================
 // The stop-moving rule (docs/stop-moving-rule.md)
 // ===========================================================================

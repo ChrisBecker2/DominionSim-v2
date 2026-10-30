@@ -1002,7 +1002,8 @@ function vsTable(vs) {
   t.className = "hof";
   t.innerHTML = "<thead><tr><th>opponent</th><th>win rate</th><th>95% CI</th><th>weight</th><th>games</th></tr></thead>";
   var tb = document.createElement("tbody");
-  vs.forEach(function (o) {
+  // The strongest opponents first (the lowest win rate against them); the weakest, Big Money, end up last.
+  vs.slice().sort(function (a, b) { return a.win_rate - b.win_rate; }).forEach(function (o) {
     var tr = document.createElement("tr");
     tr.innerHTML = "<td>" + escapeHtml(o.name) + "</td><td><b>" + fmtPct(o.win_rate) + "</b></td><td>" + fmtPct(o.ci_lo) + "-" + fmtPct(o.ci_hi) +
       "</td><td>" + Math.round(o.weight * 100) + "%</td><td>" + o.games.toLocaleString() + "</td>";
@@ -1049,7 +1050,7 @@ function entryHtml(entry, source, idx) {
   if (vt && entry.vs.length > 1) {
     var vh = document.createElement("div");
     vh.className = "hint";
-    vh.textContent = "Win rate by opponent (the overall rate above is their weighted average):";
+    vh.textContent = "Win rate by opponent, the strongest opponents first (the overall rate above is their weighted average):";
     div.appendChild(vh);
     var box = document.createElement("div");
     box.style.cssText = "max-height:260px;overflow:auto";

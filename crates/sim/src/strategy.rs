@@ -1010,6 +1010,8 @@ impl Strategy {
                 && view.in_supply(*card)
                 && view.supply(*card) > 0
                 && cond.as_ref().map_or(true, |e| e.eval_bool_for(view, *card))
+                // Not a gain the don't-lose guard would refuse (the last Province while behind): the gain would be something else.
+                && !(self.guard_game_end && Self::guard_may_apply(view, *card) && Self::guard(view, *card) == Guard::Loses)
         })
     }
 

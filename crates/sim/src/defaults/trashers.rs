@@ -13,9 +13,15 @@ use dominion_engine::state::Filter;
 
 use crate::strategy::*;
 
-/// What trashing `c` gains for Remodel and its kin: the best card costing up to (exactly, if `exact`) `plus` more.
+/// What trashing `c` gains for Remodel and its kin: the best card costing up to (exactly, if `exact`) `plus` more. With nothing of the gain
+/// list in reach the gain is still made (a Copper for a Copper): junk the trash rules would remove, worth what trashing junk is worth, negated.
 pub(super) fn upgrade_gain(s: &Strategy, view: &PlayerView, c: CardId, plus: u8, exact: bool) -> f64 {
-    s.gain_weight(view, view.cost(c).saturating_add(plus), Filter::Any, exact, cards::potion_cost(c))
+    match s.gain_weight(view, view.cost(c).saturating_add(plus), Filter::Any, exact, cards::potion_cost(c)) {
+        g if g > 0.0 => g,
+        // "Exactly $1 more" often finds no card at all (Upgrade's Copper): a plain trash then.
+        _ if exact => 0.0,
+        _ => -0.3,
+    }
 }
 
 /// Stonemason: two cards each costing less. Gaining nothing the strategy lists is a loss (it fills the deck with the cheap cards).
@@ -64,9 +70,10 @@ pub(super) fn pick(s: &Strategy, view: &PlayerView, choices: &[dominion_engine::
     s.best_trash_among(view, iter_cards(choices), gain).map(|(c, _)| dominion_engine::engine::Choice::Card(c))
 }
 
-/// Remodel-like: trash a card, gain one costing up to (exactly, if `exact`) `plus` more.
+/// Remodel-like: trash a card, gain one costing up to (exactly, if `exact`) `plus` more. Only for a real gain: a swap that leaves the deck as it
+/// was (a Copper for a Copper, a Gold for a Gold) is not worth the play.
 pub(super) fn upgrade_pays(s: &Strategy, view: &PlayerView, me: CardId, plus: u8, exact: bool) -> bool {
-    pays(s, view, me, |s, c| upgrade_gain(s, view, c, plus, exact))
+    s.best_hand_trash(view, me, |s, c| upgrade_gain(s, view, c, plus, exact)).is_some_and(|(_, v)| v > 0.0)
 }
 
 pub(super) fn stonemason_pays(s: &Strategy, view: &PlayerView, me: CardId) -> bool {

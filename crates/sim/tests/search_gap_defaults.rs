@@ -50,6 +50,16 @@ fn remodel_is_played_for_junk_and_passed_over_for_a_silver_swap() {
 }
 
 #[test]
+fn remodel_is_not_played_for_a_copper_for_a_copper() {
+    // Nothing of the gain list costs $2 or less: trashing a Copper gains a Copper back (Remodel must gain), the deck unchanged.
+    let s = bm_with("Remodel");
+    let k = [id::REMODEL, id::CELLAR, id::MARKET];
+    assert_eq!(first_choice(&s, &k, &[(id::COPPER, 4), (id::REMODEL, 1)]), Choice::Pass);
+    // With an Estate in the hand, Estate -> Silver is still worth it.
+    assert_eq!(first_choice(&s, &k, &[(id::COPPER, 3), (id::ESTATE, 1), (id::REMODEL, 1)]), plays(id::REMODEL));
+}
+
+#[test]
 fn forced_trashers_with_nothing_to_lose_are_passed_over() {
     // Rats and Forager trash a card for nothing: with only Silver and Gold in the hand they lose.
     for (name, card, kingdom) in [("Forager", id::FORAGER, [id::FORAGER, id::CELLAR]), ("Rats", id::RATS, [id::RATS, id::CELLAR])] {

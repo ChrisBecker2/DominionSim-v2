@@ -1046,7 +1046,14 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         let field: Vec<(String, String)> = (0..n).filter(|&i| i != b).map(|i| (names[i].clone(), entries[i].toml.clone())).collect();
         let seed = Rng::derive(cfg.seed, 0x1A5).next_u64();
         match crate::insight::findings(&kingdom, &entries[b].toml, &field, lc.insight_games, seed) {
-            Ok(f) => report_data.findings = Some(crate::insight::Findings { champion: names[b].clone(), ..f }),
+            Ok(f) => {
+                // What each rule is worth against the field, as a comment above it in the result's file.
+                if let Some(e) = &f.explanation {
+                    entries[b].toml = crate::insight::annotate(&entries[b].toml, e);
+                    report_data.strategies[b].toml = entries[b].toml.clone();
+                }
+                report_data.findings = Some(crate::insight::Findings { champion: names[b].clone(), ..f })
+            }
             Err(e) => report_data.findings_error = Some(e),
         }
     }

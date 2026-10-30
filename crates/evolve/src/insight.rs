@@ -894,6 +894,35 @@ pub fn explain_field(kingdom: &[CardId], a_toml: &str, field: &[&Strategy], game
     Ok(Explanation { with: base_rate, games: base.len() as u64, rules })
 }
 
+/// The strategy file `toml` with what each rule is worth written as a comment above it ("# +12.5 points against the field:
+/// 71.2% without it, acts on turns 3-9"). `e` must explain this very file (its rules in file order); other lines are kept.
+pub fn annotate(toml: &str, e: &Explanation) -> String {
+    let mut seen: Vec<(&str, usize)> = Vec::new();
+    let mut out = String::with_capacity(toml.len() + 64 * e.rules.len());
+    for line in toml.lines() {
+        let table = line.trim().strip_prefix("[[").and_then(|x| x.strip_suffix("]]"));
+        if let Some(t) = table {
+            let k = match seen.iter_mut().find(|(n, _)| *n == t) {
+                Some((_, k)) => {
+                    *k += 1;
+                    *k - 1
+                }
+                None => {
+                    seen.push((t, 1));
+                    0
+                }
+            };
+            if let Some(r) = e.rules.iter().filter(|r| r.list == t).nth(k) {
+                let when = if r.when.is_empty() { String::new() } else { format!(", acts on {}", r.when) };
+                out.push_str(&format!("# {:+.1} points against the field: {} without it{when}\n", r.delta * 100.0, pc(r.without)));
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,9 +1012,13 @@ card = \"Silver\"
         assert_eq!(f.insight.games, 2000);
         assert_eq!(f.field.iter().map(|r| (r.name.as_str(), r.rate.games)).collect::<Vec<_>>(), [("BM", 1000), ("Silvers", 1000)]);
         assert!(f.field[0].rate.win < f.field[1].rate.win, "{:?}", f.field);
-        // The rules first (the Smithy rule among the valuable ones), then what it does differently from the field.
-        assert_eq!(f.findings[0].kind, "rule", "{:#?}", f.findings);
-        assert!(f.findings.iter().any(|x| x.kind == "rule" && x.text.starts_with("gain \"Smithy if count(Smithy) < 1\"") && x.points > 0.05), "{:#?}", f.findings);
+        // What each rule is worth goes into the file as a comment above it (the Smithy rule among the valuable ones), not into the findings.
+        assert!(f.findings.iter().all(|x| x.kind != "rule"), "{:#?}", f.findings);
+        let noted = annotate(smithy, f.explanation.as_ref().unwrap());
+        let smithy_note = noted.split("card = \"Smithy\"").next().unwrap().lines().filter(|l| l.starts_with("# ")).last().unwrap().to_string();
+        assert!(smithy_note.starts_with("# +") && smithy_note.contains(" points against the field: "), "{noted}");
+        assert_eq!(noted.lines().filter(|l| l.starts_with("[[")).count(), noted.lines().filter(|l| l.contains(" points against the field: ")).count(), "{noted}");
+        Strategy::parse(&noted).unwrap();
         let smithies = f.findings.iter().find(|x| x.kind == "difference" && x.text.starts_with("Smithy: 1.0 a game, the field 0.0")).expect("the Smithy is the difference");
         assert!((smithies.points - 1.0).abs() < 0.01, "{smithies:?}");
         // Province (the top Victory card here) is in no finding: buying one mostly says who is ahead.
@@ -1089,15 +1122,7 @@ pub fn findings(kingdom: &[CardId], champion: &str, field: &[(String, String)], 
     let mut out: Vec<Finding> = Vec::new();
     let mut push = |kind: &str, text: String, points: f64, games: usize| out.push(Finding { kind: kind.into(), text, points, games });
 
-    // What each rule is worth (taken out, the same deals replayed).
-    if let Some(e) = &explanation {
-        let mut rules: Vec<&RuleImpact> = e.rules.iter().filter(|r| r.delta.abs() >= 0.02 && r.rule != top && !r.rule.starts_with(&format!("{top} if "))).collect();
-        rules.sort_by(|x, y| y.delta.total_cmp(&x.delta));
-        for r in rules.into_iter().take(8) {
-            let when = if r.when.is_empty() { String::new() } else { format!(", acts on {}", r.when) };
-            push("rule", format!("{} \"{}\": {} without it{when}.", r.list, r.rule, pc(r.without)), r.delta, e.games as usize);
-        }
-    }
+    // (What each rule is worth is not a finding: `annotate` writes it into the champion's file, above each rule.)
 
     // What the champion gains that the field does not (and the other way round), per game.
     let (me, them) = (&insight.sides[0], &insight.sides[1]);

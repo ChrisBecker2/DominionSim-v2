@@ -426,7 +426,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
       <section id="findings-panel" style="display:none">
         <h2>Findings: what decides games on this kingdom</h2>
         <div class="hint" id="findings-hint">At the end of a run the champion plays every other strategy of the ranking, the baselines included (what decides its games,
-          what it does differently from the field), and each of its rules is taken out in turn (what it is worth). Fast bots. Points are win-rate percentage points.</div>
+          what it does differently from the field), and each of its rules is taken out in turn: what each is worth is written as a comment above it in the result's file. Fast bots. Points are win-rate percentage points.</div>
         <div id="findings-body"></div>
       </section>
 
@@ -1897,7 +1897,6 @@ function insRaces(ins) {
 
 // The league's kingdom findings: sentences by kind, then the analyses behind them (collapsed).
 var FINDING_KINDS = [
-  ["rule", "What each rule of the champion is worth against the field: the rule taken out, the same deals replayed"],
   ["difference", "What the champion gains more or less of than the field (copies a game)"],
   ["race", "Races: the champion's win rate when it gains the card first minus when its opponent does"],
   ["opening", "Openings: the champion's win rate by its opening"],
@@ -1918,13 +1917,6 @@ function renderFindings(L) {
   var me = F.insight.sides[0];
   var h = "<div class=\"hint\">Champion: <b>" + escapeHtml(F.champion) + "</b>, against the " + F.field.length + " other strategies of the ranking (" + F.insight.games +
     " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion (copies a game for the differences); hover it for the games behind it.</div>";
-  h += "<details style=\"margin-top:6px\"><summary>The champion against each strategy (hardest first)</summary><table class=\"ins\"><tr><th class=\"l\">opponent</th>" +
-    "<th title=\"how often the champion beats this opponent: lower = a harder opponent\">champion's win rate</th>" +
-    "<th title=\"the opponent's average score in these games\">opponent's VP</th><th title=\"the opponent's average number of turns\">opponent's turns</th></tr>";
-  F.field.forEach(function (r) {
-    h += "<tr><td class=\"l\">" + escapeHtml(r.name) + "</td>" + insRateCell(r.rate, "") + "<td>" + r.avg_vp.toFixed(1) + "</td><td>" + r.avg_turns.toFixed(1) + "</td></tr>";
-  });
-  h += "</table><div class=\"hint\">Each row is one opponent; the percentage is how often the champion beats it, so the hardest opponents (lowest) come first.</div></details>";
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;
@@ -1940,7 +1932,6 @@ function renderFindings(L) {
   if (F.explain_error) h += "<div class=\"hint\">" + escapeHtml(F.explain_error) + "</div>";
   h += "<details style=\"margin-top:10px\"><summary>The champion against the field: races, openings, gains, trees, turning points</summary>" + insRaces(F.insight) + insSide(me, F.insight.turns) +
     "<details style=\"margin-top:10px\"><summary>The field (all its strategies together)</summary>" + insSide(F.insight.sides[1], F.insight.turns) + "</details></details>";
-  if (F.explanation) h += "<details style=\"margin-top:6px\"><summary>Every rule of the champion</summary>" + insExplanation(F.explanation, F.champion) + "</details>";
   $("findings-body").innerHTML = h;
 }
 

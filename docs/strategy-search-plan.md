@@ -310,14 +310,15 @@ analyzed with fast bots against the field: every other strategy of the final ran
 added to the league later join it), `insight_games` (10,000; 0 = off) games split evenly between them. Each of its rules is
 taken out in turn against the same field (`games / 2` each). The report is boiled down to ranked sentences by kind
 (none about the top Victory card, Province, or Colony when there are Colonies: buying one mostly says who is ahead, not why):
-- what each rule is worth;
 - the cards the champion gains more or less of than the field;
 - races (the champion's win rate when it gains a card first, against when its opponent does);
 - openings by split;
 - the decision trees' strongest positions;
 - turning points.
 
-The Lab shows them in its Findings panel, with the champion's win rate against each strategy of the field and the analyses behind them collapsed below. `league_run` prints them.
+What each rule is worth is no sentence: `insight::annotate` writes it as a comment above the rule in the result's file
+("# +12.5 points against the field: 71.2% without it, acts on turns 3-9"). The Lab shows the sentences in its Findings
+panel, the analyses behind them collapsed below. `league_run` prints them.
 
 **Per-opponent reporting.** A score against several opponents is one weighted average, which hides weak
 matchups (66% overall can be 79% against Big Money and 53% against the strongest opponent). `arena::Score`

@@ -317,6 +317,23 @@ fn win_this_turn_triggers_on_three_low_piles_with_provinces_full() {
     assert_eq!(g.winners(), 1);
 }
 
+/// One Province left, player 1 ahead with $4 in hand: Remodel a Province into the last Province ends the game with a win.
+const PROVINCE_SWAP: &str = "players: 2\nkingdom: Remodel, Throne Room\n\
+    supply: Province=1\nturn: 1  player: 1  phase: action  actions: 1  buys: 1  coins: 0\n\n\
+    [player 1]\nhand: Remodel Province Copper Copper Copper Copper\ndeck: 2 Copper, 3 Estate\ndiscard: 3 Province\n\n\
+    [player 2]\nhand: 3 Copper, 2 Estate\ndeck: 4 Copper, Estate\ndiscard: 3 Province\n";
+
+#[test]
+fn win_this_turn_remodels_a_province_into_the_last_province_when_ahead() {
+    let g = play_turn(&with_win_check("big_money_ultimate.toml"), PROVINCE_SWAP);
+    assert!(g.is_game_over(), "the Province swap empties the pile");
+    assert_eq!(g.winners(), 1, "player 1 wins outright");
+    // Behind (the opponent has a fifth Province), the swap would end the game lost: not taken.
+    let behind = PROVINCE_SWAP.replace("[player 2]\nhand: 3 Copper, 2 Estate\ndeck: 4 Copper, Estate\ndiscard: 3 Province", "[player 2]\nhand: 3 Copper, 2 Estate\ndeck: 4 Copper, Estate\ndiscard: 5 Province");
+    let g = play_turn(&with_win_check("big_money_ultimate.toml"), &behind);
+    assert!(!g.is_game_over(), "behind: no swap");
+}
+
 #[test]
 fn without_the_win_check_big_money_follows_its_list() {
     let g = play_turn(&read_strategy("big_money.toml"), DUCHY_WIN);

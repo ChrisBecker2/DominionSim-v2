@@ -248,6 +248,8 @@
     // Renaissance: Projects (pink) and Artifacts (light brown) are landscape cards, not cards of the deck.
     if (has("project")) return "card project";
     if (has("artifact")) return "card artifact";
+    // Empires: Landmarks are dark green.
+    if (has("landmark")) return "card landmark";
     const nightOnly = has("night") && !has("action") && !has("duration") && !has("treasure");
     const dualNight = has("night") && has("duration") ? " dual-duration-night" : "";
     return "card " + (prophecyOnly ? "prophecy" : nightOnly ? "night" : primary + dual + dualNight) + (has("attack") ? " attack" : "") + (has("shelter") ? " shelter" : "") + (has("heirloom") ? " heirloom" : "");

@@ -1638,6 +1638,7 @@ pub extern "C" fn card_info() -> i32 {
                 (cards::is_project(c), "project"),
                 (cards::is_artifact(c), "artifact"),
                 (cards::is_ally(c), "ally"),
+                (cards::is_landmark(c), "landmark"),
             ] {
                 if yes {
                     types.push(jstr(name));

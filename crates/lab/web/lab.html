@@ -1909,9 +1909,13 @@ function insRaces(ins) {
 function insPower(power) {
   if (!power || !power.length) return "";
   var h = "<h3>Card power: a player's win rate by the copies they own at the end (both players of every game), the biggest swing first</h3>" +
-    "<table class=\"ins\"><tr><th class=\"l\">card</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9+</th><th title=\"highest minus lowest win rate over the counts with enough games\">swing</th></tr>";
+    "<table class=\"ins\"><tr><th class=\"l\">card</th><th style=\"border-right:1px solid #000\">0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9+</th><th title=\"highest minus lowest win rate over the counts with enough games\">swing</th></tr>";
   power.forEach(function (r) {
-    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x) { return x.games >= 30 ? insRateCell(x) : "<td class=\"muted\" title=\"" + x.games + " games\">-</td>"; }).join("") +
+    // A black line after the 0 column: not owning the card | owning it.
+    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x, k) {
+      var cell = x.games >= 30 ? insRateCell(x) : "<td class=\"muted\" style=\"\" title=\"" + x.games + " games\">-</td>";
+      return k === 0 ? cell.replace("style=\"", "style=\"border-right:1px solid #000;") : cell;
+    }).join("") +
       "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
   });
   return h + "</table><div class=\"hint\">Each cell: how often a player who ended with that many copies won (hover for the games; - = under 30). It says what having the card goes with, not that the card caused it: Provinces are bought by the player who is ahead.</div>";
@@ -1953,6 +1957,7 @@ function renderFindings(L) {
   h += insHeatTable(me.gains, F.insight.turns, "Gains by own turn (the champion)", "gained");
   h += insHeatTable(me.trashes, F.insight.turns, "Trashes by own turn (the champion)", "trashed");
   h += insExchanges(me, "the champion's");
+  h += insExchanges(F.insight.sides[1], "the field's");
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;

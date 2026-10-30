@@ -1918,11 +1918,13 @@ function renderFindings(L) {
   var me = F.insight.sides[0];
   var h = "<div class=\"hint\">Champion: <b>" + escapeHtml(F.champion) + "</b>, against the " + F.field.length + " other strategies of the ranking (" + F.insight.games +
     " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion (copies a game for the differences); hover it for the games behind it.</div>";
-  h += "<details style=\"margin-top:6px\"><summary>How the field does against the champion</summary><table class=\"ins\"><tr><th class=\"l\">strategy</th><th>champion wins</th><th>its VP</th><th>its turns</th></tr>";
+  h += "<details style=\"margin-top:6px\"><summary>The champion against each strategy (hardest first)</summary><table class=\"ins\"><tr><th class=\"l\">opponent</th>" +
+    "<th title=\"how often the champion beats this opponent: lower = a harder opponent\">champion's win rate</th>" +
+    "<th title=\"the opponent's average score in these games\">opponent's VP</th><th title=\"the opponent's average number of turns\">opponent's turns</th></tr>";
   F.field.forEach(function (r) {
     h += "<tr><td class=\"l\">" + escapeHtml(r.name) + "</td>" + insRateCell(r.rate, "") + "<td>" + r.avg_vp.toFixed(1) + "</td><td>" + r.avg_turns.toFixed(1) + "</td></tr>";
   });
-  h += "</table></details>";
+  h += "</table><div class=\"hint\">Each row is one opponent; the percentage is how often the champion beats it, so the hardest opponents (lowest) come first.</div></details>";
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;

@@ -137,6 +137,9 @@ struct Game {
     opened: [Vec<CardId>; 2],
     /// The opening's coins in the order played: (first hand, second hand).
     split_ordered: [(u8, u8); 2],
+    /// The opening hands' cards other than Copper: (the hand with more Coppers, the other), each sorted. Estates in most games;
+    /// Shelters (Hovel, Necropolis, Overgrown Estate) or Heirlooms in some.
+    extras: [(Vec<CardId>, Vec<CardId>); 2],
     /// Trash for gain (see `Sink::exchanges`).
     exchanges: [Vec<(u16, CardId, CardId, CardId)>; 2],
     /// Each card gained, and the strategy that gained it first.
@@ -242,6 +245,17 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
             (coppers(&o[..k]), coppers(&o[k..]))
         }),
         exchanges: std::array::from_fn(|i| sink.exchanges[seat(i)].clone()),
+        extras: std::array::from_fn(|i| {
+            let o = &sink.opening[seat(i)];
+            let k = o.len().min(5);
+            let (a, b) = if coppers(&o[..k]) >= coppers(&o[k..]) { (&o[..k], &o[k..]) } else { (&o[k..], &o[..k]) };
+            let rest = |h: &[CardId]| {
+                let mut x: Vec<CardId> = h.iter().copied().filter(|&c| c != id::COPPER).collect();
+                x.sort_unstable();
+                x
+            };
+            (rest(a), rest(b))
+        }),
         trashes: std::array::from_fn(|i| sink.trashes[seat(i)].clone()),
         first: sink.first.iter().map(|&(c, p)| (c, if seat(0) == p as usize { 0 } else { 1 })).collect(),
         prophecy: sink.prophecy.map(|(p, t)| (if seat(0) == p as usize { 0 } else { 1 }, t)),
@@ -556,7 +570,7 @@ fn exchanges(all: &[Game], i: usize) -> Vec<HeatRow> {
 
 fn splits(all: &[Game], i: usize) -> Vec<SplitRow> {
     let label = |s: (u8, u8)| format!("{}/{}", s.0, s.1);
-    // Every split that happened (5/2 and 4/3 with the usual seven Coppers; others with Shelters, Heirlooms or a changed deck), the most common first.
+    // Every split that happened (5/2 and 4/3 with the usual seven Coppers; others with Heirlooms or a changed deck), the most common first.
     let mut seen: Vec<((u8, u8), usize)> = Vec::new();
     for g in all {
         match seen.iter_mut().find(|(s, _)| *s == g.split[i]) {
@@ -566,49 +580,67 @@ fn splits(all: &[Game], i: usize) -> Vec<SplitRow> {
     }
     seen.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
     let order: Vec<(u8, u8)> = seen.iter().map(|&(s, _)| s).collect();
-    order
-        .iter()
-        .map(|&split| {
-            let gs: Vec<&Game> = all.iter().filter(|g| g.split[i] == split).collect();
-            let vs = order.iter().copied().map(|os| (label(os), rate(gs.iter().filter(|g| g.split[1 - i] == os).map(|g| g.win[i])))).collect();
-            let mut open: BTreeMap<String, Vec<f64>> = BTreeMap::new();
-            for g in &gs {
-                let mut names: Vec<&str> = g.opened[i].iter().map(|&c| cards::name(c)).collect();
-                names.sort();
-                open.entry(if names.is_empty() { "nothing".into() } else { names.join(" + ") }).or_default().push(g.win[i]);
-            }
-            let mut openings: Vec<Opening> = open.into_iter().map(|(cards, w)| Opening { cards, rate: rate(w.into_iter()) }).collect();
-            openings.sort_by(|a, b| b.rate.games.cmp(&a.rate.games));
-            SplitRow { split: label(split), rate: rate(gs.iter().map(|g| g.win[i])), vs, openings }
-        })
-        .flat_map(|row| {
-            // 4/3 and 3/4 (5/2 and 2/5) are one split unless the order changes the win rate: then a row each ("4/3, $4 first",
-            // "3/4, $3 first").
-            let split = order.iter().copied().find(|&s| label(s) == row.split).unwrap_or((0, 0));
-            if split.0 == split.1 {
-                return vec![row];
-            }
-            let side_of = |first: (u8, u8)| all.iter().filter(|g| g.split[i] == split && g.split_ordered[i] == first).collect::<Vec<&Game>>();
-            let (hi, lo) = (side_of(split), side_of((split.1, split.0)));
-            let (a, b) = (rate(hi.iter().map(|g| g.win[i])), rate(lo.iter().map(|g| g.win[i])));
-            if !order_matters(&a, &b) {
-                return vec![row];
-            }
-            let sub = |gs: Vec<&Game>, r: Rate, name: String| {
-                let mut open: BTreeMap<String, Vec<f64>> = BTreeMap::new();
-                for g in &gs {
-                    let mut names: Vec<&str> = g.opened[i].iter().map(|&c| cards::name(c)).collect();
-                    names.sort();
-                    open.entry(if names.is_empty() { "nothing".into() } else { names.join(" + ") }).or_default().push(g.win[i]);
+    // One row over some games of a split: its rate, by the opponent's split, and every opening.
+    let row = |gs: &[&Game], name: String| {
+        let vs = order.iter().copied().map(|os| (label(os), rate(gs.iter().filter(|g| g.split[1 - i] == os).map(|g| g.win[i])))).collect();
+        let mut open: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+        for g in gs {
+            let mut names: Vec<&str> = g.opened[i].iter().map(|&c| cards::name(c)).collect();
+            names.sort();
+            open.entry(if names.is_empty() { "nothing".into() } else { names.join(" + ") }).or_default().push(g.win[i]);
+        }
+        let mut openings: Vec<Opening> = open.into_iter().map(|(cards, w)| Opening { cards, rate: rate(w.into_iter()) }).collect();
+        openings.sort_by(|a, b| b.rate.games.cmp(&a.rate.games));
+        SplitRow { split: name, rate: rate(gs.iter().map(|g| g.win[i])), vs, openings }
+    };
+    let mut out = Vec::new();
+    for &split in &order {
+        let gs: Vec<&Game> = all.iter().filter(|g| g.split[i] == split).collect();
+        // With Shelters (or Heirlooms) the hands also differ in their other cards (Estates, or which Shelter came with which hand):
+        // a row each, but only when that changes the win rate (the best and the worst apart as `order_matters` judges).
+        let mut kinds: Vec<&(Vec<CardId>, Vec<CardId>)> = gs.iter().map(|g| &g.extras[i]).collect();
+        kinds.sort();
+        kinds.dedup();
+        if kinds.len() >= 2 {
+            let by: Vec<(&(Vec<CardId>, Vec<CardId>), Vec<&Game>)> = kinds.iter().map(|&k| (k, gs.iter().copied().filter(|g| &g.extras[i] == k).collect())).collect();
+            let rates: Vec<Rate> = by.iter().map(|(_, g)| rate(g.iter().map(|g| g.win[i]))).collect();
+            let big: Vec<&Rate> = rates.iter().filter(|r| r.games >= 100).collect();
+            let best = big.iter().max_by(|a, b| a.win.total_cmp(&b.win));
+            let worst = big.iter().min_by(|a, b| a.win.total_cmp(&b.win));
+            if let (Some(b), Some(w)) = (best, worst) {
+                if order_matters(b, w) {
+                    // "4/3: Necropolis | Hovel + Overgrown Estate": the other cards of the $4 hand, then of the $3 hand.
+                    let names = |h: &[CardId]| {
+                        let mut parts: Vec<String> = Vec::new();
+                        let mut k = 0;
+                        while k < h.len() {
+                            let n = h[k..].iter().take_while(|&&c| c == h[k]).count();
+                            parts.push(if n > 1 { format!("{n} {}", cards::name(h[k])) } else { cards::name(h[k]).to_string() });
+                            k += n;
+                        }
+                        if parts.is_empty() { "-".to_string() } else { parts.join(" + ") }
+                    };
+                    for (k, g) in &by {
+                        out.push(row(g, format!("{}: {} | {}", label(split), names(&k.0), names(&k.1))));
+                    }
+                    continue;
                 }
-                let mut openings: Vec<Opening> = open.into_iter().map(|(cards, w)| Opening { cards, rate: rate(w.into_iter()) }).collect();
-                openings.sort_by(|a, b| b.rate.games.cmp(&a.rate.games));
-                let vs = row.vs.iter().map(|(l, _)| (l.clone(), rate(gs.iter().filter(|g| label(g.split[1 - i]) == *l).map(|g| g.win[i])))).collect();
-                SplitRow { split: name, rate: r, vs, openings }
-            };
-            vec![sub(hi, a, format!("{}/{}, ${} first", split.0, split.1, split.0)), sub(lo, b, format!("{}/{}, ${} first", split.1, split.0, split.1))]
-        })
-        .collect()
+            }
+        }
+        // 4/3 and 3/4 (5/2 and 2/5) are one split unless the order changes the win rate: then a row each ("4/3, $4 first",
+        // "3/4, $3 first").
+        if split.0 != split.1 {
+            let side_of = |first: (u8, u8)| gs.iter().copied().filter(|g| g.split_ordered[i] == first).collect::<Vec<&Game>>();
+            let (hi, lo) = (side_of(split), side_of((split.1, split.0)));
+            if order_matters(&rate(hi.iter().map(|g| g.win[i])), &rate(lo.iter().map(|g| g.win[i]))) {
+                out.push(row(&hi, format!("{}/{}, ${} first", split.0, split.1, split.0)));
+                out.push(row(&lo, format!("{}/{}, ${} first", split.1, split.0, split.1)));
+                continue;
+            }
+        }
+        out.push(row(&gs, label(split)));
+    }
+    out
 }
 
 /// Whether the order of an opening's hands changes the win rate: both orders seen 100 times or more, and their rates three

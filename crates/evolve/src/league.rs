@@ -246,11 +246,11 @@ fn pick_parent<'a>(members: &'a [(Genome, f64)], archive: &'a Archive, cfg: &Evo
 }
 
 /// A niche champion's name: its key cards with about how many of each it gains a game, most first, and its Event, e.g.
-/// "3 Patrician + 2 Forum". Two champions with the same name are told apart by their niche's trashing and game length.
+/// "3x Patrician + 2x Forum". Two champions with the same name are told apart by their niche's trashing and game length.
 fn champion_name(desc: &Descriptor, behaviour: &Behaviour, used: &mut HashSet<String>) -> String {
     let mut keys: Vec<(CardId, f64)> = desc.cards.iter().filter(|&&c| c != NO_CARD).map(|&c| (c, behaviour.gains.iter().find(|g| g.0 == c).map_or(0.0, |g| g.1))).collect();
     keys.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let mut parts: Vec<String> = keys.iter().map(|&(c, g)| format!("{} {}", g.round().max(1.0), cards::name(c))).collect();
+    let mut parts: Vec<String> = keys.iter().map(|&(c, g)| format!("{}x {}", g.round().max(1.0), cards::name(c))).collect();
     if desc.event != NO_CARD {
         if parts.is_empty() {
             parts.push("Money".into());
@@ -1128,13 +1128,13 @@ mod tests {
         keys.sort_unstable();
         let d = Descriptor { cards: keys, event: NO_CARD, trash: 0, length: 1 };
         let mut used = HashSet::new();
-        assert_eq!(champion_name(&d, &b, &mut used), "3 Patrician + 2 Forum");
+        assert_eq!(champion_name(&d, &b, &mut used), "3x Patrician + 2x Forum");
         let long = Descriptor { length: 2, ..d };
-        assert_eq!(champion_name(&long, &b, &mut used), "3 Patrician + 2 Forum (no trashing, long games)");
+        assert_eq!(champion_name(&long, &b, &mut used), "3x Patrician + 2x Forum (no trashing, long games)");
         let money = Descriptor { cards: [NO_CARD; 2], ..d };
         assert_eq!(champion_name(&money, &Behaviour::default(), &mut used), "Money");
         let rare = Behaviour { gains: vec![(id::FORUM, 0.8)], ..Default::default() };
-        assert_eq!(champion_name(&Descriptor { cards: [id::FORUM, NO_CARD], ..d }, &rare, &mut used), "1 Forum");
+        assert_eq!(champion_name(&Descriptor { cards: [id::FORUM, NO_CARD], ..d }, &rare, &mut used), "1x Forum");
     }
 
     #[test]

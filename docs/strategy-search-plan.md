@@ -297,7 +297,7 @@ exploiter has tested yet). The maximum over many noisy estimates is biased upwar
 (+-2 points at 2000 games), so differences of that size mean nothing.
 
 **Names.** A ranked strategy is named after its key cards with about how many of each it gains a game in the final round
-robin, most first ("3 Patrician + 2 Forum"); exploiters keep their number ("Exploiter 1: 2 Change"). Two with the same name are
+robin, most first ("3x Patrician + 2x Forum"); exploiters keep their number ("Exploiter 1: 2x Change"). Two with the same name are
 told apart by their trashing and game length.
 
 **The result.** The evolved strategy with the best mean against the field, unless the evolved strategy with the most Nash
@@ -310,9 +310,11 @@ analyzed with fast bots against the field: every other strategy of the final ran
 added to the league later join it), `insight_games` (10,000; 0 = off) games split evenly between them. Each of its rules is
 taken out in turn against the same field (`games / 2` each). The report is boiled down to ranked sentences by kind
 (none about the top Victory card, Province, or Colony when there are Colonies: buying one mostly says who is ahead, not why):
-- the cards the champion gains more or less of than the field;
+- card power: for every card, a player's win rate by the copies they own at the end (0 to 5+, both players of every game,
+  Province and Colony included), the biggest swing first;
 - races (the champion's win rate when it gains a card first, against when its opponent does);
-- openings by split;
+- every opening the champion played, by split (every split seen, not only 5/2 and 4/3: Shelters, Heirlooms and other
+  starting decks change them);
 - the decision trees' strongest positions;
 - turning points.
 

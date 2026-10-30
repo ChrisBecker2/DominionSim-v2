@@ -91,6 +91,9 @@ pub struct LeagueConfig {
     pub exploit_margin: f64,
     /// Games measuring an exploiter against the mix (with `final_bots`, or full bots when `validate_full`).
     pub exploit_games: u64,
+    /// Games of the kingdom findings at the end (the champion against every other strategy of the ranking, the same number against each, with fast bots; each of
+    /// its rules taken out plays half as many). 0 = no findings.
+    pub insight_games: u64,
 }
 
 impl Default for LeagueConfig {
@@ -114,6 +117,7 @@ impl Default for LeagueConfig {
             exploit_generations: 30,
             exploit_margin: 0.03,
             exploit_games: 4_000,
+            insight_games: 10_000,
         }
     }
 }

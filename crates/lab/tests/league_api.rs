@@ -35,7 +35,7 @@ fn a_league_run_through_the_api_reports_niches_and_a_crosstable() {
         "config": {
             "track": { "kind": "fixed", "kingdom": k },
             "forbidden": [],
-            "league": { "final_games": 100, "final_bots": "fast" },
+            "league": { "final_games": 100, "final_bots": "fast", "insight_games": 500 },
             "islands": 2, "island_size": 8, "generations": 2,
             "race_games": [100, 200], "validate_games": 200, "polish_games": 0
         },
@@ -51,6 +51,9 @@ fn a_league_run_through_the_api_reports_niches_and_a_crosstable() {
             let l = &st["progress"]["league"];
             assert!(l["niches"].as_array().unwrap().len() >= 1);
             assert!(l["crosstable"]["names"].as_array().unwrap().len() >= 2);
+            // The kingdom findings the page shows: sentences, and the champion against each other strategy of the ranking.
+            assert!(!l["findings"]["findings"].as_array().unwrap().is_empty(), "{}", l["findings_error"]);
+            assert_eq!(l["findings"]["field"].as_array().unwrap().len(), l["crosstable"]["names"].as_array().unwrap().len() - 1);
             assert_eq!(st["progress"]["status"], "done");
             break;
         }
@@ -90,7 +93,7 @@ fn a_league_result_carries_its_kingdom_with_events_prophecy_and_colonies() {
             "config": {
                 "track": { "kind": "fixed", "kingdom": k },
                 "forbidden": [],
-                "league": { "final_games": 100, "final_bots": "fast", "exploit_rounds": 0 },
+                "league": { "final_games": 100, "final_bots": "fast", "exploit_rounds": 0, "insight_games": 0 },
                 "islands": 1, "island_size": 6, "generations": 1,
                 "race_games": [100], "validate_games": 200, "polish_games": 0
             },

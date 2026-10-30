@@ -3,11 +3,14 @@
 //! - the win rate by opening split (5/2 or 4/3, for both players) and what each split opened with;
 //! - what each strategy gains and trashes, turn by turn (a heat map), and how that goes with winning;
 //! - win rate by how many copies of a card were gained by turn 10, and owned at the end (the points where one more copy starts to lose);
+//! - races: for each card, how often the first player to gain it wins;
 //! - pairs of cards in the final deck, the Prophecy (when, and who made it happen), differently named cards (Museum);
 //! - decision trees: at the start of own turns 5, 9, 13 and 17, a shallow tree over the position (VP lead, money, the cards owned, the
 //!   opponent's) that predicts the winner; its leaves read as conditions of the strategy language ("count(Gold) >= 1 and vp_lead < -4");
 //! - turning points: the gains between two of those turns that move the tree's estimate most, beyond what the position already said;
-//! - rule explanations ([`explain`]): each rule of a strategy taken out, the same deals replayed: what the rule is worth and when it acts.
+//! - rule explanations ([`explain`]): each rule of a strategy taken out, the same deals replayed: what the rule is worth and when it acts;
+//! - kingdom findings ([`findings`]): the above for a league's champion against the whole field of its ranking, boiled down to
+//!   ranked sentences: what decides games on the kingdom and what the champion does about it.
 //!
 //! Counts at the end are partly a symptom (a game being lost runs longer and gains more of everything); the "by turn 10" counts, the trees
 //! and the turning points are the better guide.
@@ -64,6 +67,8 @@ struct Sink {
     gains: [Vec<(u16, u16, CardId)>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
+    /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
+    first: Vec<(CardId, u8)>,
 }
 
 impl EventSink for Sink {
@@ -77,7 +82,12 @@ impl EventSink for Sink {
                 }
             }
             Event::Draw { player, card } if (player as usize) < 2 && self.opening[player as usize].len() < 10 => self.opening[player as usize].push(card),
-            Event::Gain { player, card, .. } if (player as usize) < 2 => self.gains[player as usize].push((self.own_turn[player as usize], self.global, card)),
+            Event::Gain { player, card, .. } if (player as usize) < 2 => {
+                self.gains[player as usize].push((self.own_turn[player as usize], self.global, card));
+                if !self.first.iter().any(|&(c, _)| c == card) {
+                    self.first.push((card, player));
+                }
+            }
             Event::Trash { player, card } if (player as usize) < 2 => self.trashes[player as usize].push((self.own_turn[player as usize], self.global, card)),
             Event::Prophecy { player, .. } if self.prophecy.is_none() => self.prophecy = Some((player, self.own_turn[(self.cur as usize).min(1)])),
             _ => {}
@@ -91,12 +101,16 @@ struct Game {
     split: [(u8, u8); 2],
     gains: [Vec<(u16, u16, CardId)>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
+    /// Each card gained, and the strategy that gained it first.
+    first: Vec<(CardId, usize)>,
     /// The strategy that made the Prophecy happen, and on which of its own turns.
     prophecy: Option<(usize, u16)>,
     deck: [Vec<(CardId, u16)>; 2],
     vp: [i32; 2],
     turns: [u16; 2],
     snaps: [Vec<Snap>; 2],
+    /// Against a field ([`play_field`]): which of its strategies played side 1.
+    opp: usize,
 }
 
 fn sparse(c: &dominion_engine::Counts) -> Vec<(CardId, u16)> {
@@ -184,17 +198,33 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
         }),
         gains: std::array::from_fn(|i| sink.gains[seat(i)].clone()),
         trashes: std::array::from_fn(|i| sink.trashes[seat(i)].clone()),
+        first: sink.first.iter().map(|&(c, p)| (c, if seat(0) == p as usize { 0 } else { 1 })).collect(),
         prophecy: sink.prophecy.map(|(p, t)| (if seat(0) == p as usize { 0 } else { 1 }, t)),
         deck: std::array::from_fn(|i| sparse(&PlayerView::new(&st, seat(i) as u8).my_cards())),
         vp: std::array::from_fn(|i| scores[seat(i)]),
         turns: std::array::from_fn(|i| st.players[seat(i)].turns_taken),
         snaps: if swap { [s1, s0] } else { [s0, s1] },
+        opp: 0,
     }
 }
 
 /// `games` games, seats alternating, every pair of games on one deal (common random numbers).
 fn play_many(kingdom: &[CardId], s: [&Strategy; 2], games: u64, seed: u64) -> Vec<Game> {
     (0..games).into_par_iter().map(|g| play_one(kingdom, s, Rng::derive(seed, g / 2).next_u64(), g % 2 == 1)).collect()
+}
+
+/// About `games` games of `a` against a field, the same number against each of its strategies (an even number, at least 2), each
+/// opponent on its own deals; the same `seed` replays the same deals.
+fn play_field(kingdom: &[CardId], a: &Strategy, field: &[&Strategy], games: u64, seed: u64) -> Vec<Game> {
+    let each = (games / field.len().max(1) as u64).max(2) & !1;
+    let mut all = Vec::new();
+    for (k, b) in field.iter().enumerate() {
+        all.extend(play_many(kingdom, [a, b], each, Rng::derive(seed, k as u64).next_u64()).into_iter().map(|mut g| {
+            g.opp = k;
+            g
+        }));
+    }
+    all
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -217,14 +247,14 @@ fn rate<'a>(it: impl Iterator<Item = f64>) -> Rate {
     Rate { games: n, win: if n > 0 { w / n as f64 } else { 0.0 } }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Opening {
     /// The cards gained on the first two turns, e.g. "Change + Silver".
     pub cards: String,
     pub rate: Rate,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SplitRow {
     /// "5/2" or "4/3".
     pub split: String,
@@ -234,7 +264,7 @@ pub struct SplitRow {
     pub openings: Vec<Opening>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct HeatRow {
     pub card: String,
     /// Average copies gained (trashed) per game on each own turn 1..=TURNS.
@@ -246,14 +276,14 @@ pub struct HeatRow {
     pub late: Rate,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct CountCurve {
     pub card: String,
     /// (copies, rate); "8" stands for 8 or more. Only counts seen in at least 2% of games.
     pub points: Vec<(String, Rate)>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Pairs {
     pub cards: Vec<String>,
     /// `cells[r][c]`: games where both are owned at the end (`None` under 2% of games). The diagonal is the card alone.
@@ -267,7 +297,7 @@ pub struct Leaf {
     pub rate: Rate,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct TreeAt {
     /// The own turn at whose start the positions were taken.
     pub turn: u16,
@@ -277,7 +307,7 @@ pub struct TreeAt {
 }
 
 /// A turning point: games where `who` gained `card` between two recorded turns moved the win estimate by `effect` more than the others.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Swing {
     /// e.g. "turns 5-8" (own turns), or "turn 17 to the end".
     pub window: String,
@@ -288,7 +318,7 @@ pub struct Swing {
     pub effect: f64,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Side {
     pub name: String,
     pub rate: Rate,
@@ -307,7 +337,19 @@ pub struct Side {
     pub swings: Vec<Swing>,
 }
 
-#[derive(Serialize, Debug)]
+/// A race for a card: who gained it first, and how often that player won.
+#[derive(Serialize, Debug, Clone)]
+pub struct Race {
+    pub card: String,
+    /// Games where the first to gain it (either strategy) won.
+    pub first_wins: Rate,
+    /// The same, over the games where both gained it.
+    pub contested: Rate,
+    /// Per strategy: the games it gained the card first in, and its win rate there.
+    pub first_by: Vec<Rate>,
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub struct ProphecyStats {
     pub happened: usize,
     /// Per strategy: the games it made the Prophecy happen in (its win rate there), and on which of its own turns on average.
@@ -315,7 +357,7 @@ pub struct ProphecyStats {
 }
 
 /// What one rule of a strategy is worth: the same deals played without it.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct RuleImpact {
     /// "gain", "play", "trash", "mode", "token", "call" or "debt".
     pub list: String,
@@ -331,7 +373,7 @@ pub struct RuleImpact {
     pub when: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Explanation {
     /// The strategy's win rate as the rules read it (the file round-tripped through the template language).
     pub with: f64,
@@ -339,20 +381,26 @@ pub struct Explanation {
     pub rules: Vec<RuleImpact>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Insight {
     pub kingdom: Vec<String>,
     pub games: usize,
     pub turns: usize,
     pub sides: Vec<Side>,
+    /// Cards someone gained in at least 5% of games, the first-gainer's best races first.
+    pub races: Vec<Race>,
     pub prophecy: Option<ProphecyStats>,
 }
 
 /// Play `games` games between `a` and `b` on `kingdom` and report.
 pub fn analyze(kingdom: &[CardId], a: &Strategy, b: &Strategy, games: u64, seed: u64) -> Insight {
-    let all = play_many(kingdom, [a, b], games.max(2), seed);
+    report(kingdom, &play_many(kingdom, [a, b], games.max(2), seed), [&a.name, &b.name])
+}
+
+/// The report over games already played, side 0 against side 1.
+fn report(kingdom: &[CardId], all: &[Game], names: [&str; 2]) -> Insight {
     let n = all.len();
-    let sides = (0..2).map(|i| side(&all, i, if i == 0 { &a.name } else { &b.name })).collect();
+    let sides = (0..2).map(|i| side(all, i, names[i])).collect();
     let made: Vec<&Game> = all.iter().filter(|g| g.prophecy.is_some()).collect();
     let prophecy = (!made.is_empty()).then(|| ProphecyStats {
         happened: made.len(),
@@ -364,7 +412,39 @@ pub fn analyze(kingdom: &[CardId], a: &Strategy, b: &Strategy, games: u64, seed:
             })
             .collect(),
     });
-    Insight { kingdom: kingdom.iter().map(|&c| cards::name(c).to_string()).collect(), games: n, turns: TURNS, sides, prophecy }
+    Insight { kingdom: kingdom.iter().map(|&c| cards::name(c).to_string()).collect(), games: n, turns: TURNS, sides, races: races(kingdom, all), prophecy }
+}
+
+/// The game's top Victory card: Colony with Colonies, else Province. Races and findings leave it out: buying one mostly says
+/// who is ahead, not why.
+fn top_victory(kingdom: &[CardId]) -> CardId {
+    if kingdom.contains(&id::COLONY) { id::COLONY } else { id::PROVINCE }
+}
+
+/// The races, without the game's top Victory card.
+fn races(kingdom: &[CardId], all: &[Game]) -> Vec<Race> {
+    let top = top_victory(kingdom);
+    let mut cards: Vec<CardId> = all.iter().flat_map(|g| g.first.iter().map(|&(c, _)| c)).filter(|&c| c != top).collect();
+    cards.sort_unstable();
+    cards.dedup();
+    let mut out: Vec<Race> = cards
+        .into_iter()
+        .filter_map(|c| {
+            // (first gainer, did the other gain it too) in the games where someone gained it.
+            let won: Vec<(usize, bool, &Game)> = all
+                .iter()
+                .filter_map(|g| g.first.iter().find(|&&(x, _)| x == c).map(|&(_, p)| (p, g.gains[1 - p].iter().any(|&(_, _, x)| x == c), g)))
+                .collect();
+            (won.len() * 20 >= all.len()).then(|| Race {
+                card: cards::name(c).to_string(),
+                first_wins: rate(won.iter().map(|&(p, _, g)| g.win[p])),
+                contested: rate(won.iter().filter(|w| w.1).map(|&(p, _, g)| g.win[p])),
+                first_by: (0..2).map(|i| rate(won.iter().filter(|w| w.0 == i).map(|&(p, _, g)| g.win[p]))).collect(),
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| b.first_wins.win.total_cmp(&a.first_wins.win));
+    out
 }
 
 fn side(all: &[Game], i: usize, name: &str) -> Side {
@@ -759,6 +839,11 @@ fn per_turn_of(games: &[Game], card: CardId, trash: bool) -> Vec<f64> {
 /// Take each rule of `a_toml` out in turn and replay the same deals against `b`: what each rule is worth, and on which turns it changes
 /// what is gained (trashed). Only for files in the template language the search writes (`Genome::from_toml`).
 pub fn explain(kingdom: &[CardId], a_toml: &str, b: &Strategy, games: u64, seed: u64, fast: bool) -> Result<Explanation, String> {
+    explain_field(kingdom, a_toml, &[b], games, seed, fast)
+}
+
+/// [`explain`] against a field: about `games` games for each version of the strategy, spread evenly over the field's strategies.
+pub fn explain_field(kingdom: &[CardId], a_toml: &str, field: &[&Strategy], games: u64, seed: u64, fast: bool) -> Result<Explanation, String> {
     let g = Genome::from_toml(a_toml).map_err(|e| format!("only strategies in the search's rule language can be explained rule by rule: {e}"))?;
     let name = Strategy::parse(a_toml)?.name;
     let compile = |g: &Genome| -> Result<Strategy, String> {
@@ -768,9 +853,8 @@ pub fn explain(kingdom: &[CardId], a_toml: &str, b: &Strategy, games: u64, seed:
         }
         Ok(s)
     };
-    let games = games.max(2);
     let base_s = compile(&g)?;
-    let base = play_many(kingdom, [&base_s, b], games, seed);
+    let base = play_field(kingdom, &base_s, field, games, seed);
     let base_rate = rate(base.iter().map(|x| x.win[0])).win;
     let mut rules = Vec::new();
     for (list, rs) in g.lists() {
@@ -778,7 +862,7 @@ pub fn explain(kingdom: &[CardId], a_toml: &str, b: &Strategy, games: u64, seed:
             let mut v = g.clone();
             v.list_mut(list).remove(k);
             let s = compile(&v)?;
-            let res = play_many(kingdom, [&s, b], games, seed);
+            let res = play_field(kingdom, &s, field, games, seed);
             let without = rate(res.iter().map(|x| x.win[0])).win;
             let (per_turn, when) = if matches!(list, List::Gain | List::Trash) {
                 let trash = list == List::Trash;
@@ -807,7 +891,7 @@ pub fn explain(kingdom: &[CardId], a_toml: &str, b: &Strategy, games: u64, seed:
             rules.push(RuleImpact { list: list_name(list).to_string(), rule, without, delta: base_rate - without, per_turn, when });
         }
     }
-    Ok(Explanation { with: base_rate, games, rules })
+    Ok(Explanation { with: base_rate, games: base.len() as u64, rules })
 }
 
 #[cfg(test)]
@@ -840,6 +924,8 @@ mod tests {
         assert!(t.leaves.iter().all(|l| l.path.iter().all(|p| p.contains(" < ") || p.contains(" >= "))));
         assert_eq!(tightest(&["vp_lead >= -1".into(), "money < 9".into(), "vp_lead >= 5".into(), "money < 7".into()]), vec!["vp_lead >= 5", "money < 7"]);
         assert_eq!(t.leaves.iter().map(|l| l.rate.games).sum::<usize>(), t.rate.games);
+        // Races leave out the Province (the first to buy one is just ahead); Gold and Smithy are there.
+        assert!(r.races.iter().all(|x| x.card != "Province") && r.races.iter().any(|x| x.card == "Gold"), "{:?}", r.races);
         // Gaining a Province is a turning point upward.
         assert!(s.swings.iter().any(|w| w.card == "Province" && w.who == "you" && w.effect > 0.0), "{:?}", s.swings);
     }
@@ -860,4 +946,216 @@ mod tests {
         assert!(prov.without < 0.1, "{prov:?}");
         assert!(explain(&kingdom, "name = \"X\"\n[[gain]]\ncard = \"Gold\"\nif = \"coins >= 6 or buys > 1\"\n", &money, 10, 1, true).is_err());
     }
+
+    #[test]
+    fn findings_play_the_champion_against_the_whole_field() {
+        let kingdom = dominion_sim::kingdom::resolve("first-game", &[], 1).unwrap();
+        let money = "name = \"Money\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Gold\"
+[[gain]]
+card = \"Silver\"
+";
+        let silver = "name = \"Silver\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Silver\"
+";
+        let smithy = "name = \"Smithy\"
+[[gain]]
+card = \"Province\"
+[[gain]]
+card = \"Gold\"
+[[gain]]
+card = \"Smithy\"
+if = \"count(Smithy) < 1\"
+[[gain]]
+card = \"Silver\"
+";
+        let field = [("BM".to_string(), money.to_string()), ("Silvers".to_string(), silver.to_string())];
+        let f = findings(&kingdom, smithy, &field, 2000, 3).unwrap();
+        assert_eq!(f.champion, "Smithy");
+        assert!(f.explanation.is_some(), "{:?}", f.explain_error);
+        // The same number of games against each, the hardest matchup first.
+        assert_eq!(f.insight.games, 2000);
+        assert_eq!(f.field.iter().map(|r| (r.name.as_str(), r.rate.games)).collect::<Vec<_>>(), [("BM", 1000), ("Silvers", 1000)]);
+        assert!(f.field[0].rate.win < f.field[1].rate.win, "{:?}", f.field);
+        // The rules first (the Smithy rule among the valuable ones), then what it does differently from the field.
+        assert_eq!(f.findings[0].kind, "rule", "{:#?}", f.findings);
+        assert!(f.findings.iter().any(|x| x.kind == "rule" && x.text.starts_with("gain \"Smithy if count(Smithy) < 1\"") && x.points > 0.05), "{:#?}", f.findings);
+        let smithies = f.findings.iter().find(|x| x.kind == "difference" && x.text.starts_with("Smithy: 1.0 a game, the field 0.0")).expect("the Smithy is the difference");
+        assert!((smithies.points - 1.0).abs() < 0.01, "{smithies:?}");
+        // Province (the top Victory card here) is in no finding: buying one mostly says who is ahead.
+        assert!(f.findings.iter().all(|x| !x.text.contains("Province")), "{:#?}", f.findings);
+        // With no field the champion plays itself.
+        let alone = findings(&kingdom, smithy, &[], 1000, 3).unwrap();
+        assert!(alone.field.len() == 1 && alone.findings.iter().all(|x| x.kind != "difference"));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Kingdom findings
+// ---------------------------------------------------------------------------------------------
+
+/// One sentence about the kingdom, with how much it moves the win rate (for ordering) and the games behind it.
+#[derive(Serialize, Debug, Clone)]
+pub struct Finding {
+    /// "rule", "difference", "race", "opening", "position" or "turning point".
+    pub kind: String,
+    pub text: String,
+    /// Win-rate points (0.1 = 10 points) of the champion: a rule's worth, how much a race or an opening changes its win rate, how
+    /// far a position is from its average, the move of a turning point. For "difference": copies gained per game, the champion's
+    /// minus the field's.
+    pub points: f64,
+    pub games: usize,
+}
+
+/// The champion against one strategy of the field.
+#[derive(Serialize, Debug, Clone)]
+pub struct FieldRow {
+    pub name: String,
+    /// The champion's win rate against it.
+    pub rate: Rate,
+    /// The opponent's average VP and own turns.
+    pub avg_vp: f64,
+    pub avg_turns: f64,
+}
+
+/// What a league found on its kingdom: its champion against the whole field of the final ranking (every other strategy, the
+/// baselines included, the same number of games against each): what decides its games, what it does that the field does not, and
+/// what each of its rules is worth.
+#[derive(Serialize, Debug, Clone)]
+pub struct Findings {
+    pub champion: String,
+    /// Against each strategy of the field, the champion's worst matchup first.
+    pub field: Vec<FieldRow>,
+    /// By kind (in the order of [`Finding::kind`]'s list), strongest first within a kind.
+    pub findings: Vec<Finding>,
+    /// The champion (side 0) against the field (side 1, all its strategies together).
+    pub insight: Insight,
+    pub explanation: Option<Explanation>,
+    pub explain_error: Option<String>,
+}
+
+fn pc(x: f64) -> String {
+    format!("{:.0}%", 100.0 * x)
+}
+
+/// Analyze a league's champion (`champion`, a strategy file) on `kingdom` with fast bots against `field` (name, strategy file; an
+/// empty field means the champion itself): about `games` games, and each of its rules taken out, `games / 2` games each.
+pub fn findings(kingdom: &[CardId], champion: &str, field: &[(String, String)], games: u64, seed: u64) -> Result<Findings, String> {
+    let fast = |src: &str| -> Result<Strategy, String> {
+        let mut s = Strategy::parse(src)?;
+        make_fast(&mut s);
+        Ok(s)
+    };
+    let a = fast(champion)?;
+    let mut names: Vec<String> = Vec::new();
+    let mut opps: Vec<Strategy> = Vec::new();
+    for (name, src) in field {
+        names.push(name.clone());
+        opps.push(fast(src)?);
+    }
+    if opps.is_empty() {
+        names.push(a.name.clone());
+        opps.push(a.clone());
+    }
+    let refs: Vec<&Strategy> = opps.iter().collect();
+    // The top Victory card is left out of every finding (see `top_victory`).
+    let top = cards::name(top_victory(kingdom));
+    let count_top = format!("count({top})");
+    let all = play_field(kingdom, &a, &refs, games, seed);
+    let insight = report(kingdom, &all, [&a.name, "the field"]);
+    let mut rows: Vec<FieldRow> = (0..opps.len())
+        .map(|k| {
+            let mine: Vec<&Game> = all.iter().filter(|g| g.opp == k).collect();
+            let n = mine.len().max(1) as f64;
+            FieldRow {
+                name: names[k].clone(),
+                rate: rate(mine.iter().map(|g| g.win[0])),
+                avg_vp: mine.iter().map(|g| g.vp[1] as f64).sum::<f64>() / n,
+                avg_turns: mine.iter().map(|g| g.turns[1] as f64).sum::<f64>() / n,
+            }
+        })
+        .collect();
+    rows.sort_by(|x, y| x.rate.win.total_cmp(&y.rate.win));
+    let (explanation, explain_error) = match explain_field(kingdom, champion, &refs, (games / 2).max(500), seed, true) {
+        Ok(e) => (Some(e), None),
+        Err(e) => (None, Some(e)),
+    };
+    let mut out: Vec<Finding> = Vec::new();
+    let mut push = |kind: &str, text: String, points: f64, games: usize| out.push(Finding { kind: kind.into(), text, points, games });
+
+    // What each rule is worth (taken out, the same deals replayed).
+    if let Some(e) = &explanation {
+        let mut rules: Vec<&RuleImpact> = e.rules.iter().filter(|r| r.delta.abs() >= 0.02 && r.rule != top && !r.rule.starts_with(&format!("{top} if "))).collect();
+        rules.sort_by(|x, y| y.delta.total_cmp(&x.delta));
+        for r in rules.into_iter().take(8) {
+            let when = if r.when.is_empty() { String::new() } else { format!(", acts on {}", r.when) };
+            push("rule", format!("{} \"{}\": {} without it{when}.", r.list, r.rule, pc(r.without)), r.delta, e.games as usize);
+        }
+    }
+
+    // What the champion gains that the field does not (and the other way round), per game.
+    let (me, them) = (&insight.sides[0], &insight.sides[1]);
+    let per = |s: &Side, c: &str| s.gains.iter().find(|h| h.card == c).map_or(0.0, |h| h.total);
+    let mut cards: Vec<&str> = insight.sides.iter().flat_map(|s| s.gains.iter().map(|h| h.card.as_str())).collect();
+    cards.sort_unstable();
+    cards.dedup();
+    let mut diffs: Vec<(&str, f64, f64)> = cards.into_iter().map(|c| (c, per(me, c), per(them, c))).filter(|d| d.0 != top && (d.1 - d.2).abs() >= 0.3).collect();
+    diffs.sort_by(|x, y| (y.1 - y.2).abs().total_cmp(&(x.1 - x.2).abs()));
+    for (c, x, y) in diffs.into_iter().take(6) {
+        push("difference", format!("{c}: {x:.1} a game, the field {y:.1}."), x - y, insight.games);
+    }
+
+    // Races: the champion's win rate when it gains a card first, and when its opponent does.
+    let n = insight.games;
+    let mut races: Vec<(&Race, f64, f64)> = insight
+        .races
+        .iter()
+        .filter(|r| r.first_by[0].games * 30 >= n && r.first_by[1].games * 30 >= n)
+        .map(|r| (r, r.first_by[0].win, 1.0 - r.first_by[1].win))
+        .filter(|&(_, mine, theirs)| (mine - theirs).abs() >= 0.1)
+        .collect();
+    races.sort_by(|x, y| (y.1 - y.2).abs().total_cmp(&(x.1 - x.2).abs()));
+    for (r, mine, theirs) in races.into_iter().take(8) {
+        let (gets, both) = if r.contested.games == 0 { ("gets it", String::new()) } else { ("gains the first one", format!(" ({} of games both gain one)", pc(r.contested.games as f64 / r.first_wins.games.max(1) as f64))) };
+        push("race", format!("{}: the champion wins {} when it {gets}, {} when the opponent does{both}.", r.card, pc(mine), pc(theirs)), mine - theirs, r.first_wins.games);
+    }
+
+    // Opening splits, and the champion's openings on each.
+    if let [s52, s43] = &me.splits[..] {
+        if s52.rate.games * 20 >= n && s43.rate.games * 20 >= n {
+            let open = |s: &SplitRow| s.openings.first().map_or(String::new(), |o| format!(" (mostly {})", o.cards));
+            push("opening", format!("A 5/2 opening wins {}{}, a 4/3 {}{}.", pc(s52.rate.win), open(s52), pc(s43.rate.win), open(s43)), s52.rate.win - s43.rate.win, n);
+        }
+        for s in [s52, s43] {
+            let mut o: Vec<&Opening> = s.openings.iter().filter(|o| o.rate.games * 20 >= n).collect();
+            o.sort_by(|x, y| y.rate.win.total_cmp(&x.rate.win));
+            if o.len() >= 2 && o[0].rate.win - o[o.len() - 1].rate.win >= 0.05 {
+                let (best, worst) = (o[0], o[o.len() - 1]);
+                push("opening", format!("On {}: {} wins {}, {} {}.", s.split, best.cards, pc(best.rate.win), worst.cards, pc(worst.rate.win)), best.rate.win - worst.rate.win, best.rate.games + worst.rate.games);
+            }
+        }
+    }
+
+    // Positions: the decision trees' strongest leaves, against the champion's average at that turn.
+    for t in &me.trees {
+        let mut leaves: Vec<&Leaf> = t.leaves.iter().filter(|l| l.rate.games * 20 >= t.rate.games && !l.path.is_empty() && !l.path.iter().any(|p| p.contains(&count_top)) && (l.rate.win - t.rate.win).abs() >= 0.1).collect();
+        leaves.sort_by(|x, y| (y.rate.win - t.rate.win).abs().total_cmp(&(x.rate.win - t.rate.win).abs()));
+        for l in leaves.into_iter().take(2) {
+            push("position", format!("Start of the champion's turn {}, {}: wins {} (on average {}).", t.turn, l.path.join(" and "), pc(l.rate.win), pc(t.rate.win)), l.rate.win - t.rate.win, l.rate.games);
+        }
+    }
+
+    // Turning points.
+    for w in me.swings.iter().filter(|w| w.card != top && w.effect.abs() >= 0.03).take(6) {
+        let who = if w.who == "you" { "The champion gaining" } else { "The opponent gaining" };
+        push("turning point", format!("{who} {} ({}).", w.card, w.window), w.effect, w.games);
+    }
+
+    Ok(Findings { champion: a.name.clone(), field: rows, findings: out, insight, explanation, explain_error })
 }

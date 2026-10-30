@@ -277,6 +277,24 @@ against the mix of its round minus 50 points (if that exploiter was added, the f
 exploiter has tested yet). The maximum over many noisy estimates is biased upward by about the interval's width
 (+-2 points at 2000 games), so differences of that size mean nothing.
 
+**Names.** A ranked strategy is named after its key cards with about how many of each it gains a game in the final round
+robin, most first ("3 Patrician + 2 Forum"); exploiters keep their number ("Exploiter 1: 2 Change"). Two with the same name are
+told apart by their trashing and game length.
+
+**Kingdom findings** (`insight::findings`, `LeagueReport.findings`). Last, the result (the best evolved strategy) is
+analyzed with fast bots against the field: every other strategy of the final ranking, the baselines included (so seeds
+added to the league later join it), `insight_games` (10,000; 0 = off) games split evenly between them. Each of its rules is
+taken out in turn against the same field (`games / 2` each). The report is boiled down to ranked sentences by kind
+(none about the top Victory card, Province, or Colony when there are Colonies: buying one mostly says who is ahead, not why):
+- what each rule is worth;
+- the cards the champion gains more or less of than the field;
+- races (the champion's win rate when it gains a card first, against when its opponent does);
+- openings by split;
+- the decision trees' strongest positions;
+- turning points.
+
+The Lab shows them in its Findings panel, with the champion's win rate against each strategy of the field and the analyses behind them collapsed below. `league_run` prints them.
+
 **Per-opponent reporting.** A score against several opponents is one weighted average, which hides weak
 matchups (66% overall can be 79% against Big Money and 53% against the strongest opponent). `arena::Score`
 keeps a fixed array of per-opponent tallies (unweighted wins and games; `MAX_TALLY` = 32, filled once per match

@@ -1,4 +1,4 @@
-//! Run a kingdom league from the command line and print the niche table and crosstable.
+//! Run a kingdom league from the command line and print the niche table, crosstable and kingdom findings.
 //! `cargo run --release -p dominion-evolve --example league_run -- "Card1,Card2,..." [generations] [final_games] [out_dir]`
 //! (env: ISLANDS, ISLAND_SIZE, RACES=200,400, EXPLOIT_ROUNDS, EXPLOIT_GENS, POLISH, VALIDATE, SEED, FINAL=fast|selective|full (the bots of the final ranking, default fast),
 //! SEARCH=off|selective|full with SEARCH_GAP (points) and SEARCH_COST (times a fast game): how much turn search the evaluation bots keep)
@@ -87,6 +87,28 @@ fn main() {
     println!("\nTop:");
     for r in &l.top {
         println!("  {}. {} {} mean {:.1}% nash {:.0}%\n     {}", r.rank, r.name, if r.baseline { "[baseline]" } else { "" }, r.mean_vs_field * 100.0, r.nash * 100.0, r.description);
+    }
+    match (&l.findings, &l.findings_error) {
+        (Some(f), _) => {
+            println!("\nFindings ({} against the field, {} games):", f.champion, f.insight.games);
+            for r in &f.field {
+                println!("  {:>5.1}% vs {}", r.rate.win * 100.0, r.name);
+            }
+            let mut kind = "";
+            for x in &f.findings {
+                if x.kind != kind {
+                    kind = &x.kind;
+                    println!("  {kind}:");
+                }
+                if x.kind == "difference" {
+                    println!("    {:>+6.1}  {}", x.points, x.text);
+                } else {
+                    println!("    {:>+6.1}  {}", 100.0 * x.points, x.text);
+                }
+            }
+        }
+        (None, Some(e)) => println!("\nNo findings: {e}"),
+        _ => {}
     }
     if let Some(dir) = a.get(3) {
         std::fs::create_dir_all(dir).unwrap();

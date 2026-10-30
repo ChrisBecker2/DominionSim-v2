@@ -29,7 +29,7 @@ use crate::baselines::{baselines, Baseline};
 use crate::config::{EvolveConfig, FinalBots, LeagueConfig, OpponentSpec};
 use crate::ga::{Control, Setup};
 use crate::genome::{Genome, TomlMeta};
-use crate::niche::{Archive, Behaviour, Descriptor, Elite, NicheParams, Offer};
+use crate::niche::{Archive, Behaviour, Descriptor, Elite, NicheParams, Offer, LENGTH_LABELS, NO_CARD, TRASH_LABELS};
 use crate::ops;
 use crate::polish::polish;
 use crate::progress::{AnchorInfo, Entry, ExploiterRound, GenStat, LeagueReport, NicheRow, Progress, TopRow};
@@ -245,13 +245,28 @@ fn pick_parent<'a>(members: &'a [(Genome, f64)], archive: &'a Archive, cfg: &Evo
     tournament(members, cfg.tournament, rng)
 }
 
-fn champion_name(desc: &Descriptor, used: &mut HashSet<String>) -> String {
-    let base = desc.head().replace("Money only", "Money");
+/// A niche champion's name: its key cards with about how many of each it gains a game, most first, and its Event, e.g.
+/// "3 Patrician + 2 Forum". Two champions with the same name are told apart by their niche's trashing and game length.
+fn champion_name(desc: &Descriptor, behaviour: &Behaviour, used: &mut HashSet<String>) -> String {
+    let mut keys: Vec<(CardId, f64)> = desc.cards.iter().filter(|&&c| c != NO_CARD).map(|&c| (c, behaviour.gains.iter().find(|g| g.0 == c).map_or(0.0, |g| g.1))).collect();
+    keys.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let mut parts: Vec<String> = keys.iter().map(|&(c, g)| format!("{} {}", g.round().max(1.0), cards::name(c))).collect();
+    if desc.event != NO_CARD {
+        if parts.is_empty() {
+            parts.push("Money".into());
+        }
+        parts.push(cards::name(desc.event).to_string());
+    }
+    let base = if parts.is_empty() { "Money".to_string() } else { parts.join(" + ") };
     let mut name = base.clone();
+    if used.contains(&name) {
+        name = format!("{base} ({}, {})", TRASH_LABELS[desc.trash as usize], LENGTH_LABELS[desc.length as usize]);
+    }
     let mut n = 1;
+    let plain = name.clone();
     while !used.insert(name.clone()) {
         n += 1;
-        name = format!("{base} ({n})");
+        name = format!("{plain} #{n}");
     }
     name
 }
@@ -663,8 +678,8 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     let mut names: Vec<String> = anchors.iter().map(|a| a.base.name.clone()).collect();
     let mut genomes: Vec<Genome> = anchors.iter().map(|a| a.base.genome.clone()).collect();
     let mut used: HashSet<String> = names.iter().cloned().collect();
-    for (d, g, _) in &champions {
-        names.push(champion_name(d, &mut used));
+    for (d, g, e) in &champions {
+        names.push(champion_name(d, &e.behaviour, &mut used));
         genomes.push(g.clone());
     }
     let strategies: Vec<Strategy> = genomes.iter().map(|g| final_template.compile(g)).collect::<Result<_, _>>()?;
@@ -887,6 +902,36 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
         descriptors.push(b.listed_in(&genomes[i]).describe(reference_turns, &prm));
         behaviours.push(b);
     }
+    // Final names from what each strategy did in the round robin (the search's names can be stale: polishing drops rules), with
+    // the exploiters' counts after their number.
+    let mut used: HashSet<String> = names[..anchors.len()].iter().cloned().collect();
+    let renamed: Vec<String> = (0..n)
+        .map(|i| match kinds[i].as_str() {
+            _ if i < anchors.len() => names[i].clone(),
+            "exploiter" => {
+                let mut taken = used.clone();
+                let name = format!("{}: {}", names[i], champion_name(&descriptors[i], &behaviours[i], &mut taken));
+                used.insert(name.clone());
+                name
+            }
+            _ => champion_name(&descriptors[i], &behaviours[i], &mut used),
+        })
+        .collect();
+    let rename = |s: &mut String| {
+        if let Some(k) = names.iter().position(|x| x == s) {
+            *s = renamed[k].clone();
+        }
+    };
+    for r in report_data.exploiters.iter_mut() {
+        r.mix.iter_mut().for_each(|m| rename(&mut m.0));
+        r.nash_after.iter_mut().for_each(|m| rename(&mut m.0));
+        r.vs.iter_mut().for_each(|o| rename(&mut o.name));
+        if let Some(x) = r.name.as_mut() {
+            rename(x);
+        }
+    }
+    rr.table.names = renamed.clone();
+    let names = renamed;
     let mut entries: Vec<Entry> = Vec::new();
     for i in 0..n {
         let is_anchor = i < anchors.len();
@@ -962,9 +1007,21 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     report_data.kinds = kinds;
     report_data.exploitability = exploitability;
     report_data.top = top;
-    progress.league = Some(report_data);
     // The result: the best evolved strategy (an anchor only if no champion exists).
     let best = by_mean.iter().copied().find(|&i| i >= anchors.len()).or_else(|| by_mean.first().copied());
+    // Kingdom findings: the champion against every other strategy of the ranking.
+    if let (Some(b), true) = (best, lc.insight_games > 0 && !control.stopped()) {
+        progress.status = format!("findings: {} against the field", names[b]);
+        progress.league = Some(report_data.clone());
+        report(&progress);
+        let field: Vec<(String, String)> = (0..n).filter(|&i| i != b).map(|i| (names[i].clone(), entries[i].toml.clone())).collect();
+        let seed = Rng::derive(cfg.seed, 0x1A5).next_u64();
+        match crate::insight::findings(&kingdom, &entries[b].toml, &field, lc.insight_games, seed) {
+            Ok(f) => report_data.findings = Some(crate::insight::Findings { champion: names[b].clone(), ..f }),
+            Err(e) => report_data.findings_error = Some(e),
+        }
+    }
+    progress.league = Some(report_data);
     progress.result = best.map(|i| entries[i].clone());
     if let Some(i) = best {
         progress.note(format!("result: {} - {:.1}% against the field: {}", names[i], rr.table.mean_vs_field[i] * 100.0, genomes[i].summary()));
@@ -1025,6 +1082,23 @@ mod tests {
         let z = LeagueConfig { anchor_weight: 0.0, recent_weight: 0.0, old_weight: 0.0, ..lc };
         let w = league_weights(&z, 2, 2, 0);
         assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn champion_names_say_about_how_many_key_cards_and_tell_twins_apart_by_niche() {
+        use cards::id;
+        let b = Behaviour { gains: vec![(id::PATRICIAN, 3.2), (id::FORUM, 1.6)], ..Default::default() };
+        let mut keys = [id::PATRICIAN, id::FORUM];
+        keys.sort_unstable();
+        let d = Descriptor { cards: keys, event: NO_CARD, trash: 0, length: 1 };
+        let mut used = HashSet::new();
+        assert_eq!(champion_name(&d, &b, &mut used), "3 Patrician + 2 Forum");
+        let long = Descriptor { length: 2, ..d };
+        assert_eq!(champion_name(&long, &b, &mut used), "3 Patrician + 2 Forum (no trashing, long games)");
+        let money = Descriptor { cards: [NO_CARD; 2], ..d };
+        assert_eq!(champion_name(&money, &Behaviour::default(), &mut used), "Money");
+        let rare = Behaviour { gains: vec![(id::FORUM, 0.8)], ..Default::default() };
+        assert_eq!(champion_name(&Descriptor { cards: [id::FORUM, NO_CARD], ..d }, &rare, &mut used), "1 Forum");
     }
 
     #[test]

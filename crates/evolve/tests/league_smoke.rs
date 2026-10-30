@@ -6,7 +6,7 @@ fn bm_cfg() -> EvolveConfig {
     let k = ["Artisan", "Harbinger", "Laboratory", "Mine", "Moneylender", "Bank", "Crystal Ball", "Grand Market", "Mint", "Tiara"];
     EvolveConfig {
         track: Track::Fixed { kingdom: k.iter().map(|s| s.to_string()).collect() },
-        league: Some(LeagueConfig { final_games: 200, final_bots: FinalBots::Fast, ..LeagueConfig::default() }),
+        league: Some(LeagueConfig { final_games: 200, final_bots: FinalBots::Fast, insight_games: 1000, ..LeagueConfig::default() }),
         forbidden: vec![],
         islands: 3,
         island_size: 10,
@@ -43,6 +43,12 @@ fn short_league_run_on_biggest_money() {
     }
     assert!(!l.top.is_empty());
     assert!(p.result.is_some());
+    // The kingdom findings: the champion (the result) against every other strategy of the ranking, in sentences.
+    let f = l.findings.as_ref().unwrap_or_else(|| panic!("findings: {:?}", l.findings_error));
+    assert_eq!(format!("League: {}", f.champion), dominion_sim::Strategy::parse(&p.result.as_ref().unwrap().toml).unwrap().name);
+    assert_eq!(f.field.len(), t.names.len() - 1);
+    assert!(f.insight.games >= 900 && f.explanation.is_some(), "{} {:?}", f.insight.games, f.explain_error);
+    assert!(f.findings.iter().any(|x| x.kind == "difference"), "{:#?}", f.findings);
 }
 
 #[test]
@@ -96,6 +102,7 @@ fn exploit_cfg(rounds: usize, margin: f64) -> EvolveConfig {
         l.exploit_generations = 2;
         l.exploit_margin = margin;
         l.exploit_games = 200;
+        l.insight_games = 0;
     }
     c
 }
@@ -136,7 +143,10 @@ fn exploiters_that_beat_the_margin_join_and_the_nash_mix_is_recomputed() {
     assert_eq!(t.names.len(), before + 2);
     assert_eq!(l.strategies.len(), before + 2);
     assert_eq!(l.kinds.iter().filter(|k| *k == "exploiter").count(), 2);
-    assert!(t.names.iter().any(|n| n == "Exploiter 2"));
+    // Exploiters keep their number, followed by what they buy; the rounds' report uses the same final names.
+    assert!(t.names.iter().any(|n| n.starts_with("Exploiter 2: ")), "{:?}", t.names);
+    assert!(l.exploiters.iter().all(|r| t.names.contains(r.name.as_ref().unwrap())));
+    assert!(l.exploiters.iter().flat_map(|r| r.mix.iter()).all(|m| t.names.contains(&m.0)));
     assert!((t.nash.iter().sum::<f64>() - 1.0).abs() < 1e-6);
     for i in 0..t.names.len() {
         for j in 0..t.names.len() {

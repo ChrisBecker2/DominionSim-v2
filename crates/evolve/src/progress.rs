@@ -154,6 +154,10 @@ pub struct LeagueReport {
     /// The last exploiter's win rate against the Nash mix of its round, minus 50%: how much the
     /// mix could still be beaten (negative: the exploiter lost). `None` without exploiter rounds.
     pub nash_exploitability: Option<f64>,
+    /// What the run found on its kingdom: the champion's games against the field of the ranking, in sentences (`insight_games`).
+    pub findings: Option<crate::insight::Findings>,
+    /// Why there are no findings, when they were asked for.
+    pub findings_error: Option<String>,
 }
 
 impl Progress {

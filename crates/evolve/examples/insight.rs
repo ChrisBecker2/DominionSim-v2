@@ -80,6 +80,11 @@ fn main() {
             println!("  {:>+6.1} pts  {:<8} {:<18} {:<20} ({} games)", 100.0 * w.effect, w.who, w.card, w.window, w.games);
         }
     }
+    println!("\nRaces: how often the first to gain the card wins (games); when both gained it; {} first; {} first:", r.sides[0].name, r.sides[1].name);
+    for x in &r.races {
+        let f = |r: &Rate| format!("{} ({})", pct(r), r.games);
+        println!("  {:<18} {:<16} {:<16} {:<16} {}", x.card, f(&x.first_wins), f(&x.contested), f(&x.first_by[0]), f(&x.first_by[1]));
+    }
     if let Some(p) = &r.prophecy {
         println!("\nProphecy happened in {} of {} games", p.happened, r.games);
         for (s, (x, t)) in r.sides.iter().zip(&p.made_by) {

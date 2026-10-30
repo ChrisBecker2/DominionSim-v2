@@ -109,6 +109,9 @@ table.hof { width: 100%; min-width: 520px; border-collapse: collapse; font-size:
 table.hof th, table.hof td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); }
 table.hof th { color: var(--text-dim); font-weight: 500; }
 table.hof tr.hof-row { cursor: pointer; }
+/* Long strategy names scroll sideways rather than making the rows taller. */
+table.hof.nowrap td, table.hof.nowrap th { white-space: nowrap; }
+table.hof.nowrap td.wrap { white-space: normal; min-width: 280px; }
 table.hof tr.hof-row:hover { background: var(--panel-2); }
 pre.toml { max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: 5px; padding: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 #log-panel { max-height: 200px; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; color: var(--text-dim); }
@@ -131,6 +134,7 @@ table.ins { border-collapse: collapse; font-size: 11.5px; margin: 4px 0 10px; }
 table.ins th, table.ins td { padding: 2px 5px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
 table.ins th { color: var(--text-dim); font-weight: 500; }
 table.ins td.l, table.ins th.l { text-align: left; }
+table.ins.wrap-head th { white-space: normal; vertical-align: bottom; max-width: 140px; }
 table.ins td.cell { width: 15px; min-width: 15px; padding: 0; height: 15px; border: 1px solid var(--panel); }
 .ins-side { border-top: 2px solid var(--border); margin-top: 12px; padding-top: 6px; }
 .ins-grid { display: flex; flex-wrap: wrap; gap: 6px 22px; }
@@ -199,6 +203,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
                         <option value="selective">Selective: search only cards that gain from it</option>
                         <option value="full">Full: search every turn (can take hours)</option>
                       </select><span class="fh">full bots search every turn like the game page: on a kingdom with many choices thousands of times slower than fast bots</span></label>
+                    <label>Findings games <input type="number" id="league-insight_games" min="0" step="1000"><span class="fh">the champion against every other strategy of the ranking at the end, the same number of games against each, fast bots (each rule taken out: half as many); 0 = no findings</span></label>
                   </div>
                 </div>
 
@@ -386,20 +391,24 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
       </section>
 
       <section id="niche-panel" style="display:none">
-        <h2>Niche champions</h2>
+        <details>
+        <summary><h2 style="display:inline">Niche champions</h2></summary>
         <div class="hint" id="niche-hint"></div>
         <div id="niche-body" class="muted">None yet.</div>
+        </details>
       </section>
 
       <section id="exploit-panel" style="display:none">
-        <h2>Exploiter rounds</h2>
+        <details>
+        <summary><h2 style="display:inline">Exploiter rounds</h2></summary>
         <div class="hint" id="exploit-hint"></div>
         <div id="exploit-body" style="overflow:auto"></div>
+        </details>
       </section>
 
       <section id="cross-panel" style="display:none">
         <h2>Final ranking</h2>
-        <div id="top-body"></div>
+        <div id="top-body" style="overflow:auto"></div>
         <div class="hint">Crosstable: the row strategy beats the column strategy this often (ties count half; hover for the 95% interval). Mean = average over the other strategies. Nash = share of an approximate equilibrium mix of the strategies: only strategies in the mix are not beaten by a combination of the others. Exploitability: how much the strongest challenger found beats this strategy (win rate minus 50%, at least 0). Near 0 = hard to beat. If several strategies share the Nash mix, they beat each other in a cycle.</div>
         <div id="cross-body" style="overflow:auto"></div>
       </section>
@@ -414,8 +423,16 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
         <div id="play-msg" class="error-msg"></div>
       </section>
 
+      <section id="findings-panel" style="display:none">
+        <h2>Findings: what decides games on this kingdom</h2>
+        <div class="hint" id="findings-hint">At the end of a run the champion plays every other strategy of the ranking, the baselines included (what decides its games,
+          what it does differently from the field), and each of its rules is taken out in turn (what it is worth). Fast bots. Points are win-rate percentage points.</div>
+        <div id="findings-body"></div>
+      </section>
+
       <section id="insight-panel">
-        <h2>Insight: how two strategies play</h2>
+        <details id="ins-details">
+        <summary><h2 style="display:inline">Compare two strategies</h2></summary>
         <div class="hint">Plays two strategies against each other and shows what happens: opening splits, what is gained and trashed on each turn,
           the win rate by copies of a card, decision trees over the position, the gains that turn games, and (optional) what each rule of strategy A is worth.
           Check strategies in the tables above and press "Use the checked", or pick strategy files.</div>
@@ -443,6 +460,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
         </div>
         <div id="ins-msg" class="error-msg"></div>
         <div id="ins-body"></div>
+        </details>
       </section>
 
       <section id="result-panel">
@@ -745,6 +763,7 @@ function buildRequest() {
       exploit_rounds: Math.max(0, Math.round(num("league-exploit_rounds", 3))),
       exploit_generations: Math.max(1, Math.round(num("league-exploit_generations", 30))),
       exploit_margin: num("league-exploit_margin", 3) / 100,
+      insight_games: Math.max(0, Math.round(num("league-insight_games", 10000))),
     };
     return { config: config, opponents: [], seed_files: [] };
   }
@@ -1159,7 +1178,7 @@ var CFG_STANDARD = {
   "cfg-max_turns": 60, "cfg-hall_of_fame": 20, "cfg-validate_full": false,
 };
 var LEAGUE_STANDARD = {
-  "league-niches": 10, "league-novelty": 1, "league-stagnation": 8, "league-final_games": 2000, "league-final_bots": "fast",
+  "league-niches": 10, "league-novelty": 1, "league-stagnation": 8, "league-final_games": 2000, "league-final_bots": "fast", "league-insight_games": 10000,
   "league-exploit_rounds": 3, "league-exploit_generations": 30, "league-exploit_margin": 3,
   "league-anchor_weight": 0.4, "league-recent_weight": 0.4, "league-old_weight": 0.2,
 };
@@ -1285,6 +1304,7 @@ function leagueSettingsFromRequest(cfg) {
   var pct = function (x) { return Math.round(x * 10000) / 100; };
   writeInput("league-niches", l.niches); writeInput("league-novelty", pct(l.novelty_bonus)); writeInput("league-stagnation", l.stagnation_generations);
   writeInput("league-final_games", l.final_games); writeInput("league-final_bots", l.final_bots || "fast");
+  writeInput("league-insight_games", l.insight_games == null ? 10000 : l.insight_games);
   writeInput("league-exploit_rounds", l.exploit_rounds); writeInput("league-exploit_generations", l.exploit_generations); writeInput("league-exploit_margin", pct(l.exploit_margin));
   writeInput("league-anchor_weight", l.anchor_weight); writeInput("league-recent_weight", l.recent_weight); writeInput("league-old_weight", l.old_weight);
   var t = cfg.track || {};
@@ -1623,6 +1643,7 @@ function renderLeague(p) {
   $("exploit-panel").style.display = L && L.exploiters && L.exploiters.length ? "" : "none";
   $("play-panel").style.display = L && L.niches && L.niches.length ? "" : "none";
   updatePlayPanel();
+  renderFindings(L);
   if (L) renderExploiters(L);
   if (!L) return;
   $("niche-hint").textContent = "Anchors: " + L.anchors.map(function (a) { return a.name; }).join(", ") +
@@ -1651,13 +1672,13 @@ function renderLeague(p) {
   var top = $("top-body");
   top.innerHTML = "";
   var tt = document.createElement("table");
-  tt.className = "hof";
+  tt.className = "hof nowrap";
   tt.innerHTML = "<thead><tr><th>#</th><th>strategy</th><th>mean vs field</th><th>Nash</th><th title='how much the strongest challenger found beats it'>exploitability</th><th>what it does</th><th title='check to play in the game'>play / open / save</th></tr></thead>";
   var tbody = document.createElement("tbody");
   L.top.forEach(function (r) {
     var tr = document.createElement("tr");
     tr.className = "hof-row";
-    tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + fmtExpl(r.exploitability) + "</td><td>" + escapeHtml(r.description) + "</td>";
+    tr.innerHTML = "<td>" + r.rank + "</td><td><b>" + escapeHtml(r.name) + "</b>" + (r.baseline ? " (baseline)" : "") + "</td><td>" + fmtPct(r.mean_vs_field) + "</td><td>" + Math.round(r.nash * 100) + "%</td><td>" + fmtExpl(r.exploitability) + "</td><td class=\"wrap\">" + escapeHtml(r.description) + "</td>";
     tr.appendChild(strategyCell(L.strategies[r.index], r.name));
     tr.addEventListener("click", function () { showEntry(L.strategies[r.index]); });
     tbody.appendChild(tr);
@@ -1666,7 +1687,7 @@ function renderLeague(p) {
   top.appendChild(tt);
 
   var x = document.createElement("table");
-  x.className = "hof";
+  x.className = "hof nowrap";
   var head = "<thead><tr><th></th>";
   C.names.forEach(function (n, j) { head += "<th title=\"" + escapeHtml(n) + "\">" + j + "</th>"; });
   head += "<th>mean</th><th>Nash</th><th title=\"how much the strongest challenger found beats it\">expl.</th></tr></thead>";
@@ -1831,11 +1852,74 @@ function renderInsight(resp) {
       return escapeHtml(s.name) + " made it happen in " + m[0].games + " (on its turn " + m[1].toFixed(1) + " on average; it won " + insPct(m[0]) + " of those)";
     }).join("; ") + ".</div>";
   }
+  h += insRaces(ins);
   if (resp.explanation) h += insExplanation(resp.explanation, ins.sides[0].name);
   if (resp.explain_error) h += "<div class=\"hint\">" + escapeHtml(resp.explain_error) + "</div>";
   h += insSide(ins.sides[0], ins.turns);
   h += "<details style=\"margin-top:10px\"><summary>" + escapeHtml(ins.sides[1].name) + " (the opponent)</summary>" + insSide(ins.sides[1], ins.turns) + "</details>";
   $("ins-body").innerHTML = h;
+}
+
+// Who gains each card first, and how often that player wins.
+function insRaces(ins) {
+  if (!ins.races || !ins.races.length) return "";
+  var mirror = ins.sides[0].name === ins.sides[1].name;
+  var cell = function (r) { return insRateCell(r, " <span class=\"muted\">(" + r.games + ")</span>"); };
+  var h = "<h3>Races: how often the first player to gain the card wins</h3><table class=\"ins wrap-head\"><tr><th class=\"l\">card</th><th title=\"games where someone gained it\">first wins</th>" +
+    "<th title=\"games where both players gained it\">when both gained it</th>" +
+    (mirror ? "" : "<th>" + escapeHtml(ins.sides[0].name) + " first</th><th>" + escapeHtml(ins.sides[1].name) + " first</th>") + "</tr>";
+  ins.races.forEach(function (r) {
+    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + cell(r.first_wins) + cell(r.contested) + (mirror ? "" : cell(r.first_by[0]) + cell(r.first_by[1])) + "</tr>";
+  });
+  return h + "</table><div class=\"hint\">" + (mirror ? "" : "The per-strategy columns are that strategy's win rate in the games it gained the card first. ") +
+    "A race the first gainer wins only 50% of the time is no race. A card with one copy (each Castle) can't be gained by both: there, first means the one who got it.</div>";
+}
+
+// The league's kingdom findings: sentences by kind, then the analyses behind them (collapsed).
+var FINDING_KINDS = [
+  ["rule", "What each rule of the champion is worth against the field: the rule taken out, the same deals replayed"],
+  ["difference", "What the champion gains more or less of than the field (copies a game)"],
+  ["race", "Races: the champion's win rate when it gains the card first minus when its opponent does"],
+  ["opening", "Openings: the champion's win rate by its opening"],
+  ["position", "Positions at the start of the champion's turn that win and lose (points against its average at that turn)"],
+  ["turning point", "Turning points: gains that move the champion's chances beyond what the position already said"],
+];
+var findingsShown = null;
+function renderFindings(L) {
+  var panel = $("findings-panel");
+  var F = L && L.findings;
+  if (!F && !(L && L.findings_error)) { panel.style.display = "none"; findingsShown = null; return; }
+  panel.style.display = "";
+  // Status polls repeat the same report: rebuild only when it changes (keeps the open details open).
+  var key = F ? F.champion + "|" + F.field.length + "|" + F.findings.length + "|" + F.insight.games : L.findings_error;
+  if (key === findingsShown) return;
+  findingsShown = key;
+  if (!F) { $("findings-body").innerHTML = "<div class=\"error-msg\">" + escapeHtml(L.findings_error) + "</div>"; return; }
+  var me = F.insight.sides[0];
+  var h = "<div class=\"hint\">Champion: <b>" + escapeHtml(F.champion) + "</b>, against the " + F.field.length + " other strategies of the ranking (" + F.insight.games +
+    " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion (copies a game for the differences); hover it for the games behind it.</div>";
+  h += "<details style=\"margin-top:6px\"><summary>How the field does against the champion</summary><table class=\"ins\"><tr><th class=\"l\">strategy</th><th>champion wins</th><th>its VP</th><th>its turns</th></tr>";
+  F.field.forEach(function (r) {
+    h += "<tr><td class=\"l\">" + escapeHtml(r.name) + "</td>" + insRateCell(r.rate, "") + "<td>" + r.avg_vp.toFixed(1) + "</td><td>" + r.avg_turns.toFixed(1) + "</td></tr>";
+  });
+  h += "</table></details>";
+  FINDING_KINDS.forEach(function (k) {
+    var list = F.findings.filter(function (f) { return f.kind === k[0]; });
+    if (!list.length) return;
+    var copies = k[0] === "difference";
+    h += "<h3>" + escapeHtml(k[1]) + "</h3><table class=\"ins\">";
+    list.forEach(function (f) {
+      var shown = copies ? (f.points >= 0 ? "+" : "") + f.points.toFixed(1) : (f.points >= 0 ? "+" : "") + (100 * f.points).toFixed(1) + " pts";
+      var shade = copies ? "" : "background:" + insWinColor(0.5 + f.points) + ";";
+      h += "<tr><td style=\"" + shade + "white-space:nowrap;text-align:right\" title=\"" + f.games + " games\">" + shown + "</td><td class=\"l\">" + escapeHtml(f.text) + "</td></tr>";
+    });
+    h += "</table>";
+  });
+  if (F.explain_error) h += "<div class=\"hint\">" + escapeHtml(F.explain_error) + "</div>";
+  h += "<details style=\"margin-top:10px\"><summary>The champion against the field: races, openings, gains, trees, turning points</summary>" + insRaces(F.insight) + insSide(me, F.insight.turns) +
+    "<details style=\"margin-top:10px\"><summary>The field (all its strategies together)</summary>" + insSide(F.insight.sides[1], F.insight.turns) + "</details></details>";
+  if (F.explanation) h += "<details style=\"margin-top:6px\"><summary>Every rule of the champion</summary>" + insExplanation(F.explanation, F.champion) + "</details>";
+  $("findings-body").innerHTML = h;
 }
 
 function runInsight() {

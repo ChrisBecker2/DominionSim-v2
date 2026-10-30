@@ -995,7 +995,7 @@ function escapeHtml(s) {
 // ---------------------------------------------------------------------------------------------
 
 // A strategy's win rate against each opponent, with 95% intervals (the overall rate is their
-// weighted average, and can hide a weak matchup).
+// weighted average, and can hide a weak matchup). Used by Assess; the result card shows the strategy only.
 function vsTable(vs) {
   if (!vs || !vs.length) return null;
   var t = document.createElement("table");
@@ -1038,7 +1038,6 @@ function entryHtml(entry, source, idx) {
   // A strategy of the league's final ranking: its matchups are its row of the crosstable, so just name the weakest.
   var L = state.status && state.status.progress && state.status.progress.league;
   var ranked = L && L.crosstable && (L.strategies || []).some(function (x) { return x.toml === entry.toml; });
-  var vt = ranked ? null : vsTable(entry.vs);
   if (ranked && entry.vs && entry.vs.length) {
     var weakest = entry.vs.slice().sort(function (a, b) { return a.win_rate - b.win_rate; }).slice(0, 3);
     var wn = document.createElement("div");
@@ -1046,16 +1045,6 @@ function entryHtml(entry, source, idx) {
     wn.textContent = "Against each strategy: its row of the Final ranking crosstable. Weakest: " +
       weakest.map(function (o) { return fmtPct(o.win_rate) + " vs " + o.name; }).join(", ") + ".";
     div.appendChild(wn);
-  }
-  if (vt && entry.vs.length > 1) {
-    var vh = document.createElement("div");
-    vh.className = "hint";
-    vh.textContent = "Win rate by opponent, the strongest opponents first (the overall rate above is their weighted average):";
-    div.appendChild(vh);
-    var box = document.createElement("div");
-    box.style.cssText = "max-height:260px;overflow:auto";
-    box.appendChild(vt);
-    div.appendChild(box);
   }
 
   var pre = document.createElement("pre");

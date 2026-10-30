@@ -71,8 +71,8 @@ struct Sink {
     /// The card being played (or replayed), and a card its player trashed while it resolved.
     playing: CardId,
     trashed: Option<(u8, CardId)>,
-    /// Trash for gain: (the card played, the card it trashed, the card it gained), e.g. Remodel: Gold -> Province.
-    exchanges: [Vec<(CardId, CardId, CardId)>; 2],
+    /// Trash for gain: (own turn, the card played, the card it trashed, the card it gained), e.g. Remodel: Gold -> Province.
+    exchanges: [Vec<(u16, CardId, CardId, CardId)>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
     /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
@@ -104,7 +104,7 @@ impl EventSink for Sink {
                 // A gain by the card being played after it trashed one of its player's cards: a trash-for-gain (Remodel, Expand, Mine...).
                 if let Some((tp, from)) = self.trashed {
                     if tp == player && source != 0 && source == self.playing {
-                        self.exchanges[player as usize].push((source, from, card));
+                        self.exchanges[player as usize].push((self.own_turn[player as usize], source, from, card));
                     }
                 }
                 self.gains[player as usize].push((self.own_turn[player as usize], self.global, card));
@@ -138,7 +138,7 @@ struct Game {
     /// The opening's coins in the order played: (first hand, second hand).
     split_ordered: [(u8, u8); 2],
     /// Trash for gain (see `Sink::exchanges`).
-    exchanges: [Vec<(CardId, CardId, CardId)>; 2],
+    exchanges: [Vec<(u16, CardId, CardId, CardId)>; 2],
     /// Each card gained, and the strategy that gained it first.
     first: Vec<(CardId, usize)>,
     /// The strategy that made the Prophecy happen, and on which of its own turns.
@@ -380,20 +380,8 @@ pub struct Side {
     pub names_in_losses: f64,
     pub trees: Vec<TreeAt>,
     pub swings: Vec<Swing>,
-    /// Trash for gain: what the side's Remodel-like cards turned into what, the most frequent first.
-    pub exchanges: Vec<ExchangeRow>,
-}
-
-/// One kind of trash-for-gain: `card` trashed `from` and gained `to`.
-#[derive(Serialize, Debug, Clone)]
-pub struct ExchangeRow {
-    pub card: String,
-    pub from: String,
-    pub to: String,
-    /// Times a game.
-    pub per_game: f64,
-    /// The games it happened in (at least once), and the side's win rate in them.
-    pub rate: Rate,
+    /// Trash for gain by own turn, like `gains`: one row per kind ("Remodel: Gold -> Province", with an arrow), the most frequent first.
+    pub exchanges: Vec<HeatRow>,
 }
 
 /// A race for a card: who gained it first, and how often that player won.
@@ -528,25 +516,41 @@ fn side(all: &[Game], i: usize, name: &str) -> Side {
     }
 }
 
-fn exchanges(all: &[Game], i: usize) -> Vec<ExchangeRow> {
-    let mut kinds: Vec<(CardId, CardId, CardId)> = all.iter().flat_map(|g| g.exchanges[i].iter().copied()).collect();
+fn exchanges(all: &[Game], i: usize) -> Vec<HeatRow> {
+    let mut kinds: Vec<(CardId, CardId, CardId)> = all.iter().flat_map(|g| g.exchanges[i].iter().map(|&(_, a, b, c)| (a, b, c))).collect();
     kinds.sort_unstable();
     kinds.dedup();
     let n = all.len().max(1) as f64;
-    let mut rows: Vec<ExchangeRow> = kinds
+    let mut rows: Vec<HeatRow> = kinds
         .into_iter()
-        .map(|k| {
-            let times = all.iter().map(|g| g.exchanges[i].iter().filter(|&&x| x == k).count()).sum::<usize>();
-            ExchangeRow {
-                card: cards::name(k.0).to_string(),
-                from: cards::name(k.1).to_string(),
-                to: cards::name(k.2).to_string(),
-                per_game: times as f64 / n,
-                rate: rate(all.iter().filter(|g| g.exchanges[i].contains(&k)).map(|g| g.win[i])),
+        .filter_map(|k| {
+            let mut per = vec![0.0; TURNS];
+            let mut total = 0usize;
+            let (mut early, mut late) = (Vec::new(), Vec::new());
+            for g in all {
+                let mut e = false;
+                for &(t, a, b, c) in &g.exchanges[i] {
+                    if (a, b, c) == k {
+                        total += 1;
+                        if (1..=TURNS as u16).contains(&t) {
+                            per[t as usize - 1] += 1.0;
+                        }
+                        e |= t < 10;
+                    }
+                }
+                if e { early.push(g.win[i]) } else { late.push(g.win[i]) }
             }
+            let total = total as f64 / n;
+            (total >= 0.02).then(|| HeatRow {
+                card: format!("{}: {} \u{2192} {}", cards::name(k.0), cards::name(k.1), cards::name(k.2)),
+                per_turn: per.into_iter().map(|x| x / n).collect(),
+                total,
+                early: rate(early.into_iter()),
+                late: rate(late.into_iter()),
+            })
         })
         .collect();
-    rows.sort_by(|a, b| b.per_game.total_cmp(&a.per_game));
+    rows.sort_by(|a, b| b.total.total_cmp(&a.total));
     rows
 }
 
@@ -1084,9 +1088,11 @@ mod tests {
         let money = strat("name = \"Money\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n");
         let r = analyze(&kingdom, &remodel, &money, 1000, 5);
         let x = &r.sides[0].exchanges;
-        assert!(!x.is_empty() && x.iter().all(|e| e.card == "Remodel"), "{x:?}");
-        assert!(x.iter().any(|e| e.from == "Gold" && e.to == "Province") || x.iter().any(|e| e.from == "Estate"), "{x:?}");
-        assert!(x.windows(2).all(|w| w[0].per_game >= w[1].per_game));
+        assert!(!x.is_empty() && x.iter().all(|e| e.card.starts_with("Remodel: ")), "{x:?}");
+        assert!(x.iter().any(|e| e.card == "Remodel: Gold \u{2192} Province" || e.card.starts_with("Remodel: Estate")), "{x:?}");
+        assert!(x.windows(2).all(|w| w[0].total >= w[1].total));
+        // By own turn, like the gains: the per-turn figures add up to the total (games past the last turn column aside).
+        assert!(x.iter().all(|e| e.per_turn.len() == TURNS && e.per_turn.iter().sum::<f64>() <= e.total + 1e-9));
         // Money trashes nothing, and buying is no trash-for-gain.
         assert!(r.sides[1].exchanges.is_empty(), "{:?}", r.sides[1].exchanges);
     }

@@ -1760,7 +1760,7 @@ function insRateCell(r, extra) {
 
 function insHeatTable(rows, turns, title, what) {
   if (!rows.length) return "<h3>" + title + "</h3><div class=\"muted\">None.</div>";
-  var h = "<h3>" + title + "</h3><table class=\"ins\"><tr><th class=\"l\">card</th>";
+  var h = "<h3>" + title + "</h3><table class=\"ins\"><tr><th class=\"l\">" + (what === "made" ? "trash for gain" : "card") + "</th>";
   for (var t = 1; t <= turns; t++) h += "<th style=\"padding:0 1px\">" + (t % 5 === 0 || t === 1 ? t : "") + "</th>";
   // The three figures get columns of one width, their headers wrapped ("by turn 9": games with one by then).
   var stat = "<th style=\"white-space:normal;width:58px;vertical-align:bottom\"";
@@ -1791,16 +1791,10 @@ function insCurves(curves, title) {
   return h + "</table>";
 }
 
-// Trash for gain: what a side's Remodel-like cards (Remodel, Expand, Mine, Rebuild...) turned into what.
-function insExchanges(s, whose) {
+// Trash for gain by own turn, like the gains: a row per kind ("Remodel: Gold \u2192 Province"), what a side's Remodel-like cards turned into what.
+function insExchanges(s, turns, whose) {
   if (!s.exchanges || !s.exchanges.length) return "";
-  var h = "<h3>Trash for gain: what " + whose + " Remodel-like cards turned into what</h3><table class=\"ins\"><tr><th class=\"l\">card</th><th class=\"l\">trashed</th><th class=\"l\">gained</th>" +
-    "<th title=\"times a game\">per game</th><th title=\"games it happened in at least once\">games</th><th title=\"win rate in those games\">wins</th></tr>";
-  s.exchanges.forEach(function (x) {
-    h += "<tr><td class=\"l\">" + escapeHtml(x.card) + "</td><td class=\"l\">" + escapeHtml(x.from) + "</td><td class=\"l\">\u2192 " + escapeHtml(x.to) + "</td><td>" +
-      x.per_game.toFixed(2) + "</td><td>" + x.rate.games + "</td>" + insRateCell(x.rate) + "</tr>";
-  });
-  return h + "</table>";
+  return insHeatTable(s.exchanges, turns, "Trash for gain by own turn: what " + whose + " Remodel-like cards turned into what", "made");
 }
 
 // One side's analyses. `above` = the gains, trashes and trash-for-gain tables are shown elsewhere (the Findings panel shows the champion's openly).
@@ -1818,7 +1812,7 @@ function insSide(s, turns, above) {
   if (!above) {
     h += insHeatTable(s.gains, turns, "Gains by own turn", "gained");
     h += insHeatTable(s.trashes, turns, "Trashes by own turn", "trashed");
-    h += insExchanges(s, "its");
+    h += insExchanges(s, turns, "its");
   }
   // Decision trees.
   if (s.trees.length) {
@@ -1956,7 +1950,7 @@ function renderFindings(L) {
   h += insOpenings(me);
   h += insHeatTable(me.gains, F.insight.turns, "Gains by own turn (the champion)", "gained");
   h += insHeatTable(me.trashes, F.insight.turns, "Trashes by own turn (the champion)", "trashed");
-  h += insExchanges(me, "the champion's");
+  h += insExchanges(me, F.insight.turns, "the champion's");
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;

@@ -158,6 +158,8 @@ pub struct LeagueReport {
     pub findings: Option<crate::insight::Findings>,
     /// Why there are no findings, when they were asked for.
     pub findings_error: Option<String>,
+    /// How the result was chosen, when the best average and the Nash strategy differ ("... beats it 53.4% head to head").
+    pub result_note: Option<String>,
 }
 
 impl Progress {

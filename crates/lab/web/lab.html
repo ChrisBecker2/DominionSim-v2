@@ -1034,7 +1034,18 @@ function entryHtml(entry, source, idx) {
     entry.games.toLocaleString() + " games; " + entry.size + " rule" + (entry.size === 1 ? "" : "s") +
     (entry.validated ? "; validated" : "");
   div.appendChild(stats);
-  var vt = vsTable(entry.vs);
+  // A strategy of the league's final ranking: its matchups are its row of the crosstable, so just name the weakest.
+  var L = state.status && state.status.progress && state.status.progress.league;
+  var ranked = L && L.crosstable && (L.strategies || []).some(function (x) { return x.toml === entry.toml; });
+  var vt = ranked ? null : vsTable(entry.vs);
+  if (ranked && entry.vs && entry.vs.length) {
+    var weakest = entry.vs.slice().sort(function (a, b) { return a.win_rate - b.win_rate; }).slice(0, 3);
+    var wn = document.createElement("div");
+    wn.className = "hint";
+    wn.textContent = "Against each strategy: its row of the Final ranking crosstable. Weakest: " +
+      weakest.map(function (o) { return fmtPct(o.win_rate) + " vs " + o.name; }).join(", ") + ".";
+    div.appendChild(wn);
+  }
   if (vt && entry.vs.length > 1) {
     var vh = document.createElement("div");
     vh.className = "hint";
@@ -1096,6 +1107,15 @@ function renderResult(progress) {
   var entry = state.selectedTomlSource || (progress && (progress.result || progress.champion));
   if (!entry) { body.className = "muted"; body.textContent = "No result yet."; return; }
   body.className = "";
+  // How a league picked its result, when the best average and the Nash strategy differ.
+  var L = progress && progress.league;
+  if (L && L.result_note && progress.result && entry.toml === progress.result.toml) {
+    var why = document.createElement("div");
+    why.className = "hint";
+    why.style.marginBottom = "6px";
+    why.textContent = L.result_note;
+    body.appendChild(why);
+  }
   body.appendChild(entryHtml(entry));
 }
 

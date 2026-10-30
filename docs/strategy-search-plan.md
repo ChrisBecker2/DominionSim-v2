@@ -300,7 +300,12 @@ exploiter has tested yet). The maximum over many noisy estimates is biased upwar
 robin, most first ("3 Patrician + 2 Forum"); exploiters keep their number ("Exploiter 1: 2 Change"). Two with the same name are
 told apart by their trashing and game length.
 
-**Kingdom findings** (`insight::findings`, `LeagueReport.findings`). Last, the result (the best evolved strategy) is
+**The result.** The evolved strategy with the best mean against the field, unless the evolved strategy with the most Nash
+weight beats it head to head: then that one (nothing in the league beats it more than it beats it back; the two means are
+usually a point apart). `LeagueReport.result_note` says which was picked and why when the two differ; the Lab shows it above
+the result and, for a ranked strategy, names its weakest matchups instead of repeating its crosstable row.
+
+**Kingdom findings** (`insight::findings`, `LeagueReport.findings`). Last, the result (see above) is
 analyzed with fast bots against the field: every other strategy of the final ranking, the baselines included (so seeds
 added to the league later join it), `insight_games` (10,000; 0 = off) games split evenly between them. Each of its rules is
 taken out in turn against the same field (`games / 2` each). The report is boiled down to ranked sentences by kind

@@ -1007,8 +1007,37 @@ pub fn run(cfg: &EvolveConfig, control: &Control, report: &mut dyn FnMut(&Progre
     report_data.kinds = kinds;
     report_data.exploitability = exploitability;
     report_data.top = top;
-    // The result: the best evolved strategy (an anchor only if no champion exists).
-    let best = by_mean.iter().copied().find(|&i| i >= anchors.len()).or_else(|| by_mean.first().copied());
+    // The result: the best evolved strategy (an anchor only if no champion exists): the best average against the field,
+    // unless the evolved strategy with the most Nash weight beats it head to head (then nothing in the league beats that one
+    // more often than it beats it back, and the averages are a point or two apart).
+    let best_mean = by_mean.iter().copied().find(|&i| i >= anchors.len()).or_else(|| by_mean.first().copied());
+    let nash_best = (anchors.len()..n).filter(|&i| rr.table.nash[i] > 0.01).max_by(|&a, &b| rr.table.nash[a].total_cmp(&rr.table.nash[b]));
+    let best = match (best_mean, nash_best) {
+        (Some(m), Some(q)) if q != m && rr.table.rate[q][m] > 0.5 => {
+            report_data.result_note = Some(format!(
+                "{} is the result: it has {:.0}% of the Nash mix and beats {} (the best average, {:.1}% against {:.1}%) {:.1}% head to head.",
+                names[q],
+                rr.table.nash[q] * 100.0,
+                names[m],
+                rr.table.mean_vs_field[m] * 100.0,
+                rr.table.mean_vs_field[q] * 100.0,
+                rr.table.rate[q][m] * 100.0
+            ));
+            Some(q)
+        }
+        (Some(m), Some(q)) if q != m => {
+            report_data.result_note = Some(format!(
+                "{} is the result: the best average against the field ({:.1}%), and it beats {} ({:.0}% of the Nash mix) {:.1}% head to head.",
+                names[m],
+                rr.table.mean_vs_field[m] * 100.0,
+                names[q],
+                rr.table.nash[q] * 100.0,
+                rr.table.rate[m][q] * 100.0
+            ));
+            Some(m)
+        }
+        _ => best_mean,
+    };
     // Kingdom findings: the champion against every other strategy of the ranking.
     if let (Some(b), true) = (best, lc.insight_games > 0 && !control.stopped()) {
         progress.status = format!("findings: {} against the field", names[b]);

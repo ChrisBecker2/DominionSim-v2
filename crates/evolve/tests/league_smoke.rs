@@ -43,6 +43,14 @@ fn short_league_run_on_biggest_money() {
     }
     assert!(!l.top.is_empty());
     assert!(p.result.is_some());
+    // The result is an evolved strategy that the evolved strategy with the most Nash weight does not beat head to head.
+    let r = l.strategies.iter().position(|e| e.toml == p.result.as_ref().unwrap().toml).expect("the result is ranked");
+    let evolved = l.anchors.len()..n;
+    assert!(evolved.contains(&r) || n == l.anchors.len());
+    if let Some(q) = evolved.clone().filter(|&i| t.nash[i] > 0.01).max_by(|&a, &b| t.nash[a].total_cmp(&t.nash[b])) {
+        assert!(t.rate[q][r] <= 0.5, "{} beats the result {} {:.3}", t.names[q], t.names[r], t.rate[q][r]);
+        assert_eq!(l.result_note.is_some(), q != r, "{:?}", l.result_note);
+    }
     // The kingdom findings: the champion (the result) against every other strategy of the ranking, in sentences.
     let f = l.findings.as_ref().unwrap_or_else(|| panic!("findings: {:?}", l.findings_error));
     assert_eq!(format!("League: {}", f.champion), dominion_sim::Strategy::parse(&p.result.as_ref().unwrap().toml).unwrap().name);

@@ -68,6 +68,11 @@ struct Sink {
     gains: [Vec<(u16, u16, CardId)>; 2],
     /// The cards each player gained on its own first two turns: its opening (not a Curse an opponent's Witch gave it meanwhile).
     opened: [Vec<CardId>; 2],
+    /// The card being played (or replayed), and a card its player trashed while it resolved.
+    playing: CardId,
+    trashed: Option<(u8, CardId)>,
+    /// Trash for gain: (the card played, the card it trashed, the card it gained), e.g. Remodel: Gold -> Province.
+    exchanges: [Vec<(CardId, CardId, CardId)>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
     /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
@@ -80,12 +85,28 @@ impl EventSink for Sink {
             Event::TurnStart { player, turn } => {
                 self.cur = player;
                 self.global = turn;
+                self.playing = 0;
+                self.trashed = None;
                 if (player as usize) < 2 {
                     self.own_turn[player as usize] += 1;
                 }
             }
             Event::Draw { player, card } if (player as usize) < 2 && self.opening[player as usize].len() < 10 => self.opening[player as usize].push(card),
-            Event::Gain { player, card, .. } if (player as usize) < 2 => {
+            Event::Play { card, .. } | Event::PlayAgain { card, .. } => {
+                self.playing = card;
+                self.trashed = None;
+            }
+            Event::Buy { .. } => {
+                self.playing = 0;
+                self.trashed = None;
+            }
+            Event::Gain { player, card, source, .. } if (player as usize) < 2 => {
+                // A gain by the card being played after it trashed one of its player's cards: a trash-for-gain (Remodel, Expand, Mine...).
+                if let Some((tp, from)) = self.trashed {
+                    if tp == player && source != 0 && source == self.playing {
+                        self.exchanges[player as usize].push((source, from, card));
+                    }
+                }
                 self.gains[player as usize].push((self.own_turn[player as usize], self.global, card));
                 if self.cur == player && self.own_turn[player as usize] <= 2 {
                     self.opened[player as usize].push(card);
@@ -94,7 +115,12 @@ impl EventSink for Sink {
                     self.first.push((card, player));
                 }
             }
-            Event::Trash { player, card } if (player as usize) < 2 => self.trashes[player as usize].push((self.own_turn[player as usize], self.global, card)),
+            Event::Trash { player, card } if (player as usize) < 2 => {
+                self.trashes[player as usize].push((self.own_turn[player as usize], self.global, card));
+                if self.playing != 0 && player == self.cur {
+                    self.trashed = Some((player, card));
+                }
+            }
             Event::Prophecy { player, .. } if self.prophecy.is_none() => self.prophecy = Some((player, self.own_turn[(self.cur as usize).min(1)])),
             _ => {}
         }
@@ -109,6 +135,10 @@ struct Game {
     trashes: [Vec<(u16, u16, CardId)>; 2],
     /// The cards gained on its own first two turns (see `Sink::opened`).
     opened: [Vec<CardId>; 2],
+    /// The opening's coins in the order played: (first hand, second hand).
+    split_ordered: [(u8, u8); 2],
+    /// Trash for gain (see `Sink::exchanges`).
+    exchanges: [Vec<(CardId, CardId, CardId)>; 2],
     /// Each card gained, and the strategy that gained it first.
     first: Vec<(CardId, usize)>,
     /// The strategy that made the Prophecy happen, and on which of its own turns.
@@ -206,6 +236,12 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
         }),
         gains: std::array::from_fn(|i| sink.gains[seat(i)].clone()),
         opened: std::array::from_fn(|i| sink.opened[seat(i)].clone()),
+        split_ordered: std::array::from_fn(|i| {
+            let o = &sink.opening[seat(i)];
+            let k = o.len().min(5);
+            (coppers(&o[..k]), coppers(&o[k..]))
+        }),
+        exchanges: std::array::from_fn(|i| sink.exchanges[seat(i)].clone()),
         trashes: std::array::from_fn(|i| sink.trashes[seat(i)].clone()),
         first: sink.first.iter().map(|&(c, p)| (c, if seat(0) == p as usize { 0 } else { 1 })).collect(),
         prophecy: sink.prophecy.map(|(p, t)| (if seat(0) == p as usize { 0 } else { 1 }, t)),
@@ -344,6 +380,20 @@ pub struct Side {
     pub names_in_losses: f64,
     pub trees: Vec<TreeAt>,
     pub swings: Vec<Swing>,
+    /// Trash for gain: what the side's Remodel-like cards turned into what, the most frequent first.
+    pub exchanges: Vec<ExchangeRow>,
+}
+
+/// One kind of trash-for-gain: `card` trashed `from` and gained `to`.
+#[derive(Serialize, Debug, Clone)]
+pub struct ExchangeRow {
+    pub card: String,
+    pub from: String,
+    pub to: String,
+    /// Times a game.
+    pub per_game: f64,
+    /// The games it happened in (at least once), and the side's win rate in them.
+    pub rate: Rate,
 }
 
 /// A race for a card: who gained it first, and how often that player won.
@@ -474,7 +524,30 @@ fn side(all: &[Game], i: usize, name: &str) -> Side {
         names_in_losses: avg_names(all, i, false),
         trees,
         swings,
+        exchanges: exchanges(all, i),
     }
+}
+
+fn exchanges(all: &[Game], i: usize) -> Vec<ExchangeRow> {
+    let mut kinds: Vec<(CardId, CardId, CardId)> = all.iter().flat_map(|g| g.exchanges[i].iter().copied()).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    let n = all.len().max(1) as f64;
+    let mut rows: Vec<ExchangeRow> = kinds
+        .into_iter()
+        .map(|k| {
+            let times = all.iter().map(|g| g.exchanges[i].iter().filter(|&&x| x == k).count()).sum::<usize>();
+            ExchangeRow {
+                card: cards::name(k.0).to_string(),
+                from: cards::name(k.1).to_string(),
+                to: cards::name(k.2).to_string(),
+                per_game: times as f64 / n,
+                rate: rate(all.iter().filter(|g| g.exchanges[i].contains(&k)).map(|g| g.win[i])),
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| b.per_game.total_cmp(&a.per_game));
+    rows
 }
 
 fn splits(all: &[Game], i: usize) -> Vec<SplitRow> {
@@ -504,7 +577,46 @@ fn splits(all: &[Game], i: usize) -> Vec<SplitRow> {
             openings.sort_by(|a, b| b.rate.games.cmp(&a.rate.games));
             SplitRow { split: label(split), rate: rate(gs.iter().map(|g| g.win[i])), vs, openings }
         })
+        .flat_map(|row| {
+            // 4/3 and 3/4 (5/2 and 2/5) are one split unless the order changes the win rate: then a row each ("4/3, $4 first",
+            // "3/4, $3 first").
+            let split = order.iter().copied().find(|&s| label(s) == row.split).unwrap_or((0, 0));
+            if split.0 == split.1 {
+                return vec![row];
+            }
+            let side_of = |first: (u8, u8)| all.iter().filter(|g| g.split[i] == split && g.split_ordered[i] == first).collect::<Vec<&Game>>();
+            let (hi, lo) = (side_of(split), side_of((split.1, split.0)));
+            let (a, b) = (rate(hi.iter().map(|g| g.win[i])), rate(lo.iter().map(|g| g.win[i])));
+            if !order_matters(&a, &b) {
+                return vec![row];
+            }
+            let sub = |gs: Vec<&Game>, r: Rate, name: String| {
+                let mut open: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+                for g in &gs {
+                    let mut names: Vec<&str> = g.opened[i].iter().map(|&c| cards::name(c)).collect();
+                    names.sort();
+                    open.entry(if names.is_empty() { "nothing".into() } else { names.join(" + ") }).or_default().push(g.win[i]);
+                }
+                let mut openings: Vec<Opening> = open.into_iter().map(|(cards, w)| Opening { cards, rate: rate(w.into_iter()) }).collect();
+                openings.sort_by(|a, b| b.rate.games.cmp(&a.rate.games));
+                let vs = row.vs.iter().map(|(l, _)| (l.clone(), rate(gs.iter().filter(|g| label(g.split[1 - i]) == *l).map(|g| g.win[i])))).collect();
+                SplitRow { split: name, rate: r, vs, openings }
+            };
+            vec![sub(hi, a, format!("{}/{}, ${} first", split.0, split.1, split.0)), sub(lo, b, format!("{}/{}, ${} first", split.1, split.0, split.1))]
+        })
         .collect()
+}
+
+/// Whether the order of an opening's hands changes the win rate: both orders seen 100 times or more, and their rates three
+/// standard errors and 3 points apart.
+fn order_matters(a: &Rate, b: &Rate) -> bool {
+    if a.games < 100 || b.games < 100 {
+        return false;
+    }
+    let p = (a.win * a.games as f64 + b.win * b.games as f64) / (a.games + b.games) as f64;
+    let se = (p * (1.0 - p) * (1.0 / a.games as f64 + 1.0 / b.games as f64)).sqrt();
+    let d = (a.win - b.win).abs();
+    d >= 0.03 && d > 3.0 * se
 }
 
 fn heat<'a>(all: &'a [Game], i: usize, list: impl Fn(&'a Game) -> &'a Vec<(u16, u16, CardId)>) -> Vec<HeatRow> {
@@ -966,6 +1078,28 @@ mod tests {
     }
 
     #[test]
+    fn trash_for_gain_records_what_a_remodel_trashed_and_gained() {
+        let kingdom = dominion_sim::kingdom::resolve("first-game", &[], 1).unwrap();
+        let remodel = strat("name = \"Remodel\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Remodel\"\nif = \"count(Remodel) < 1\"\n[[gain]]\ncard = \"Silver\"\n[[play]]\ncard = \"Remodel\"\n");
+        let money = strat("name = \"Money\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n");
+        let r = analyze(&kingdom, &remodel, &money, 1000, 5);
+        let x = &r.sides[0].exchanges;
+        assert!(!x.is_empty() && x.iter().all(|e| e.card == "Remodel"), "{x:?}");
+        assert!(x.iter().any(|e| e.from == "Gold" && e.to == "Province") || x.iter().any(|e| e.from == "Estate"), "{x:?}");
+        assert!(x.windows(2).all(|w| w[0].per_game >= w[1].per_game));
+        // Money trashes nothing, and buying is no trash-for-gain.
+        assert!(r.sides[1].exchanges.is_empty(), "{:?}", r.sides[1].exchanges);
+    }
+
+    #[test]
+    fn the_order_of_the_opening_hands_matters_only_when_the_win_rates_differ_clearly() {
+        let r = |games, win| Rate { games, win };
+        assert!(!order_matters(&r(4000, 0.60), &r(4000, 0.59)), "1 point: the same split");
+        assert!(order_matters(&r(4000, 0.65), &r(4000, 0.55)), "10 points over 4000 games each");
+        assert!(!order_matters(&r(60, 0.80), &r(4000, 0.55)), "too few games one way round");
+    }
+
+    #[test]
     fn a_report_covers_both_sides_and_its_trees_split_on_the_position() {
         let kingdom = dominion_sim::kingdom::resolve("first-game", &[], 1).unwrap();
         let smithy = strat("name = \"Smithy\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Smithy\"\nif = \"count(Smithy) < 1\"\n[[gain]]\ncard = \"Silver\"\n");
@@ -1054,7 +1188,7 @@ card = \"Silver\"
         // The power map: the owner's win rate by copies at the end, both sides of every game, Province included.
         let row = |c: &str| f.power.iter().find(|r| r.card == c).unwrap_or_else(|| panic!("{c}: {:#?}", f.power));
         let smithy_row = row("Smithy");
-        assert_eq!(smithy_row.by_count.len(), 6);
+        assert_eq!(smithy_row.by_count.len(), 10);
         assert_eq!(smithy_row.by_count.iter().map(|r| r.games).sum::<usize>(), 2 * f.insight.games);
         assert!(smithy_row.by_count[1].win > smithy_row.by_count[0].win, "{smithy_row:?}");
         assert!(row("Province").swing > 0.3);
@@ -1115,7 +1249,7 @@ pub struct Findings {
     pub explain_error: Option<String>,
 }
 
-/// A card's row of the power map: the win rate of a player who ended with 0, 1, 2, 3, 4 and 5 or more copies.
+/// A card's row of the power map: the win rate of a player who ended with 0, 1, ..., 8 and 9 or more copies.
 #[derive(Serialize, Debug, Clone)]
 pub struct PowerRow {
     pub card: String,
@@ -1126,7 +1260,7 @@ pub struct PowerRow {
 
 /// The power map over games already played (see [`Findings::power`]).
 fn power(all: &[Game]) -> Vec<PowerRow> {
-    const COLS: usize = 6;
+    const COLS: usize = 10;
     let samples = 2 * all.len();
     let mut ids: Vec<CardId> = all.iter().flat_map(|g| g.deck.iter().flat_map(|d| d.iter().map(|&(c, _)| c))).collect();
     ids.sort_unstable();

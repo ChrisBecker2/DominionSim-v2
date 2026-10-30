@@ -1791,7 +1791,20 @@ function insCurves(curves, title) {
   return h + "</table>";
 }
 
-function insSide(s, turns) {
+// Trash for gain: what a side's Remodel-like cards (Remodel, Expand, Mine, Rebuild...) turned into what.
+function insExchanges(s, whose) {
+  if (!s.exchanges || !s.exchanges.length) return "";
+  var h = "<h3>Trash for gain: what " + whose + " Remodel-like cards turned into what</h3><table class=\"ins\"><tr><th class=\"l\">card</th><th class=\"l\">trashed</th><th class=\"l\">gained</th>" +
+    "<th title=\"times a game\">per game</th><th title=\"games it happened in at least once\">games</th><th title=\"win rate in those games\">wins</th></tr>";
+  s.exchanges.forEach(function (x) {
+    h += "<tr><td class=\"l\">" + escapeHtml(x.card) + "</td><td class=\"l\">" + escapeHtml(x.from) + "</td><td class=\"l\">\u2192 " + escapeHtml(x.to) + "</td><td>" +
+      x.per_game.toFixed(2) + "</td><td>" + x.rate.games + "</td>" + insRateCell(x.rate) + "</tr>";
+  });
+  return h + "</table>";
+}
+
+// One side's analyses. `above` = the gains, trashes and trash-for-gain tables are shown elsewhere (the Findings panel shows the champion's openly).
+function insSide(s, turns, above) {
   var h = "<div class=\"ins-side\"><h3 style=\"font-size:14px;color:var(--text)\">" + escapeHtml(s.name) + ": wins " + insPct(s.rate) +
     ", " + s.avg_vp.toFixed(1) + " VP, " + s.avg_turns.toFixed(1) + " turns</h3>";
   // Opening splits.
@@ -1802,8 +1815,11 @@ function insSide(s, turns) {
       "<td class=\"l\">" + r.openings.slice(0, 3).map(function (o) { return escapeHtml(o.cards) + " (" + o.rate.games + ", " + insPct(o.rate) + ")"; }).join("; ") + "</td></tr>";
   });
   h += "</table>";
-  h += insHeatTable(s.gains, turns, "Gains by own turn", "gained");
-  h += insHeatTable(s.trashes, turns, "Trashes by own turn", "trashed");
+  if (!above) {
+    h += insHeatTable(s.gains, turns, "Gains by own turn", "gained");
+    h += insHeatTable(s.trashes, turns, "Trashes by own turn", "trashed");
+    h += insExchanges(s, "its");
+  }
   // Decision trees.
   if (s.trees.length) {
     h += "<h3>Decision trees: the position at the start of own turn N, and how often games from there are won</h3><div class=\"ins-grid\">";
@@ -1893,7 +1909,7 @@ function insRaces(ins) {
 function insPower(power) {
   if (!power || !power.length) return "";
   var h = "<h3>Card power: a player's win rate by the copies they own at the end (both players of every game), the biggest swing first</h3>" +
-    "<table class=\"ins\"><tr><th class=\"l\">card</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5+</th><th title=\"highest minus lowest win rate over the counts with enough games\">swing</th></tr>";
+    "<table class=\"ins\"><tr><th class=\"l\">card</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9+</th><th title=\"highest minus lowest win rate over the counts with enough games\">swing</th></tr>";
   power.forEach(function (r) {
     h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x) { return x.games >= 30 ? insRateCell(x) : "<td class=\"muted\" title=\"" + x.games + " games\">-</td>"; }).join("") +
       "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
@@ -1934,6 +1950,9 @@ function renderFindings(L) {
     " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion; hover it for the games behind it.</div>";
   h += insPower(F.power);
   h += insOpenings(me);
+  h += insHeatTable(me.gains, F.insight.turns, "Gains by own turn (the champion)", "gained");
+  h += insHeatTable(me.trashes, F.insight.turns, "Trashes by own turn (the champion)", "trashed");
+  h += insExchanges(me, "the champion's");
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;
@@ -1946,7 +1965,7 @@ function renderFindings(L) {
     h += "</table>";
   });
   if (F.explain_error) h += "<div class=\"hint\">" + escapeHtml(F.explain_error) + "</div>";
-  h += "<details style=\"margin-top:10px\"><summary>The champion against the field: races, openings, gains, trees, turning points</summary>" + insRaces(F.insight) + insSide(me, F.insight.turns) +
+  h += "<details style=\"margin-top:10px\"><summary>The champion against the field: races, splits, curves, trees, turning points</summary>" + insRaces(F.insight) + insSide(me, F.insight.turns, true) +
     "<details style=\"margin-top:10px\"><summary>The field (all its strategies together)</summary>" + insSide(F.insight.sides[1], F.insight.turns) + "</details></details>";
   $("findings-body").innerHTML = h;
 }

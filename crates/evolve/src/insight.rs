@@ -66,6 +66,8 @@ struct Sink {
     opening: [Vec<CardId>; 2],
     /// (own turn, game turn, card).
     gains: [Vec<(u16, u16, CardId)>; 2],
+    /// The cards each player gained on its own first two turns: its opening (not a Curse an opponent's Witch gave it meanwhile).
+    opened: [Vec<CardId>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
     /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
@@ -85,6 +87,9 @@ impl EventSink for Sink {
             Event::Draw { player, card } if (player as usize) < 2 && self.opening[player as usize].len() < 10 => self.opening[player as usize].push(card),
             Event::Gain { player, card, .. } if (player as usize) < 2 => {
                 self.gains[player as usize].push((self.own_turn[player as usize], self.global, card));
+                if self.cur == player && self.own_turn[player as usize] <= 2 {
+                    self.opened[player as usize].push(card);
+                }
                 if !self.first.iter().any(|&(c, _)| c == card) {
                     self.first.push((card, player));
                 }
@@ -102,6 +107,8 @@ struct Game {
     split: [(u8, u8); 2],
     gains: [Vec<(u16, u16, CardId)>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
+    /// The cards gained on its own first two turns (see `Sink::opened`).
+    opened: [Vec<CardId>; 2],
     /// Each card gained, and the strategy that gained it first.
     first: Vec<(CardId, usize)>,
     /// The strategy that made the Prophecy happen, and on which of its own turns.
@@ -198,6 +205,7 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
             (x.max(y), x.min(y))
         }),
         gains: std::array::from_fn(|i| sink.gains[seat(i)].clone()),
+        opened: std::array::from_fn(|i| sink.opened[seat(i)].clone()),
         trashes: std::array::from_fn(|i| sink.trashes[seat(i)].clone()),
         first: sink.first.iter().map(|&(c, p)| (c, if seat(0) == p as usize { 0 } else { 1 })).collect(),
         prophecy: sink.prophecy.map(|(p, t)| (if seat(0) == p as usize { 0 } else { 1 }, t)),
@@ -488,7 +496,7 @@ fn splits(all: &[Game], i: usize) -> Vec<SplitRow> {
             let vs = order.iter().copied().map(|os| (label(os), rate(gs.iter().filter(|g| g.split[1 - i] == os).map(|g| g.win[i])))).collect();
             let mut open: BTreeMap<String, Vec<f64>> = BTreeMap::new();
             for g in &gs {
-                let mut names: Vec<&str> = g.gains[i].iter().filter(|&&(t, _, _)| t <= 2).map(|&(_, _, c)| cards::name(c)).collect();
+                let mut names: Vec<&str> = g.opened[i].iter().map(|&c| cards::name(c)).collect();
                 names.sort();
                 open.entry(if names.is_empty() { "nothing".into() } else { names.join(" + ") }).or_default().push(g.win[i]);
             }
@@ -941,6 +949,20 @@ mod tests {
         let mut s = Strategy::parse(src).unwrap();
         make_fast(&mut s);
         s
+    }
+
+    #[test]
+    fn an_opening_is_what_a_player_gained_on_its_own_first_two_turns_not_a_curse_given_meanwhile() {
+        let kingdom = dominion_sim::kingdom::resolve("Witch,Village,Smithy,Market,Militia,Moat,Cellar,Chapel,Festival,Laboratory", &[], 1).unwrap();
+        let witch = strat("name = \"Witch\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Witch\"\nif = \"count(Witch) < 2\"\n[[gain]]\ncard = \"Silver\"\n[[play]]\ncard = \"Witch\"\n");
+        let money = strat("name = \"Money\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n");
+        let r = analyze(&kingdom, &money, &witch, 4000, 7);
+        // A 5/2 Witch is played on turn 3, before the second player's turn 3: that Curse is no part of its opening.
+        let curses_by_turn_2: f64 = r.sides[0].gains.iter().find(|h| h.card == "Curse").map_or(0.0, |h| h.per_turn[..2].iter().sum());
+        assert!(curses_by_turn_2 > 0.0, "the test needs an early Curse");
+        for s in &r.sides {
+            assert!(s.splits.iter().flat_map(|x| &x.openings).all(|o| !o.cards.contains("Curse")), "{:?}", s.splits);
+        }
     }
 
     #[test]

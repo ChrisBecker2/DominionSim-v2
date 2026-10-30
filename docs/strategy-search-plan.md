@@ -174,10 +174,22 @@ in the Lab, tick "Kingdom mode". `cargo run --release -p dominion-evolve --examp
 runs it from the command line.
 
 **Anchors** (`baselines.rs`). Generated from the kingdom: Big Money Ultimate (with Colony and Platinum
-when Colony is in play); "BM + X" for every Action or Treasure X that is not Victory-only, not
-Potion-cost and not forbidden (cap 2 for non-terminals and Treasures; terminals: 1, and a second only
-at 14+ cards; X sits before Gold when it costs $6+, else before Silver); "Trash with T + money" for each
-trasher T; "Engine: village + draw" for the village and the two best terminal draws.
+when Colony is in play); "BM + X" (one copy) for every Action or Treasure X but a Throne Room-like card (alone it has nothing to play twice: only
+its combos below), and "BM + 2 X" (two; a terminal's second only at 14+ cards) only when X is a village (the first card
+of a combo below), for every
+Action or Treasure X that is not Victory-only, not Potion-cost and not forbidden (X sits before Gold when it costs $6+,
+else before Silver); "Trash with T + money" for each trasher T; "Engine: village + draw" for the village and the two
+best terminal draws.
+
+**Combo anchors** (`baselines::combos`). Some cards are worthless alone, so "BM + X" says nothing about them and a
+search adding one rule at a time rarely finds them: either half of the pair mostly loses on its own. Each pair the
+kingdom has gets an anchor: a Throne Room (any card that plays an Action twice) with each terminal Action ("BM +
+Throne Room + Witch": two of each, the Throne played first); a village with each terminal that draws or costs $5+
+("Engine: Festival + Witch"); Gardens, Silk Road, Feodum or Vineyard with each gainer or +Buy Action ("Gardens +
+Workshop": the Victory card whenever affordable, then the gainer, Estates once the Victory card runs low, Silver, then
+Copper, so three piles run out). With Gardens in the kingdom the search may name Copper. The same pairs drive a
+mutation ("insert combo", one in ten gain-list mutations): both cards' rules at once, before Silver, the enabler played
+first. Anchors seed the islands, so the search also starts from every combo.
 
 **Event anchors.** For each Event in the kingdom list (Landmarks are never bought) "BM + Event": Big Money
 Ultimate plus one buy rule placed by a per-Event hint table (`EVENT_HINTS`). By cost, where a money deck would
@@ -208,7 +220,9 @@ else heavy) and game length (against Big Money Ultimate's on this kingdom: under
 long), and the Event bought most (at least `min_events` = 0.5 per game, else none; the profile counts
 `Event::Buy` of Events per player in `ProfileSink`, a separate small counter because Events have no Gain event).
 Labels show it ("Magpie + Ball, no trashing, average games"; "Money + Ball" with no key card), and a strategy
-buying an Event lives in its own niche. The archive keeps the best strategy per niche, up to `niches` (10; the fittest are kept).
+buying an Event lives in its own niche. The archive keeps the best strategy per niche, up to `niches` (10): first the
+fittest of each set of key cards (and Event), then the fittest of the rest, so one strong plan varied in trashing and
+length (Gardens) cannot crowd out a weaker plan with other cards (Throne Room + Witch).
 Champions are re-raced every generation (protected from racing cuts), so fitness is always measured
 against the current league. Parents come from the archive with probability 0.4, otherwise by island
 tournament. A new niche earns a selection bonus of +1% win rate.

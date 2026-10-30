@@ -267,6 +267,27 @@ pub fn mutate_once(g: &mut Genome, space: &SearchSpace, rng: &mut Rng) -> &'stat
                 return "change card";
             }
         }
+        // insert a combo: both cards of a pair that need each other (a Throne Room and a terminal, Gardens and a gainer), which
+        // one rule at a time rarely finds since either half alone mostly loses
+        5 if list == List::Gain && !space.combos.is_empty() && len + 2 <= max => {
+            let (a, b) = pick(rng, &space.combos);
+            // Before Silver, so the rules are reached.
+            let reach = g.gain.iter().position(|r| r.card == id::SILVER).unwrap_or(g.gain.len());
+            for c in [b, a] {
+                if !g.gain.iter().any(|r| r.card == c) {
+                    let at = rng.below(reach as u32 + 1) as usize;
+                    g.gain.insert(at, Rule { card: c, opt: 0, conds: vec![cond(Var::Count(c), Op::Lt, 2)] });
+                }
+            }
+            // The enabler is played before its partner.
+            for c in [b, a] {
+                if crate::space::is_action(c) && g.play.len() < space.max_play_rules {
+                    g.play.retain(|r| r.card != c);
+                    g.play.insert(0, Rule::new(c));
+                }
+            }
+            return "insert combo";
+        }
         // change a mode rule's option
         4 if list == List::Mode && len > 0 => {
             let at = rng.below(len as u32) as usize;
@@ -482,5 +503,31 @@ mod tests {
             assert_eq!(crate::genome::Genome::from_toml(&text).unwrap(), child, "{text}");
             pop.push(child);
         }
+    }
+
+    #[test]
+    fn a_combo_mutation_adds_both_cards_with_the_enabler_played_first() {
+        let k: Vec<CardId> = ["Artisan", "Bandit", "Bureaucrat", "Chapel", "Festival", "Gardens", "Sentry", "Throne Room", "Witch", "Workshop"]
+            .iter()
+            .map(|n| cards::by_name(n).unwrap())
+            .collect();
+        let space = SearchSpace::new(&k, &[]);
+        assert!(space.combos.contains(&(id::THRONE_ROOM, id::WITCH)) && space.combos.contains(&(id::GARDENS, id::WORKSHOP)), "{:?}", space.combos);
+        let mut rng = Rng::new(5);
+        let mut found = false;
+        for _ in 0..2000 {
+            let mut g = big_money();
+            if mutate_once(&mut g, &space, &mut rng) != "insert combo" {
+                continue;
+            }
+            let has = |c| g.gain.iter().any(|r| r.card == c);
+            if has(id::THRONE_ROOM) && has(id::WITCH) {
+                assert_eq!(g.play.iter().map(|r| r.card).collect::<Vec<_>>(), [id::THRONE_ROOM, id::WITCH]);
+                let silver = g.gain.iter().position(|r| r.card == id::SILVER).unwrap();
+                assert!(g.gain.iter().position(|r| r.card == id::WITCH).unwrap() < silver);
+                found = true;
+            }
+        }
+        assert!(found, "Throne Room + Witch inserted together");
     }
 }

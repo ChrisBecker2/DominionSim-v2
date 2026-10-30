@@ -1,8 +1,11 @@
 //! Automatic baseline strategies for any kingdom: the anchors of a kingdom league.
 //!
 //! - Big Money Ultimate (always);
-//! - "Big Money + X" for each kingdom card X that a money deck would buy one or two of (Actions
-//!   and Treasures, not Victory-only cards), with sensible caps and the usual endgame rules;
+//! - "Big Money + X" (one copy) and "Big Money + 2 X" for each kingdom card X a money deck would buy (Actions and Treasures,
+//!   not Victory-only cards), with the usual endgame rules;
+//! - combos ([`combos`]): pairs of kingdom cards that need each other, which a search adding one rule at a time rarely finds
+//!   (a Throne Room and an Action worth playing twice, a village and a terminal, Gardens and a gainer): "BM + Throne Room +
+//!   Witch", "Engine: Festival + Witch", "Gardens + Workshop";
 //! - "trasher + money" when the kingdom has a trasher;
 //! - "village + draw" when it has both a village and a draw card;
 //! - "BM + <Event>" for each Event of the kingdom (Landmarks are never bought): Big Money with one
@@ -96,7 +99,12 @@ fn insert_rules(g: &mut Genome, x: CardId, rules: Vec<Rule>) {
     }
 }
 
-/// The purchase rules for "up to the usual number of X".
+/// The purchase rule for one copy of X.
+fn single_rules(x: CardId) -> Vec<Rule> {
+    vec![rule(x, vec![atom(Var::Count(x), Op::Lt, 1)])]
+}
+
+/// The purchase rules for "up to the usual number of X" (two).
 fn partner_rules(x: CardId) -> Vec<Rule> {
     let own = |n: i16| atom(Var::Count(x), Op::Lt, n);
     if cards::is(x, ACTION) && is_terminal(x) {
@@ -118,12 +126,101 @@ fn add_play(g: &mut Genome, x: CardId) {
     }
 }
 
-/// Big Money + one partner card `x` (see [`partner_rules`]).
+/// Big Money + up to two of the partner card `x` (see [`partner_rules`]).
 pub fn big_money_plus(x: CardId, colonies: bool) -> Genome {
     let mut g = big_money_ultimate(colonies);
     insert_rules(&mut g, x, partner_rules(x));
     add_play(&mut g, x);
     g
+}
+
+/// Big Money + one copy of `x`.
+pub fn big_money_one(x: CardId, colonies: bool) -> Genome {
+    let mut g = big_money_ultimate(colonies);
+    insert_rules(&mut g, x, single_rules(x));
+    add_play(&mut g, x);
+    g
+}
+
+/// A card that plays another Action more than once (Throne Room, King's Court, Procession...).
+pub fn is_throne(c: CardId) -> bool {
+    cards::is(c, ACTION) && cards::def(c).plays >= 2
+}
+
+/// Victory cards worth more the more cards (of some kind) the deck has, which a gainer or +Buy card piles up: Gardens (every
+/// card), Silk Road (Victory cards), Feodum (Silvers), Vineyard (Actions).
+pub const ALT_VP: &[&str] = &["Gardens", "Silk Road", "Feodum", "Vineyard"];
+
+/// Cards that gain a card (to the discard or the hand) without buying it.
+const GAINERS: &[&str] = &["Workshop", "Ironworks", "Armory", "Engineer", "Artisan", "Stonemason", "Hamlet", "Lurker", "Talisman", "Hireling"];
+
+/// How a combo is played.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComboKind {
+    /// A Throne Room and the Action it plays twice: Big Money with two of each, the Throne played first.
+    Throne,
+    /// A village and a terminal: the village + draw engine plan.
+    Engine,
+    /// An alternative Victory card and a gainer or +Buy card: a rush.
+    Rush,
+}
+
+/// Pairs of kingdom cards that need each other: (enabler, partner, kind). A Throne Room with each terminal Action; a village
+/// with each terminal that draws or costs $5 or more; Gardens (and the like) with each gainer and +Buy card.
+pub fn combos(kingdom: &[CardId], forbidden: &[CardId]) -> Vec<(CardId, CardId, ComboKind)> {
+    let cards_in: Vec<CardId> = kingdom.iter().copied().filter(|&c| cards::is_kingdom(c) && !forbidden.contains(&c) && !cards::potion_cost(c)).collect();
+    let mut out = Vec::new();
+    for &t in cards_in.iter().filter(|&&c| is_throne(c)) {
+        for &x in cards_in.iter().filter(|&&c| c != t && is_terminal(c) && !is_throne(c) && is_money_partner(c)) {
+            out.push((t, x, ComboKind::Throne));
+        }
+    }
+    for &v in cards_in.iter().filter(|&&c| is_village(c)) {
+        for &x in cards_in.iter().filter(|&&c| is_terminal(c) && !is_throne(c) && is_money_partner(c) && (is_draw(c) || cards::cost(c) >= 5)) {
+            out.push((v, x, ComboKind::Engine));
+        }
+    }
+    for &g in cards_in.iter().filter(|&&c| ALT_VP.contains(&cards::name(c))) {
+        for &x in cards_in.iter().filter(|&&c| c != g && cards::is(c, ACTION) && (GAINERS.contains(&cards::name(c)) || cards::def(c).buys >= 1)) {
+            out.push((g, x, ComboKind::Rush));
+        }
+    }
+    out
+}
+
+/// Big Money with two of a Throne Room `t` and two of the Action `x`, the Throne played first (on `x`).
+fn throne_plan(t: CardId, x: CardId, colonies: bool) -> Genome {
+    let mut g = big_money_ultimate(colonies);
+    insert_rules(&mut g, x, partner_rules(x));
+    insert_rules(&mut g, t, vec![rule(t, vec![atom(Var::Count(t), Op::Lt, 2)])]);
+    add_play(&mut g, x);
+    g.play.retain(|r| r.card != t);
+    g.play.insert(0, Rule::new(t));
+    g
+}
+
+/// A rush: the alternative Victory card `v` whenever affordable, then the gainer (or +Buy card) `x`, Estates once `v` runs low,
+/// Silver, and Copper with whatever is left: three piles (`v`, `x`, Estates) run out and the deck is big.
+fn rush_plan(v: CardId, x: CardId) -> Genome {
+    let gain = vec![
+        Rule::new(id::PROVINCE),
+        Rule::new(v),
+        Rule::new(x),
+        rule(id::ESTATE, vec![atom(Var::Supply(v), Op::Lt, 5)]),
+        Rule::new(id::SILVER),
+        Rule::new(id::COPPER),
+    ];
+    Genome { gain, play: vec![Rule::new(x)], keep_treasure: 2, ..Genome::default() }
+}
+
+/// The baseline of a combo: (name, genome, description).
+pub fn combo_baseline(a: CardId, b: CardId, kind: ComboKind, colonies: bool) -> (String, Genome, String) {
+    let (na, nb) = (plain_name(a), plain_name(b));
+    match kind {
+        ComboKind::Throne => (format!("BM + {na} + {nb}"), throne_plan(a, b, colonies), format!("Big Money with two {na} and two {nb}, {na} playing {nb} twice.")),
+        ComboKind::Engine => (format!("Engine: {na} + {nb}"), engine_plan(a, b, colonies), format!("{na} chain {nb} for a growing hand, then money and green.")),
+        ComboKind::Rush => (format!("{na} + {nb}"), rush_plan(a, b), format!("A {na} rush: {na} whenever affordable, then {nb}, Estates once {na} runs low, Copper with what is left.")),
+    }
 }
 
 fn trasher_plan(t: CardId, extra: Option<CardId>, colonies: bool) -> Genome {
@@ -348,8 +445,14 @@ pub fn baselines(kingdom: &[CardId], colonies: bool, forbidden: &[CardId]) -> Ve
             out.push(Baseline { name, genome, description });
         }
     };
-    for &x in cards_in.iter().filter(|&&c| is_money_partner(c)) {
-        push(&mut out, format!("BM + {}", plain_name(x)), big_money_plus(x, colonies), format!("Big Money with up to the usual number of {}.", plain_name(x)));
+    // Two copies only of the cards that need a partner (a village): one alone rarely has anything to work with. A Throne Room
+    // gets no money baseline at all: with nothing to play twice it does nothing (its combos below pair it).
+    let combos = combos(kingdom, forbidden);
+    for &x in cards_in.iter().filter(|&&c| is_money_partner(c) && !is_throne(c)) {
+        push(&mut out, format!("BM + {}", plain_name(x)), big_money_one(x, colonies), format!("Big Money with one {}.", plain_name(x)));
+        if combos.iter().any(|&(a, _, _)| a == x) {
+            push(&mut out, format!("BM + 2 {}", plain_name(x)), big_money_plus(x, colonies), format!("Big Money with up to two {}.", plain_name(x)));
+        }
     }
     // Trasher + money, with the first cantrip/draw card alongside when there is one.
     let helper = cards_in.iter().copied().find(|&c| is_money_partner(c) && cards::is(c, ACTION) && !is_terminal(c) && !is_trasher(c));
@@ -367,13 +470,14 @@ pub fn baselines(kingdom: &[CardId], colonies: bool, forbidden: &[CardId]) -> Ve
         let mut draws: Vec<CardId> = cards_in.iter().copied().filter(|&c| is_draw(c) && is_terminal(c) && !cards::potion_cost(c)).collect();
         draws.sort_by_key(|&c| std::cmp::Reverse((cards::def(c).cards, cards::cost(c))));
         for d in draws.into_iter().take(2) {
-            push(
-                &mut out,
-                format!("Engine: {} + {}", plain_name(v), plain_name(d)),
-                engine_plan(v, d, colonies),
-                format!("{} chain {} for a growing hand, then money and green.", plain_name(v), plain_name(d)),
-            );
+            let (name, g, description) = combo_baseline(v, d, ComboKind::Engine, colonies);
+            push(&mut out, name, g, description);
         }
+    }
+    // Combos: cards that need a partner, with each partner the kingdom has.
+    for (a, b, kind) in combos {
+        let (name, g, description) = combo_baseline(a, b, kind, colonies);
+        push(&mut out, name, g, description);
     }
     // Big Money + each Event (Landmarks are never bought).
     let actions: Vec<CardId> = cards_in.iter().copied().filter(|&c| is_money_partner(c) && cards::is(c, ACTION)).collect();
@@ -396,6 +500,41 @@ mod tests {
 
     fn kingdom(names: &[&str]) -> Vec<CardId> {
         names.iter().map(|n| cards::by_name(n).unwrap_or_else(|| panic!("{n}"))).collect()
+    }
+
+    #[test]
+    fn cards_that_need_a_partner_get_combo_baselines_next_to_the_single_and_double_ones() {
+        let k = kingdom(&["Artisan", "Bandit", "Bureaucrat", "Chapel", "Festival", "Gardens", "Sentry", "Throne Room", "Witch", "Workshop"]);
+        let b = baselines(&k, false, &[]);
+        let n = names(&b);
+        for want in [
+            "BM + Witch", "BM + 2 Festival",
+            "BM + Throne Room + Witch", "BM + Throne Room + Workshop", "Engine: Festival + Witch", "Engine: Festival + Artisan",
+            "Gardens + Workshop", "Gardens + Festival", "Gardens + Artisan",
+        ] {
+            assert!(n.contains(&want), "{n:?} lacks {want}");
+        }
+        // Festival is no Throne target (not terminal), Gardens no money partner.
+        assert!(!n.contains(&"BM + Throne Room + Festival") && !n.iter().any(|s| s.starts_with("BM + Gardens")), "{n:?}");
+        // Two copies only of the cards that need a partner.
+        assert!(!n.contains(&"BM + 2 Witch") && !n.contains(&"BM + 2 Workshop"), "{n:?}");
+        let count_cap = |name: &str, c: CardId| b.iter().find(|x| x.name == name).unwrap().genome.gain.iter().filter(|r| r.card == c).count();
+        // How many copies a baseline buys at most: the largest `count(c) < n` among its rules for `c`.
+        let most = |name: &str, c: CardId| {
+            let g = &b.iter().find(|x| x.name == name).unwrap().genome;
+            g.gain.iter().filter(|r| r.card == c).flat_map(|r| r.conds.iter()).filter(|a| a.var == Var::Count(c)).map(|a| a.n).max()
+        };
+        assert_eq!((most("BM + Festival", id::FESTIVAL), most("BM + 2 Festival", id::FESTIVAL)), (Some(1), Some(2)));
+        assert_eq!(count_cap("BM + Witch", id::WITCH), 1);
+        // A Throne Room alone does nothing: only its combos.
+        assert!(!n.iter().any(|s| s.starts_with("BM + Throne Room") && !s.starts_with("BM + Throne Room + ")) && !n.contains(&"BM + 2 Throne Room"), "{n:?}");
+        // The Throne is played first, on the Witch.
+        let tw = &b.iter().find(|x| x.name == "BM + Throne Room + Witch").unwrap().genome;
+        assert_eq!(tw.play.iter().map(|r| r.card).collect::<Vec<_>>(), [id::THRONE_ROOM, id::WITCH]);
+        // The rush buys Gardens before anything but Province, and Workshops.
+        let rush = &b.iter().find(|x| x.name == "Gardens + Workshop").unwrap().genome;
+        assert_eq!(rush.gain[1].card, id::GARDENS);
+        assert!(rush.gain.iter().any(|r| r.card == id::WORKSHOP) && rush.play[0].card == id::WORKSHOP);
     }
 
     #[test]
@@ -486,9 +625,10 @@ mod tests {
         assert!(n.contains(&"BM + Militia"));
         // Big Money, not colony, in a Colony-free kingdom.
         assert!(!b[0].genome.gain.iter().any(|r| r.card == id::COLONY));
-        // Terminals get a cap of one early and a second only later.
+        // One Smithy; no double (Smithy needs no partner), but the Village has one.
         let smithy = b.iter().find(|b| b.name == "BM + Smithy").unwrap();
-        assert_eq!(smithy.genome.gain.iter().filter(|r| r.card == id::SMITHY).count(), 2);
+        assert_eq!(smithy.genome.gain.iter().filter(|r| r.card == id::SMITHY).count(), 1);
         assert_eq!(smithy.genome.play, vec![Rule::new(id::SMITHY)]);
+        assert!(!n.contains(&"BM + 2 Smithy") && n.contains(&"BM + 2 Village"), "{n:?}");
     }
 }

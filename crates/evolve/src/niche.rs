@@ -223,16 +223,26 @@ impl Archive {
         }
     }
 
-    /// Keep only the `max` fittest niches.
+    /// Keep only `max` niches: first the fittest of each set of key cards (and Event), fittest sets first, then the fittest of
+    /// the rest. One strong plan (Gardens) varied in trashing and game length cannot crowd out a weaker plan with other cards.
     pub fn trim(&mut self, max: usize) {
         if self.cells.len() <= max {
             return;
         }
         let mut order: Vec<(Descriptor, f64)> = self.cells.iter().map(|(d, e)| (*d, e.fitness)).collect();
         order.sort_by(|a, b| b.1.total_cmp(&a.1));
-        for (d, _) in order.into_iter().skip(max) {
-            self.cells.remove(&d);
+        let mut keep: Vec<Descriptor> = Vec::new();
+        for &(d, _) in &order {
+            if keep.len() < max && !keep.iter().any(|k| k.cards == d.cards && k.event == d.event) {
+                keep.push(d);
+            }
         }
+        for &(d, _) in &order {
+            if keep.len() < max && !keep.contains(&d) {
+                keep.push(d);
+            }
+        }
+        self.cells.retain(|d, _| keep.contains(d));
     }
 
     /// A champion of a uniformly chosen niche.
@@ -369,5 +379,20 @@ mod tests {
         assert_eq!(arch.len(), 1);
         assert!(arch.contains(&d1), "the fittest niche survives trimming");
         assert!(Archive::default().pick_parent(&mut rng).is_none());
+    }
+
+    #[test]
+    fn trimming_keeps_one_niche_per_set_of_key_cards_before_a_second_variant() {
+        let gardens = |trash, length| Descriptor { cards: [id::GARDENS, NO_CARD], event: NO_CARD, trash, length };
+        let throne = Descriptor { cards: [id::WITCH, id::THRONE_ROOM], event: NO_CARD, trash: 0, length: 1 };
+        let mut arch = Archive::default();
+        for (k, d) in [gardens(0, 0), gardens(0, 1), gardens(0, 2), gardens(1, 1)].into_iter().enumerate() {
+            arch.offer(d, elite(crate::ops::big_money_with(&[(id::GARDENS, k as i16 + 1)]), 0.8 - k as f64 * 0.01));
+        }
+        arch.offer(throne, elite(crate::ops::big_money_with(&[(id::THRONE_ROOM, 1)]), 0.4));
+        arch.trim(3);
+        assert_eq!(arch.len(), 3);
+        assert!(arch.contains(&throne), "the weaker Throne Room niche is kept");
+        assert!(arch.contains(&gardens(0, 0)) && arch.contains(&gardens(0, 1)), "then the fittest Gardens variants");
     }
 }

@@ -43,6 +43,8 @@ pub struct SearchSpace {
     pub names_matter: bool,
     /// Whether cards are gained outside the Buy phase every turn (Kind Emperor): `buy_phase < 1` conditions are searched.
     pub free_gains: bool,
+    /// Pairs of kingdom cards that need each other (enabler, partner; [`crate::baselines::combos`]): a mutation adds both at once.
+    pub combos: Vec<(CardId, CardId)>,
 }
 
 impl SearchSpace {
@@ -57,6 +59,10 @@ impl SearchSpace {
             gainable.extend((cards::FIRST_REWARD..cards::FIRST_REWARD + cards::NUM_REWARDS as CardId).filter(|c| !forbidden.contains(c)));
         }
         let has = |c: CardId| kingdom_pool.contains(&c) && !forbidden.contains(&c);
+        // With Gardens (worth more for every card) buying Copper can pay: it may be named then.
+        if kingdom_pool.contains(&id::GARDENS) && !forbidden.contains(&id::GARDENS) {
+            gainable.push(id::COPPER);
+        }
         // The tokens that something in the pool places (Teacher comes with the Peasant line).
         let mut token_kinds: Vec<u8> = Vec::new();
         for (cards_, kinds) in [
@@ -87,6 +93,7 @@ impl SearchSpace {
         let trashers: Vec<CardId> =
             kingdom_pool.iter().copied().filter(|&c| !forbidden.contains(&c) && (is_action(c) || cards::is(c, cards::TREASURE)) && c >= cards::FIRST_KINGDOM).collect();
         SearchSpace {
+            combos: crate::baselines::combos(kingdom_pool, forbidden).into_iter().map(|(a, b, _)| (a, b)).collect(),
             trashers,
             names_matter: has(id::MUSEUM) || has(id::FAIRGROUNDS),
             free_gains: has(id::KIND_EMPEROR),

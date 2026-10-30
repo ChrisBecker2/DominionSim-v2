@@ -37,8 +37,13 @@ A candidate is exactly what `Strategy::parse` accepts:
   - `count_type(action) < N`
   - `count_line(Page) < N` (Traveller line starters only: Page and Peasant gains; every card owned of the line, Champion included)
   - `money >= N`
-  - `vp_lead >= N`
-  - `turn >= N`
+  - `vp_lead >= N`, `my_vp >= N`
+  - `opp_count(C) >= N` (the most copies of C an opponent owns: everyone sees what is gained)
+  - never a turn number: a person can't play by "my_turn >= 11", so the search reads the game instead (cards, points, money,
+    piles, what the opponent has). A `my_turn` condition in a loaded strategy is dropped. Tried on the Base kingdom
+    (Artisan ... Workshop): without it the champions are as strong ("Province [money >= 12]" took the place of
+    "Province [my_turn >= 11]"); biasing Victory cards towards money / deck size / VP thresholds, or `opp_count` more
+    often, made the pooled top strategies weaker (2 seeds x 4 variants, a round robin of each run's top 4)
   - `distinct_cards < N` (differently named cards owned; searched when Museum or Fairgrounds is in the kingdom)
   - `buy_phase < 1` (a gain outside the Buy phase: Kind Emperor's Action to the hand; searched with Kind Emperor)
   - `and` of at most 2 of the above

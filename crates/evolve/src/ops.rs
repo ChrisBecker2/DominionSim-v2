@@ -93,7 +93,12 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
         0..=39 if card >= cards::FIRST_KINGDOM || card == id::GOLD || card == id::SILVER => (Var::Count(card), Op::Lt),
         0..=39 | 40..=59 => (Var::ProvincesLeft, if rng.chance(0.7) { Op::Lt } else { Op::Ge }),
         60..=67 => (Var::Money, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
-        68..=74 => (Var::MyTurn, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
+        // Never the turn number: a rule should read the game (cards, points, money, piles, what the opponent gained).
+        68..=70 => (Var::MyVp, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
+        71..=74 => {
+            let piles: Vec<CardId> = space.gainable.iter().copied().filter(|&c| !cards::is_pseudo(c) && !cards::is_bought_pseudo(c) && c != id::COPPER).collect();
+            if piles.is_empty() { (Var::VpLead, Op::Lt) } else { (Var::OppCount(pick(rng, &piles)), if rng.chance(0.5) { Op::Lt } else { Op::Ge }) }
+        }
         75..=81 => (Var::VpLead, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
         82..=87 => (Var::CountActions, Op::Lt),
         88..=92 => (Var::TotalCards, if rng.chance(0.5) { Op::Lt } else { Op::Ge }),
@@ -117,7 +122,7 @@ pub fn random_atom(space: &SearchSpace, rng: &mut Rng, card: CardId) -> Atom {
     let (lo, hi) = var.range();
     // Small thresholds are far more common for counts and provinces.
     let n = match var {
-        Var::Count(_) => 1 + rng.below(3) as i16,
+        Var::Count(_) | Var::OppCount(_) => 1 + rng.below(3) as i16,
         Var::CountLine(_) => 2 + rng.below(4) as i16,
         Var::Bought(_) | Var::LosesGame | Var::BuyPhase | Var::By(_) => 1,
         Var::ProvincesLeft => 2 + rng.below(5) as i16,

@@ -155,6 +155,8 @@ impl SearchSpace {
             for r in rules.iter_mut() {
                 // `by(..)` only means something on a trash rule, and only for a card of the pool.
                 r.conds.retain(|a| !matches!(a.var, Var::By(c) if list != List::Trash || !self.trashers.contains(&c)));
+                // No turn numbers: rules read the state of the game.
+                r.conds.retain(|a| a.var != Var::MyTurn);
                 tidy_conds(r, self.max_conds);
             }
             // An unconditional rule makes later rules for the same card unreachable.

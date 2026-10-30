@@ -234,6 +234,8 @@ pub enum Expr {
     Count(CardId),
     /// `count_type(action|treasure|victory|curse|attack|reaction)`.
     CountType(u32),
+    /// `opp_count(Card)`: the most copies of `Card` any opponent owns (public: gains and trashes are seen by everyone).
+    OppCount(CardId),
     /// `count(Settlers/Bustling Village)`: copies of either half of a split pile.
     CountPair(CardId, CardId),
     /// `count_line(Page)`: copies owned of every card of a Traveller line (Page, Treasure Hunter, Warrior, Hero and Champion; or Peasant,
@@ -345,6 +347,7 @@ impl Expr {
             HasArtifact(a) => view.has_artifact(view.me(), *a) as i64,
             OppHasArtifact(a) => view.artifact_holder(*a).is_some_and(|h| h != view.me()) as i64,
             CountType(flag) => view.my_cards().count_type(*flag) as i64,
+            OppCount(c) => (0..view.num_players()).filter(|&p| p != view.me()).map(|p| view.cards_of(p).get(*c) as i64).max().unwrap_or(0),
             Supply(c) => view.supply(*c) as i64,
             Mat(c) => view.tavern_of(view.me()).get(*c) as i64,
             Bought(e) => (view.event_bought_by(view.me(), *e) || view.has_project(view.me(), *e)) as i64,
@@ -417,7 +420,7 @@ impl Expr {
             Num(_) | Var(_) | CountType(_) | WinsGame | LosesGame | DebtCost | HasState(_) | OppHasState(_) | InPile(..) => {}
             CountPair(a, _) => f(*a),
             CountLine(c) => f(*c),
-            Count(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
+            Count(c) | OppCount(c) | Supply(c) | Mat(c) | Bought(c) | BoughtTurn(c) | TokenOn(_, c) | PileVp(c) | Landmark(c) | LandmarkVp(c) | Prophecy(c) => f(*c),
             HasProject(c) | OppHasProject(c) | ProjectInGame(c) | WayInGame(c) | OnTop(c) | By(c) => f(*c),
             AllyIs(_) => {}
             Exiled(c) => f(*c),
@@ -518,7 +521,7 @@ fn lex(src: &str) -> Result<Vec<Tok<'_>>, String> {
                 // names with spaces or apostrophes work: `count(Throne Room)`, `count(King's Court)`.
                 let is_function = matches!(
                     word.to_ascii_lowercase().as_str(),
-                    "count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp" | "prophecy"
+                    "count" | "opp_count" | "supply" | "count_type" | "mat" | "bought" | "bought_turn" | "token_on" | "pile_vp" | "landmark" | "landmark_vp" | "prophecy"
                         | "has_state" | "opp_has_state" | "boon_in_discard" | "boon_in_deck" | "hex_in_discard" | "hex_in_deck" | "has_ally" | "on_top"
                 );
                 let mut j = i;
@@ -692,6 +695,10 @@ fn make_call(func: &str, arg: &str, src: &str) -> Result<Expr, String> {
                 }
             }
             Ok(Expr::Count(c))
+        }
+        "opp_count" => {
+            let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;
+            Ok(Expr::OppCount(zone_card(c, "owned")?))
         }
         "count_line" => {
             let c = cards::by_name(arg).ok_or_else(|| format!("unknown card {arg:?} in condition {src:?}"))?;

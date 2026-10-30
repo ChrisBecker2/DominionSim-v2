@@ -24,8 +24,13 @@ pub enum Var {
     Money,
     /// My VP minus the best opponent's.
     VpLead,
-    /// My turn number.
+    /// My turn number. Read from files only: the search never writes it (a turn number is no state of the game a player can
+    /// reason about; `space` drops it from loaded strategies).
     MyTurn,
+    /// My VP.
+    MyVp,
+    /// The most copies of a card any opponent owns (public: everyone sees what is gained and trashed).
+    OppCount(CardId),
     /// Cards I own.
     TotalCards,
     EmptyPiles,
@@ -138,6 +143,8 @@ impl Var {
             Var::Money => (3, 40),
             Var::VpLead => (-20, 20),
             Var::MyTurn => (2, 30),
+            Var::MyVp => (3, 40),
+            Var::OppCount(_) => (1, 12),
             Var::TotalCards => (8, 50),
             Var::EmptyPiles => (1, 2),
             Var::LowPiles => (1, 3),
@@ -153,7 +160,7 @@ impl Var {
     /// Step used when nudging a threshold.
     pub fn step(self) -> i16 {
         match self {
-            Var::Money | Var::TotalCards | Var::VpLead => 2,
+            Var::Money | Var::TotalCards | Var::VpLead | Var::MyVp => 2,
             _ => 1,
         }
     }
@@ -168,6 +175,8 @@ impl Var {
             Var::Money => "money".into(),
             Var::VpLead => "vp_lead".into(),
             Var::MyTurn => "my_turn".into(),
+            Var::MyVp => "my_vp".into(),
+            Var::OppCount(c) => format!("opp_count({})", cards::name(c).replace([' ', '\''], "")),
             Var::TotalCards => "total_cards".into(),
             Var::EmptyPiles => "empty_piles".into(),
             Var::LowPiles => "low_piles".into(),
@@ -199,6 +208,9 @@ impl Var {
             let _ = inner;
             return cards::by_name(&s[7..s.len() - 1]).filter(|&c| cards::is_bought_pseudo(c)).map(Var::Bought);
         }
+        if lower.starts_with("opp_count(") && lower.ends_with(')') {
+            return cards::by_name(&s[10..s.len() - 1]).filter(|&c| !cards::is_pseudo(c)).map(Var::OppCount);
+        }
         if lower.starts_with("by(") && lower.ends_with(')') {
             return cards::by_name(&s[3..s.len() - 1]).filter(|&c| !cards::is_pseudo(c)).map(Var::By);
         }
@@ -211,6 +223,7 @@ impl Var {
             "money" => Var::Money,
             "vp_lead" | "vplead" => Var::VpLead,
             "my_turn" | "myturn" => Var::MyTurn,
+            "my_vp" | "myvp" => Var::MyVp,
             "total_cards" | "totalcards" => Var::TotalCards,
             "empty_piles" | "emptypiles" => Var::EmptyPiles,
             "low_piles" | "lowpiles" => Var::LowPiles,
@@ -607,6 +620,27 @@ mod tests {
         let g = Genome::from_toml(text).unwrap();
         assert_eq!(g.gain[0].conds, vec![a]);
         dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
+    }
+
+    #[test]
+    fn the_search_reads_the_game_never_the_turn_number() {
+        // The game-state conditions round-trip and load.
+        for (src, var) in [("my_vp >= 12", Var::MyVp), ("opp_count(Witch) >= 1", Var::OppCount(id::WITCH)), ("opp_count(Throne Room) < 2", Var::OppCount(id::THRONE_ROOM))] {
+            let a = Atom::parse(src).unwrap();
+            assert_eq!(a.var, var);
+            assert_eq!(Atom::parse(&a.text()).unwrap(), a, "{}", a.text());
+        }
+        let text = "name = \"E\"\n[[gain]]\ncard = \"Moat\"\nif = \"opp_count(Witch) >= 1 and my_turn >= 3\"\n[[gain]]\ncard = \"Silver\"\n";
+        let mut g = Genome::from_toml(text).unwrap();
+        dominion_sim::Strategy::parse(&g.to_toml(&TomlMeta::default())).unwrap();
+        // A loaded `my_turn` is dropped; random conditions never write it.
+        let space = crate::space::SearchSpace::new(&[id::MOAT, id::WITCH, id::SMITHY], &[]);
+        space.sanitize(&mut g);
+        assert_eq!(g.gain[0].conds, vec![Atom { var: Var::OppCount(id::WITCH), op: Op::Ge, n: 1 }]);
+        let mut rng = dominion_engine::rng::Rng::new(4);
+        let vars: Vec<Var> = (0..5000).map(|_| crate::ops::random_atom(&space, &mut rng, id::SMITHY).var).collect();
+        assert!(!vars.contains(&Var::MyTurn));
+        assert!(vars.contains(&Var::MyVp) && vars.iter().any(|v| matches!(v, Var::OppCount(_))));
     }
 
     #[test]

@@ -272,8 +272,8 @@ enum Cond {
     Silvers(i16),
     /// `provinces_left >= n`: not in the endgame.
     EarlyProvinces(i16),
-    /// `my_turn < n`.
-    TurnLt(i16),
+    /// `total_cards < n`: early, while the deck is small.
+    CardsLt(i16),
 }
 
 /// Per-Event placement hints for "Big Money + Event": (name, position, conditions, token the Event
@@ -311,7 +311,7 @@ const EVENT_HINTS: &[(&str, At, &[Cond], Option<u8>)] = &[
     ("Conquest", At::Gold, &[Cond::ProvincesLeft(4)], None),
     ("Delve", At::Silver, &[], None),
     ("Dominate", At::Top, &[], None),
-    ("Donate", At::End, &[Cond::Bought(1), Cond::TurnLt(8)], None),
+    ("Donate", At::End, &[Cond::Bought(1), Cond::CardsLt(16)], None),
     ("Ritual", At::End, &[Cond::ProvincesLeft(2)], None),
     ("Salt the Earth", At::Silver, &[Cond::ProvincesLeft(3)], None),
     ("Tax", At::End, &[Cond::Bought(1)], None),
@@ -385,7 +385,7 @@ fn event_conds(e: CardId, conds: &[Cond]) -> Vec<Atom> {
             Cond::ProvincesLeft(n) => atom(Var::ProvincesLeft, Op::Lt, n + 1),
             Cond::Silvers(n) => atom(Var::Count(id::SILVER), Op::Ge, n),
             Cond::EarlyProvinces(n) => atom(Var::ProvincesLeft, Op::Ge, n),
-            Cond::TurnLt(n) => atom(Var::MyTurn, Op::Lt, n),
+            Cond::CardsLt(n) => atom(Var::TotalCards, Op::Lt, n),
         })
         .collect()
 }

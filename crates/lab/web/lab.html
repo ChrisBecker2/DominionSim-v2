@@ -1767,6 +1767,21 @@ function insHeatTables(sections, turns) {
     var rows = sec[0], title = sec[1], what = sec[2], first = sec[3] || "card";
     h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><h3 style=\"margin:0\">" + escapeHtml(title) + "</h3></td></tr>";
     if (!rows.length) { h += "<tr><td colspan=\"" + cols + "\" class=\"l muted\" style=\"border:none\">None.</td></tr>"; return; }
+    if (what === "metric") {
+      // Turn-by-turn figures: each row shaded against its own highest turn (hover for the value), then the average over every turn.
+      h += "<tr><th class=\"l\">" + first + "</th>";
+      for (var u = 1; u <= turns; u++) h += "<th style=\"padding:0 1px\">" + (u % 5 === 0 || u === 1 ? u : "") + "</th>";
+      h += "<th style=\"white-space:normal;width:58px;vertical-align:bottom\">average</th><th></th><th></th></tr>";
+      rows.forEach(function (r) {
+        var top = Math.max.apply(null, r.per_turn.concat([1e-9]));
+        h += "<tr><td class=\"l\">" + escapeHtml(r.name) + "</td>";
+        r.per_turn.forEach(function (x, i) {
+          h += "<td class=\"cell\" style=\"background:" + insHeatColor(x / top) + "\" title=\"turn " + (i + 1) + ": " + x.toFixed(2) + "\"></td>";
+        });
+        h += "<td>" + r.mean.toFixed(2) + "</td><td></td><td></td></tr>";
+      });
+      return;
+    }
     h += "<tr><th class=\"l\">" + first + "</th>";
     for (var t = 1; t <= turns; t++) h += "<th style=\"padding:0 1px\">" + (t % 5 === 0 || t === 1 ? t : "") + "</th>";
     // The three figures get columns of one width, their headers wrapped ("by turn 9": games with one by then).
@@ -1787,6 +1802,7 @@ function insHeatTables(sections, turns) {
 function insTurnMaps(s, turns, whose, suffix) {
   var secs = [[s.gains, "Gains by own turn" + suffix, "gained"], [s.trashes, "Trashes by own turn" + suffix, "trashed"]];
   if (s.exchanges && s.exchanges.length) secs.push([s.exchanges, "Trash for gain by own turn: what " + whose + " Remodel-like cards turned into what", "made", "trash for gain"]);
+  if (s.metrics && s.metrics.length) secs.push([s.metrics, "Turn by turn: what " + (whose === "its" ? "it" : whose.replace(/'s$/, "")) + " can do (each row shaded against its own highest turn)", "metric", "per turn"]);
   return insHeatTables(secs, turns);
 }
 

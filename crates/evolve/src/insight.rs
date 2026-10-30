@@ -73,6 +73,9 @@ struct Sink {
     trashed: Option<(u8, CardId)>,
     /// Trash for gain: (own turn, the card played, the card it trashed, the card it gained), e.g. Remodel: Gold -> Province.
     exchanges: [Vec<(u16, CardId, CardId, CardId)>; 2],
+    /// The phase of the turn being played, and per player and own turn the [`METRICS`] (NaN: not seen).
+    phase: Option<dominion_engine::Phase>,
+    turn_stats: [Vec<[f32; NUM_METRICS]>; 2],
     trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
     /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
@@ -87,20 +90,49 @@ impl EventSink for Sink {
                 self.global = turn;
                 self.playing = 0;
                 self.trashed = None;
+                self.phase = None;
+                if (player as usize) < 2 {
+                    let mut row = [0.0f32; NUM_METRICS];
+                    for k in [M_COINS, M_BUYS, M_MONEY, M_CARDS] {
+                        row[k] = f32::NAN;
+                    }
+                    self.turn_stats[player as usize].push(row);
+                }
                 if (player as usize) < 2 {
                     self.own_turn[player as usize] += 1;
                 }
             }
-            Event::Draw { player, card } if (player as usize) < 2 && self.opening[player as usize].len() < 10 => self.opening[player as usize].push(card),
-            Event::Play { card, .. } | Event::PlayAgain { card, .. } => {
+            Event::Draw { player, card } if (player as usize) < 2 => {
+                if self.opening[player as usize].len() < 10 {
+                    self.opening[player as usize].push(card);
+                }
+                // Cards drawn by the turn's effects (not the next hand drawn in Clean-up).
+                if player == self.cur && matches!(self.phase, Some(dominion_engine::Phase::Action) | Some(dominion_engine::Phase::Buy)) {
+                    if let Some(r) = self.turn_stats[player as usize].last_mut() {
+                        r[M_DRAWN] += 1.0;
+                    }
+                }
+            }
+            Event::PhaseStart { phase, .. } => self.phase = Some(phase),
+            Event::Play { player, card } | Event::PlayAgain { player, card, .. } => {
                 self.playing = card;
                 self.trashed = None;
+                if player == self.cur && (player as usize) < 2 && cards::is(card, cards::ACTION) {
+                    if let Some(r) = self.turn_stats[player as usize].last_mut() {
+                        r[M_ACTIONS] += 1.0;
+                    }
+                }
             }
             Event::Buy { .. } => {
                 self.playing = 0;
                 self.trashed = None;
             }
             Event::Gain { player, card, source, .. } if (player as usize) < 2 => {
+                if player == self.cur {
+                    if let Some(r) = self.turn_stats[player as usize].last_mut() {
+                        r[M_GAINS] += 1.0;
+                    }
+                }
                 // A gain by the card being played after it trashed one of its player's cards: a trash-for-gain (Remodel, Expand, Mine...).
                 if let Some((tp, from)) = self.trashed {
                     if tp == player && source != 0 && source == self.playing {
@@ -142,6 +174,8 @@ struct Game {
     extras: [(Vec<CardId>, Vec<CardId>); 2],
     /// Trash for gain (see `Sink::exchanges`).
     exchanges: [Vec<(u16, CardId, CardId, CardId)>; 2],
+    /// Per own turn, the [`METRICS`] (see `Sink::turn_stats`).
+    turn_stats: [Vec<[f32; NUM_METRICS]>; 2],
     /// Each card gained, and the strategy that gained it first.
     first: Vec<(CardId, usize)>,
     /// The strategy that made the Prophecy happen, and on which of its own turns.
@@ -195,6 +229,21 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
     loop {
         match st.advance(&mut sink) {
             Step::Decision(d) => {
+                let p = st.turn.player;
+                if d.player == p && (p as usize) < 2 {
+                    if let Some(r) = sink.turn_stats[p as usize].last_mut() {
+                        if r[M_MONEY].is_nan() {
+                            let mine = PlayerView::new(&st, p).my_cards();
+                            r[M_MONEY] = money_of(&mine) as f32;
+                            r[M_CARDS] = mine.total() as f32;
+                        }
+                        if d.kind == DecisionKind::Buy && r[M_COINS].is_nan() {
+                            let hand: u32 = st.players[p as usize].hand.iter().filter(|&(c, _)| st.is_treasure(c)).map(|(c, n)| cards::def(c).coins as u32 * n as u32).sum();
+                            r[M_COINS] = (st.turn.coins as u32 + hand) as f32;
+                            r[M_BUYS] = st.turn.buys as f32;
+                        }
+                    }
+                }
                 if d.kind == DecisionKind::Buy {
                     let c = match st.buy_avail() {
                         Some(avail) => agents[d.player as usize].choose_buy(&PlayerView::new(&st, d.player), &avail),
@@ -245,6 +294,7 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
             (coppers(&o[..k]), coppers(&o[k..]))
         }),
         exchanges: std::array::from_fn(|i| sink.exchanges[seat(i)].clone()),
+        turn_stats: std::array::from_fn(|i| sink.turn_stats[seat(i)].clone()),
         extras: std::array::from_fn(|i| {
             let o = &sink.opening[seat(i)];
             let k = o.len().min(5);
@@ -394,6 +444,8 @@ pub struct Side {
     pub names_in_losses: f64,
     pub trees: Vec<TreeAt>,
     pub swings: Vec<Swing>,
+    /// What the side can do turn by turn: the [`METRICS`] averaged on each own turn over the games that reached it.
+    pub metrics: Vec<MetricRow>,
     /// Trash for gain by own turn, like `gains`: one row per kind ("Remodel: Gold -> Province", with an arrow), the most frequent first.
     pub exchanges: Vec<HeatRow>,
 }
@@ -527,7 +579,65 @@ fn side(all: &[Game], i: usize, name: &str) -> Side {
         trees,
         swings,
         exchanges: exchanges(all, i),
+        metrics: metrics(all, i),
     }
+}
+
+/// A side's capabilities by own turn (index into a turn's row of [`METRICS`]).
+const M_COINS: usize = 0;
+const M_BUYS: usize = 1;
+const M_ACTIONS: usize = 2;
+const M_DRAWN: usize = 3;
+const M_GAINS: usize = 4;
+const M_MONEY: usize = 5;
+const M_CARDS: usize = 6;
+const NUM_METRICS: usize = 7;
+/// The names of the metrics, in their index order.
+pub const METRICS: [&str; NUM_METRICS] = [
+    "$ to spend (Buy phase)",
+    "Buys",
+    "Actions played",
+    "Cards drawn (by effects)",
+    "Cards gained",
+    "Money owned (Treasure $)",
+    "Cards owned",
+];
+
+/// One metric by own turn: its average on each turn 1..=TURNS over the games that reached that turn, and over every turn played.
+#[derive(Serialize, Debug, Clone)]
+pub struct MetricRow {
+    pub name: String,
+    pub per_turn: Vec<f64>,
+    pub mean: f64,
+}
+
+fn metrics(all: &[Game], i: usize) -> Vec<MetricRow> {
+    (0..NUM_METRICS)
+        .map(|k| {
+            let mut sum = vec![0.0f64; TURNS];
+            let mut n = vec![0usize; TURNS];
+            let (mut all_sum, mut all_n) = (0.0f64, 0usize);
+            for g in all {
+                for (t, row) in g.turn_stats[i].iter().enumerate() {
+                    let x = row[k];
+                    if x.is_nan() {
+                        continue;
+                    }
+                    all_sum += x as f64;
+                    all_n += 1;
+                    if t < TURNS {
+                        sum[t] += x as f64;
+                        n[t] += 1;
+                    }
+                }
+            }
+            MetricRow {
+                name: METRICS[k].to_string(),
+                per_turn: sum.iter().zip(&n).map(|(s, &n)| if n > 0 { s / n as f64 } else { 0.0 }).collect(),
+                mean: if all_n > 0 { all_sum / all_n as f64 } else { 0.0 },
+            }
+        })
+        .collect()
 }
 
 fn exchanges(all: &[Game], i: usize) -> Vec<HeatRow> {
@@ -564,7 +674,14 @@ fn exchanges(all: &[Game], i: usize) -> Vec<HeatRow> {
             })
         })
         .collect();
-    rows.sort_by(|a, b| b.total.total_cmp(&a.total));
+    // By what was gained, the cheapest first; then by what was trashed.
+    let cost = |r: &HeatRow| {
+        let mut it = r.card.splitn(2, ": ").nth(1).unwrap_or("").split(" \u{2192} ");
+        let from = it.next().and_then(cards::by_name).map_or(0, cards::cost);
+        let to = it.next().and_then(cards::by_name).map_or(0, cards::cost);
+        (to, from)
+    };
+    rows.sort_by(|a, b| cost(a).cmp(&cost(b)).then_with(|| a.card.cmp(&b.card)));
     rows
 }
 
@@ -689,7 +806,9 @@ fn heat<'a>(all: &'a [Game], i: usize, list: impl Fn(&'a Game) -> &'a Vec<(u16, 
             })
         })
         .collect();
-    rows.sort_by(|a, b| b.total.total_cmp(&a.total));
+    // Cheapest first (Copper, Curse, Estate ... Province), as a supply is laid out.
+    let cost = |r: &HeatRow| cards::by_name(&r.card).map_or(0, cards::cost);
+    rows.sort_by(|a, b| cost(a).cmp(&cost(b)).then_with(|| a.card.cmp(&b.card)));
     rows
 }
 
@@ -1145,6 +1264,15 @@ mod tests {
         let r = analyze(&kingdom, &smithy, &money, 2000, 3);
         assert_eq!((r.games, r.sides.len()), (2000, 2));
         let s = &r.sides[0];
+        // Turn by turn: $2 to $5 on the first turns, one Buy, ten cards owned on turn 1, more money later; the gains cheapest first.
+        let m = |name: &str| s.metrics.iter().find(|r| r.name.starts_with(name)).unwrap_or_else(|| panic!("{name}: {:?}", s.metrics));
+        assert_eq!(s.metrics.len(), METRICS.len());
+        assert!((2.0..=5.0).contains(&m("$ to spend").per_turn[0]) && (m("$ to spend").per_turn[0] + m("$ to spend").per_turn[1] - 7.0).abs() < 0.01, "{:?}", m("$ to spend"));
+        assert_eq!((m("Buys").per_turn[0], m("Cards owned").per_turn[0]), (1.0, 10.0));
+        assert!(m("Money owned").per_turn[12] > m("Money owned").per_turn[0] + 3.0, "{:?}", m("Money owned"));
+        assert!(m("Cards drawn").per_turn[12] > 0.5, "Smithy draws: {:?}", m("Cards drawn"));
+        let costs: Vec<u8> = s.gains.iter().map(|h| cards::cost(cards::by_name(&h.card).unwrap())).collect();
+        assert!(costs.windows(2).all(|w| w[0] <= w[1]), "{costs:?}");
         // Every game has one split; the two rows count them all.
         assert_eq!(s.splits.iter().map(|x| x.rate.games).sum::<usize>(), 2000);
         // Smithy-BM beats money and gains Provinces late, Silver early.

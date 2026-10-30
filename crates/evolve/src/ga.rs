@@ -118,6 +118,8 @@ impl Setup {
                     }
                 }
                 k.sort_unstable();
+                // A card named twice is one pile.
+                k.dedup();
                 if let Some(&c) = k.iter().find(|&&c| c < cards::FIRST_KINGDOM) {
                     return Err(format!("{} is not a kingdom card", cards::name(c)));
                 }

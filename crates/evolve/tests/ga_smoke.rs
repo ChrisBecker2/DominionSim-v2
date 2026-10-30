@@ -104,6 +104,15 @@ fn fixed_track_colonies_auto_adds_platinum_and_colony_when_prosperity_is_in_the_
 }
 
 #[test]
+fn a_card_named_twice_in_a_fixed_kingdom_is_one_pile() {
+    let mut c = cfg();
+    c.track = Track::Fixed { kingdom: vec!["Remodel".into(), "Witch".into(), "Remodel".into()] };
+    let setup = Setup::new(&c).unwrap();
+    let k = setup.fixed_kingdom().unwrap();
+    assert_eq!(k.iter().filter(|&&x| x == cards::id::REMODEL).count(), 1, "{k:?}");
+}
+
+#[test]
 fn fixed_track_colonies_no_overrides_auto_detection() {
     let mut c = cfg();
     c.track = Track::Fixed { kingdom: vec!["Witch".into(), "City".into()] };

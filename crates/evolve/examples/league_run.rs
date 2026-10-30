@@ -94,17 +94,18 @@ fn main() {
             for r in &f.field {
                 println!("  {:>5.1}% vs {}", r.rate.win * 100.0, r.name);
             }
+            println!("  card power (owner's win rate with 0 1 2 3 4 5+ copies at the end):");
+            for r in f.power.iter().take(10) {
+                let cells: Vec<String> = r.by_count.iter().map(|x| if x.games >= 30 { format!("{:>3.0}", x.win * 100.0) } else { "  -".into() }).collect();
+                println!("    {:<20} {}  swing {:.0}", r.card, cells.join(" "), r.swing * 100.0);
+            }
             let mut kind = "";
             for x in &f.findings {
                 if x.kind != kind {
                     kind = &x.kind;
                     println!("  {kind}:");
                 }
-                if x.kind == "difference" {
-                    println!("    {:>+6.1}  {}", x.points, x.text);
-                } else {
-                    println!("    {:>+6.1}  {}", 100.0 * x.points, x.text);
-                }
+                println!("    {:>+6.1}  {}", 100.0 * x.points, x.text);
             }
         }
         (None, Some(e)) => println!("\nNo findings: {e}"),

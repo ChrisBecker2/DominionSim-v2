@@ -426,7 +426,7 @@ td.pickcell input[type="checkbox"] { width: auto; vertical-align: middle; margin
       <section id="findings-panel" style="display:none">
         <h2>Findings: what decides games on this kingdom</h2>
         <div class="hint" id="findings-hint">At the end of a run the champion plays every other strategy of the ranking, the baselines included (what decides its games,
-          what it does differently from the field), and each of its rules is taken out in turn: what each is worth is written as a comment above it in the result's file. Fast bots. Points are win-rate percentage points.</div>
+          what each card is worth, every opening it played), and each of its rules is taken out in turn: what each is worth is written as a comment above it in the result's file. Fast bots. Points are win-rate percentage points.</div>
         <div id="findings-body"></div>
       </section>
 
@@ -1705,7 +1705,7 @@ function renderLeague(p) {
   var xb = document.createElement("tbody");
   C.names.forEach(function (n, i) {
     var tr = document.createElement("tr");
-    var h = "<td style=\"white-space:nowrap\">" + i + " " + escapeHtml(n) + (L.kinds[i] === "anchor" ? "" : " *") + "</td>";
+    var h = "<td style=\"white-space:nowrap\">" + i + " " + escapeHtml(n) + "</td>";
     C.names.forEach(function (m, j) {
       var v = C.rate[i][j];
       var shade = i === j ? "" : " style=\"background:rgba(" + (v >= 0.5 ? "60,160,90" : "200,80,70") + "," + (Math.abs(v - 0.5) * 1.4).toFixed(2) + ")\"";
@@ -1795,9 +1795,10 @@ function insSide(s, turns) {
   var h = "<div class=\"ins-side\"><h3 style=\"font-size:14px;color:var(--text)\">" + escapeHtml(s.name) + ": wins " + insPct(s.rate) +
     ", " + s.avg_vp.toFixed(1) + " VP, " + s.avg_turns.toFixed(1) + " turns</h3>";
   // Opening splits.
-  h += "<h3>Opening split (the Coppers in the first two hands)</h3><table class=\"ins\"><tr><th class=\"l\">split</th><th>games</th><th>wins</th><th>opp 5/2</th><th>opp 4/3</th><th class=\"l\">openings (games, wins)</th></tr>";
+  var oppSplits = s.splits.length ? s.splits[0].vs.map(function (v) { return "<th>opp " + v[0] + "</th>"; }).join("") : "";
+  h += "<h3>Opening split (the Coppers in the first two hands)</h3><table class=\"ins\"><tr><th class=\"l\">split</th><th>games</th><th>wins</th>" + oppSplits + "<th class=\"l\">openings (games, wins)</th></tr>";
   s.splits.forEach(function (r) {
-    h += "<tr><td class=\"l\">" + r.split + "</td><td>" + r.rate.games + "</td>" + insRateCell(r.rate) + insRateCell(r.vs[0][1]) + insRateCell(r.vs[1][1]) +
+    h += "<tr><td class=\"l\">" + r.split + "</td><td>" + r.rate.games + "</td>" + insRateCell(r.rate) + r.vs.map(function (v) { return insRateCell(v[1]); }).join("") +
       "<td class=\"l\">" + r.openings.slice(0, 3).map(function (o) { return escapeHtml(o.cards) + " (" + o.rate.games + ", " + insPct(o.rate) + ")"; }).join("; ") + "</td></tr>";
   });
   h += "</table>";
@@ -1888,10 +1889,32 @@ function insRaces(ins) {
 }
 
 // The league's kingdom findings: sentences by kind, then the analyses behind them (collapsed).
+// Card power: a player's win rate by how many copies of each card they ended with, both sides of every game, the biggest swing first.
+function insPower(power) {
+  if (!power || !power.length) return "";
+  var h = "<h3>Card power: a player's win rate by the copies they own at the end (both players of every game), the biggest swing first</h3>" +
+    "<table class=\"ins\"><tr><th class=\"l\">card</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5+</th><th title=\"highest minus lowest win rate over the counts with enough games\">swing</th></tr>";
+  power.forEach(function (r) {
+    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x) { return x.games >= 30 ? insRateCell(x) : "<td class=\"muted\" title=\"" + x.games + " games\">-</td>"; }).join("") +
+      "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
+  });
+  return h + "</table><div class=\"hint\">Each cell: how often a player who ended with that many copies won (hover for the games; - = under 30). It says what having the card goes with, not that the card caused it: Provinces are bought by the player who is ahead.</div>";
+}
+
+// Every opening of a side, by split: the cards gained on the first two turns.
+function insOpenings(side) {
+  if (!side.splits || !side.splits.length) return "";
+  var h = "<h3>Openings: the champion's win rate by its opening (every opening it played)</h3><table class=\"ins\"><tr><th class=\"l\">split</th><th class=\"l\">opening</th><th>games</th><th>wins</th></tr>";
+  side.splits.forEach(function (r) {
+    r.openings.slice().sort(function (a, b) { return b.rate.win - a.rate.win; }).forEach(function (o) {
+      h += "<tr><td class=\"l\">" + r.split + "</td><td class=\"l\">" + escapeHtml(o.cards) + "</td><td>" + o.rate.games + "</td>" + insRateCell(o.rate) + "</tr>";
+    });
+  });
+  return h + "</table>";
+}
+
 var FINDING_KINDS = [
-  ["difference", "What the champion gains more or less of than the field (copies a game)"],
   ["race", "Races: the champion's win rate when it gains the card first minus when its opponent does"],
-  ["opening", "Openings: the champion's win rate by its opening"],
   ["position", "Positions at the start of the champion's turn that win and lose (points against its average at that turn)"],
   ["turning point", "Turning points: gains that move the champion's chances beyond what the position already said"],
 ];
@@ -1908,15 +1931,16 @@ function renderFindings(L) {
   if (!F) { $("findings-body").innerHTML = "<div class=\"error-msg\">" + escapeHtml(L.findings_error) + "</div>"; return; }
   var me = F.insight.sides[0];
   var h = "<div class=\"hint\">Champion: <b>" + escapeHtml(F.champion) + "</b>, against the " + F.field.length + " other strategies of the ranking (" + F.insight.games +
-    " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion (copies a game for the differences); hover it for the games behind it.</div>";
+    " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion; hover it for the games behind it.</div>";
+  h += insPower(F.power);
+  h += insOpenings(me);
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;
-    var copies = k[0] === "difference";
     h += "<h3>" + escapeHtml(k[1]) + "</h3><table class=\"ins\">";
     list.forEach(function (f) {
-      var shown = copies ? (f.points >= 0 ? "+" : "") + f.points.toFixed(1) : (f.points >= 0 ? "+" : "") + (100 * f.points).toFixed(1) + " pts";
-      var shade = copies ? "" : "background:" + insWinColor(0.5 + f.points) + ";";
+      var shown = (f.points >= 0 ? "+" : "") + (100 * f.points).toFixed(1) + " pts";
+      var shade = "background:" + insWinColor(0.5 + f.points) + ";";
       h += "<tr><td style=\"" + shade + "white-space:nowrap;text-align:right\" title=\"" + f.games + " games\">" + shown + "</td><td class=\"l\">" + escapeHtml(f.text) + "</td></tr>";
     });
     h += "</table>";

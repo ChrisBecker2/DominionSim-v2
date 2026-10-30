@@ -56,7 +56,7 @@ fn short_league_run_on_biggest_money() {
     assert_eq!(format!("League: {}", f.champion), dominion_sim::Strategy::parse(&p.result.as_ref().unwrap().toml).unwrap().name);
     assert_eq!(f.field.len(), t.names.len() - 1);
     assert!(f.insight.games >= 900 && f.explanation.is_some(), "{} {:?}", f.insight.games, f.explain_error);
-    assert!(f.findings.iter().any(|x| x.kind == "difference"), "{:#?}", f.findings);
+    assert!(!f.power.is_empty() && f.insight.sides[0].splits.iter().all(|s| !s.openings.is_empty()), "{:#?}", f.power);
 }
 
 #[test]

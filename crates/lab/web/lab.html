@@ -1957,7 +1957,6 @@ function renderFindings(L) {
   h += insHeatTable(me.gains, F.insight.turns, "Gains by own turn (the champion)", "gained");
   h += insHeatTable(me.trashes, F.insight.turns, "Trashes by own turn (the champion)", "trashed");
   h += insExchanges(me, "the champion's");
-  h += insExchanges(F.insight.sides[1], "the field's");
   FINDING_KINDS.forEach(function (k) {
     var list = F.findings.filter(function (f) { return f.kind === k[0]; });
     if (!list.length) return;

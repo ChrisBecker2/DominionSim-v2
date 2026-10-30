@@ -250,7 +250,10 @@ fn pick_parent<'a>(members: &'a [(Genome, f64)], archive: &'a Archive, cfg: &Evo
 fn champion_name(desc: &Descriptor, behaviour: &Behaviour, used: &mut HashSet<String>) -> String {
     let mut keys: Vec<(CardId, f64)> = desc.cards.iter().filter(|&&c| c != NO_CARD).map(|&c| (c, behaviour.gains.iter().find(|g| g.0 == c).map_or(0.0, |g| g.1))).collect();
     keys.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let mut parts: Vec<String> = keys.iter().map(|&(c, g)| format!("{}x {}", g.round().max(1.0), cards::name(c))).collect();
+    let mut parts: Vec<String> = keys.iter().map(|&(c, g)| match g.round() {
+            n if n >= 2.0 => format!("{n}x {}", cards::name(c)),
+            _ => cards::name(c).to_string(),
+        }).collect();
     if desc.event != NO_CARD {
         if parts.is_empty() {
             parts.push("Money".into());
@@ -1134,7 +1137,7 @@ mod tests {
         let money = Descriptor { cards: [NO_CARD; 2], ..d };
         assert_eq!(champion_name(&money, &Behaviour::default(), &mut used), "Money");
         let rare = Behaviour { gains: vec![(id::FORUM, 0.8)], ..Default::default() };
-        assert_eq!(champion_name(&Descriptor { cards: [id::FORUM, NO_CARD], ..d }, &rare, &mut used), "1x Forum");
+        assert_eq!(champion_name(&Descriptor { cards: [id::FORUM, NO_CARD], ..d }, &rare, &mut used), "Forum", "one copy: no count");
     }
 
     #[test]

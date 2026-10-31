@@ -94,9 +94,9 @@ fn main() {
             for r in &f.field {
                 println!("  {:>5.1}% vs {}", r.rate.win * 100.0, r.name);
             }
-            println!("  card power (owner's win rate with 0 1 2 3 4 5 6 7 8 9+ copies at the end):");
+            println!("  card power (points against its own average in the matchup, with 0 1 2 3 4 5 6 7 8 9+ copies at the end):");
             for r in f.power.iter().take(10) {
-                let cells: Vec<String> = r.by_count.iter().map(|x| if x.games >= 30 { format!("{:>3.0}", x.win * 100.0) } else { "  -".into() }).collect();
+                let cells: Vec<String> = r.by_count.iter().map(|x| if x.games >= 30 { format!("{:>+4.0}", x.points * 100.0) } else { "   -".into() }).collect();
                 println!("    {:<20} {}  swing {:.0}", r.card, cells.join(" "), r.swing * 100.0);
             }
             let mut kind = "";

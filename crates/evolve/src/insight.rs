@@ -1363,13 +1363,16 @@ card = \"Silver\"
         assert!(smithy_note.starts_with("# +") && smithy_note.contains(" points against the field: "), "{noted}");
         assert_eq!(noted.lines().filter(|l| l.starts_with("[[")).count(), noted.lines().filter(|l| l.contains(" points against the field: ")).count(), "{noted}");
         Strategy::parse(&noted).unwrap();
-        // The power map: the owner's win rate by copies at the end, both sides of every game, Province included.
+        // The power map, within each matchup, Province included: ending with more Provinces than usual goes with winning.
         let row = |c: &str| f.power.iter().find(|r| r.card == c).unwrap_or_else(|| panic!("{c}: {:#?}", f.power));
-        let smithy_row = row("Smithy");
-        assert_eq!(smithy_row.by_count.len(), 10);
-        assert_eq!(smithy_row.by_count.iter().map(|r| r.games).sum::<usize>(), 2 * f.insight.games);
-        assert!(smithy_row.by_count[1].win > smithy_row.by_count[0].win, "{smithy_row:?}");
-        assert!(row("Province").swing > 0.3);
+        let prov = row("Province");
+        assert_eq!(prov.by_count.len(), 10);
+        assert!(prov.by_count.iter().map(|r| r.games).sum::<usize>() <= 2 * f.insight.games);
+        assert!(prov.by_count[5].points > prov.by_count[2].points, "{prov:?}");
+        assert!(prov.swing > 0.3);
+        // The champion ends with one Smithy nearly every game: a count that does not vary says nothing (the old pooled map credited
+        // Smithy with the gap between the champion and the field).
+        assert!(f.power.iter().find(|r| r.card == "Smithy").is_none_or(|r| r.swing < 0.15), "{:#?}", f.power);
         assert!(f.power.windows(2).all(|w| w[0].swing >= w[1].swing));
         // Province (the top Victory card here) is in no finding: buying one mostly says who is ahead.
         assert!(f.findings.iter().all(|x| !x.text.contains("Province")), "{:#?}", f.findings);
@@ -1414,8 +1417,9 @@ pub struct FieldRow {
 #[derive(Serialize, Debug, Clone)]
 pub struct Findings {
     pub champion: String,
-    /// What having a card is worth on this kingdom: for every card someone owned, the owner's win rate by how many copies they
-    /// had at the end (both sides of every game), the biggest swing first. The top Victory card included.
+    /// What having a card is worth on this kingdom, within each matchup: for every card whose count varies, how much more or less
+    /// a strategy won than it usually does against that opponent when it ended with 0, 1, ... copies; the biggest swing first. The
+    /// top Victory card included.
     pub power: Vec<PowerRow>,
     /// Against each strategy of the field, the champion's worst matchup first.
     pub field: Vec<FieldRow>,
@@ -1427,34 +1431,61 @@ pub struct Findings {
     pub explain_error: Option<String>,
 }
 
-/// A card's row of the power map: the win rate of a player who ended with 0, 1, ..., 8 and 9 or more copies.
+/// A card's row of the power map: by the copies a player had at the end (0, 1, ..., 8 and 9 or more), how far its win rate was from
+/// its own average in the same matchup.
 #[derive(Serialize, Debug, Clone)]
 pub struct PowerRow {
     pub card: String,
-    pub by_count: Vec<Rate>,
-    /// Highest minus lowest win rate over the counts with enough games (2% of the samples, at least 30).
+    pub by_count: Vec<PowerCell>,
+    /// Highest minus lowest cell over the counts with enough games (2% of the player-games counted, at least 30).
     pub swing: f64,
 }
 
-/// The power map over games already played (see [`Findings::power`]).
+/// One count of a power row: the player-games behind it, and their win rate minus the strategy's average in that matchup (points,
+/// 0.1 = 10), pooled over the matchups.
+#[derive(Serialize, Debug, Clone, Copy, Default)]
+pub struct PowerCell {
+    pub games: usize,
+    pub points: f64,
+}
+
+/// The power map over games already played (see [`Findings::power`]). A strategy's games against one opponent (one side of one
+/// matchup) are compared only with each other, so a card bought only by a weak strategy does not look bad for it: a matchup counts for a
+/// card only when its count there varies (two counts with 10 games or more).
 fn power(all: &[Game]) -> Vec<PowerRow> {
     const COLS: usize = 10;
-    let samples = 2 * all.len();
+    let mut opps: Vec<usize> = all.iter().map(|g| g.opp).collect();
+    opps.sort_unstable();
+    opps.dedup();
+    let by_opp: Vec<Vec<&Game>> = opps.iter().map(|&k| all.iter().filter(|g| g.opp == k).collect()).collect();
     let mut ids: Vec<CardId> = all.iter().flat_map(|g| g.deck.iter().flat_map(|d| d.iter().map(|&(c, _)| c))).collect();
     ids.sort_unstable();
     ids.dedup();
     let mut rows: Vec<PowerRow> = ids
         .into_iter()
         .map(|c| {
-            let mut cols: Vec<Vec<f64>> = vec![Vec::new(); COLS];
-            for g in all {
+            let mut sum = [0.0f64; COLS];
+            let mut n = [0usize; COLS];
+            for games in &by_opp {
                 for i in 0..2 {
-                    let n = g.deck[i].iter().find(|&&(x, _)| x == c).map_or(0, |&(_, n)| n as usize);
-                    cols[n.min(COLS - 1)].push(g.win[i]);
+                    let col = |g: &Game| g.deck[i].iter().find(|&&(x, _)| x == c).map_or(0, |&(_, k)| k as usize).min(COLS - 1);
+                    let mut here = [0usize; COLS];
+                    for g in games {
+                        here[col(g)] += 1;
+                    }
+                    if here.iter().filter(|&&k| k >= 10).count() < 2 {
+                        continue;
+                    }
+                    let mean = games.iter().map(|g| g.win[i]).sum::<f64>() / games.len() as f64;
+                    for g in games {
+                        sum[col(g)] += g.win[i] - mean;
+                        n[col(g)] += 1;
+                    }
                 }
             }
-            let by_count: Vec<Rate> = cols.into_iter().map(|w| rate(w.into_iter())).collect();
-            let enough: Vec<f64> = by_count.iter().filter(|r| r.games >= 30 && r.games * 50 >= samples).map(|r| r.win).collect();
+            let by_count: Vec<PowerCell> = (0..COLS).map(|k| PowerCell { games: n[k], points: if n[k] > 0 { sum[k] / n[k] as f64 } else { 0.0 } }).collect();
+            let samples: usize = n.iter().sum();
+            let enough: Vec<f64> = by_count.iter().filter(|r| r.games >= 30 && r.games * 50 >= samples).map(|r| r.points).collect();
             let swing = if enough.len() >= 2 { enough.iter().cloned().fold(f64::MIN, f64::max) - enough.iter().cloned().fold(f64::MAX, f64::min) } else { 0.0 };
             PowerRow { card: cards::name(c).to_string(), by_count, swing }
         })

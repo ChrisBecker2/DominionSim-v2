@@ -310,8 +310,9 @@ analyzed with fast bots against the field: every other strategy of the final ran
 added to the league later join it), `insight_games` (10,000; 0 = off) games split evenly between them. Each of its rules is
 taken out in turn against the same field (`games / 2` each). The report is boiled down to ranked sentences by kind
 (none about the top Victory card, Province, or Colony when there are Colonies: buying one mostly says who is ahead, not why):
-- card power: for every card, a player's win rate by the copies they own at the end (0 to 9+, both players of every game,
-  Province and Colony included), the biggest swing first;
+- card power: for every card, a strategy's win rate by the copies it owns at the end (0 to 9+, Province and Colony included),
+  in points against its own average in the same matchup (so a card bought only by a weak strategy does not look bad; a card
+  is listed only where some strategy's count of it varies), the biggest swing first;
 - races (the champion's win rate when it gains a card first, against when its opponent does);
 - every opening the champion played, by split (every split seen, not only 5/2 and 4/3: Shelters, Heirlooms and other
   starting decks change them); 4/3 and 3/4 (5/2 and 2/5) are one row unless the order of the hands changes the win rate

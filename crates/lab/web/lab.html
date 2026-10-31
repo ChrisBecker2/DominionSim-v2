@@ -1758,6 +1758,7 @@ function insRateCell(r, extra) {
   return "<td style=\"background:" + insWinColor(r.win) + "\" title=\"" + r.games + " games\">" + fmtPct(r.win) + (extra || "") + "</td>";
 }
 
+// (A section title sits in a div of no width: it does not widen the table, and wraps at the page width.)
 // Several heat maps by own turn (gains, trashes, trash for gain) in one table, so their columns line up; each section keeps its
 // title and header row. `sections`: [rows, title, what, first column's heading]; an empty section without rows says "None."
 function insHeatTables(sections, turns) {
@@ -1765,7 +1766,7 @@ function insHeatTables(sections, turns) {
   var h = "<table class=\"ins\">";
   sections.forEach(function (sec, k) {
     var rows = sec[0], title = sec[1], what = sec[2], first = sec[3] || "card";
-    h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><h3 style=\"margin:0\">" + escapeHtml(title) + "</h3></td></tr>";
+    h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><div style=\"width:0;overflow:visible\"><h3 style=\"margin:0;width:max-content;max-width:calc(100vw - 80px);white-space:normal\">" + escapeHtml(title) + "</h3></div></td></tr>";
     if (!rows.length) { h += "<tr><td colspan=\"" + cols + "\" class=\"l muted\" style=\"border:none\">None.</td></tr>"; return; }
     if (what === "metric") {
       // Turn-by-turn figures: each row shaded against its own highest turn (hover for the value), then the average over every turn.
@@ -1929,7 +1930,7 @@ function insPower(power, gained) {
   var cols = 12, h = "<table class=\"ins\">";
   // One section: a title row, a header row (`from` 1 leaves the 0 column blank), the rows with the biggest swing first.
   function section(rows, title, from, k) {
-    h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><h3 style=\"margin:0\">" + title + "</h3></td></tr>";
+    h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><div style=\"width:0;overflow:visible\"><h3 style=\"margin:0;width:max-content;max-width:calc(100vw - 80px);white-space:normal\">" + title + "</h3></div></td></tr>";
     if (!rows || !rows.length) { h += "<tr><td colspan=\"" + cols + "\" class=\"l muted\" style=\"border:none\">None.</td></tr>"; return; }
     h += "<tr><th class=\"l\">card</th>";
     for (var c = 0; c < 10; c++) {

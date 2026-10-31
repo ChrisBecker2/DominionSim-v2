@@ -1933,8 +1933,9 @@ function insPower(power) {
     h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x, k) {
       var line = k === 0 ? "border-right:1px solid #000;" : "";
       if (x.games < 30) return "<td class=\"muted\" style=\"" + line + "\" title=\"" + x.games + " games\">-</td>";
+      // Colours run from red at −20 points through yellow at 0 to green at +20 (and beyond).
       var pts = Math.round(100 * x.points);
-      return "<td style=\"" + line + "background:" + insWinColor(0.5 + x.points) + "\" title=\"" + x.games + " games\">" + (pts > 0 ? "+" : pts < 0 ? "\u2212" : "") + Math.abs(pts) + "</td>";
+      return "<td style=\"" + line + "background:" + insWinColor(0.5 + x.points / 0.4) + "\" title=\"" + x.games + " games\">" + (pts > 0 ? "+" : pts < 0 ? "\u2212" : "") + Math.abs(pts) + "</td>";
     }).join("") +
       "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
   });

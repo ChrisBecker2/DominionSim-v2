@@ -1923,25 +1923,37 @@ function insRaces(ins) {
 
 // The league's kingdom findings: sentences by kind, then the analyses behind them (collapsed).
 // Card power, within each matchup: how much more or less a strategy won than it usually does against that opponent, by how many
-// copies of each card it ended with; the biggest swing first.
-function insPower(power) {
+// copies of each card it ended with; then, in the same table so the columns line up, by the own turn it gained its first copy.
+function insPower(power, gained) {
   if (!power || !power.length) return "";
-  var h = "<h3>Card power: a strategy's win rate by the copies it owns at the end, against its own average in the same matchup, the biggest swing first</h3>" +
-    "<table class=\"ins\"><tr><th class=\"l\">card</th><th style=\"border-right:1px solid #000\">0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9+</th><th title=\"highest minus lowest cell over the counts with enough games\">swing</th></tr>";
-  power.forEach(function (r) {
-    // A black line after the 0 column: not owning the card | owning it.
-    h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x, k) {
-      var line = k === 0 ? "border-right:1px solid #000;" : "";
-      if (x.games < 30) return "<td class=\"muted\" style=\"" + line + "\" title=\"" + x.games + " games\">-</td>";
-      // Colours run from red at −20 points through yellow at 0 to green at +20 (and beyond).
-      var pts = Math.round(100 * x.points);
-      return "<td style=\"" + line + "background:" + insWinColor(0.5 + x.points / 0.4) + "\" title=\"" + x.games + " games\">" + (pts > 0 ? "+" : pts < 0 ? "\u2212" : "") + Math.abs(pts) + "</td>";
-    }).join("") +
-      "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
-  });
+  var cols = 12, h = "<table class=\"ins\">";
+  // One section: a title row, a header row (`from` 1 leaves the 0 column blank), the rows with the biggest swing first.
+  function section(rows, title, from, k) {
+    h += "<tr><td colspan=\"" + cols + "\" class=\"l\" style=\"border:none;padding:" + (k ? "14px" : "0") + " 0 4px\"><h3 style=\"margin:0\">" + title + "</h3></td></tr>";
+    if (!rows || !rows.length) { h += "<tr><td colspan=\"" + cols + "\" class=\"l muted\" style=\"border:none\">None.</td></tr>"; return; }
+    h += "<tr><th class=\"l\">card</th>";
+    for (var c = 0; c < 10; c++) {
+      var line = c === 0 ? " style=\"border-right:1px solid #000\"" : "";
+      h += "<th" + line + ">" + (c < from ? "" : c === 9 ? "9+" : c) + "</th>";
+    }
+    h += "<th title=\"highest minus lowest cell over the columns with enough games\">swing</th></tr>";
+    rows.forEach(function (r) {
+      h += "<tr><td class=\"l\">" + escapeHtml(r.card) + "</td>" + r.by_count.map(function (x, c) {
+        // A black line after the 0 column: not owning the card | owning it.
+        var line = c === 0 ? "border-right:1px solid #000;" : "";
+        if (c < from) return "<td style=\"" + line + "border-top:none;border-bottom:none\"></td>";
+        if (x.games < 30) return "<td class=\"muted\" style=\"" + line + "\" title=\"" + x.games + " games\">-</td>";
+        // Colours run from red at \u221220 points through yellow at 0 to green at +20 (and beyond).
+        var pts = Math.round(100 * x.points);
+        return "<td style=\"" + line + "background:" + insWinColor(0.5 + x.points / 0.4) + "\" title=\"" + x.games + " games\">" + (pts > 0 ? "+" : pts < 0 ? "\u2212" : "") + Math.abs(pts) + "</td>";
+      }).join("") + "<td>" + (100 * r.swing).toFixed(0) + " pts</td></tr>";
+    });
+  }
+  section(power, "Card power: a strategy's win rate by the copies it owns at the end, against its own average in the same matchup, the biggest swing first", 0, 0);
+  if (gained) section(gained, "Gained by turn: a strategy's win rate by the own turn it gained its first copy (9+: turn 9 or later), against its own average in the same matchup; starting cards left out", 1, 1);
   return h + "</table><div class=\"hint\">Each cell: win-rate points against the strategy's own average in the same matchup, over the games where it ended with that many copies " +
-    "(hover for the games; - = under 30). A strategy is compared only with itself against the same opponent, so a card bought only by a weak strategy does not look bad; " +
-    "a card is listed only where some strategy's count of it varies. Still what having the card goes with, not what it causes: Provinces are bought by the player who is ahead.</div>";
+    "(card power) or gained its first copy on that turn (gained by turn) (hover for the games; - = under 30). A strategy is compared only with itself against the same opponent, so a card bought only by a weak strategy does not look bad; " +
+    "a card is listed only where some strategy's count (or turn) varies. Still what having the card goes with, not what it causes: Provinces are bought by the player who is ahead.</div>";
 }
 
 // Every opening of a side, by split: the cards gained on the first two turns.
@@ -1975,7 +1987,7 @@ function renderFindings(L) {
   var me = F.insight.sides[0];
   var h = "<div class=\"hint\">Champion: <b>" + escapeHtml(F.champion) + "</b>, against the " + F.field.length + " other strategies of the ranking (" + F.insight.games +
     " games, the same number against each): it wins " + insPct(me.rate) + ". The number: win-rate points of the champion; hover it for the games behind it.</div>";
-  h += insPower(F.power);
+  h += insPower(F.power, F.gained_by_turn);
   h += insOpenings(me);
   h += insTurnMaps(me, F.insight.turns, "the champion's", " (the champion)");
   FINDING_KINDS.forEach(function (k) {

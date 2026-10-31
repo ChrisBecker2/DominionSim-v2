@@ -1370,6 +1370,11 @@ card = \"Silver\"
         assert!(prov.by_count.iter().map(|r| r.games).sum::<usize>() <= 2 * f.insight.games);
         assert!(prov.by_count[5].points > prov.by_count[2].points, "{prov:?}");
         assert!(prov.swing > 0.3);
+        // When the first copy was gained: starting cards left out; a Gold on turn 3 or 4 goes with winning more than one on turn 9+.
+        let first = |c: &str| f.gained_by_turn.iter().find(|r| r.card == c).unwrap_or_else(|| panic!("{c}: {:#?}", f.gained_by_turn));
+        assert!(f.gained_by_turn.iter().all(|r| r.card != "Copper" && r.card != "Estate"), "{:#?}", f.gained_by_turn);
+        let gold = first("Gold");
+        assert!(gold.by_count[3].points.max(gold.by_count[4].points) > gold.by_count[9].points, "{gold:?}");
         // The champion ends with one Smithy nearly every game: a count that does not vary says nothing (the old pooled map credited
         // Smithy with the gap between the champion and the field).
         assert!(f.power.iter().find(|r| r.card == "Smithy").is_none_or(|r| r.swing < 0.15), "{:#?}", f.power);
@@ -1421,6 +1426,9 @@ pub struct Findings {
     /// a strategy won than it usually does against that opponent when it ended with 0, 1, ... copies; the biggest swing first. The
     /// top Victory card included.
     pub power: Vec<PowerRow>,
+    /// Like `power`, by the own turn a strategy gained its first copy of a card (columns 1 to 8 and 9 or later, the same as
+    /// `power`'s; `by_count[0]`, never gained, is the rest of the games and not shown). Starting cards left out.
+    pub gained_by_turn: Vec<PowerRow>,
     /// Against each strategy of the field, the champion's worst matchup first.
     pub field: Vec<FieldRow>,
     /// By kind (in the order of [`Finding::kind`]'s list), strongest first within a kind.
@@ -1449,16 +1457,35 @@ pub struct PowerCell {
     pub points: f64,
 }
 
-/// The power map over games already played (see [`Findings::power`]). A strategy's games against one opponent (one side of one
-/// matchup) are compared only with each other, so a card bought only by a weak strategy does not look bad for it: a matchup counts for a
-/// card only when its count there varies (two counts with 10 games or more).
+/// The power map over games already played (see [`Findings::power`]).
 fn power(all: &[Game]) -> Vec<PowerRow> {
+    let ids: Vec<CardId> = all.iter().flat_map(|g| g.deck.iter().flat_map(|d| d.iter().map(|&(c, _)| c))).collect();
+    by_matchup(all, ids, 0, |g, i, c| g.deck[i].iter().find(|&&(x, _)| x == c).map_or(0, |&(_, k)| k as usize))
+}
+
+/// When a card was first gained (see [`Findings::gained_by_turn`]): column = the own turn of the first copy gained on an own turn,
+/// 0 = never. The starting cards (Copper, and the Estates, Shelters or Heirlooms of the opening hands) are left out.
+fn gained_by_turn(all: &[Game]) -> Vec<PowerRow> {
+    let mut start: Vec<CardId> = vec![id::COPPER];
+    for g in all {
+        for (a, b) in &g.extras {
+            start.extend(a.iter().chain(b));
+        }
+    }
+    let ids: Vec<CardId> = all.iter().flat_map(|g| g.own_gains.iter().flat_map(|v| v.iter().map(|&(_, _, c)| c))).filter(|c| !start.contains(c)).collect();
+    by_matchup(all, ids, 1, |g, i, c| g.own_gains[i].iter().find(|&&(_, _, x)| x == c).map_or(0, |&(t, _, _)| (t as usize).max(1)))
+}
+
+/// A map like [`Findings::power`]: for each card of `ids`, the games put in columns by `col` (0 to 9; 9 = 9 or more). A strategy's
+/// games against one opponent (one side of one matchup) are compared only with each other, so a card bought only by a weak strategy
+/// does not look bad for it: a matchup counts for a card only when its column there varies (two columns with 10 games or more).
+/// The swing is over the columns from `first` on.
+fn by_matchup(all: &[Game], mut ids: Vec<CardId>, first: usize, col: impl Fn(&Game, usize, CardId) -> usize) -> Vec<PowerRow> {
     const COLS: usize = 10;
     let mut opps: Vec<usize> = all.iter().map(|g| g.opp).collect();
     opps.sort_unstable();
     opps.dedup();
     let by_opp: Vec<Vec<&Game>> = opps.iter().map(|&k| all.iter().filter(|g| g.opp == k).collect()).collect();
-    let mut ids: Vec<CardId> = all.iter().flat_map(|g| g.deck.iter().flat_map(|d| d.iter().map(|&(c, _)| c))).collect();
     ids.sort_unstable();
     ids.dedup();
     let mut rows: Vec<PowerRow> = ids
@@ -1468,7 +1495,7 @@ fn power(all: &[Game]) -> Vec<PowerRow> {
             let mut n = [0usize; COLS];
             for games in &by_opp {
                 for i in 0..2 {
-                    let col = |g: &Game| g.deck[i].iter().find(|&&(x, _)| x == c).map_or(0, |&(_, k)| k as usize).min(COLS - 1);
+                    let col = |g: &Game| col(g, i, c).min(COLS - 1);
                     let mut here = [0usize; COLS];
                     for g in games {
                         here[col(g)] += 1;
@@ -1484,8 +1511,8 @@ fn power(all: &[Game]) -> Vec<PowerRow> {
                 }
             }
             let by_count: Vec<PowerCell> = (0..COLS).map(|k| PowerCell { games: n[k], points: if n[k] > 0 { sum[k] / n[k] as f64 } else { 0.0 } }).collect();
-            let samples: usize = n.iter().sum();
-            let enough: Vec<f64> = by_count.iter().filter(|r| r.games >= 30 && r.games * 50 >= samples).map(|r| r.points).collect();
+            let samples: usize = n[first..].iter().sum();
+            let enough: Vec<f64> = by_count[first..].iter().filter(|r| r.games >= 30 && r.games * 50 >= samples).map(|r| r.points).collect();
             let swing = if enough.len() >= 2 { enough.iter().cloned().fold(f64::MIN, f64::max) - enough.iter().cloned().fold(f64::MAX, f64::min) } else { 0.0 };
             PowerRow { card: cards::name(c).to_string(), by_count, swing }
         })
@@ -1581,5 +1608,5 @@ pub fn findings(kingdom: &[CardId], champion: &str, field: &[(String, String)], 
         push("turning point", format!("{who} {} ({}).", w.card, w.window), w.effect, w.games);
     }
 
-    Ok(Findings { champion: a.name.clone(), power: power(&all), field: rows, findings: out, insight, explanation, explain_error })
+    Ok(Findings { champion: a.name.clone(), power: power(&all), gained_by_turn: gained_by_turn(&all), field: rows, findings: out, insight, explanation, explain_error })
 }

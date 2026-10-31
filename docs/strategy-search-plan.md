@@ -313,6 +313,7 @@ taken out in turn against the same field (`games / 2` each). The report is boile
 - card power: for every card, a strategy's win rate by the copies it owns at the end (0 to 9+, Province and Colony included),
   in points against its own average in the same matchup (so a card bought only by a weak strategy does not look bad; a card
   is listed only where some strategy's count of it varies), the biggest swing first;
+- gained by turn: the same, by the own turn a strategy gained its first copy of a card (1 to 9+, starting cards left out);
 - races (the champion's win rate when it gains a card first, against when its opponent does);
 - every opening the champion played, by split (every split seen, not only 5/2 and 4/3: Shelters, Heirlooms and other
   starting decks change them); 4/3 and 3/4 (5/2 and 2/5) are one row unless the order of the hands changes the win rate

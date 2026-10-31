@@ -64,8 +64,11 @@ struct Sink {
     cur: u8,
     /// The first ten cards each player draws: the opening hands.
     opening: [Vec<CardId>; 2],
-    /// (own turn, game turn, card).
+    /// (own turn, game turn, card): every gain, on any turn (a Curse given by the other player's Witch too).
     gains: [Vec<(u16, u16, CardId)>; 2],
+    /// The gains and trashes on the player's own turns only: what its own play did, for the tables by own turn.
+    own_gains: [Vec<(u16, u16, CardId)>; 2],
+    own_trashes: [Vec<(u16, u16, CardId)>; 2],
     /// The cards each player gained on its own first two turns: its opening (not a Curse an opponent's Witch gave it meanwhile).
     opened: [Vec<CardId>; 2],
     /// The card being played (or replayed), and a card its player trashed while it resolved.
@@ -76,7 +79,6 @@ struct Sink {
     /// The phase of the turn being played, and per player and own turn the [`METRICS`] (NaN: not seen).
     phase: Option<dominion_engine::Phase>,
     turn_stats: [Vec<[f32; NUM_METRICS]>; 2],
-    trashes: [Vec<(u16, u16, CardId)>; 2],
     prophecy: Option<(u8, u16)>,
     /// Each card gained in the game, in the order of the first gain of it, and who gained it first.
     first: Vec<(CardId, u8)>,
@@ -140,6 +142,9 @@ impl EventSink for Sink {
                     }
                 }
                 self.gains[player as usize].push((self.own_turn[player as usize], self.global, card));
+                if player == self.cur {
+                    self.own_gains[player as usize].push((self.own_turn[player as usize], self.global, card));
+                }
                 if self.cur == player && self.own_turn[player as usize] <= 2 {
                     self.opened[player as usize].push(card);
                 }
@@ -148,7 +153,9 @@ impl EventSink for Sink {
                 }
             }
             Event::Trash { player, card } if (player as usize) < 2 => {
-                self.trashes[player as usize].push((self.own_turn[player as usize], self.global, card));
+                if player == self.cur {
+                    self.own_trashes[player as usize].push((self.own_turn[player as usize], self.global, card));
+                }
                 if self.playing != 0 && player == self.cur {
                     self.trashed = Some((player, card));
                 }
@@ -164,7 +171,9 @@ struct Game {
     win: [f64; 2],
     split: [(u8, u8); 2],
     gains: [Vec<(u16, u16, CardId)>; 2],
-    trashes: [Vec<(u16, u16, CardId)>; 2],
+    /// See `Sink::own_gains`.
+    own_gains: [Vec<(u16, u16, CardId)>; 2],
+    own_trashes: [Vec<(u16, u16, CardId)>; 2],
     /// The cards gained on its own first two turns (see `Sink::opened`).
     opened: [Vec<CardId>; 2],
     /// The opening's coins in the order played: (first hand, second hand).
@@ -306,7 +315,8 @@ fn play_one(kingdom: &[CardId], s: [&Strategy; 2], seed: u64, swap: bool) -> Gam
             };
             (rest(a), rest(b))
         }),
-        trashes: std::array::from_fn(|i| sink.trashes[seat(i)].clone()),
+        own_gains: std::array::from_fn(|i| sink.own_gains[seat(i)].clone()),
+        own_trashes: std::array::from_fn(|i| sink.own_trashes[seat(i)].clone()),
         first: sink.first.iter().map(|&(c, p)| (c, if seat(0) == p as usize { 0 } else { 1 })).collect(),
         prophecy: sink.prophecy.map(|(p, t)| (if seat(0) == p as usize { 0 } else { 1 }, t)),
         deck: std::array::from_fn(|i| sparse(&PlayerView::new(&st, seat(i) as u8).my_cards())),
@@ -569,8 +579,8 @@ fn side(all: &[Game], i: usize, name: &str) -> Side {
         avg_vp: all.iter().map(|g| g.vp[i] as f64).sum::<f64>() / n as f64,
         avg_turns: all.iter().map(|g| g.turns[i] as f64).sum::<f64>() / n as f64,
         splits: splits(all, i),
-        gains: heat(all, i, |g| &g.gains[i]),
-        trashes: heat(all, i, |g| &g.trashes[i]),
+        gains: heat(all, i, |g| &g.own_gains[i]),
+        trashes: heat(all, i, |g| &g.own_trashes[i]),
         by_turn_10: curves(all, i, true),
         at_end: curves(all, i, false),
         pairs: pairs(all, i),
@@ -1112,7 +1122,7 @@ fn covers(rule: CardId, c: CardId) -> bool {
 fn per_turn_of(games: &[Game], card: CardId, trash: bool) -> Vec<f64> {
     let mut per = vec![0.0; TURNS];
     for g in games {
-        for &(t, _, c) in if trash { &g.trashes[0] } else { &g.gains[0] } {
+        for &(t, _, c) in if trash { &g.own_trashes[0] } else { &g.own_gains[0] } {
             if covers(card, c) && (1..=TURNS as u16).contains(&t) {
                 per[t as usize - 1] += 1.0;
             }
@@ -1225,8 +1235,10 @@ mod tests {
         let money = strat("name = \"Money\"\n[[gain]]\ncard = \"Province\"\n[[gain]]\ncard = \"Gold\"\n[[gain]]\ncard = \"Silver\"\n");
         let r = analyze(&kingdom, &money, &witch, 4000, 7);
         // A 5/2 Witch is played on turn 3, before the second player's turn 3: that Curse is no part of its opening.
-        let curses_by_turn_2: f64 = r.sides[0].gains.iter().find(|h| h.card == "Curse").map_or(0.0, |h| h.per_turn[..2].iter().sum());
-        assert!(curses_by_turn_2 > 0.0, "the test needs an early Curse");
+        let witches_by_turn_2: f64 = r.sides[1].gains.iter().find(|h| h.card == "Witch").map_or(0.0, |h| h.per_turn[..2].iter().sum());
+        assert!(witches_by_turn_2 > 0.0, "the test needs an early Witch");
+        // Gains by own turn are what its own play gained: Money gains no Curse, the Witch gave them.
+        assert!(r.sides[0].gains.iter().all(|h| h.card != "Curse"), "{:?}", r.sides[0].gains);
         for s in &r.sides {
             assert!(s.splits.iter().flat_map(|x| &x.openings).all(|o| !o.cards.contains("Curse")), "{:?}", s.splits);
         }
